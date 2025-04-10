@@ -1,6 +1,9 @@
 .TZLabelPopover {
+    margin: -0.25rem;
+
     .TZLabelPopover__row {
         display: flex;
+        align-items: center;
         margin-top: 0.5rem;
 
         > :nth-child(1) {
@@ -18,7 +21,7 @@
         > :nth-child(3) {
             flex-grow: 1;
             margin-right: 16px;
-            color: var(--muted);
+            color: var(--text-secondary);
         }
 
         > :nth-child(4) {
@@ -32,11 +35,11 @@
     }
 
     .TZLabelPopover__row--muted {
-        color: var(--muted);
+        color: var(--text-secondary);
 
         > :nth-child(1),
         > :nth-child(2):not(:empty) {
-            color: var(--muted);
+            color: var(--text-secondary);
         }
     }
 }

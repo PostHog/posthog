@@ -22,9 +22,9 @@ export interface TeamBasicTypeWithProjectName extends TeamBasicType {
 
 export const environmentSwitcherLogic = kea<environmentSwitcherLogicType>([
     path(['layout', 'navigation', 'environmentsSwitcherLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user'], teamLogic, ['currentTeam'], organizationLogic, ['currentOrganization']],
-    }),
+    })),
     actions({
         setEnvironmentSwitcherSearch: (input: string) => ({ input }),
     }),
@@ -102,26 +102,20 @@ export const environmentSwitcherLogic = kea<environmentSwitcherLogicType>([
                 return collection
             },
         ],
-        sortedProjectsMap: [
-            (s) => [s.projectsSorted, s.allTeamsSorted, s.teamsFuse, s.environmentSwitcherSearch],
-            (projectsSorted, allTeamsSorted, teamsFuse, environmentSwitcherSearch): ProjectsMap => {
+        searchedProjectsMap: [
+            (s) => [s.projectsSorted, s.allTeamsSorted, s.teamsFuse, s.environmentSwitcherSearch, s.currentTeam],
+            (projectsSorted, allTeamsSorted, teamsFuse, environmentSwitcherSearch, currentTeam): ProjectsMap => {
                 // Using a map so that insertion order is preserved
                 // (JS objects don't preserve the order for keys that are numbers)
                 const projectsWithTeamsSorted: ProjectsMap = new Map()
 
                 if (environmentSwitcherSearch) {
                     const matchingTeams = teamsFuse.search(environmentSwitcherSearch).map((result) => result.item)
-                    const projectIdToTopTeamRank = matchingTeams.reduce<Record<TeamBasicType['project_id'], number>>(
-                        (acc, team, index) => {
-                            if (!acc[team.project_id]) {
-                                acc[team.project_id] = index
-                            }
-                            return acc
-                        },
-                        {}
-                    )
                     matchingTeams.sort(
-                        (a, b) => projectIdToTopTeamRank[a.project_id] - projectIdToTopTeamRank[b.project_id]
+                        // We must always have the current project first if it's in the search results - crucial!
+                        (a, b) =>
+                            (a.project_id === currentTeam?.project_id ? -1 : 0) -
+                            (b.project_id === currentTeam?.project_id ? -1 : 0)
                     )
                     for (const team of matchingTeams) {
                         if (!projectsWithTeamsSorted.has(team.project_id)) {

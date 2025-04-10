@@ -3,9 +3,11 @@ from typing import cast
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
 from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.models import Action
 from posthog.schema import (
     CachedEventTaxonomyQueryResponse,
     EventTaxonomyItem,
@@ -15,6 +17,11 @@ from posthog.schema import (
 
 
 class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
+    """
+    Retrieves the event or action taxonomy for the last 30 days: properties and N-most
+    frequent property values for a property.
+    """
+
     query: EventTaxonomyQuery
     response: EventTaxonomyQueryResponse
     cached_response: CachedEventTaxonomyQueryResponse
@@ -50,13 +57,15 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        count_expr = ast.Constant(value=self.query.maxPropertyValues or 5)
+
         if not self.query.properties:
             return parse_select(
                 """
                 SELECT
                     key,
                     -- Pick five latest distinct sample values.
-                    arraySlice(arrayDistinct(groupArray(value)), 1, 5) AS values,
+                    arraySlice(arrayDistinct(groupArray(value)), 1, {count}) AS values,
                     count(distinct value) AS total_count
                 FROM {from_query}
                 ARRAY JOIN kv.1 AS key, kv.2 AS value
@@ -65,14 +74,18 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
                 ORDER BY total_count DESC
                 LIMIT 500
             """,
-                placeholders={"from_query": self._get_subquery(), "filter": self._get_omit_filter()},
+                placeholders={
+                    "from_query": self._get_subquery(),
+                    "filter": self._get_omit_filter(),
+                    "count": count_expr,
+                },
             )
 
         return parse_select(
             """
                 SELECT
                     key,
-                    arraySlice(arrayDistinct(groupArray(value)), 1, 5) AS values,
+                    arraySlice(arrayDistinct(groupArray(value)), 1, {count}) AS values,
                     count(DISTINCT value) AS total_count
                 FROM {from_query}
                 GROUP BY key
@@ -80,6 +93,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
             """,
             placeholders={
                 "from_query": self._get_subquery(),
+                "count": count_expr,
             },
         )
 
@@ -93,8 +107,11 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
             r"\$time",
             r"\$set_once",
             r"\$sent_at",
+            "distinct_id",
             # privacy-related
             r"\$ip",
+            # feature flags and experiments
+            r"\$feature\/",
             # flatten-properties-plugin
             "__",
             # other metadata
@@ -106,6 +123,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
             "window-id",
             "changed_event",
             "partial_filter",
+            "distinct_id",
         ]
         regex_conditions = "|".join(omit_list)
 
@@ -121,14 +139,20 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
 
     def _get_subquery_filter(self) -> ast.Expr:
         date_filter = parse_expr("timestamp >= now() - INTERVAL 30 DAY")
-        filter_expr: list[ast.Expr] = [
-            date_filter,
-            ast.CompareOperation(
-                left=ast.Field(chain=["event"]),
-                right=ast.Constant(value=self.query.event),
-                op=ast.CompareOperationOp.Eq,
-            ),
-        ]
+        filter_expr: list[ast.Expr] = [date_filter]
+        if self.query.event:
+            filter_expr.append(
+                ast.CompareOperation(
+                    left=ast.Field(chain=["event"]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Constant(value=self.query.event),
+                )
+            )
+        elif self.query.actionId:
+            action = Action.objects.get(pk=self.query.actionId, team__project_id=self.team.project_id)
+            filter_expr.append(action_to_expr(action))
+        else:
+            raise ValueError("Either event or action ID must be provided.")
 
         if self.query.properties:
             filter_expr.append(

@@ -9,6 +9,7 @@ import temporalio.worker
 from psycopg import sql
 
 from posthog import constants
+from posthog.models.utils import uuid7
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
@@ -53,8 +54,8 @@ async def truncate_events(clickhouse_client):
     This is useful if during the test setup we insert a lot of events we wish to clean-up.
     """
     yield
-    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `sharded_events`")
-    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `events_recent`")
+    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS sharded_events")
+    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS events_recent")
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -64,8 +65,18 @@ async def truncate_persons(clickhouse_client):
     This is useful if during the test setup we insert a lot of persons we wish to clean-up.
     """
     yield
-    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `person`")
-    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS `person_distinct_id2`")
+    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS person")
+    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS person_distinct_id2")
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def truncate_sessions(clickhouse_client):
+    """Fixture to automatically truncate raw_sessions after a test.
+
+    This is useful if during the test setup we insert a lot of sessions we wish to clean-up.
+    """
+    yield
+    await clickhouse_client.execute_query("TRUNCATE TABLE IF EXISTS raw_sessions")
 
 
 @pytest.fixture
@@ -232,22 +243,45 @@ def data_interval_start(request, data_interval_end, interval):
 
 @pytest.fixture
 def data_interval_end(request, interval):
-    """Set a test data interval end."""
+    """Set a test data interval end.
+
+    This defaults to the current day at 00:00 UTC. This is done because event data is only available in events_recent
+    for the last 7 days, so if we try to insert data further in the past, it may be deleted and lead to flaky tests.
+    """
     try:
         return request.param
     except AttributeError:
         pass
-    return dt.datetime(2023, 4, 25, 15, 0, 0, tzinfo=dt.UTC)
+    return dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 @pytest.fixture
-def test_properties(request):
-    """Set test data properties."""
+def session_id(request) -> str:
     try:
         return request.param
     except AttributeError:
         pass
-    return {"$browser": "Chrome", "$os": "Mac OS X"}
+    return str(uuid7())
+
+
+@pytest.fixture
+def test_properties(request, session_id):
+    """Set test data properties."""
+    try:
+        return {**{"$session_id": session_id}, **request.param}
+    except AttributeError:
+        pass
+    return {"$browser": "Chrome", "$os": "Mac OS X", "prop": "value", "$session_id": session_id}
+
+
+@pytest.fixture
+def insert_sessions(request):
+    """Sets whether to insert new sessions or not."""
+    try:
+        return request.param
+    except AttributeError:
+        pass
+    return True
 
 
 @pytest.fixture
@@ -267,15 +301,15 @@ async def generate_test_data(
     exclude_events,
     data_interval_start,
     data_interval_end,
-    interval,
     test_properties,
     test_person_properties,
+    insert_sessions,
 ):
     """Generate test data in ClickHouse."""
-    if interval != "every 5 minutes":
-        table = "sharded_events"
-    else:
+    if data_interval_start and data_interval_start > (dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=6)):
         table = "events_recent"
+    else:
+        table = "sharded_events"
 
     events_to_export_created, _, _ = await generate_test_events_in_clickhouse(
         client=clickhouse_client,
@@ -289,6 +323,7 @@ async def generate_test_data(
         properties=test_properties,
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
         table=table,
+        insert_sessions="$session_id" in test_properties and insert_sessions,
     )
 
     more_events_to_export_created, _, _ = await generate_test_events_in_clickhouse(

@@ -1,5 +1,6 @@
 from django.conf import settings
 
+# TODO: this can now be removed
 CREATE_PERSONS_BATCH_EXPORT_VIEW = f"""
 CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUSTER} AS (
     with new_persons as (
@@ -132,6 +133,7 @@ CREATE OR REPLACE VIEW persons_batch_export ON CLUSTER {settings.CLICKHOUSE_CLUS
 
 """
 
+# TODO: this can now be removed
 CREATE_PERSONS_BATCH_EXPORT_VIEW_BACKFILL = f"""
 CREATE OR REPLACE VIEW persons_batch_export_backfill ON CLUSTER {settings.CLICKHOUSE_CLUSTER} AS (
     SELECT
@@ -319,7 +321,6 @@ CREATE OR REPLACE VIEW events_batch_export_backfill ON CLUSTER {settings.CLICKHO
 )
 """
 
-# TODO: is this the best query to use?
 EVENT_COUNT_BY_INTERVAL = """
 SELECT
     toStartOfInterval(_inserted_at, INTERVAL {interval}) AS interval_start,

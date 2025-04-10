@@ -1,0 +1,65 @@
+{
+    "cache_key": "cache_b9ec5efe0975ccf7b4089cdeb9434830_[]",
+    "cache_target_age": "2025-01-20T19:58:04.187422Z",
+    "calculation_trigger": null,
+    "columns": null,
+    "error": null,
+    "hasMore": null,
+    "hogql": "SELECT\n    band,\n    path,\n    value\nFROM\n    (SELECT\n        multiIf(lessOrEquals(value, 200.0), 'good', lessOrEquals(value, 500.0), 'needs_improvements', 'poor') AS band,\n        path,\n        value\n    FROM\n        (SELECT\n            events.properties.$pathname AS path,\n            quantile(0.9)(toFloat(properties.$web_vitals_INP_value)) AS value\n        FROM\n            events\n        WHERE\n            and(equals(event, '$web_vitals'), notEquals(path, NULL), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-12-21 00:00:00'))), less(timestamp, assumeNotNull(toDateTime('2025-01-20 23:59:59')))), false), 1)\n        GROUP BY\n            path\n        HAVING\n            greaterOrEquals(value, 0)))\nORDER BY\n    value ASC,\n    path ASC\nLIMIT 20\nBY band",
+    "is_cached": true,
+    "last_refresh": "2025-01-20T17:58:04.187422Z",
+    "limit": null,
+    "modifiers": {
+        "bounceRateDurationSeconds": null,
+        "bounceRatePageViewMode": "count_pageviews",
+        "customChannelTypeRules": null,
+        "dataWarehouseEventsModifiers": null,
+        "debug": null,
+        "inCohortVia": "auto",
+        "materializationMode": "legacy_null_as_null",
+        "optimizeJoinedFilters": false,
+        "personsArgMaxVersion": "auto",
+        "personsJoinMode": null,
+        "personsOnEventsMode": "person_id_override_properties_joined",
+        "propertyGroupsMode": null,
+        "s3TableUseInvalidColumns": null,
+        "sessionTableVersion": "auto",
+        "useMaterializedViews": true
+    },
+    "next_allowed_client_refresh": "2025-01-20T18:13:04.187422Z",
+    "offset": null,
+    "query_status": null,
+    "results": [
+        {
+            "good": [
+                {
+                    "path": "/project/1/web/web-vitals",
+                    "value": 8
+                },
+                {
+                    "path": "/project/1/web",
+                    "value": 115
+                },
+                {
+                    "path": "/project/1",
+                    "value": 145.8
+                }
+            ],
+            "needs_improvements": [
+                {
+                    "path": "/project/1/product-analytics",
+                    "value": 225
+                },
+                {
+                    "path": "/project/1/feature-flags",
+                    "value": 480
+                }
+            ],
+            "poor": []
+        }
+    ],
+    "samplingRate": null,
+    "timezone": "UTC",
+    "timings": [],
+    "types": null
+}

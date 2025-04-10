@@ -11,7 +11,6 @@ from django.core import exceptions
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
-from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from semantic_version.base import SimpleSpec
 
@@ -20,7 +19,7 @@ from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.organization import Organization
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
-from posthog.plugins.access import can_configure_plugins, can_install_plugins
+from posthog.plugins.access import can_install_plugins
 from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers, reload_plugins_on_workers
 from posthog.plugins.site import get_decide_site_apps, get_decide_site_functions
 from posthog.plugins.utils import (
@@ -30,11 +29,10 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
-
 from .utils import UUIDModel, sane_repr
 
 try:
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 except ImportError:
     pass
 
@@ -274,6 +272,18 @@ class PluginAttachment(models.Model):
     file_size = models.IntegerField()
     contents = models.BinaryField()
 
+    def parse_contents(self) -> str | None:
+        contents: bytes | None = self.contents
+        if not contents:
+            return None
+
+        try:
+            if self.content_type == "application/json" or self.content_type == "text/plain":
+                return contents.decode("utf-8")
+            return None
+        except Exception:
+            return None
+
 
 class PluginStorage(models.Model):
     plugin_config = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
@@ -310,7 +320,7 @@ class TranspilerError(Exception):
 def transpile(input_string: str, type: Literal["site", "frontend"] = "site") -> Optional[str]:
     from posthog.settings.base_variables import BASE_DIR
 
-    transpiler_path = os.path.join(BASE_DIR, "plugin-transpiler/dist/index.js")
+    transpiler_path = os.path.join(BASE_DIR, "common/plugin_transpiler/dist/index.js")
     if type not in ["site", "frontend"]:
         raise Exception('Invalid type. Must be "site" or "frontend".')
 
@@ -480,8 +490,8 @@ def fetch_plugin_log_entries(
     *,
     team_id: Optional[int] = None,
     plugin_config_id: Optional[int] = None,
-    after: Optional[timezone.datetime] = None,
-    before: Optional[timezone.datetime] = None,
+    after: Optional[datetime.datetime] = None,
+    before: Optional[datetime.datetime] = None,
     search: Optional[str] = None,
     limit: Optional[int] = None,
     type_filter: Optional[list[PluginLogEntryType]] = None,
@@ -510,7 +520,7 @@ def fetch_plugin_log_entries(
         clickhouse_kwargs["types"] = type_filter
     clickhouse_query = f"""
         SELECT id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id FROM plugin_log_entries
-        WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
+        WHERE {" AND ".join(clickhouse_where_parts)} ORDER BY timestamp DESC {f"LIMIT {limit}" if limit else ""}
     """
     return [PluginLogEntry(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
 
@@ -554,19 +564,6 @@ def preinstall_plugins_for_new_organization(sender, instance: Organization, crea
                     f"⚠️ Cannot preinstall plugin from {plugin_url}, skipping it for organization {instance.name}:\n",
                     e,
                 )
-
-
-@receiver(models.signals.post_save, sender=Team)
-def enable_preinstalled_plugins_for_new_team(sender, instance: Team, created: bool, **kwargs):
-    if created and can_configure_plugins(instance.organization):
-        for order, preinstalled_plugin in enumerate(Plugin.objects.filter(is_preinstalled=True)):
-            PluginConfig.objects.create(
-                team=instance,
-                plugin=preinstalled_plugin,
-                enabled=True,
-                order=order,
-                config=preinstalled_plugin.get_default_config(),
-            )
 
 
 @mutable_receiver([post_save, post_delete], sender=Plugin)

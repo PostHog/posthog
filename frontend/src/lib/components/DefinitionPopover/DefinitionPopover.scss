@@ -17,7 +17,7 @@
             .definition-popover-header-row-title {
                 font-size: 0.6875rem;
                 font-weight: 600;
-                color: var(--muted);
+                color: var(--text-secondary);
                 text-transform: uppercase;
                 letter-spacing: 0.05em;
             }
@@ -33,7 +33,7 @@
                 }
 
                 .definition-popover-disabled-button {
-                    color: var(--muted);
+                    color: var(--text-secondary);
                     cursor: not-allowed;
                 }
             }
@@ -55,7 +55,7 @@
                 font-size: 1.5rem;
 
                 &.taxonomy-icon-muted {
-                    color: var(--muted-alt);
+                    color: var(--text-secondary);
                 }
 
                 &.taxonomy-icon-verified {
@@ -63,7 +63,7 @@
                 }
 
                 &.taxonomy-icon-built-in {
-                    color: var(--primary-3000);
+                    color: var(--accent);
                 }
             }
         }
@@ -80,7 +80,7 @@
 
         &.empty {
             font-style: italic;
-            color: var(--muted);
+            color: var(--text-secondary);
         }
     }
 
@@ -102,7 +102,7 @@
     }
 
     .DefinitionPopover {
-        background-color: var(--bg-3000);
+        background-color: var(--bg-primary);
 
         .DefinitionPopover__label {
             align-items: flex-start;
@@ -124,7 +124,7 @@
             .definition-popover-grid-card-title {
                 font-size: 0.6875rem;
                 font-weight: 600;
-                color: var(--muted);
+                color: var(--text-secondary);
                 text-transform: uppercase;
                 letter-spacing: 0.05em;
             }

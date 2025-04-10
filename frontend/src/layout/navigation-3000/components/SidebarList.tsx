@@ -1,18 +1,21 @@
-import { Link, TZLabel } from '@posthog/apps-common'
 import { IconCheckCircle, IconEllipsis, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag, lemonToast } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
+import { TZLabel } from 'lib/components/TZLabel'
 import { isDayjs } from 'lib/dayjs'
 import { IconChevronRight } from 'lib/lemon-ui/icons/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { InfiniteLoader } from 'react-virtualized/dist/es/InfiniteLoader'
 import { List, ListProps } from 'react-virtualized/dist/es/List'
+
+import { SearchHighlight } from '~/layout/navigation-3000/components/SearchHighlight'
 
 import { ITEM_KEY_PART_SEPARATOR, navigation3000Logic } from '../navigationLogic'
 import {
@@ -297,22 +300,22 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
         content = <SidebarListItemAccordion category={item} />
     } else if (isItemClickable(item)) {
         content = (
-            <li
+            <div
                 className="SidebarListItem__button"
                 onClick={item.onClick}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ '--depth': item.depth } as React.CSSProperties}
             >
                 {item.icon && <div className="SidebarListItem__icon">{item.icon}</div>}
-                <h5 className="SidebarListItem__name">{item.name}</h5>
-            </li>
+                <SearchHighlight string={item.name} substring={navigation3000Logic.values.searchTerm} />
+            </div>
         )
     } else if (!save || (!isItemTentative(item) && newName === null)) {
         if (isItemTentative(item)) {
             throw new Error('Tentative items should not be rendered in read mode')
         }
         let formattedName = item.searchMatch?.nameHighlightRanges?.length ? (
-            <TextWithHighlights ranges={item.searchMatch.nameHighlightRanges}>{item.name}</TextWithHighlights>
+            <SearchHighlight string={item.name} substring={navigation3000Logic.values.searchTerm} />
         ) : (
             item.name
         )
@@ -494,40 +497,6 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
     )
 }
 
-/** Text with specified ranges highlighted by increased font weight. Great for higlighting search term matches. */
-function TextWithHighlights({
-    children,
-    ranges,
-}: {
-    children: string
-    ranges: readonly [number, number][]
-}): JSX.Element {
-    const segments: JSX.Element[] = []
-    let previousBoldEnd = 0
-    let segmentIndex = 0
-    // Divide the item name into bold and regular segments
-    for (let i = 0; i < ranges.length; i++) {
-        const [currentBoldStart, currentBoldEnd] = ranges[i]
-        if (currentBoldStart > previousBoldEnd) {
-            segments.push(
-                <React.Fragment key={segmentIndex}>{children.slice(previousBoldEnd, currentBoldStart)}</React.Fragment>
-            )
-            segmentIndex++
-        }
-        segments.push(<b key={segmentIndex}>{children.slice(currentBoldStart, currentBoldEnd)}</b>)
-        segmentIndex++
-        previousBoldEnd = currentBoldEnd
-    }
-    // If there is a non-highlighted segment left at the end, add it now
-    if (previousBoldEnd < children.length) {
-        segments.push(
-            <React.Fragment key={segmentIndex}>{children.slice(previousBoldEnd, children.length)}</React.Fragment>
-        )
-    }
-
-    return <>{segments}</>
-}
-
 /** Smart rendering of list item extra context. */
 function ExtraContext({ data }: { data: ExtraListItemContext }): JSX.Element {
     return isDayjs(data) ? <TZLabel time={data} /> : <>{data}</>
@@ -555,7 +524,7 @@ function SidebarListItemAccordion({ category }: { category: ListItemAccordion })
     const isExpanded = !(keyString in listItemAccordionCollapseMapping) || !listItemAccordionCollapseMapping[keyString]
 
     return (
-        <li className="SidebarListItemAccordion" role="region" aria-expanded={isExpanded}>
+        <div className="SidebarListItemAccordion" role="region" aria-expanded={isExpanded}>
             <div
                 id={`sidebar-list-item-accordion-${keyString}`}
                 className="SidebarListItemAccordion__header"
@@ -566,6 +535,7 @@ function SidebarListItemAccordion({ category }: { category: ListItemAccordion })
                 onClick={isExpanded || items.length > 0 ? () => toggleListItemAccordion(keyString) : undefined}
             >
                 <IconChevronRight />
+                {category.icon && <div className="SidebarListItemAccordion__icon">{category.icon}</div>}
                 <h4>
                     {capitalizeFirstLetter(pluralizeCategory(category.noun))}
                     {isEmpty && (
@@ -576,6 +546,6 @@ function SidebarListItemAccordion({ category }: { category: ListItemAccordion })
                     )}
                 </h4>
             </div>
-        </li>
+        </div>
     )
 }

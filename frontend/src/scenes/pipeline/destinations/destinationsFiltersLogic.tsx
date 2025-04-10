@@ -27,15 +27,15 @@ export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
     path(() => ['scenes', 'pipeline', 'destinations', 'destinationsFiltersLogic']),
     props({} as DestinationsFiltersLogicProps),
     key((props) => props.types.join(',') ?? ''),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
-    }),
+    })),
     actions({
         setFilters: (filters: Partial<DestinationsFilters>) => ({ filters }),
         resetFilters: true,
         openFeedbackDialog: true,
     }),
-    reducers(() => ({
+    reducers(({ props }) => ({
         filters: [
             {} as DestinationsFilters,
             {
@@ -48,6 +48,7 @@ export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
                 }),
             },
         ],
+        types: [props.types, {}],
     })),
 
     listeners(({ values }) => ({
@@ -59,26 +60,31 @@ export const destinationsFiltersLogic = kea<destinationsFiltersLogicType>([
         },
 
         openFeedbackDialog: async (_, breakpoint) => {
+            const isTransformation = values.types.includes('transformation')
+            const itemType = isTransformation ? 'transformation' : 'destination'
+
             await breakpoint(100)
             LemonDialog.openForm({
-                title: 'What destination would you like to see?',
+                title: `What ${itemType} would you like to see?`,
                 initialValues: { destination_name: values.filters.search },
                 errors: {
                     destination_name: (x) => (!x ? 'Required' : undefined),
                 },
                 description: undefined,
                 content: (
-                    <div className="space-y-2">
-                        <LemonField name="destination_name" label="Destination">
-                            <LemonInput placeholder="What destination would you like to see?" autoFocus />
+                    <div className="deprecated-space-y-2">
+                        <LemonField name="destination_name" label={isTransformation ? 'Transformation' : 'Destination'}>
+                            <LemonInput placeholder={`What ${itemType} would you like to see?`} autoFocus />
                         </LemonField>
                         <LemonField name="destination_details" label="Additional information" showOptional>
-                            <LemonTextArea placeholder="Any extra details about what you would need this destination to do or your overall goal" />
+                            <LemonTextArea
+                                placeholder={`Any extra details about what you would need this ${itemType} to do or your overall goal`}
+                            />
                         </LemonField>
                     </div>
                 ),
                 onSubmit: async (values) => {
-                    posthog.capture('cdp destination feedback', { ...values })
+                    posthog.capture(`cdp ${itemType} feedback`, { ...values })
                     lemonToast.success('Thank you for your feedback!')
                 },
             })

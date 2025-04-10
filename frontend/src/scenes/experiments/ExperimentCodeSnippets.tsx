@@ -7,7 +7,7 @@ function ServerSideWarning(): JSX.Element {
             <p>
                 <b>Warning:</b> Server side experiment metrics require you to manually send the feature flag
                 information.{' '}
-                <Link to="https://posthog.com/tutorials/experiments#step-2-sending-the-right-events" target="_blank">
+                <Link to="https://posthog.com/docs/experiments/adding-experiment-code" target="_blank">
                     See this tutorial for more information.
                 </Link>
             </p>
@@ -83,7 +83,7 @@ export function JSSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
                 <b>Test that it works</b>
             </div>
             <CodeSnippet language={Language.JavaScript} wrap>
-                {`posthog.featureFlags.override({'${flagKey}': '${variant}'})`}
+                {`posthog.featureFlags.overrideFeatureFlags({ flags: {'${flagKey}': '${variant}'} })`}
             </CodeSnippet>
         </div>
     )
@@ -120,7 +120,7 @@ function App() {
 }
 
 // You can also test your code by overriding the feature flag:
-posthog.featureFlags.override({'${flagKey}': '${variant}'})`}
+posthog.featureFlags.overrideFeatureFlags({ flags: {'${flagKey}': '${variant}'} })`}
             </CodeSnippet>
         </>
     )

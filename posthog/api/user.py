@@ -5,7 +5,7 @@ import time
 import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Any, Optional, cast
 
 import jwt
@@ -63,7 +63,11 @@ from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications, ROLE_CHOIC
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
-from posthog.tasks.email import send_email_change_emails
+from posthog.tasks.email import (
+    send_email_change_emails,
+    send_two_factor_auth_disabled_email,
+    send_two_factor_auth_enabled_email,
+)
 from posthog.user_permissions import UserPermissions
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
@@ -166,7 +170,7 @@ class UserSerializer(serializers.ModelSerializer):
 
         expires_at_time = get_impersonated_session_expires_at(self.context["request"])
 
-        return expires_at_time.replace(tzinfo=timezone.utc).isoformat() if expires_at_time else None
+        return expires_at_time.replace(tzinfo=UTC).isoformat() if expires_at_time else None
 
     def get_sensitive_session_expires_at(self, instance: User) -> Optional[str]:
         if "request" not in self.context:
@@ -183,7 +187,7 @@ class UserSerializer(serializers.ModelSerializer):
             seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE
         )
 
-        return session_expiry_time.replace(tzinfo=timezone.utc).isoformat()
+        return session_expiry_time.replace(tzinfo=UTC).isoformat()
 
     def get_has_social_auth(self, instance: User) -> bool:
         return instance.social_auth.exists()
@@ -532,6 +536,9 @@ class UserViewSet(
             raise serializers.ValidationError("Token is not valid", code="token_invalid")
         form.save()
         otp_login(request, default_device(request.user))
+
+        send_two_factor_auth_enabled_email.delay(request.user.id)
+
         return Response({"success": True})
 
     @action(methods=["GET"], detail=True)
@@ -587,6 +594,8 @@ class UserViewSet(
         TOTPDevice.objects.filter(user=user).delete()
         StaticDevice.objects.filter(user=user).delete()
 
+        send_two_factor_auth_disabled_email.delay(user.id)
+
         return Response({"success": True})
 
 
@@ -628,7 +637,10 @@ def redirect_to_site(request):
     # see https://github.com/PostHog/posthog/issues/9671
     state = urllib.parse.quote(json.dumps(params), safe="")
 
-    return redirect("{}#__posthog={}".format(app_url, state))
+    if str(request.GET.get("generateOnly")) in ["1", "yes", "true"]:
+        return JsonResponse({"toolbarParams": state})
+    else:
+        return redirect("{}#__posthog={}".format(app_url, state))
 
 
 @authenticate_secondarily

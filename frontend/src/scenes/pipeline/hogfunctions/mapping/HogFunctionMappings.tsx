@@ -13,7 +13,7 @@ import { useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { memo, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
@@ -52,17 +52,19 @@ const MappingSummary = memo(function MappingSummary({
     return (
         <span className="flex items-center flex-1 gap-4">
             <span>
-                {eventSummary ? humanize(eventSummary) : <span className="text-muted-alt">All events</span>}{' '}
+                {eventSummary ? humanize(eventSummary) : <span className="text-secondary">All events</span>}{' '}
                 {propertyFiltersCount ? (
-                    <span className="text-muted-alt">
+                    <span className="text-secondary">
                         <Tooltip title={`Events have ${propertyFiltersCount} additional filters`}>
                             <IconFilter />
                         </Tooltip>
                     </span>
                 ) : null}
             </span>
-            <IconArrowRight className="text-muted-alt" />
-            <span>{humanize(firstInputValue)}</span>
+            <IconArrowRight className="text-secondary" />
+            <span>
+                {typeof firstInputValue === 'object' ? JSON.stringify(firstInputValue) : humanize(firstInputValue)}
+            </span>
             <span className="flex-1" />
             {mapping.disabled ? <LemonTag type="danger">Disabled</LemonTag> : null}
         </span>
@@ -83,7 +85,7 @@ export function HogFunctionMapping({
 
     return (
         <>
-            <div className="p-3 pl-10 space-y-2">
+            <div className="p-3 pl-10 deprecated-space-y-2">
                 {mapping.disabled ? (
                     <LemonBanner
                         type="warning"
@@ -163,8 +165,15 @@ export function HogFunctionMapping({
 }
 
 export function HogFunctionMappings(): JSX.Element | null {
-    const { useMapping, mappingTemplates } = useValues(hogFunctionConfigurationLogic)
+    const { useMapping, mappingTemplates, configuration } = useValues(hogFunctionConfigurationLogic)
     const [activeKeys, setActiveKeys] = useState<number[]>([])
+
+    // If there is only one mapping template, then we start it expanded
+    useEffect(() => {
+        if (configuration.mappings?.length === 1) {
+            setActiveKeys([0])
+        }
+    }, [configuration.mappings?.length])
 
     if (!useMapping) {
         return null
@@ -236,11 +245,11 @@ export function HogFunctionMappings(): JSX.Element | null {
                 ) : null
 
                 return (
-                    <div className="p-3 border rounded bg-bg-light">
+                    <div className="p-3 border rounded bg-surface-primary">
                         <div className="flex items-start justify-between">
                             <div className="flex-1">
                                 <LemonLabel>Mappings</LemonLabel>
-                                <p className="text-sm text-muted-alt">
+                                <p className="text-sm text-secondary">
                                     Configure which events should act as triggers including filters and custom
                                     transformations
                                 </p>
@@ -248,7 +257,7 @@ export function HogFunctionMappings(): JSX.Element | null {
                             {addMappingButton}
                         </div>
 
-                        <div className="space-y-2">
+                        <div className="deprecated-space-y-2">
                             {value.length ? (
                                 <div className="-mx-3 border-t border-b">
                                     <LemonCollapse
@@ -265,7 +274,7 @@ export function HogFunctionMappings(): JSX.Element | null {
                                                         icon: <IconEllipsis />,
                                                         dropdown: {
                                                             overlay: (
-                                                                <div className="space-y-px">
+                                                                <div className="deprecated-space-y-px">
                                                                     <LemonButton
                                                                         onClick={() => toggleDisabled(mapping)}
                                                                     >

@@ -1,17 +1,23 @@
 import './InsightCard.scss'
 
+import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { useState } from 'react'
 import { Layout } from 'react-grid-layout'
+import { useInView } from 'react-intersection-observer'
+import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Query } from '~/queries/Query/Query'
-import { HogQLVariable } from '~/queries/schema'
+import { HogQLVariable } from '~/queries/schema/schema-general'
 import {
     DashboardBasicType,
     DashboardPlacement,
@@ -63,6 +69,10 @@ export interface InsightCardProps extends Resizeable {
     doNotLoad?: boolean
     /** Dashboard variables to override the ones in the insight */
     variablesOverride?: Record<string, HogQLVariable>
+    /** Dashboard breakdown colors to override the ones in the insight */
+    breakdownColorOverride?: BreakdownColorConfig[]
+    /** Dashboard color theme to override the ones in the insight */
+    dataColorThemeId?: number | null
     className?: string
     style?: React.CSSProperties
     children?: React.ReactNode
@@ -100,7 +110,19 @@ function InsightCardInternal(
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
-): JSX.Element {
+): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const { ref: inViewRef, inView } = useInView()
+    const { isVisible: isPageVisible } = usePageVisibility()
+    /** Wether the page is active and the line graph is currently in view. Used to free resources, by not rendering
+     * insight cards that aren't visible. See also https://wiki.whatwg.org/wiki/Canvas_Context_Loss_and_Restoration.
+     */
+    const isVisible =
+        featureFlags[FEATURE_FLAGS.EXPERIMENTAL_DASHBOARD_ITEM_RENDERING] === true ? inView && isPageVisible : true
+
+    const mergedRefs = useMergeRefs([ref, inViewRef])
+
     const { theme } = useValues(themeLogic)
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
@@ -126,53 +148,55 @@ function InsightCardInternal(
             {...divProps}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ ...(divProps?.style ?? {}), ...(theme?.boxStyle ?? {}) }}
-            ref={ref}
+            ref={mergedRefs}
         >
-            <ErrorBoundary tags={{ feature: 'insight' }}>
-                <BindLogic logic={insightLogic} props={insightLogicProps}>
-                    <InsightMeta
-                        insight={insight}
-                        ribbonColor={ribbonColor}
-                        dashboardId={dashboardId}
-                        updateColor={updateColor}
-                        removeFromDashboard={removeFromDashboard}
-                        deleteWithUndo={deleteWithUndo}
-                        refresh={refresh}
-                        refreshEnabled={refreshEnabled}
-                        loading={loadingQueued || loading}
-                        rename={rename}
-                        duplicate={duplicate}
-                        moveToDashboard={moveToDashboard}
-                        areDetailsShown={areDetailsShown}
-                        setAreDetailsShown={setAreDetailsShown}
-                        showEditingControls={showEditingControls}
-                        showDetailsControls={showDetailsControls}
-                        moreButtons={moreButtons}
-                        variablesOverride={variablesOverride}
-                    />
-                    <div className="InsightCard__viz">
-                        <Query
-                            query={insight.query}
-                            cachedResults={insight}
-                            context={{
-                                insightProps: insightLogicProps,
-                            }}
-                            readOnly
-                            embedded
-                            inSharedMode={placement === DashboardPlacement.Public}
+            {isVisible ? (
+                <ErrorBoundary tags={{ feature: 'insight' }}>
+                    <BindLogic logic={insightLogic} props={insightLogicProps}>
+                        <InsightMeta
+                            insight={insight}
+                            ribbonColor={ribbonColor}
+                            dashboardId={dashboardId}
+                            updateColor={updateColor}
+                            removeFromDashboard={removeFromDashboard}
+                            deleteWithUndo={deleteWithUndo}
+                            refresh={refresh}
+                            refreshEnabled={refreshEnabled}
+                            loading={loadingQueued || loading}
+                            rename={rename}
+                            duplicate={duplicate}
+                            moveToDashboard={moveToDashboard}
+                            areDetailsShown={areDetailsShown}
+                            setAreDetailsShown={setAreDetailsShown}
+                            showEditingControls={showEditingControls}
+                            showDetailsControls={showDetailsControls}
+                            moreButtons={moreButtons}
                             variablesOverride={variablesOverride}
                         />
-                    </div>
-                </BindLogic>
-                {showResizeHandles && (
-                    <>
-                        {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
-                        <ResizeHandle1D orientation="horizontal" />
-                        {canResizeWidth ? <ResizeHandle2D /> : null}
-                    </>
-                )}
-                {children /* Extras, specifically resize handles injected by ReactGridLayout */}
-            </ErrorBoundary>
+                        <div className="InsightCard__viz">
+                            <Query
+                                query={insight.query}
+                                cachedResults={insight}
+                                context={{
+                                    insightProps: insightLogicProps,
+                                }}
+                                readOnly
+                                embedded
+                                inSharedMode={placement === DashboardPlacement.Public}
+                                variablesOverride={variablesOverride}
+                            />
+                        </div>
+                    </BindLogic>
+                    {showResizeHandles && (
+                        <>
+                            {canResizeWidth ? <ResizeHandle1D orientation="vertical" /> : null}
+                            <ResizeHandle1D orientation="horizontal" />
+                            {canResizeWidth ? <ResizeHandle2D /> : null}
+                        </>
+                    )}
+                    {children /* Extras, specifically resize handles injected by ReactGridLayout */}
+                </ErrorBoundary>
+            ) : null}
         </div>
     )
 }

@@ -1,8 +1,10 @@
 from typing import cast
 from urllib.parse import urlparse
 
+from django.http import Http404
 from rest_framework import exceptions, serializers, mixins, viewsets, status
 from rest_framework.response import Response
+from django.core.exceptions import ValidationError
 
 from ee.models.hook import Hook, HOOK_EVENTS
 from django.conf import settings
@@ -19,12 +21,17 @@ def hog_functions_enabled(team: Team) -> bool:
     return "*" in enabled_teams or str(team.id) in enabled_teams
 
 
-def create_zapier_hog_function(hook: Hook, serializer_context: dict) -> HogFunction:
+def create_zapier_hog_function(hook: Hook, serializer_context: dict, from_migration: bool = False) -> HogFunction:
+    description = template_zapier.description
+    if from_migration:
+        description = f"{description} Migrated from legacy hook {hook.id}."
+
     serializer = HogFunctionSerializer(
         data={
             "template_id": template_zapier.id,
             "type": "destination",
             "name": f"Zapier webhook for action {hook.resource_id}",
+            "description": description,
             "filters": {"actions": [{"id": str(hook.resource_id), "name": "", "type": "actions", "order": 0}]},
             "inputs": {
                 "hook": {
@@ -125,12 +132,45 @@ class HookViewSet(
         serializer.save(user=user, team_id=self.team_id)
 
     def destroy(self, request, *args, **kwargs):
-        if not hog_functions_enabled(self.team):
-            return super().destroy(request, *args, **kwargs)
+        found = False
+        try:
+            instance = self.get_object()
+            found = True
 
-        HogFunction.objects.filter(team_id=self.team_id, id=kwargs["pk"]).delete()
+            # We do this by finding one where the description contains the hook id
+            fns = HogFunction.objects.filter(
+                team_id=self.team_id,
+                template_id=template_zapier.id,
+                description__icontains=f"{instance.id}",
+            )
 
-        return Response(status=status.HTTP_204_NO_CONTENT)
+            for fn in fns:
+                fn.enabled = False
+                fn.deleted = True
+                fn.save()
+
+            self.perform_destroy(instance)
+
+        except (Hook.DoesNotExist, Http404):
+            pass
+
+        if not found:
+            # Otherwise we try and delete the hog function by id
+            try:
+                hog_function = HogFunction.objects.get(
+                    team_id=self.team_id, template_id=template_zapier.id, id=kwargs["pk"]
+                )
+                hog_function.enabled = False
+                hog_function.deleted = True
+                hog_function.save()
+                found = True
+            except (HogFunction.DoesNotExist, ValidationError):
+                pass
+
+        if found:
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        else:
+            return Response(status=status.HTTP_404_NOT_FOUND)
 
 
 def valid_domain(url) -> bool:

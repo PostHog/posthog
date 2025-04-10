@@ -1,14 +1,15 @@
 from django.db import models
 
-from posthog.models.utils import CreatedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
+from posthog.models.utils import CreatedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr, RootTeamMixin
 
 
-class InsightVariable(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+class InsightVariable(UUIDModel, RootTeamMixin, CreatedMetaFields, UpdatedMetaFields):
     class Type(models.TextChoices):
         STRING = "String", "String"
         NUMBER = "Number", "Number"
         BOOLEAN = "Boolean", "Boolean"
         LIST = "List", "List"
+        DATE = "Date", "Date"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=400)

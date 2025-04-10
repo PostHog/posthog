@@ -37,9 +37,9 @@ def calculate_probabilities_v2(
     Returns:
     --------
     list[float]
-        A list of probabilities that sum to 1, where:
-        - The first element is the probability that the control variant is the best
-        - Subsequent elements are the probabilities that each test variant is the best
+        A list of probabilities where each element represents:
+        - index 0: probability control beats the best test variant
+        - index i>0: probability test variant i-1 beats control
 
     Notes:
     ------
@@ -70,10 +70,20 @@ def calculate_probabilities_v2(
         samples.append(variant_samples)
 
     samples_array = np.array(samples)
-    # Calculate probability of each variant being the best
     probabilities = []
-    for i in range(len(all_variants)):
-        probability = (samples_array[i] == np.max(samples_array, axis=0)).mean()
+    control_samples = samples_array[0]  # Control is always first variant
+
+    # Find the best test variant at each sample point
+    test_variants_samples = samples_array[1:]
+    best_variant_samples = np.max(test_variants_samples, axis=0)
+
+    # Control's probability is of being better than the best test variant
+    control_prob = np.mean(control_samples >= best_variant_samples)
+    probabilities.append(float(control_prob))
+
+    # For each test variant, calculate probability of beating control
+    for i in range(1, len(all_variants)):
+        probability = np.mean(samples_array[i] > control_samples)
         probabilities.append(float(probability))
 
     return probabilities

@@ -15,7 +15,6 @@
     </logger>
 
     <http_port>8123</http_port>
-    <tcp_port>9000</tcp_port>
     <mysql_port>9004</mysql_port>
     <postgresql_port>9005</postgresql_port>
     <https_port>8443</https_port>
@@ -162,25 +161,6 @@
     <!-- Reallocate memory for machine code ("text") using huge pages. Highly experimental. -->
     <remap_executable>false</remap_executable>
 
-    <remote_servers>
-        <posthog>
-            <shard>
-                <replica>
-                    <host>localhost</host>
-                    <port>9000</port>
-                </replica>
-            </shard>
-        </posthog>
-        <posthog_single_shard>
-            <shard>
-                <replica>
-                    <host>localhost</host>
-                    <port>9000</port>
-                </replica>
-            </shard>
-        </posthog_single_shard>
-    </remote_servers>
-
     <remote_url_allow_hosts>
         <host_regexp>.*</host_regexp>
     </remote_url_allow_hosts>
@@ -191,12 +171,6 @@
             <port>2181</port>
         </node>
     </zookeeper>
-
-    <macros>
-        <shard>01</shard>
-        <replica>ch1</replica>
-    </macros>
-
 
     <!-- Reloading interval for embedded dictionaries, in seconds. Default: 3600. -->
     <builtin_dictionaries_reload_interval>3600</builtin_dictionaries_reload_interval>
@@ -220,7 +194,7 @@
         <!-- Interval of flushing data. -->
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
         <!-- Maximal size in lines for the logs. When non-flushed logs amount reaches max_size, logs dumped to the disk. -->
-        <max_size_rows>1048576</max_size_rows>
+        <max_size_rows>8388608</max_size_rows>
         <!-- Pre-allocated size in lines for the logs. -->
         <reserved_size_rows>8192</reserved_size_rows>
         <!-- Lines amount threshold, reaching it launches flushing logs to the disk in background. -->
@@ -239,7 +213,7 @@
         <table>query_thread_log</table>
         <partition_by>toYYYYMM(event_date)</partition_by>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
-        <max_size_rows>1048576</max_size_rows>
+        <max_size_rows>8388608</max_size_rows>
         <reserved_size_rows>8192</reserved_size_rows>
         <buffer_size_rows_flush_threshold>524288</buffer_size_rows_flush_threshold>
         <flush_on_crash>false</flush_on_crash>
@@ -332,6 +306,13 @@
         <partition_by>toYYYYMM(event_date)</partition_by>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
     </session_log>
+
+    <backup_log>
+        <database>system</database>
+        <table>backup_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+    </backup_log>
 
     <!-- Custom TLD lists.
          Format: <name>/path/to/file</name>

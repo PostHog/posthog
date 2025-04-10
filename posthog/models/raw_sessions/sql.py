@@ -1,5 +1,6 @@
 from django.conf import settings
 
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import (
     Distributed,
     ReplicationScheme,
@@ -7,26 +8,32 @@ from posthog.clickhouse.table_engines import (
 )
 
 TABLE_BASE_NAME = "raw_sessions"
-RAW_SESSIONS_DATA_TABLE = lambda: f"sharded_{TABLE_BASE_NAME}"
 
-TRUNCATE_RAW_SESSIONS_TABLE_SQL = (
-    lambda: f"TRUNCATE TABLE IF EXISTS {RAW_SESSIONS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
-)
-DROP_RAW_SESSION_TABLE_SQL = (
-    lambda: f"DROP TABLE IF EXISTS {RAW_SESSIONS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
-)
-DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL = (
-    lambda: f"DROP TABLE IF EXISTS {TABLE_BASE_NAME}_mv ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
-)
-DROP_RAW_SESSION_VIEW_SQL = (
-    lambda: f"DROP VIEW IF EXISTS {TABLE_BASE_NAME}_v ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
-)
+
+def RAW_SESSIONS_DATA_TABLE():
+    return f"sharded_{TABLE_BASE_NAME}"
+
+
+def TRUNCATE_RAW_SESSIONS_TABLE_SQL():
+    return f"TRUNCATE TABLE IF EXISTS {RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+
+
+def DROP_RAW_SESSION_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS {RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+
+
+def DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL():
+    return f"DROP TABLE IF EXISTS {TABLE_BASE_NAME}_mv {ON_CLUSTER_CLAUSE()}"
+
+
+def DROP_RAW_SESSION_VIEW_SQL():
+    return f"DROP VIEW IF EXISTS {TABLE_BASE_NAME}_v {ON_CLUSTER_CLAUSE()}"
 
 
 # if updating these column definitions
 # you'll need to update the explicit column definitions in the materialized view creation statement below
 RAW_SESSIONS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     team_id Int64,
     session_id_v7 UInt128, -- integer representation of a uuidv7
@@ -81,6 +88,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
 
     -- Count pageview, autocapture, and screen events for providing totals.
     -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
@@ -106,9 +115,10 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 ) ENGINE = {engine}
 """
 
-RAW_SESSIONS_DATA_TABLE_ENGINE = lambda: AggregatingMergeTree(
-    TABLE_BASE_NAME, replication_scheme=ReplicationScheme.SHARDED
-)
+
+def RAW_SESSIONS_DATA_TABLE_ENGINE():
+    return AggregatingMergeTree(TABLE_BASE_NAME, replication_scheme=ReplicationScheme.SHARDED)
+
 
 # The fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)) part is just extracting the timestamp
 # part of a UUID v7.
@@ -126,9 +136,11 @@ RAW_SESSIONS_DATA_TABLE_ENGINE = lambda: AggregatingMergeTree(
 # practice). With the same customer, if we used an interval of 1 minute, we would get an N of
 # 1M / 24 / 60 / 8192 = ~0.08. This is <1, so we wouldn't benefit much from sampling.
 
-RAW_SESSIONS_TABLE_SQL = lambda: (
-    RAW_SESSIONS_TABLE_BASE_SQL
-    + """
+
+def RAW_SESSIONS_TABLE_SQL(on_cluster=True):
+    return (
+        RAW_SESSIONS_TABLE_BASE_SQL
+        + """
 PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
 ORDER BY (
     team_id,
@@ -138,11 +150,11 @@ ORDER BY (
 )
 SAMPLE BY cityHash64(session_id_v7)
 """
-).format(
-    table_name=RAW_SESSIONS_DATA_TABLE(),
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=RAW_SESSIONS_DATA_TABLE_ENGINE(),
-)
+    ).format(
+        table_name=RAW_SESSIONS_DATA_TABLE(),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=RAW_SESSIONS_DATA_TABLE_ENGINE(),
+    )
 
 
 def source_url_column(column_name: str) -> str:
@@ -215,6 +227,8 @@ SELECT
     initializeAggregation('argMinState', {mc_cid}, timestamp) as initial_mc_cid,
     initializeAggregation('argMinState', {igshid}, timestamp) as initial_igshid,
     initializeAggregation('argMinState', {ttclid}, timestamp) as initial_ttclid,
+    initializeAggregation('argMinState', {kx}, timestamp) as initial__kx,
+    initializeAggregation('argMinState', {irclid}, timestamp) as initial_irclid,
 
     -- counts
     if(event='$pageview', 1, 0) as pageview_count,
@@ -270,6 +284,8 @@ WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')),
         mc_cid=source_string_column("mc_cid"),
         igshid=source_string_column("igshid"),
         ttclid=source_string_column("ttclid"),
+        kx=source_string_column("_kx"),
+        irclid=source_string_column("irclid"),
         vitals_lcp=source_nullable_float_column("$web_vitals_LCP_value"),
     )
 )
@@ -328,6 +344,8 @@ SELECT
     argMinState({mc_cid}, timestamp) as initial_mc_cid,
     argMinState({igshid}, timestamp) as initial_igshid,
     argMinState({ttclid}, timestamp) as initial_ttclid,
+    argMinState({kx}, timestamp) as initial__kx,
+    argMinState({irclid}, timestamp) as initial_irclid,
 
     -- count
     sumIf(1, event='$pageview') as pageview_count,
@@ -388,20 +406,22 @@ GROUP BY
         mc_cid=source_string_column("mc_cid"),
         igshid=source_string_column("igshid"),
         ttclid=source_string_column("ttclid"),
+        kx=source_string_column("_kx"),
+        irclid=source_string_column("irclid"),
         vitals_lcp=source_nullable_float_column("$web_vitals_LCP_value"),
     )
 )
 
 RAW_SESSIONS_TABLE_MV_SQL = (
     lambda: """
-CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name} {on_cluster_clause}
 TO {database}.{target_table}
 AS
 {select_sql}
 """.format(
         table_name=f"{TABLE_BASE_NAME}_mv",
         target_table=f"writable_{TABLE_BASE_NAME}",
-        cluster=settings.CLICKHOUSE_CLUSTER,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(),
         database=settings.CLICKHOUSE_DATABASE,
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL(),
     )
@@ -409,12 +429,12 @@ AS
 
 RAW_SESSION_TABLE_UPDATE_SQL = (
     lambda: """
-ALTER TABLE {table_name} ON CLUSTER '{cluster}'
+ALTER TABLE {table_name} {on_cluster_clause}
 MODIFY QUERY
 {select_sql}
 """.format(
         table_name=f"{TABLE_BASE_NAME}_mv",
-        cluster=settings.CLICKHOUSE_CLUSTER,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(),
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL(),
     )
 )
@@ -422,32 +442,40 @@ MODIFY QUERY
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 
 # This table is responsible for writing to sharded_sessions based on a sharding key.
-WRITABLE_RAW_SESSIONS_TABLE_SQL = lambda: RAW_SESSIONS_TABLE_BASE_SQL.format(
-    table_name=f"writable_{TABLE_BASE_NAME}",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=Distributed(
-        data_table=RAW_SESSIONS_DATA_TABLE(),
-        # shard via session_id so that all events for a session are on the same shard
-        sharding_key="cityHash64(session_id_v7)",
-    ),
-)
+
+
+def WRITABLE_RAW_SESSIONS_TABLE_SQL(on_cluster=True):
+    return RAW_SESSIONS_TABLE_BASE_SQL.format(
+        table_name=f"writable_{TABLE_BASE_NAME}",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=Distributed(
+            data_table=RAW_SESSIONS_DATA_TABLE(),
+            # shard via session_id so that all events for a session are on the same shard
+            sharding_key="cityHash64(session_id_v7)",
+        ),
+    )
+
 
 # This table is responsible for reading from sessions on a cluster setting
-DISTRIBUTED_RAW_SESSIONS_TABLE_SQL = lambda: RAW_SESSIONS_TABLE_BASE_SQL.format(
-    table_name=TABLE_BASE_NAME,
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=Distributed(
-        data_table=RAW_SESSIONS_DATA_TABLE(),
-        sharding_key="cityHash64(session_id_v7)",
-    ),
-)
+
+
+def DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(on_cluster=True):
+    return RAW_SESSIONS_TABLE_BASE_SQL.format(
+        table_name=TABLE_BASE_NAME,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=Distributed(
+            data_table=RAW_SESSIONS_DATA_TABLE(),
+            sharding_key="cityHash64(session_id_v7)",
+        ),
+    )
+
 
 # This is the view that can be queried directly, that handles aggregation of potentially multiple rows per session.
 # Most queries won't use this directly as they will want to pre-filter rows before aggregation, but it's useful for
 # debugging
-RAW_SESSIONS_VIEW_SQL = (
+RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL = (
     lambda: f"""
-CREATE OR REPLACE VIEW {TABLE_BASE_NAME}_v ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' AS
+CREATE OR REPLACE VIEW {TABLE_BASE_NAME}_v {ON_CLUSTER_CLAUSE()} AS
 SELECT
     session_id_v7,
     fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)) as session_timestamp,
@@ -498,6 +526,8 @@ SELECT
     argMinMerge(initial_mc_cid) as initial_mc_cid,
     argMinMerge(initial_igshid) as initial_igshid,
     argMinMerge(initial_ttclid) as initial_ttclid,
+    argMinMerge(initial__kx) as initial__kx,
+    argMinMerge(initial_irclid) as initial_irclid,
 
     sum(pageview_count) as pageview_count,
     uniqMerge(pageview_uniq) as pageview_uniq,

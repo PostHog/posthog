@@ -1,0 +1,53 @@
+{
+    "name": "Braze",
+    "url": "https://github.com/posthog/posthog-braze-plugin",
+    "description": "Import analytics from Braze and export PostHog events to Braze.",
+    "main": "index.ts",
+    "config": [
+        {
+            "markdown": "Depending on what you want to import into PostHog, your API Key should have the following permissions: `campaigns.list`, `campaign.data_series`, `campaigns.details`, `canvas.list`, `canvas.data_series`, `canvas.details`, `events.list`, `events.data_series`, `kpi.mau.data_series`, `kpi.dau.data_series`, `kpi.new_users.data_series`, `kpi.uninstalls.data_series`, `feed.list`, `feed.data_series`, `feed.details`, `segments.list`, `segments.data_series`, `segments.details`, `sessions.data_series`"
+        },
+        {
+            "key": "brazeEndpoint",
+            "hint": "The endpoint identifier where your Braze instance is located, [see the docs here](https://www.braze.com/docs/api/basics)",
+            "name": "Braze REST Endpoint",
+            "type": "choice",
+            "choices": ["US-01", "US-02", "US-03", "US-04", "US-05", "US-06", "US-08", "EU-01", "EU-02"],
+            "default": "",
+            "required": true
+        },
+        {
+            "key": "apiKey",
+            "hint": "Your Braze API Key, [see the docs here](https://www.braze.com/docs/api/api_key/)",
+            "name": "API Key",
+            "type": "string",
+            "default": "",
+            "required": true,
+            "secret": true
+        },
+        {
+            "key": "eventsToExport",
+            "hint": "A comma separated list of events you want to export to Braze. Leave empty to export no events.",
+            "name": "Events to Export",
+            "type": "string",
+            "default": "",
+            "required": false
+        },
+        {
+            "key": "userPropertiesToExport",
+            "hint": "A comma separated list of user properties you want to export to Braze. Leave empty to export no user properties.",
+            "name": "User Properties to Export",
+            "type": "string",
+            "default": "",
+            "required": false
+        },
+        {
+            "key": "eventsToExportUserPropertiesFrom",
+            "hint": "A comma separated list of events you want to find user properties in to export to Braze. Leave empty to export no user properties.",
+            "name": "Events for user properties search",
+            "type": "string",
+            "default": "",
+            "required": false
+        }
+    ]
+}

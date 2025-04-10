@@ -144,18 +144,49 @@ class SpikeGPTPerson(SimPerson):
         conversation_so_far: list[dict] = []
         for message in random_chat:
             # Human messages must naturally take longer to type, while AI ones are quick
-            if message["type"] == "human":
+            if message["role"] == "human":
                 self.advance_timer(2 + len(message["content"]) / 10)
                 self.active_client.capture("sent chat message", {"content": message["content"]})
             else:
-                generation_time = len(message["content"]) / 25
-                self.advance_timer(1 + generation_time)
-                self.active_client.capture_ai_generation(
-                    input=conversation_so_far,
-                    output_content=message["content"],
-                    latency=generation_time,
-                )
-            conversation_so_far.append(message)
+                with self.cluster.matrix.server_client.trace_ai(
+                    distinct_id=self.active_client.active_distinct_id, input_state={"messages": conversation_so_far}
+                ) as (trace_id, set_trace_output):
+                    # Chat generation
+                    generation_time = len(message["content"]) / 25
+                    self.advance_timer(1 + generation_time)
+                    self.cluster.matrix.server_client.capture_ai_generation(
+                        distinct_id=self.active_client.active_distinct_id,
+                        input=conversation_so_far,
+                        output_content=message["content"],
+                        latency=generation_time,
+                        trace_id=trace_id,
+                    )
+                    # Memorizer, which determines what memories to save using tool calling
+                    generation_time = len(message["content"]) / 37
+                    self.advance_timer(1 + generation_time)
+                    self.cluster.matrix.server_client.capture_ai_generation(
+                        distinct_id=self.active_client.active_distinct_id,
+                        input=[
+                            {
+                                "role": "system",
+                                "content": """
+Your task is to determine if there's something worth remembering about the user from the following conversation.
+Use the "update_memory" tool for each piece of information worth adding to your memory. The user said:""".strip(),
+                            },
+                            {
+                                "role": "human",
+                                "content": f'''
+My message is:\n{message["content"]}\n\nWhat should you remember from this?
+Output only the concise information to memorize, prefixed with "REMEMBER: "'''.strip(),
+                            },
+                        ],
+                        output_content="REMEMBER: Blah blah blah.",
+                        latency=generation_time,
+                        model="gpt-4o-mini",
+                        trace_id=trace_id,
+                    )
+                    set_trace_output({"messages": [*conversation_so_far, message], "memories": ["Blah blah blah."]})
+            conversation_so_far = [*conversation_so_far, message]  # Copying here so that every event's list is distinct
 
 
 def add_params_to_url(url, query_params):

@@ -1,4 +1,4 @@
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.settings import CLICKHOUSE_DATABASE
 
 

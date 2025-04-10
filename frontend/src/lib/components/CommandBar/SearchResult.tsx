@@ -48,8 +48,8 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
         <>
             <div
                 className={clsx(
-                    'w-full px-2 hover:bg-bg-3000 border-l-4 border-b cursor-pointer',
-                    focused ? 'bg-bg-3000 border-l-primary-3000' : 'bg-bg-light'
+                    'w-full px-2 hover:bg-primary border-l-4 border-b cursor-pointer',
+                    focused ? 'bg-surface-secondary border-l-accent' : 'bg-surface-primary'
                 )}
                 onClick={() => {
                     if (mobileLayout) {
@@ -62,7 +62,7 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
                 }}
                 ref={ref}
             >
-                <div className="px-2 py-3 w-full space-y-0.5 flex flex-col items-start">
+                <div className="px-2 py-3 w-full gap-y-0.5 flex flex-col items-start">
                     <span className="text-muted-3000 text-xs">
                         {result.type !== 'group'
                             ? tabToName[result.type]
@@ -78,7 +78,7 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
 }
 
 export const SearchResultSkeleton = (): JSX.Element => (
-    <div className="px-5 py-4 w-full space-y-1.5 flex flex-col items-start bg-bg-light border-b">
+    <div className="px-5 py-4 w-full gap-y-1.5 flex flex-col items-start bg-surface-primary border-b">
         <LemonSkeleton className="w-16 opacity-75 h-3" />
         <LemonSkeleton className="w-40 h-3.5" />
     </div>

@@ -7,7 +7,11 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import { errorTrackingEventsQueryResponse, errorTrackingQueryResponse } from './__mocks__/error_tracking_query'
+import {
+    errorTrackingEventsQueryResponse,
+    errorTrackingQueryResponse,
+    errorTrackingTypeIssue,
+} from './__mocks__/error_tracking_query'
 
 const meta: Meta = {
     title: 'Scenes-App/ErrorTracking',
@@ -18,6 +22,11 @@ const meta: Meta = {
     },
     decorators: [
         mswDecorator({
+            get: {
+                'api/projects/:team_id/error_tracking/issue/:id': async (_, res, ctx) => {
+                    return res(ctx.json(errorTrackingTypeIssue))
+                },
+            },
             post: {
                 '/api/environments/:team_id/query': async (req, res, ctx) => {
                     const query = (await req.clone().json()).query

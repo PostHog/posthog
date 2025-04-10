@@ -151,7 +151,14 @@ test.concurrent(`liveness check endpoint works`, async () => {
         const body = await response.json()
         expect(body).toEqual(
             expect.objectContaining({
-                checks: expect.objectContaining({ 'analytics-ingestion': 'ok' }),
+                checks: expect.objectContaining({
+                    'ingestion-consumer-client_iwarnings_ingestion': 'ok',
+                    'ingestion-consumer-events_plugin_ingestion': 'ok',
+                    'ingestion-consumer-events_plugin_ingestion_historical': 'ok',
+                    'ingestion-consumer-events_plugin_ingestion_overflow': 'ok',
+                    'ingestion-consumer-exceptions_ingestion': 'ok',
+                    'ingestion-consumer-heatmaps_ingestion': 'ok',
+                }),
             })
         )
     })
@@ -188,7 +195,7 @@ test.concurrent(`event ingestion: handles $groupidentify with no properties`, as
 
     const event = await waitForExpect(async () => {
         const [event] = await fetchEvents(teamId, firstEventUuid)
-        expect(event).toBeDefined()
+        expect(event).toBeTruthy()
         return event
     })
 
@@ -523,7 +530,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
     const metricBefore = await getMetric({
         name: 'latest_processed_timestamp_ms',
         type: 'GAUGE',
-        labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'ingestion' },
+        labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'clickhouse-ingestion' },
     })
 
     await capture({ teamId, distinctId, uuid: new UUIDT().toString(), event: 'custom event', properties: {} })
@@ -532,7 +539,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
         const metricAfter = await getMetric({
             name: 'latest_processed_timestamp_ms',
             type: 'GAUGE',
-            labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'ingestion' },
+            labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'clickhouse-ingestion' },
         })
         expect(metricAfter).toBeGreaterThan(metricBefore)
         expect(metricAfter).toBeLessThan(Date.now()) // Make sure, e.g. we're not setting micro seconds
@@ -576,7 +583,7 @@ test.concurrent(`event ingestion: initial login flow keeps the same person_id`, 
     await waitForExpect(async () => {
         const events = await fetchEvents(teamId)
         expect(events.length).toBe(2)
-        expect(events[0].person_id).toBeDefined()
+        expect(events[0].person_id).toBeTruthy()
         expect(events[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
         expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
     }, 10000)
@@ -616,7 +623,7 @@ test.concurrent(`events still ingested even if merge fails`, async () => {
     await waitForExpect(async () => {
         const events = await fetchEvents(teamId)
         expect(events.length).toBe(3)
-        expect(events[0].person_id).toBeDefined()
+        expect(events[0].person_id).toBeTruthy()
         expect(events[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
         expect(new Set(events.map((event) => event.person_id)).size).toBe(2)
     }, 10000)
@@ -707,7 +714,7 @@ test.concurrent(`single merge results in all events resolving to the same person
     await waitForExpect(async () => {
         const events = await fetchEvents(teamId)
         expect(events.length).toBe(4)
-        expect(events[0].person_id).toBeDefined()
+        expect(events[0].person_id).toBeTruthy()
         expect(events[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
         expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
     }, 10000)
@@ -762,7 +769,7 @@ test.concurrent(`chained merge results in all events resolving to the same perso
     await waitForExpect(async () => {
         const events = await fetchEvents(teamId)
         expect(events.length).toBe(5)
-        expect(events[0].person_id).toBeDefined()
+        expect(events[0].person_id).toBeTruthy()
         expect(events[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
         expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
     }, 20000)
@@ -830,7 +837,7 @@ test.concurrent(`complex chained merge adds results in all events resolving to t
     await waitForExpect(async () => {
         const events = await fetchEvents(teamId)
         expect(events.length).toBe(7)
-        expect(events[0].person_id).toBeDefined()
+        expect(events[0].person_id).toBeTruthy()
         expect(events[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
         expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
     }, 20000)
@@ -986,9 +993,9 @@ test.skip(`person properties can't see properties from merge descendants`, async
         const [second] = await fetchEvents(teamId, secondUuid)
         const [third] = await fetchEvents(teamId, thirdUuid)
 
-        expect(first).toBeDefined()
-        expect(second).toBeDefined()
-        expect(third).toBeDefined()
+        expect(first).toBeTruthy()
+        expect(second).toBeTruthy()
+        expect(third).toBeTruthy()
 
         return [first, second, third]
     })

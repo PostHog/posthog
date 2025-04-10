@@ -30,7 +30,6 @@ export function Cohorts(): JSX.Element {
         {
             title: 'Name',
             dataIndex: 'name',
-            className: 'ph-no-capture',
             width: '30%',
             sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
             render: function Render(name, { id, description }) {

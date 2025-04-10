@@ -4,8 +4,6 @@ import { clsx } from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useState } from 'react'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -13,7 +11,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
-import { DatabaseSchemaTable } from '~/queries/schema'
+import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 import { ExternalDataSourceType, InsightLogicProps } from '~/types'
 
 import { SOURCE_DETAILS } from '../new/sourceWizardLogic'
@@ -64,7 +62,6 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
         databaseLoading,
         nonMaterializedViews,
         materializedViews,
-        views,
         selectedRow,
         schemaModalIsOpen,
         dataWarehouseSavedQueriesLoading,
@@ -75,7 +72,6 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
     const { toggleJoinTableModal, selectSourceTable } = useActions(viewLinkLogic)
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
     const { runDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const deleteButton = (table: DatabaseSchemaTable | null): JSX.Element => {
         if (!table) {
@@ -135,7 +131,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
             {(table.type == 'view' || table.type == 'materialized_view') && (
                 <LemonButton
                     onClick={() => {
-                        router.actions.push(urls.dataWarehouseView(table.id))
+                        router.actions.push(urls.sqlEditor(undefined, table.id))
                     }}
                     data-attr="schema-list-item-edit"
                     fullWidth
@@ -143,7 +139,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                     Edit view definition
                 </LemonButton>
             )}
-            {featureFlags[FEATURE_FLAGS.DATA_MODELING] && table.type === 'view' && (
+            {table.type === 'view' && (
                 <LemonButton
                     onClick={() => {
                         runDataWarehouseSavedQuery(table.id)
@@ -154,7 +150,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                     Materialize
                 </LemonButton>
             )}
-            {featureFlags[FEATURE_FLAGS.DATA_MODELING] && table.type === 'materialized_view' && (
+            {table.type === 'materialized_view' && (
                 <LemonButton
                     onClick={() => {
                         runDataWarehouseSavedQuery(table.id)
@@ -187,7 +183,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                             })),
                         })),
                     })),
-                    emptyLabel: <span className="text-muted">No tables found</span>,
+                    emptyLabel: <span className="text-secondary">No tables found</span>,
                     isLoading: databaseLoading,
                 },
                 {
@@ -206,7 +202,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                 },
                 {
                     name: 'Views',
-                    items: (featureFlags[FEATURE_FLAGS.DATA_MODELING] ? nonMaterializedViews : views).map((table) => ({
+                    items: nonMaterializedViews.map((table) => ({
                         name: table.name,
                         table: table,
                         dropdownOverlay: dropdownOverlay(table),
@@ -216,28 +212,24 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                             icon: <IconDatabase />,
                         })),
                     })),
-                    emptyLabel: <span className="text-muted">No views found</span>,
+                    emptyLabel: <span className="text-secondary">No views found</span>,
                     isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
                 },
-                ...(featureFlags[FEATURE_FLAGS.DATA_MODELING]
-                    ? [
-                          {
-                              name: 'Materialized views',
-                              items: materializedViews.map((table) => ({
-                                  name: table.name,
-                                  table: table,
-                                  dropdownOverlay: dropdownOverlay(table),
-                                  items: Object.values(table.fields).map((column) => ({
-                                      name: column.name,
-                                      type: column.type,
-                                      icon: <IconDatabase />,
-                                  })),
-                              })),
-                              emptyLabel: <span className="text-muted">No materialized views found</span>,
-                              isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
-                          },
-                      ]
-                    : []),
+                {
+                    name: 'Materialized views',
+                    items: materializedViews.map((table) => ({
+                        name: table.name,
+                        table: table,
+                        dropdownOverlay: dropdownOverlay(table),
+                        items: Object.values(table.fields).map((column) => ({
+                            name: column.name,
+                            type: column.type,
+                            icon: <IconDatabase />,
+                        })),
+                    })),
+                    emptyLabel: <span className="text-secondary">No materialized views found</span>,
+                    isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
+                },
             ]
 
             return items
@@ -253,7 +245,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                         icon: <IconDatabase />,
                     })),
                 })),
-                emptyLabel: <span className="text-muted">No tables found</span>,
+                emptyLabel: <span className="text-secondary">No tables found</span>,
                 isLoading: databaseLoading,
             },
             {
@@ -270,22 +262,18 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                     table: table,
                     icon: <IconBrackets />,
                 })),
-                emptyLabel: <span className="text-muted">No views found</span>,
+                emptyLabel: <span className="text-secondary">No views found</span>,
                 isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
             },
-            ...(featureFlags[FEATURE_FLAGS.DATA_MODELING]
-                ? [
-                      {
-                          name: 'Materialized views',
-                          items: materializedViews.map((table) => ({
-                              table: table,
-                              icon: <IconBrackets />,
-                          })),
-                          emptyLabel: <span className="text-muted">No materialized views found</span>,
-                          isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
-                      },
-                  ]
-                : []),
+            {
+                name: 'Materialized views',
+                items: materializedViews.map((table) => ({
+                    table: table,
+                    icon: <IconBrackets />,
+                })),
+                emptyLabel: <span className="text-secondary">No materialized views found</span>,
+                isLoading: databaseLoading || dataWarehouseSavedQueriesLoading,
+            },
         ]
 
         return items
@@ -294,7 +282,7 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
     return (
         <div
             className={clsx(
-                `bg-bg-light rounded space-y-px border p-2 overflow-y-auto`,
+                `bg-surface-primary rounded deprecated-space-y-px border p-2 overflow-y-auto`,
                 !collapsed ? 'min-w-80 flex-1' : ''
             )}
         >
@@ -309,13 +297,13 @@ export const DatabaseTableTreeWithItems = ({ inline, collapsible = true }: Datab
                         icon={<IconDatabase />}
                         className="font-normal"
                     >
-                        <span className="uppercase text-muted-alt tracking-wider">Sources</span>
+                        <span className="uppercase text-secondary tracking-wider">Sources</span>
                     </LemonButton>
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
                 </>
             ) : (
                 <>
-                    <span className="text-muted-alt tracking-wider font-normal">Sources</span>
+                    <span className="text-secondary tracking-wider font-normal">Sources</span>
                     <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
                 </>
             )}

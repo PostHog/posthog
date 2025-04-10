@@ -1,9 +1,10 @@
-import { useValues } from 'kea'
+import { LemonInput } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { ReadingHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -23,6 +24,7 @@ const WARNING_TYPE_TO_DESCRIPTION = {
     replay_timestamp_invalid: 'Replay event timestamp is invalid',
     replay_timestamp_too_far: 'Replay event timestamp was too far in the future',
     replay_message_too_large: 'Replay data was dropped because it was too large to ingest',
+    set_on_exception: '$set or $set_once is ignored on exception events and should not be sent',
 }
 
 const WARNING_TYPE_RENDERER = {
@@ -222,80 +224,97 @@ const WARNING_TYPE_RENDERER = {
             </>
         )
     },
+    set_on_exception: function Render(warning: IngestionWarning): JSX.Element {
+        const details: {
+            event_uuid: string
+        } = {
+            event_uuid: warning.details.event_uuid,
+        }
+
+        return (
+            <>
+                {' '}
+                Exception {details.event_uuid} contained $set or $set_once properties, which are ignored on exception
+                events
+            </>
+        )
+    },
 }
 
 export function IngestionWarningsView(): JSX.Element {
-    const { data, dataLoading, summaryDatasets, dates } = useValues(ingestionWarningsLogic)
+    const { data, dataLoading, summaryDatasets, dates, searchQuery, showProductIntro } =
+        useValues(ingestionWarningsLogic)
+    const { setSearchQuery } = useActions(ingestionWarningsLogic)
 
     return (
         <div data-attr="manage-events-table">
-            {data.length > 0 || dataLoading ? (
-                <>
-                    <div className="mb-4">Data ingestion related warnings from past 30 days.</div>
-                    <LemonTable
-                        dataSource={data}
-                        loading={dataLoading}
-                        columns={[
-                            {
-                                title: 'Warning',
-                                dataIndex: 'type',
-                                render: function Render(_, summary: IngestionWarningSummary) {
-                                    const type = WARNING_TYPE_TO_DESCRIPTION[summary.type] || summary.type
-                                    return (
-                                        <>
-                                            {type} (
-                                            <Link
-                                                to={`https://posthog.com/docs/data#${type
-                                                    .toLowerCase()
-                                                    .replace(',', '')
-                                                    .split(' ')
-                                                    .join('-')}`}
-                                            >
-                                                docs)
-                                            </Link>
-                                        </>
-                                    )
-                                },
+            <div className="flex flex-col deprecated-space-y-2">
+                <div>Data ingestion related warnings from past 30 days.</div>
+                <LemonInput
+                    fullWidth
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    type="search"
+                    placeholder="Try pasting a person or session id or an ingestion warning type"
+                />
+                <LemonTable
+                    dataSource={data}
+                    loading={dataLoading}
+                    columns={[
+                        {
+                            title: 'Warning',
+                            dataIndex: 'type',
+                            render: function Render(_, summary: IngestionWarningSummary) {
+                                const type = WARNING_TYPE_TO_DESCRIPTION[summary.type] || summary.type
+                                return (
+                                    <>
+                                        {type} (
+                                        <Link
+                                            to={`https://posthog.com/docs/data#${type
+                                                .toLowerCase()
+                                                .replace(',', '')
+                                                .split(' ')
+                                                .join('-')}`}
+                                        >
+                                            docs)
+                                        </Link>
+                                    </>
+                                )
                             },
-                            {
-                                title: 'Graph',
-                                render: function Render(_, summary: IngestionWarningSummary) {
-                                    return (
-                                        <Sparkline
-                                            className="h-8"
-                                            labels={dates}
-                                            data={summaryDatasets[summary.type]}
-                                        />
-                                    )
-                                },
+                        },
+                        {
+                            title: 'Graph',
+                            render: function Render(_, summary: IngestionWarningSummary) {
+                                return <Sparkline className="h-8" labels={dates} data={summaryDatasets[summary.type]} />
                             },
-                            {
-                                title: 'Events',
-                                dataIndex: 'count',
-                                align: 'right',
-                                sorter: (a, b) => a.count - b.count,
+                        },
+                        {
+                            title: 'Events',
+                            dataIndex: 'count',
+                            align: 'right',
+                            sorter: (a, b) => a.count - b.count,
+                        },
+                        {
+                            title: 'Last Seen',
+                            dataIndex: 'lastSeen',
+                            render: function Render(_, summary: IngestionWarningSummary) {
+                                return <TZLabel time={summary.lastSeen} showSeconds />
                             },
-                            {
-                                title: 'Last Seen',
-                                dataIndex: 'lastSeen',
-                                render: function Render(_, summary: IngestionWarningSummary) {
-                                    return <TZLabel time={summary.lastSeen} showSeconds />
-                                },
-                                align: 'right',
-                                sorter: (a, b) => (new Date(a.lastSeen) > new Date(b.lastSeen) ? 1 : -1),
-                            },
-                        ]}
-                        expandable={{
-                            expandedRowRender: RenderNestedWarnings,
-                        }}
-                        defaultSorting={{
-                            columnKey: 'lastSeen',
-                            order: -1,
-                        }}
-                        noSortingCancellation
-                    />
-                </>
-            ) : (
+                            align: 'right',
+                            sorter: (a, b) => (new Date(a.lastSeen) > new Date(b.lastSeen) ? 1 : -1),
+                        },
+                    ]}
+                    expandable={{
+                        expandedRowRender: RenderNestedWarnings,
+                    }}
+                    defaultSorting={{
+                        columnKey: 'lastSeen',
+                        order: -1,
+                    }}
+                    noSortingCancellation
+                />
+            </div>
+            {showProductIntro && (
                 <ProductIntroduction
                     productName="Ingestion warnings"
                     thingName="ingestion warning"

@@ -471,6 +471,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "created_at",
                 "last_modified_at",
                 "tags",
+                "user_access_level",
             },
         )
 
@@ -730,7 +731,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert insight_json["dashboard_tiles"] == []
 
         insight_by_short_id = self.client.get(
-            f'/api/projects/{self.team.pk}/insights?short_id={insight_json["short_id"]}'
+            f"/api/projects/{self.team.pk}/insights?short_id={insight_json['short_id']}"
         )
         assert insight_by_short_id.json()["results"][0]["dashboards"] == []
         assert insight_by_short_id.json()["results"][0]["dashboard_tiles"] == []
@@ -1960,7 +1961,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         _create_event(team=self.team, event="user signed up", distinct_id="1")
         _create_event(team=self.team, event="user did things", distinct_id="1")
         response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/funnel/?funnel_window_days=14&events={json.dumps([{'id': 'user signed up', 'type': 'events', 'order': 0}, {'id': 'user did things', 'type': 'events', 'order': 1}, ])}"
+            f"/api/projects/{self.team.id}/insights/funnel/?funnel_window_days=14&events={json.dumps([{'id': 'user signed up', 'type': 'events', 'order': 0}, {'id': 'user did things', 'type': 'events', 'order': 1}])}"
         ).json()
 
         # clickhouse funnels don't have a loading system
@@ -2690,7 +2691,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert patched_get_safe_cache.call_args_list[0] == patched_get_safe_cache.call_args_list[1]
 
     def _get_insight_with_client_query_id(self, client_query_id: str) -> None:
-        query_params = f"?events={json.dumps([{'id': '$pageview', }])}&client_query_id={client_query_id}"
+        query_params = f"?events={json.dumps([{'id': '$pageview'}])}&client_query_id={client_query_id}"
         self.client.get(f"/api/projects/{self.team.id}/insights/trend/{query_params}").json()
 
     def assert_insight_activity(self, insight_id: Optional[int], expected: list[dict]):

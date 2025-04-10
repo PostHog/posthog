@@ -30,9 +30,15 @@ from posthog.permissions import (
     extract_organization,
 )
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
+from rest_framework.decorators import action
+from posthog.rbac.migrations.rbac_team_migration import rbac_team_access_control_migration
+from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
+from sentry_sdk import capture_exception
+from drf_spectacular.utils import extend_schema
+from posthog.event_usage import report_organization_action
 
 
-class PremiumMultiorganizationPermissions(permissions.BasePermission):
+class PremiumMultiorganizationPermission(permissions.BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
     message = "You must upgrade your PostHog plan to be able to create and manage multiple organizations."
@@ -40,9 +46,7 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
     def has_permission(self, request: Request, view) -> bool:
         user = cast(User, request.user)
         if (
-            # Make multiple orgs only premium on self-hosted, since enforcement of this wouldn't make sense on Cloud
-            not is_cloud()
-            and view.action in CREATE_ACTIONS
+            view.action in CREATE_ACTIONS
             and (
                 user.organization is None
                 or not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
@@ -99,6 +103,7 @@ class OrganizationSerializer(
             "customer_id",
             "enforce_2fa",
             "member_count",
+            "is_ai_data_processing_approved",
         ]
         read_only_fields = [
             "id",
@@ -176,15 +181,13 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if self.action == "create":
             # Cannot use `OrganizationMemberPermissions` or `OrganizationAdminWritePermissions`
             # because they require an existing org, unneeded anyways because permissions are organization-based
-            return [
+            create_permissions = [
                 permission()
-                for permission in [
-                    permissions.IsAuthenticated,
-                    PremiumMultiorganizationPermissions,
-                    TimeSensitiveActionPermission,
-                    APIScopePermission,
-                ]
+                for permission in [permissions.IsAuthenticated, TimeSensitiveActionPermission, APIScopePermission]
             ]
+            if not is_cloud():
+                create_permissions.append(PremiumMultiorganizationPermission())
+            return create_permissions
 
         # We don't override for other actions
         raise NotImplementedError()
@@ -263,3 +266,27 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         return super().update(request, *args, **kwargs)
+
+    @extend_schema(exclude=True)
+    @action(detail=True, methods=["post"])
+    def migrate_access_control(self, request: Request, **kwargs) -> Response:
+        organization = Organization.objects.get(id=kwargs["id"])
+        self.check_object_permissions(request, organization)
+
+        try:
+            user = cast(User, request.user)
+            report_organization_action(organization, "rbac_team_migration_started", {"user": user.distinct_id})
+
+            rbac_team_access_control_migration(organization.id)
+            rbac_feature_flag_role_access_migration(organization.id)
+
+            report_organization_action(organization, "rbac_team_migration_completed", {"user": user.distinct_id})
+
+        except Exception as e:
+            report_organization_action(
+                organization, "rbac_team_migration_failed", {"user": user.distinct_id, "error": str(e)}
+            )
+            capture_exception(e)
+            return Response({"status": False, "error": "An internal error has occurred."}, status=500)
+
+        return Response({"status": True})

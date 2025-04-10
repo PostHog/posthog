@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
 import { RETENTION_FIRST_TIME } from 'lib/constants'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP, getCoreFilterDefinition } from 'lib/taxonomy'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import {
     getDisplayNameFromEntityFilter,
@@ -17,7 +16,13 @@ import { cohortsModelType } from '~/models/cohortsModelType'
 import { groupsModel } from '~/models/groupsModel'
 import { groupsModelType } from '~/models/groupsModelType'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { Breakdown, BreakdownFilter, InsightQueryNode, MultipleBreakdownType, Node } from '~/queries/schema'
+import {
+    Breakdown,
+    BreakdownFilter,
+    InsightQueryNode,
+    MultipleBreakdownType,
+    Node,
+} from '~/queries/schema/schema-general'
 import {
     isDataTableNode,
     isEventsQuery,
@@ -31,6 +36,8 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { BreakdownKeyType, BreakdownType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
 
 function summarizeSinglularBreakdown(

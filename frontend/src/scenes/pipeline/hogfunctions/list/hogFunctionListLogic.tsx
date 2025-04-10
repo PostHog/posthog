@@ -11,7 +11,7 @@ import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { HogFunctionType, HogFunctionTypeType } from '~/types'
+import { HogFunctionType, HogFunctionTypeType, UserType } from '~/types'
 
 import type { hogFunctionListLogicType } from './hogFunctionListLogicType'
 
@@ -26,17 +26,28 @@ export type HogFunctionListFilters = {
 }
 
 export type HogFunctionListLogicProps = {
+    logicKey?: string
     type: HogFunctionTypeType
     defaultFilters?: HogFunctionListFilters
     forceFilters?: HogFunctionListFilters
     syncFiltersWithUrl?: boolean
 }
 
+export const shouldShowHogFunction = (hogFunction: HogFunctionType, user?: UserType | null): boolean => {
+    if (!user) {
+        return false
+    }
+    if (hogFunction.name.includes(CDP_TEST_HIDDEN_FLAG) && !user.is_impersonated && !user.is_staff) {
+        return false
+    }
+    return true
+}
+
 export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
     props({} as HogFunctionListLogicProps),
-    key((props) => (props.syncFiltersWithUrl ? 'scene' : 'default')),
+    key((props) => (props.syncFiltersWithUrl ? 'scene' : 'default') + (props.logicKey || props.type)),
     path((id) => ['scenes', 'pipeline', 'hogFunctionListLogic', id]),
-    connect({
+    connect(() => ({
         values: [
             projectLogic,
             ['currentProjectId'],
@@ -47,7 +58,7 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
             featureFlagLogic,
             ['featureFlags'],
         ],
-    }),
+    })),
     actions({
         toggleEnabled: (hogFunction: HogFunctionType, enabled: boolean) => ({ hogFunction, enabled }),
         deleteHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),
@@ -75,7 +86,8 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
             [] as HogFunctionType[],
             {
                 loadHogFunctions: async () => {
-                    return (await api.hogFunctions.list(values.filters?.filters, props.type)).results
+                    return (await api.hogFunctions.list({ filters: values.filters?.filters, types: [props.type] }))
+                        .results
                 },
                 deleteHogFunction: async ({ hogFunction }) => {
                     await deleteWithUndo({
@@ -141,7 +153,7 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
                 const { search, showPaused } = filters
 
                 return (search ? hogFunctionsFuse.search(search).map((x) => x.item) : hogFunctions).filter((x) => {
-                    if (x.name.includes(CDP_TEST_HIDDEN_FLAG) && !user?.is_impersonated && !user?.is_staff) {
+                    if (!shouldShowHogFunction(x, user)) {
                         return false
                     }
 
@@ -157,7 +169,7 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
             (s) => [s.canEnableNewDestinations],
             (canEnableNewDestinations): ((hogFunction: HogFunctionType) => boolean) => {
                 return (hogFunction: HogFunctionType) => {
-                    return hogFunction?.template?.status === 'free' || canEnableNewDestinations
+                    return hogFunction?.template?.free || canEnableNewDestinations
                 }
             },
         ],

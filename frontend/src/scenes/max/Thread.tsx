@@ -1,4 +1,6 @@
 import {
+    IconCollapse,
+    IconExpand,
     IconRefresh,
     IconThumbsDown,
     IconThumbsDownFilled,
@@ -24,16 +26,18 @@ import { Query } from '~/queries/Query/Query'
 import {
     AssistantForm,
     AssistantMessage,
+    AssistantToolCallMessage,
     FailureMessage,
-    HumanMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
-import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { isHogQLQuery } from '~/queries/utils'
 
 import { maxLogic, MessageStatus, ThreadMessage } from './maxLogic'
 import {
     castAssistantQuery,
     isAssistantMessage,
+    isAssistantToolCallMessage,
     isFailureMessage,
     isHumanMessage,
     isReasoningMessage,
@@ -44,7 +48,7 @@ export function Thread(): JSX.Element | null {
     const { threadGrouped } = useValues(maxLogic)
 
     return (
-        <div className="flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-4">
+        <div className="@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-2 grow p-3">
             {threadGrouped.map((group, index) => (
                 <MessageGroup key={index} messages={group} index={index} isFinal={index === threadGrouped.length - 1} />
             ))}
@@ -58,14 +62,19 @@ interface MessageGroupProps {
     index: number
 }
 
-function MessageGroup({ messages, isFinal: isFinalGroup, index: messageGroupIndex }: MessageGroupProps): JSX.Element {
+function MessageGroup({ messages, isFinal: isFinalGroup }: MessageGroupProps): JSX.Element {
     const { user } = useValues(userLogic)
 
     const groupType = messages[0].type === 'human' ? 'human' : 'ai'
 
     return (
-        <div className={clsx('relative flex gap-2', groupType === 'human' ? 'flex-row-reverse ml-10' : 'mr-10')}>
-            <Tooltip placement={groupType === 'human' ? 'right' : 'left'} title={groupType === 'human' ? 'You' : 'Max'}>
+        <div
+            className={clsx(
+                'relative flex gap-2',
+                groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10'
+            )}
+        >
+            <Tooltip title={groupType === 'human' ? 'You' : 'Max'}>
                 <ProfilePicture
                     user={
                         groupType === 'human'
@@ -73,7 +82,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup, index: messageGroupInde
                             : { hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }
                     }
                     size="lg"
-                    className="mt-1 border"
+                    className="hidden @md/thread:flex mt-1 border"
                 />
             </Tooltip>
             <div
@@ -95,14 +104,17 @@ function MessageGroup({ messages, isFinal: isFinalGroup, index: messageGroupInde
                                 <LemonMarkdown>{message.content || '*No text.*'}</LemonMarkdown>
                             </MessageTemplate>
                         )
-                    } else if (isAssistantMessage(message) || isFailureMessage(message)) {
+                    } else if (
+                        isAssistantMessage(message) ||
+                        isAssistantToolCallMessage(message) ||
+                        isFailureMessage(message)
+                    ) {
                         return (
                             <TextAnswer
                                 key={key}
                                 message={message}
                                 interactable={messageIndex === messages.length - 1}
                                 isFinalGroup={isFinalGroup}
-                                messageGroupIndex={messageGroupIndex}
                             />
                         )
                     } else if (isVisualizationMessage(message)) {
@@ -117,7 +129,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup, index: messageGroupInde
                                 {message.substeps?.map((substep, substepIndex) => (
                                     <LemonMarkdown
                                         key={substepIndex}
-                                        className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-accent-3000 rounded w-fit"
+                                        className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-surface-secondary rounded w-fit"
                                     >
                                         {substep}
                                     </LemonMarkdown>
@@ -154,12 +166,16 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
 ) {
     return (
         <div
-            className={twMerge('flex flex-col gap-1 w-full', type === 'human' ? 'items-end' : 'items-start', className)}
+            className={twMerge(
+                'flex flex-col gap-px w-full break-words',
+                type === 'human' ? 'items-end' : 'items-start',
+                className
+            )}
             ref={ref}
         >
             <div
                 className={twMerge(
-                    'border py-2 px-3 rounded-lg bg-bg-light',
+                    'max-w-full border py-2 px-3 rounded-lg bg-surface-primary',
                     type === 'human' && 'font-medium',
                     boxClassName
                 )}
@@ -172,14 +188,13 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
 })
 
 interface TextAnswerProps {
-    message: (AssistantMessage | FailureMessage) & ThreadMessage
-    messageGroupIndex: number
+    message: (AssistantMessage | FailureMessage | AssistantToolCallMessage) & ThreadMessage
     interactable?: boolean
     isFinalGroup?: boolean
 }
 
 const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function TextAnswer(
-    { message, messageGroupIndex, interactable, isFinalGroup },
+    { message, interactable, isFinalGroup },
     ref
 ) {
     const retriable = !!(interactable && isFinalGroup)
@@ -205,7 +220,7 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
             }
 
             // Show answer actions if the assistant's response is complete at this point
-            return <SuccessActions retriable={retriable} messageGroupIndex={messageGroupIndex} />
+            return <SuccessActions retriable={retriable} />
         }
 
         return null
@@ -258,13 +273,15 @@ function VisualizationAnswer({
     message: VisualizationMessage
     status?: MessageStatus
 }): JSX.Element | null {
-    const query = useMemo<InsightVizNode | null>(() => {
+    const [isSummaryShown, setIsSummaryShown] = useState(false)
+
+    const query = useMemo<InsightVizNode | DataVisualizationNode | null>(() => {
         if (message.answer) {
-            return {
-                kind: NodeKind.InsightVizNode,
-                source: castAssistantQuery(message.answer),
-                showHeader: true,
+            const source = castAssistantQuery(message.answer)
+            if (isHogQLQuery(source)) {
+                return { kind: NodeKind.DataVisualizationNode, source: source } satisfies DataVisualizationNode
             }
+            return { kind: NodeKind.InsightVizNode, source, showHeader: true } satisfies InsightVizNode
         }
 
         return null
@@ -274,26 +291,40 @@ function VisualizationAnswer({
         ? null
         : query && (
               <>
-                  <MessageTemplate type="ai" className="w-full" boxClassName="w-full">
-                      <div className="min-h-80 flex">
-                          <Query query={query} readOnly embedded />
-                      </div>
-                      <div className="relative mb-1">
+                  <MessageTemplate type="ai" className="w-full" boxClassName="flex flex-col min-h-60 w-full">
+                      <Query query={query} readOnly embedded />
+                      <div className="flex items-center justify-between mt-2">
                           <LemonButton
-                              to={urls.insightNew(undefined, undefined, query)}
+                              sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
+                              onClick={() => setIsSummaryShown(!isSummaryShown)}
+                              size="xsmall"
+                              className="-m-1 shrink"
+                              tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
+                          >
+                              <h5 className="m-0 leading-none">
+                                  <TopHeading query={query} />
+                              </h5>
+                          </LemonButton>
+                          <LemonButton
+                              to={urls.insightNew({ query })}
                               sideIcon={<IconOpenInNew />}
                               size="xsmall"
                               targetBlank
-                              className="absolute right-0 -top-px"
                           >
                               Open as new insight
                           </LemonButton>
-                          <SeriesSummary query={query.source} heading={<TopHeading query={query} />} />
-                          <div className="flex flex-wrap gap-4 mt-1 *:grow">
-                              <PropertiesSummary properties={query.source.properties} />
-                              <BreakdownSummary query={query.source} />
-                          </div>
                       </div>
+                      {isSummaryShown && (
+                          <>
+                              <SeriesSummary query={query.source} heading={null} />
+                              {!isHogQLQuery(query.source) && (
+                                  <div className="flex flex-wrap gap-4 mt-1 *:grow">
+                                      <PropertiesSummary properties={query.source.properties} />
+                                      <BreakdownSummary query={query.source} />
+                                  </div>
+                              )}
+                          </>
+                      )}
                   </MessageTemplate>
               </>
           )
@@ -306,74 +337,51 @@ function RetriableFailureActions(): JSX.Element {
         <LemonButton
             icon={<IconRefresh />}
             type="tertiary"
-            size="small"
+            size="xsmall"
             tooltip="Try again"
             onClick={() => retryLastMessage()}
+            className="ml-1 -mb-1"
         >
             Try again
         </LemonButton>
     )
 }
 
-function SuccessActions({
-    messageGroupIndex,
-    retriable,
-}: {
-    messageGroupIndex: number
-    retriable: boolean
-}): JSX.Element {
-    const { threadGrouped } = useValues(maxLogic)
+function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
+    const { traceId } = useValues(maxLogic)
     const { retryLastMessage } = useActions(maxLogic)
 
     const [rating, setRating] = useState<'good' | 'bad' | null>(null)
     const [feedback, setFeedback] = useState<string>('')
     const [feedbackInputStatus, setFeedbackInputStatus] = useState<'hidden' | 'pending' | 'submitted'>('hidden')
 
-    const [relevantHumanMessage, relevantVisualizationMessage] = useMemo(() => {
-        // We need to find the relevant visualization message (which might be a message earlier if the most recent one
-        // is a results summary message), and the human message that triggered it.
-        const visualizationMessage = threadGrouped[messageGroupIndex].find(
-            isVisualizationMessage
-        ) as VisualizationMessage
-        const humanMessage = threadGrouped[messageGroupIndex - 1][0] as HumanMessage
-        return [humanMessage, visualizationMessage]
-    }, [threadGrouped, messageGroupIndex])
-
     function submitRating(newRating: 'good' | 'bad'): void {
-        if (rating) {
+        if (rating || !traceId) {
             return // Already rated
         }
         setRating(newRating)
-        posthog.capture('chat rating', {
-            question: relevantHumanMessage.content,
-            answer: JSON.stringify(relevantVisualizationMessage.answer),
-            answer_rating: rating,
-        })
+        posthog.captureTraceMetric(traceId, 'quality', newRating)
         if (newRating === 'bad') {
             setFeedbackInputStatus('pending')
         }
     }
 
     function submitFeedback(): void {
-        if (!feedback) {
+        if (!feedback || !traceId) {
             return // Input is empty
         }
-        posthog.capture('chat feedback', {
-            question: relevantHumanMessage.content,
-            answer: JSON.stringify(relevantVisualizationMessage.answer),
-            feedback,
-        })
+        posthog.captureTraceFeedback(traceId, feedback)
         setFeedbackInputStatus('submitted')
     }
 
     return (
         <>
-            <div className="flex items-center">
+            <div className="flex items-center ml-1 -mb-1">
                 {rating !== 'bad' && (
                     <LemonButton
                         icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
                         type="tertiary"
-                        size="small"
+                        size="xsmall"
                         tooltip="Good answer"
                         onClick={() => submitRating('good')}
                     />
@@ -382,7 +390,7 @@ function SuccessActions({
                     <LemonButton
                         icon={rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
                         type="tertiary"
-                        size="small"
+                        size="xsmall"
                         tooltip="Bad answer"
                         onClick={() => submitRating('bad')}
                     />
@@ -391,7 +399,7 @@ function SuccessActions({
                     <LemonButton
                         icon={<IconRefresh />}
                         type="tertiary"
-                        size="small"
+                        size="xsmall"
                         tooltip="Try again"
                         onClick={() => retryLastMessage()}
                     />
@@ -399,7 +407,7 @@ function SuccessActions({
             </div>
             {feedbackInputStatus !== 'hidden' && (
                 <MessageTemplate type="ai">
-                    <div className="flex items-center">
+                    <div className="flex items-center gap-1">
                         <h4 className="m-0 text-sm grow">
                             {feedbackInputStatus === 'pending'
                                 ? 'What disappointed you about the answer?'

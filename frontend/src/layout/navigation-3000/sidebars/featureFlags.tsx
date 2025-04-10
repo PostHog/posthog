@@ -32,7 +32,7 @@ const fuse = new Fuse<FeatureFlagType>([], {
 
 export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'featureFlagsSidebarLogic']),
-    connect({
+    connect(() => ({
         values: [
             featureFlagsLogic,
             ['featureFlags', 'featureFlagsLoading'],
@@ -44,7 +44,7 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
             ['aggregationLabel'],
         ],
         actions: [featureFlagsLogic, ['updateFeatureFlag', 'loadFeatureFlags']],
-    }),
+    })),
     selectors(({ actions }) => ({
         contents: [
             (s) => [s.relevantFeatureFlags, s.featureFlagsLoading, s.currentProjectId, s.aggregationLabel],
@@ -137,7 +137,7 @@ export const featureFlagsSidebarLogic = kea<featureFlagsSidebarLogicType>([
                                         },
                                         {
                                             label: 'Try out in Insights',
-                                            to: urls.insightNew(undefined, undefined, query),
+                                            to: urls.insightNew({ query }),
                                             'data-attr': 'usage',
                                         },
                                     ],

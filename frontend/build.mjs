@@ -1,15 +1,15 @@
 #!/usr/bin/env node
-import * as path from 'path'
-import { fileURLToPath } from 'url'
-
 import {
     buildInParallel,
     copyIndexHtml,
     copyPublicFolder,
     createHashlessEntrypoints,
+    gatherProductManifests,
     isDev,
     startDevServer,
-} from './utils.mjs'
+} from '@posthog/esbuilder'
+import * as path from 'path'
+import { fileURLToPath } from 'url'
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -17,6 +17,7 @@ startDevServer(__dirname)
 copyPublicFolder(path.resolve(__dirname, 'public'), path.resolve(__dirname, 'dist'))
 writeIndexHtml()
 writeExporterHtml()
+gatherProductManifests(__dirname)
 
 const common = {
     absWorkingDir: __dirname,
@@ -54,9 +55,6 @@ await buildInParallel(
             // This isn't great, but we load some static assets at runtime for the toolbar, and we can't sub in
             // a variable at runtime it seems...
             publicPath: isDev ? '/static/' : 'https://us.posthog.com/static/',
-            alias: {
-                'posthog-js': 'posthog-js-lite',
-            },
             writeMetaFile: true,
             extraPlugins: [
                 {
@@ -101,9 +99,11 @@ await buildInParallel(
 
             if (config.name === 'PostHog App') {
                 if (Object.keys(chunks).length === 0) {
+                    console.error('Could not get chunk metadata for bundle "PostHog App."')
                     throw new Error('Could not get chunk metadata for bundle "PostHog App."')
                 }
                 if (!isDev && Object.keys(entrypoints).length === 0) {
+                    console.error('Could not get entrypoint for bundle "PostHog App."')
                     throw new Error('Could not get entrypoint for bundle "PostHog App."')
                 }
                 writeIndexHtml(chunks, entrypoints)

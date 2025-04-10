@@ -1,10 +1,11 @@
 import collections.abc
 import datetime as dt
 from datetime import timedelta
+from math import ceil
 
 from django.db import models
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.utils import UUIDModel
 
@@ -32,7 +33,7 @@ class BatchExportDestination(UUIDModel):
 
     secret_fields = {
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
-        "Snowflake": {"user", "password"},
+        "Snowflake": {"user", "password", "private_key", "private_key_passphrase"},
         "Postgres": {"user", "password"},
         "Redshift": {"user", "password"},
         "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
@@ -108,6 +109,15 @@ class BatchExportRun(UUIDModel):
     records_total_count = models.IntegerField(
         null=True, help_text="The total count of records that should be exported in this BatchExportRun."
     )
+    backfill = models.ForeignKey(
+        "BatchExportBackfill",
+        on_delete=models.SET_NULL,
+        help_text="The backfill this run belongs to.",
+        null=True,
+        blank=True,
+        related_name="runs",
+        related_query_name="run",
+    )
 
     @property
     def workflow_id(self) -> str:
@@ -175,6 +185,7 @@ class BatchExport(UUIDModel):
 
         EVENTS = "events"
         PERSONS = "persons"
+        SESSIONS = "sessions"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE, help_text="The team this belongs to.")
     name = models.TextField(help_text="A human-readable name for this BatchExport.")
@@ -230,6 +241,7 @@ class BatchExport(UUIDModel):
         default=Model.EVENTS,
         help_text="Which model this BatchExport is exporting.",
     )
+    filters = models.JSONField(null=True, blank=True)
 
     @property
     def latest_runs(self):
@@ -254,7 +266,7 @@ class BatchExport(UUIDModel):
 
 class BatchExportBackfill(UUIDModel):
     class Status(models.TextChoices):
-        """Possible states of the BatchExportRun."""
+        """Possible states of the BatchExportBackfill."""
 
         CANCELLED = "Cancelled"
         COMPLETED = "Completed"
@@ -295,3 +307,43 @@ class BatchExportBackfill(UUIDModel):
         start_at = self.start_at.astimezone(tz=dt.UTC).isoformat() if self.start_at else "START"
 
         return f"{self.batch_export.id}-Backfill-{start_at}-{end_at}"
+
+    @property
+    def total_expected_runs(self) -> int | None:
+        """Return the total number of expected runs for this backfill, based on the number of intervals."""
+        # if no start_at then it means we're backfilling all data in a single run
+        if self.start_at is None:
+            return 1
+
+        end_at = self.end_at
+        # if the backfill has no end_at then it means it's backfilling everything up to the 'present' (whatever that
+        # is defined as depends on whether the backfill is still running or not)
+        if not end_at and self.finished_at:
+            # if backfill has finished then we can use the finished_at as the approximate end_at
+            end_at = self.finished_at
+        elif not end_at and self.status == self.Status.RUNNING:
+            # if backfill is still running then we use the current time as the approximate end_at (it will obviously
+            # keep changing but is arguably better than returning nothing if a user wants to know a rough estimate of
+            # progress)
+            end_at = dt.datetime.now(tz=dt.UTC)
+        elif not end_at:
+            # we didn't always populated finished_at in the past, so probably don't have enough information
+            return None
+        return ceil((end_at - self.start_at) / self.batch_export.interval_time_delta)
+
+    def get_finished_runs(self) -> int:
+        """Return the number of finished runs for this backfill.
+
+        This is primarily used to report progress of this backfill.
+        Note that this is just approximate since:
+        a) we don't know how many records are in each run of the backfill
+        b) some runs may have been cancelled or terminated (these are excluded since they may be retried manually and we
+            don't want to double count them)
+        """
+        return BatchExportRun.objects.filter(
+            backfill=self,
+            status__in=[
+                BatchExportRun.Status.COMPLETED,
+                BatchExportRun.Status.FAILED,
+            ],
+        ).count()

@@ -1,0 +1,79 @@
+{
+    "name": "Hubspot",
+    "url": "https://github.com/PostHog/hubspot-plugin",
+    "description": "Send contact data to Hubspot on PostHog identify events.",
+    "main": "index.ts",
+    "config": [
+        {
+            "key": "hubspotAccessToken",
+            "hint": "Can be acquired under Profile Preferences -> Integrations -> Private Apps",
+            "name": "Hubspot Access Token",
+            "type": "string",
+            "default": "",
+            "required": true,
+            "secret": true
+        },
+        {
+            "key": "triggeringEvents",
+            "hint": "A comma-separated list of PostHog events you want to trigger Contact creation in HubSpot. By default, we recommend using the $identify event.",
+            "name": "Triggering events",
+            "type": "string",
+            "default": "$identify",
+            "required": true
+        },
+        {
+            "key": "additionalPropertyMappings",
+            "hint": "A mapping of additional PostHog event or person properties to map to newly created Hubspot Contacts. Provide a comma-separated mapping of: personPropertyName:hubSpotPropertyName",
+            "name": "Additional PostHog to HubSpot property mappings",
+            "type": "string",
+            "default": "",
+            "required": false
+        },
+        {
+            "key": "ignoredEmails",
+            "hint": "A comma-separated list of email domains to ignore and not create contacts for in Hubspot.",
+            "name": "Email domains to skip",
+            "type": "string",
+            "default": "",
+            "required": false
+        },
+        {
+            "key": "postHogUrl",
+            "hint": "Deprecated",
+            "name": "PostHog Instance",
+            "type": "string",
+            "default": "https://app.posthog.com",
+            "required": false
+        },
+        {
+            "key": "posthogApiKey",
+            "hint": "Deprecated",
+            "name": "PostHog API Key",
+            "type": "string",
+            "default": "",
+            "secret": true,
+            "required": false
+        },
+        {
+            "key": "posthogProjectKey",
+            "hint": "Deprecated",
+            "name": "Project API Key",
+            "type": "string",
+            "default": "",
+            "secret": false,
+            "required": false
+        },
+        {
+            "key": "syncMode",
+            "hint": "Deprecated",
+            "name": "Debug Mode",
+            "type": "choice",
+            "default": "production",
+            "required": false,
+            "choices": ["production", "debug"]
+        }
+    ],
+    "publicJobs": {
+        "Clear storage": {}
+    }
+}

@@ -10,7 +10,8 @@ import { GroupTypeToColumnIndex, PostIngestionEvent, RawKafkaEvent } from '../..
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { convertToPostIngestionEvent } from '../../../utils/event'
-import { status } from '../../../utils/status'
+import { parseJSON } from '../../../utils/json-parse'
+import { logger } from '../../../utils/logger'
 import { pipelineStepErrorCounter, pipelineStepMsSummary } from '../../../worker/ingestion/event-pipeline/metrics'
 import { processWebhooksStep } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { HookCommander } from '../../../worker/ingestion/hooks'
@@ -40,7 +41,7 @@ export function groupIntoBatchesByUsage(
     let currentBatch: RawKafkaEvent[] = []
     let currentCount = 0
     array.forEach((message, index) => {
-        const clickHouseEvent = JSON.parse(message.value!.toString()) as RawKafkaEvent
+        const clickHouseEvent = parseJSON(message.value!.toString()) as RawKafkaEvent
         if (shouldProcess(clickHouseEvent.team_id)) {
             currentBatch.push(clickHouseEvent)
             currentCount++
@@ -113,7 +114,7 @@ export async function eachBatchHandlerHelper(
             const batchSpan = transaction.startChild({ op: 'messageBatch', data: { batchLength: eventBatch.length } })
 
             if (!isRunning() || isStale()) {
-                status.info('🚪', `Bailing out of a batch of ${batch.messages.length} events (${loggingKey})`, {
+                logger.info('🚪', `Bailing out of a batch of ${batch.messages.length} events (${loggingKey})`, {
                     isRunning: isRunning(),
                     isStale: isStale(),
                     msFromBatchStart: new Date().valueOf() - batchStartTimer.valueOf(),
@@ -140,7 +141,7 @@ export async function eachBatchHandlerHelper(
             batchSpan.finish()
         }
 
-        status.debug(
+        logger.debug(
             '🧩',
             `Kafka batch of ${batch.messages.length} events completed in ${
                 new Date().valueOf() - batchStartTimer.valueOf()
@@ -157,7 +158,7 @@ async function addGroupPropertiesToPostIngestionEvent(
     organizationManager: OrganizationManager,
     postgres: PostgresRouter
 ): Promise<PostIngestionEvent> {
-    let groupTypes: GroupTypeToColumnIndex | undefined = undefined
+    let groupTypes: GroupTypeToColumnIndex | null = null
     if (await organizationManager.hasAvailableFeature(event.teamId, 'group_analytics')) {
         // If the organization has group analytics enabled then we enrich the event with group data
         groupTypes = await groupTypeManager.fetchGroupTypes(event.projectId)
@@ -250,7 +251,7 @@ async function runWebhooks(actionMatcher: ActionMatcher, hookCannon: HookCommand
             // If this is an error with a dependency that we control, we want to
             // ensure that the caller knows that the event was not processed,
             // for a reason that we control and that is transient.
-            status.error('Error processing webhooks', {
+            logger.error('Error processing webhooks', {
                 stack: error.stack,
                 eventUuid: event.eventUuid,
                 teamId: event.teamId,
@@ -259,7 +260,7 @@ async function runWebhooks(actionMatcher: ActionMatcher, hookCannon: HookCommand
             throw error
         }
 
-        status.warn(`⚠️`, 'Error processing webhooks, silently moving on', {
+        logger.warn(`⚠️`, 'Error processing webhooks, silently moving on', {
             stack: error.stack,
             eventUuid: event.eventUuid,
             teamId: event.teamId,

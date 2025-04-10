@@ -5,14 +5,12 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { AnimationType } from 'lib/animations/animations'
-import { Animation } from 'lib/components/Animation/Animation'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { useCallback, useState } from 'react'
 import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
@@ -27,6 +25,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
@@ -103,8 +102,10 @@ export function DataTableVisualization({
         variablesOverride,
     }
 
-    const { insightProps: insightLogicProps } = useValues(insightLogic)
-    const { exportContext } = useValues(insightDataLogic(insightLogicProps))
+    // The `as unknown as InsightLogicProps` below is smelly, but it's required because Kea logics can't be generic
+    const { exportContext } = useValues(insightDataLogic(insightProps as unknown as InsightLogicProps))
+
+    const { loadData } = useActions(dataVisualizationLogic(dataVisualizationLogicProps))
 
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
@@ -116,6 +117,15 @@ export function DataTableVisualization({
                             key: dataVisualizationLogicProps.key,
                             readOnly: readOnly ?? false,
                             dashboardId: insightProps.dashboardId,
+                            sourceQuery: query,
+                            setQuery: setQuery,
+                            onUpdate: (query: DataVisualizationNode) => {
+                                loadData(
+                                    shouldQueryBeAsync(query.source) ? 'force_async' : 'force_blocking',
+                                    undefined,
+                                    query.source
+                                )
+                            },
                         }}
                     >
                         <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
@@ -165,8 +175,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
     if (!showEditingUI && (!response || responseLoading)) {
         component = (
-            <div className="flex flex-col flex-1 justify-center items-center border rounded bg-bg-light">
-                <Animation type={AnimationType.LaptopHog} />
+            <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
+                <LoadingBar />
             </div>
         )
     } else if (visualizationType === ChartDisplayType.ActionsTable) {
@@ -221,7 +231,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                     <AddVariableButton />
 
                                     {sourceFeatures.has(QueryFeature.dateRangePicker) &&
-                                        !router.values.location.pathname.includes(urls.dataWarehouse()) && ( // decouple this component from insights tab and datawarehouse scene
+                                        !router.values.location.pathname.includes(urls.sqlEditor()) && ( // decouple this component from insights tab and datawarehouse scene
                                             <DateRange
                                                 key="date-range"
                                                 query={query.source}
@@ -278,7 +288,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     <div className={clsx('w-full h-full flex-1 overflow-auto')}>
                         {visualizationType !== ChartDisplayType.ActionsTable && responseError ? (
                             <div
-                                className={clsx('rounded bg-bg-light relative flex flex-1 flex-col p-2', {
+                                className={clsx('rounded bg-surface-primary relative flex flex-1 flex-col p-2', {
                                     border: showEditingUI,
                                 })}
                             >

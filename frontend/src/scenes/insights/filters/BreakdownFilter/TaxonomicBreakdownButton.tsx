@@ -9,9 +9,13 @@ import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
 
 interface TaxonomicBreakdownButtonProps {
     disabledReason?: string
+    size?: 'small' | 'medium'
 }
 
-export function TaxonomicBreakdownButton({ disabledReason }: TaxonomicBreakdownButtonProps): JSX.Element {
+export function TaxonomicBreakdownButton({
+    disabledReason,
+    size = 'medium',
+}: TaxonomicBreakdownButtonProps): JSX.Element {
     const [open, setOpen] = useState(false)
 
     const { taxonomicBreakdownType } = useValues(taxonomicBreakdownFilterLogic)
@@ -20,11 +24,12 @@ export function TaxonomicBreakdownButton({ disabledReason }: TaxonomicBreakdownB
         <TaxonomicBreakdownPopover open={open} setOpen={setOpen}>
             <LemonButton
                 type="secondary"
-                icon={<IconPlusSmall color="var(--primary)" />}
+                icon={<IconPlusSmall />}
                 data-attr="add-breakdown-button"
                 onClick={() => setOpen(!open)}
                 sideIcon={null}
                 disabledReason={disabledReason}
+                size={size}
             >
                 {taxonomicBreakdownType === TaxonomicFilterGroupType.CohortsWithAllUsers
                     ? 'Add cohort'

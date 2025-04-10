@@ -36,10 +36,10 @@ export interface RelatedFlagsFilters {
 
 export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
     path(['scenes', 'persons', 'relatedFeatureFlagsLogic']),
-    connect({ values: [projectLogic, ['currentProjectId'], featureFlagsLogic, ['featureFlags']] }),
+    connect(() => ({ values: [projectLogic, ['currentProjectId'], featureFlagsLogic, ['featureFlags']] })),
     props(
         {} as {
-            distinctId: string
+            distinctId: string | null
             groupTypeIndex?: number
             groups?: { [key: string]: string }
         }
@@ -57,7 +57,7 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                 loadRelatedFeatureFlags: async () => {
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/feature_flags/evaluation_reasons?${toParams({
-                            distinct_id: props.distinctId,
+                            ...(props.distinctId ? { distinct_id: props.distinctId } : {}),
                             ...(props.groups ? { groups: props.groups } : {}),
                         })}`
                     )
@@ -95,7 +95,7 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                         .filter((flag) => flag.evaluation !== undefined)
 
                     // return related feature flags for group property targeting or person property targeting, but not both
-                    if (props.groupTypeIndex && props.groups && Object.keys(props.groups).length > 0) {
+                    if (props.groupTypeIndex !== undefined && props.groups && Object.keys(props.groups).length > 0) {
                         flags = flags.filter(
                             (flag) =>
                                 flag.filters.aggregation_group_type_index !== undefined &&

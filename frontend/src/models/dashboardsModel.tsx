@@ -10,6 +10,8 @@ import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardBasicType, DashboardTile, DashboardType, InsightShortId, QueryBasedInsightModel } from '~/types'
@@ -18,9 +20,9 @@ import type { dashboardsModelType } from './dashboardsModelType'
 
 export const dashboardsModel = kea<dashboardsModelType>([
     path(['models', 'dashboardsModel']),
-    connect({
+    connect(() => ({
         actions: [tagsModel, ['loadTags']],
-    }),
+    })),
     actions(() => ({
         // we page through the dashboards and need to manually track when that is finished
         dashboardsFullyLoaded: true,
@@ -118,6 +120,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     payload
                 )
+                refreshTreeItem('dashboard', id)
                 const updatedAttribute = Object.keys(payload)[0]
                 if (updatedAttribute === 'name' || updatedAttribute === 'description' || updatedAttribute === 'tags') {
                     eventUsageLogic.actions.reportDashboardFrontEndUpdate(
@@ -279,6 +282,8 @@ export const dashboardsModel = kea<dashboardsModelType>([
             }
         },
         addDashboardSuccess: ({ dashboard }) => {
+            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFirstDashboard)
+
             if (router.values.location.pathname.includes('onboarding')) {
                 // don't send a toast if we're in onboarding
                 return

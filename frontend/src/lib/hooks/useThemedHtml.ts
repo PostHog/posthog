@@ -40,7 +40,7 @@ export function useThemedHtml(overflowHidden = true): void {
             const root = document.documentElement
             const style = getComputedStyle(root)
             const backgroundColor = sceneConfig?.projectBased
-                ? style.getPropertyValue(isDarkModeOn ? '--accent-3000-dark' : '--accent-3000-light')
+                ? style.getPropertyValue('--surface-secondary')
                 : style.getPropertyValue('--bg-bridge')
 
             document.head.querySelector('meta[name="theme-color"]')?.remove()

@@ -15,7 +15,7 @@ export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element 
     const { selectAction } = useActions(actionsTabLogic)
 
     return (
-        <div className="flex flex-col h-full overflow-y-scoll space-y-px">
+        <div className="flex flex-col h-full overflow-y-scoll deprecated-space-y-px mb-2">
             {actions.length ? (
                 actions.map((action, index) => (
                     <>
@@ -27,7 +27,7 @@ export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element 
                         >
                             <span className="min-w-[2rem] inline-block text-left">{index + 1}.</span>
                             <span className="flex-grow">
-                                {action.name || <span className="italic text-muted-alt">Untitled</span>}
+                                {action.name || <span className="italic text-secondary">Untitled</span>}
                             </span>
                         </Link>
                     </>

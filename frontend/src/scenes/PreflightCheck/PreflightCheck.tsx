@@ -22,7 +22,7 @@ export const scene: SceneExport = {
 
 function PreflightCheckIcon({ status, loading }: { status: PreflightCheckStatus; loading?: boolean }): JSX.Element {
     if (loading) {
-        return <Spinner textColored className="text-primary" />
+        return <Spinner textColored className="text-accent" />
     }
     if (status === 'validated') {
         return <IconCheckCircle />
@@ -42,7 +42,7 @@ function PreflightItemRow({ name, status, caption }: PreflightItem): JSX.Element
             <div className="PreflightItem__text-container">
                 <p className="PreflightItem__item-name">{name}</p>
                 {caption && (
-                    <p data-attr="caption" className="text-muted">
+                    <p data-attr="caption" className="text-secondary">
                         {caption}
                     </p>
                 )}
@@ -117,7 +117,7 @@ export function PreflightCheck(): JSX.Element {
                             Just experimenting
                         </LemonButton>
                         <LemonDivider thick dashed className="my-6" />
-                        <p className="text-muted text-center mb-0">
+                        <p className="text-secondary text-center mb-0">
                             We will not enforce some security requirements in experimentation mode.
                         </p>
                     </>
@@ -156,16 +156,16 @@ export function PreflightCheck(): JSX.Element {
                                 </div>
                                 <div className="Preflight__summary-text-container">
                                     <p className="Preflight__summary-header">Validation checks</p>
-                                    <p data-attr="caption" className="text-muted Preflight__summary-description">
+                                    <p data-attr="caption" className="text-secondary Preflight__summary-description">
                                         {checksSummary.summaryString}
                                     </p>
                                 </div>
                                 <LemonButton
                                     icon={
                                         areChecksExpanded ? (
-                                            <IconCollapse style={{ color: 'var(--muted-alt)' }} />
+                                            <IconCollapse style={{ color: 'var(--text-secondary)' }} />
                                         ) : (
-                                            <IconExpand style={{ color: 'var(--muted-alt)' }} />
+                                            <IconExpand style={{ color: 'var(--text-secondary)' }} />
                                         )
                                     }
                                     onClick={() => {
@@ -207,7 +207,7 @@ export function PreflightCheck(): JSX.Element {
                             </LemonButton>
                         ) : (
                             <LemonRow fullWidth center className="mt-2 Preflight__cannot-continue" size="large">
-                                <p className="text-center text-muted">
+                                <p className="text-center text-secondary">
                                     All required checks must pass before you can continue
                                 </p>
                             </LemonRow>

@@ -1,0 +1,3 @@
+sql(SELECT *, event FROM events)
+[sql(*), sql(event)]
+sql(SELECT * FROM events WHERE equals(event, '$pageview'))

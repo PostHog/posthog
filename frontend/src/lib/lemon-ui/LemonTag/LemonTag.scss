@@ -8,7 +8,7 @@
     line-height: 1rem;
     color: var(--text-3000);
     white-space: nowrap;
-    background: var(--border);
+    background: var(--border-primary);
     border-radius: var(--radius-sm);
 
     &.LemonTag--normal {
@@ -25,20 +25,20 @@
     }
 
     &.LemonTag--primary {
-        color: var(--primary-3000);
+        color: var(--accent);
         background: none;
-        border-color: var(--primary-3000);
+        border-color: var(--accent);
     }
 
     &.LemonTag--option {
-        color: var(--primary-3000);
-        background-color: var(--accent-3000);
+        color: var(--accent);
+        background-color: var(--bg-surface-primary);
     }
 
     &.LemonTag--highlight {
-        color: var(--highlight);
+        color: var(--accent);
         background: none;
-        border-color: var(--highlight);
+        border-color: var(--accent);
     }
 
     &.LemonTag--warning {
@@ -72,8 +72,8 @@
     }
 
     &.LemonTag--muted {
-        color: var(--muted);
-        background-color: var(--accent-3000);
+        color: var(--text-secondary);
+        background-color: var(--bg-surface-primary);
     }
 
     &.LemonTag--none {
@@ -87,7 +87,7 @@
         line-height: 16px;
         color: var(--primary-alt);
         vertical-align: bottom;
-        background-color: var(--primary-highlight);
+        background-color: var(--accent-highlight-secondary);
         border-radius: 40px;
     }
 

@@ -5,16 +5,18 @@ use common_kafka::kafka_consumer::SingleTopicConsumer;
 
 use futures::future::ready;
 use property_defs_rs::{
-    app_context::AppContext, config::Config, update_consumer_loop, update_producer_loop,
+    api::v1::query::Manager, api::v1::routing::apply_routes, app_context::AppContext,
+    config::Config, update_consumer_loop, update_producer_loop,
 };
 
 use quick_cache::sync::Cache;
 use serve_metrics::{serve, setup_metrics_routes};
+use sqlx::postgres::PgPoolOptions;
 use tokio::{
     sync::mpsc::{self},
     task::JoinHandle,
 };
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
@@ -32,8 +34,9 @@ pub async fn index() -> &'static str {
     "property definitions service"
 }
 
-fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> JoinHandle<()> {
-    let config = config.clone();
+fn start_server(config: &Config, context: Arc<AppContext>) -> JoinHandle<()> {
+    let api_ctx = context.clone();
+
     let router = Router::new()
         .route("/", get(index))
         .route("/_readiness", get(index))
@@ -41,8 +44,11 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
             "/_liveness",
             get(move || ready(context.liveness.get_status())),
         );
+    let router = apply_routes(router, api_ctx);
     let router = setup_metrics_routes(router);
+
     let bind = format!("{}:{}", config.host, config.port);
+
     tokio::task::spawn(async move {
         serve(router, &bind)
             .await
@@ -50,6 +56,10 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
     })
 }
 
+// TODO(eli): idea for v2 batch writes: add an isolated tokio runtime to
+// the AppContext just for batch writes that are *always* IO bound, leaving
+// the update loop workers without interference. We could tune the v2 write
+// runtime's worker_count independently then
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_tracing();
@@ -59,14 +69,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
 
-    let context = Arc::new(AppContext::new(&config).await?);
+    // owns Postgres client and biz logic that handles property defs API calls
+    let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
+    let api_pool = options.connect(&config.database_url).await?;
+    let query_manager = Manager::new(api_pool).await?;
+
+    let context = Arc::new(AppContext::new(&config, query_manager).await?);
 
     info!(
         "Subscribed to topic: {}",
         config.consumer.kafka_consumer_topic
     );
 
-    start_health_liveness_server(&config, context.clone());
+    start_server(&config, context.clone());
 
     let (tx, rx) = mpsc::channel(config.update_batch_size * config.channel_slots_per_worker);
 
@@ -78,24 +93,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for _ in 0..config.worker_loop_count {
         let handle = tokio::spawn(update_producer_loop(
+            config.clone(),
             consumer.clone(),
             tx.clone(),
             cache.clone(),
-            config.update_count_skip_threshold,
-            config.compaction_batch_size,
-            config.filter_mode.clone(),
-            config.filtered_teams.clone(),
         ));
 
         handles.push(handle);
     }
 
     handles.push(tokio::spawn(update_consumer_loop(
-        config, cache, context, rx,
+        config.clone(),
+        cache,
+        context,
+        rx,
     )));
 
     // if any handle returns, abort the other ones, and then return an error
     let (result, _, others) = futures::future::select_all(handles).await;
+    warn!(
+        "update loop process is shutting down with result: {:?}",
+        result
+    );
 
     for handle in others {
         handle.abort();

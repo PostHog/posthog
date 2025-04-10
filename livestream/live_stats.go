@@ -36,5 +36,6 @@ func (ts *Stats) keepStats(statsChan chan PostHogEvent) {
 		}
 		ts.Store[token].Add(event.DistinctId, "1")
 		ts.GlobalStore.Add(event.DistinctId, "1")
+		handledEvents.Inc()
 	}
 }

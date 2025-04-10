@@ -22,10 +22,7 @@
     --resizer-thickness: 8px;
 
     position: absolute;
-    z-index: var(
-        --z-notifications-popover
-    ); // A bit above navbar for a nicer slider experience when the sidebar is closed
-
+    z-index: var(--z-resizer);
     user-select: none; // Fixes inadvertent selection of scene text when resizing
 
     &--left,
@@ -61,7 +58,7 @@
         }
 
         &::before {
-            background: var(--border);
+            background: var(--border-primary);
             transition: 100ms ease transform;
         }
 
@@ -94,11 +91,12 @@
 
     &:hover .Resizer__handle::after,
     &--resizing .Resizer__handle::after {
+        outline: 3px solid var(--accent);
         opacity: 0.25;
     }
 
     &--resizing .Resizer__handle::before,
     &--resizing .Resizer__handle::after {
-        transform: var(--scale);
+        cursor: grabbing;
     }
 }

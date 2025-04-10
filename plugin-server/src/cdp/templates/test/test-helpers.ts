@@ -1,4 +1,9 @@
-import { buildGlobalsWithInputs, HogExecutor } from '../../hog-executor'
+import { defaultConfig } from '~/src/config/config'
+import { GeoIp, GeoIPService } from '~/src/utils/geoip'
+
+import { Hub } from '../../../types'
+import { cleanNullValues } from '../../hog-transformations/transformation-functions'
+import { buildGlobalsWithInputs, HogExecutorService } from '../../services/hog-executor.service'
 import {
     HogFunctionInputType,
     HogFunctionInvocation,
@@ -19,7 +24,11 @@ export type DeepPartialHogFunctionInvocationGlobals = {
 
 export class TemplateTester {
     public template: HogFunctionTemplateCompiled
-    private executor: HogExecutor
+    private executor: HogExecutorService
+    private mockHub: Hub
+
+    private geoipService?: GeoIPService
+    public geoIp?: GeoIp
 
     public mockFetch = jest.fn()
     public mockPrint = jest.fn()
@@ -29,22 +38,32 @@ export class TemplateTester {
             bytecode: [],
         }
 
-        const mockHub = {} as any
-        const mockHogFunctionManager = {} as any
+        this.mockHub = {} as any
 
-        this.executor = new HogExecutor(mockHub, mockHogFunctionManager)
+        this.executor = new HogExecutorService(this.mockHub)
     }
 
+    /*
+    we need transformResult to be able to test the geoip template
+    the same way we did it here https://github.com/PostHog/posthog-plugin-geoip/blob/a5e9370422752eb7ea486f16c5cc8acf916b67b0/index.test.ts#L79
+    */
     async beforeEach() {
+        if (!this.geoipService) {
+            this.geoipService = new GeoIPService(defaultConfig)
+        }
+
+        if (!this.geoIp) {
+            this.geoIp = await this.geoipService.get()
+        }
+
         this.template = {
             ...this._template,
             bytecode: await compileHog(this._template.hog),
         }
 
-        const mockHub = {} as any
-        const mockHogFunctionManager = {} as any
+        this.mockHub = { mmdb: undefined } as any
 
-        this.executor = new HogExecutor(mockHub, mockHogFunctionManager)
+        this.executor = new HogExecutorService(this.mockHub)
     }
 
     createGlobals(globals: DeepPartialHogFunctionInvocationGlobals = {}): HogFunctionInvocationGlobalsWithInputs {
@@ -95,9 +114,7 @@ export class TemplateTester {
     async invoke(_inputs: Record<string, any>, _globals?: DeepPartialHogFunctionInvocationGlobals) {
         const defaultInputs = this.template.inputs_schema.reduce((acc, input) => {
             if (typeof input.default !== 'undefined') {
-                acc[input.key] = {
-                    value: input.default,
-                }
+                acc[input.key] = input.default
             }
             return acc
         }, {} as Record<string, HogFunctionInputType>)
@@ -125,11 +142,24 @@ export class TemplateTester {
             team_id: 1,
             enabled: true,
             mappings: this.template.mappings || null,
+            created_at: '2024-01-01T00:00:00Z',
+            updated_at: '2024-01-01T00:00:00Z',
+            deleted: false,
         }
 
         const globalsWithInputs = buildGlobalsWithInputs(globals, hogFunction.inputs)
         const invocation = createInvocation(globalsWithInputs, hogFunction)
-        return this.executor.execute(invocation)
+
+        const transformationFunctions = {
+            geoipLookup: (val: unknown): any => {
+                return typeof val === 'string' ? this.geoIp?.city(val) : null
+            },
+            cleanNullValues,
+        }
+
+        const extraFunctions = invocation.hogFunction.type === 'transformation' ? transformationFunctions : {}
+
+        return this.executor.execute(invocation, { functions: extraFunctions })
     }
 
     invokeFetchResponse(invocation: HogFunctionInvocation, response: HogFunctionQueueParametersFetchResponse) {

@@ -55,11 +55,11 @@ export const SidePanelDiscussion = (): JSX.Element => {
         <div className="flex flex-col overflow-hidden flex-1">
             <SidePanelPaneHeader
                 title={
-                    <div className="flex space-x-2">
+                    <div className="flex deprecated-space-x-2">
                         <span>
                             Discussion{' '}
                             {scope ? (
-                                <span className="font-normal text-muted-alt">
+                                <span className="font-normal text-secondary">
                                     about {item_id ? 'this' : ''} {humanizeScope(scope, !!item_id)}
                                 </span>
                             ) : null}
@@ -74,7 +74,7 @@ export const SidePanelDiscussion = (): JSX.Element => {
             {commentsLogicProps ? (
                 <DiscussionContent logicProps={commentsLogicProps} />
             ) : (
-                <div className="mx-auto p-8 max-w-160 mt-8 space-y-4">
+                <div className="mx-auto p-8 max-w-160 mt-8 deprecated-space-y-4">
                     <div className="max-w-80 mx-auto">
                         <WarningHog className="w-full h-full" />
                     </div>

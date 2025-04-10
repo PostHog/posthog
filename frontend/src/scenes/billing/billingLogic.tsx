@@ -13,10 +13,18 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { BillingPlanType, BillingProductV2Type, BillingType, ProductKey } from '~/types'
+import {
+    BillingPlan,
+    BillingPlanType,
+    BillingProductV2Type,
+    BillingType,
+    ProductKey,
+    StartupProgramLabel,
+} from '~/types'
 
 import type { billingLogicType } from './billingLogicType'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
@@ -99,12 +107,15 @@ export const billingLogic = kea<billingLogicType>([
         showPurchaseCreditsModal: (isOpen: boolean) => ({ isOpen }),
         toggleCreditCTAHeroDismissed: (isDismissed: boolean) => ({ isDismissed }),
         setComputedDiscount: (discount: number) => ({ discount }),
+        scrollToProduct: (productType: string) => ({ productType }),
     }),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
         actions: [
             userLogic,
             ['loadUser'],
+            organizationLogic,
+            ['loadCurrentOrganization'],
             eventUsageLogic,
             ['reportProductUnsubscribed'],
             lemonBannerLogic({ dismissKey: 'usage-limit-exceeded' }),
@@ -227,6 +238,7 @@ export const billingLogic = kea<billingLogicType>([
                     try {
                         const response = await api.update('api/billing', { custom_limits_usd: limits })
                         lemonToast.success('Billing limits updated')
+                        actions.loadBilling()
                         return parseBillingResponse(response)
                     } catch (error: any) {
                         lemonToast.error(
@@ -236,7 +248,7 @@ export const billingLogic = kea<billingLogicType>([
                     }
                 },
 
-                deactivateProduct: async (key: string) => {
+                deactivateProduct: async (key: string, breakpoint) => {
                     // clear upgrade params from URL
                     // Note(@zach): This is not working properly. We need to look into this.
                     const currentURL = new URL(window.location.href)
@@ -253,6 +265,12 @@ export const billingLogic = kea<billingLogicType>([
                             "You have been unsubscribed. We're sad to see you go. May the hedgehogs be ever in your favor."
                         )
                         actions.reportProductUnsubscribed(key)
+
+                        // Reload billing, user, and organization to get the updated available features
+                        actions.loadBilling()
+                        await breakpoint(2000) // Wait enough time for the organization to be updated
+                        actions.loadUser()
+                        actions.loadCurrentOrganization()
 
                         return parseBillingResponse(jsonRes)
                     } catch (error: any) {
@@ -431,6 +449,42 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
         creditDiscount: [(s) => [s.computedDiscount], (computedDiscount) => computedDiscount || 0],
+        billingPlan: [
+            (s) => [s.billing],
+            (billing: BillingType | null): BillingPlan | null => billing?.billing_plan || null,
+        ],
+        startupProgramLabel: [
+            (s) => [s.billing],
+            (billing: BillingType | null): StartupProgramLabel | null => billing?.startup_program_label || null,
+        ],
+        showBillingSummary: [
+            (s) => [s.billing, s.isOnboarding],
+            (billing: BillingType | null, isOnboarding: boolean): boolean => {
+                return !isOnboarding && !!billing?.billing_period
+            },
+        ],
+        showCreditCTAHero: [
+            (s) => [s.creditOverview, s.featureFlags],
+            (creditOverview, featureFlags): boolean => {
+                const isEligible = creditOverview.eligible || !!featureFlags[FEATURE_FLAGS.SELF_SERVE_CREDIT_OVERRIDE]
+                return isEligible && creditOverview.status !== 'paid'
+            },
+        ],
+        showBillingHero: [
+            (s) => [s.billing, s.billingPlan, s.showCreditCTAHero],
+            (billing: BillingType | null, billingPlan: BillingPlan | null, showCreditCTAHero: boolean): boolean => {
+                const platformAndSupportProduct = billing?.products?.find(
+                    (product) => product.type === ProductKey.PLATFORM_AND_SUPPORT
+                )
+                return !!billingPlan && !billing?.trial && !!platformAndSupportProduct && !showCreditCTAHero
+            },
+        ],
+        isManagedAccount: [
+            (s) => [s.billing],
+            (billing: BillingType): boolean => {
+                return !!(billing?.account_owner?.name || billing?.account_owner?.email)
+            },
+        ],
     }),
     forms(({ actions, values }) => ({
         activateLicense: {
@@ -551,20 +605,27 @@ export const billingLogic = kea<billingLogicType>([
                 posthog.capture('credits cta hero dismissed')
             }
         },
-        loadBillingSuccess: () => {
-            if (
-                router.values.location.pathname.includes('/organization/billing') &&
-                router.values.searchParams['success']
-            ) {
-                // if the activation is successful, we reload the user to get the updated billing info on the organization
-                actions.loadUser()
-                router.actions.replace('/organization/billing')
-            }
+        loadBillingSuccess: async (_, breakpoint) => {
             actions.registerInstrumentationProps()
-
             actions.determineBillingAlert()
-
             actions.loadCreditOverview()
+
+            // If the activation is successful, we reload the user/organization to get the updated available features
+            // activation can be triggered from the billing page or onboarding
+            if (
+                (router.values.location.pathname.includes('/organization/billing') ||
+                    router.values.location.pathname.includes('/onboarding')) &&
+                (router.values.searchParams['success'] || router.values.searchParams['upgraded'])
+            ) {
+                // Wait enough time for the organization to be updated
+                await breakpoint(1000)
+                actions.loadUser()
+                actions.loadCurrentOrganization()
+                // Clear the params from the billing page so we don't trigger the activation again
+                if (router.values.location.pathname.includes('/organization/billing')) {
+                    router.actions.replace('/organization/billing')
+                }
+            }
         },
         determineBillingAlert: () => {
             if (values.productSpecificAlert) {
@@ -609,6 +670,11 @@ export const billingLogic = kea<billingLogicType>([
             })
 
             if (productOverLimit) {
+                const hideProductFlag = `billing_hide_product_${productOverLimit?.type}`
+                const isHidden = values.featureFlags[hideProductFlag] === true
+                if (isHidden) {
+                    return
+                }
                 actions.setBillingAlert({
                     status: 'error',
                     title: 'Usage limit exceeded',
@@ -617,6 +683,8 @@ export const billingLogic = kea<billingLogicType>([
                         or ${
                             productOverLimit.name === 'Data warehouse'
                                 ? 'data will not be synced'
+                                : productOverLimit.name === 'Feature flags & Experiments'
+                                ? 'feature flags will not evaluate'
                                 : 'data loss may occur'
                         }.`,
                     dismissKey: 'usage-limit-exceeded',
@@ -631,6 +699,11 @@ export const billingLogic = kea<billingLogicType>([
             )
 
             if (productApproachingLimit) {
+                const hideProductFlag = `billing_hide_product_${productApproachingLimit?.type}`
+                const isHidden = values.featureFlags[hideProductFlag] === true
+                if (isHidden) {
+                    return
+                }
                 actions.setBillingAlert({
                     status: 'info',
                     title: 'You will soon hit your usage limit',
@@ -665,7 +738,7 @@ export const billingLogic = kea<billingLogicType>([
         registerInstrumentationProps: async (_, breakpoint) => {
             await breakpoint(100)
             if (posthog && values.billing) {
-                const payload = {
+                const payload: { [key: string]: any } = {
                     has_billing_plan: !!values.billing.has_active_subscription,
                     free_trial_until: values.billing.free_trial_until?.toISOString(),
                     customer_deactivated: values.billing.deactivated,
@@ -699,6 +772,13 @@ export const billingLogic = kea<billingLogicType>([
             if (isOpen) {
                 actions.reportCreditsModalShown()
             }
+        },
+        scrollToProduct: ({ productType }) => {
+            const element = document.querySelector(`[data-attr="billing-product-addon-${productType}"]`)
+            element?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center',
+            })
         },
     })),
     afterMount(({ actions }) => {

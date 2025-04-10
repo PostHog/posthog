@@ -10,7 +10,7 @@ from rest_framework import exceptions, viewsets
 from rest_framework.response import Response
 from rest_framework.request import Request
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER

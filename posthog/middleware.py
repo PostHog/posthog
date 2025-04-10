@@ -21,7 +21,6 @@ from django.utils.cache import add_never_cache_headers
 from django_prometheus.middleware import (
     Metrics,
     PrometheusAfterMiddleware,
-    PrometheusBeforeMiddleware,
 )
 from rest_framework import status
 from statshog.defaults.django import statsd
@@ -33,7 +32,6 @@ from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
-from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, User, Team
 from posthog.rate_limit import DecideRateThrottle
 from posthog.settings import SITE_URL, DEBUG, PROJECT_SWITCHING_TOKEN_ALLOWLIST
@@ -51,6 +49,7 @@ ALWAYS_ALLOWED_ENDPOINTS = [
     "s",
     "static",
     "_health",
+    "flags",
 ]
 
 if DEBUG:
@@ -66,7 +65,7 @@ default_cookie_options = {
     "samesite": "Strict",
 }
 
-cookie_api_paths_to_ignore = {"e", "s", "capture", "batch", "decide", "api", "track"}
+cookie_api_paths_to_ignore = {"e", "s", "capture", "batch", "decide", "api", "track", "flags"}
 
 
 class AllowIPMiddleware:
@@ -441,7 +440,7 @@ class CaptureMiddleware:
         # reconciles the old style middleware with the new style middleware.
         for middleware_class in (
             CorsMiddleware,
-            PrometheusAfterMiddlewareWithTeamIds,
+            PrometheusAfterMiddleware,
         ):
             try:
                 # Some middlewares raise MiddlewareNotUsed if they are not
@@ -518,7 +517,7 @@ def per_request_logging_context_middleware(
     for details. They include e.g. request_id, user_id. In some cases e.g. we
     add the team_id to the context like the get_events and decide endpoints.
 
-    This middleware adds some additional context at the beggining of the
+    This middleware adds some additional context at the beginning of the
     request. Feel free to add anything that's relevant for the request here.
     """
 
@@ -567,34 +566,7 @@ PROMETHEUS_EXTENDED_METRICS = [
 
 class CustomPrometheusMetrics(Metrics):
     def register_metric(self, metric_cls, name, documentation, labelnames=(), **kwargs):
-        if name in PROMETHEUS_EXTENDED_METRICS:
-            labelnames.extend([LABEL_TEAM_ID])
         return super().register_metric(metric_cls, name, documentation, labelnames=labelnames, **kwargs)
-
-
-class PrometheusBeforeMiddlewareWithTeamIds(PrometheusBeforeMiddleware):
-    metrics_cls = CustomPrometheusMetrics
-
-
-class PrometheusAfterMiddlewareWithTeamIds(PrometheusAfterMiddleware):
-    metrics_cls = CustomPrometheusMetrics
-
-    def label_metric(self, metric, request, response=None, **labels):
-        new_labels = labels
-        if metric._name in PROMETHEUS_EXTENDED_METRICS:
-            team_id = None
-            if request and getattr(request, "user", None) and request.user.is_authenticated:
-                if request.resolver_match.kwargs.get("parent_lookup_team_id"):
-                    team_id = request.resolver_match.kwargs["parent_lookup_team_id"]
-                    if team_id == "@current":
-                        if hasattr(request.user, "current_team_id"):
-                            team_id = request.user.current_team_id
-                        else:
-                            team_id = None
-
-            new_labels = {LABEL_TEAM_ID: team_id}
-            new_labels.update(labels)
-        return super().label_metric(metric, request, response=response, **new_labels)
 
 
 class PostHogTokenCookieMiddleware(SessionMiddleware):

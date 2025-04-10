@@ -2,20 +2,23 @@ import { IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 import { DataWarehouseSelfManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseSelfManagedSourcesTable'
 import { urls } from 'scenes/urls'
 
 import { PipelineStage, PipelineTab } from '~/types'
 
-import { DESTINATION_TYPES } from './destinations/constants'
+import { DESTINATION_TYPES, TRANSFORMATION_TYPES } from './destinations/constants'
 import { DestinationsTable } from './destinations/Destinations'
-import { TransformationsTable } from './Transformations'
 
 export function Overview(): JSX.Element {
-    const menuItems = [
-        { label: 'Source', to: urls.pipelineNodeNew(PipelineStage.Source) },
+    const menuItems: LemonMenuItems = [
+        {
+            label: 'Source',
+            to: urls.pipelineNodeNew(PipelineStage.Source),
+            'data-attr': 'data-warehouse-data-pipelines-overview-new-source',
+        },
         { label: 'Transformation', to: urls.pipelineNodeNew(PipelineStage.Transformation) },
         { label: 'Destination', to: urls.pipelineNodeNew(PipelineStage.Destination) },
     ]
@@ -24,7 +27,7 @@ export function Overview(): JSX.Element {
         <>
             <PageHeader
                 buttons={
-                    <div className="shrink-0 flex items-center m-2">
+                    <div className="flex items-center m-2 shrink-0">
                         <LemonMenu items={menuItems}>
                             <LemonButton
                                 data-attr="new-pipeline-button"
@@ -38,12 +41,12 @@ export function Overview(): JSX.Element {
                     </div>
                 }
             />
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
                 <div>
                     <Link to={urls.pipeline(PipelineTab.Sources)}>
                         <h2>Managed sources</h2>
                     </Link>
-                    <div className="space-y-2">
+                    <div className="deprecated-space-y-2">
                         <DataWarehouseManagedSourcesTable />
                     </div>
                 </div>
@@ -51,7 +54,7 @@ export function Overview(): JSX.Element {
                     <Link to={urls.pipeline(PipelineTab.Sources)}>
                         <h2>Self-managed sources</h2>
                     </Link>
-                    <div className="space-y-2">
+                    <div className="deprecated-space-y-2">
                         <DataWarehouseSelfManagedSourcesTable />
                     </div>
                 </div>
@@ -63,7 +66,12 @@ export function Overview(): JSX.Element {
                         Modify and enrich your incoming data. Only active transformations are shown here.{' '}
                         <Link to={urls.pipeline(PipelineTab.Transformations)}>See all.</Link>
                     </p>
-                    <TransformationsTable inOverview={true} />
+                    <DestinationsTable
+                        types={TRANSFORMATION_TYPES}
+                        hideFeedback={true}
+                        hideAddDestinationButton={false}
+                        hideChangeOrderButton={true}
+                    />
                 </div>
                 <div>
                     <Link to={urls.pipeline(PipelineTab.Destinations)}>
@@ -73,7 +81,12 @@ export function Overview(): JSX.Element {
                         Send your data to destinations in real time or with batch exports. Only active Destinations are
                         shown here. <Link to={urls.pipeline(PipelineTab.Destinations)}>See all.</Link>
                     </p>
-                    <DestinationsTable types={DESTINATION_TYPES} hideFeedback={true} hideAddDestinationButton={false} />
+                    <DestinationsTable
+                        types={DESTINATION_TYPES}
+                        hideFeedback={true}
+                        hideAddDestinationButton={false}
+                        hideChangeOrderButton={true}
+                    />
                 </div>
             </div>
         </>

@@ -16,8 +16,9 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { Query } from '~/queries/Query/Query'
 import { ExperimentTrendsQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, FilterType, PropertyMathType } from '~/types'
+import { BaseMathType, ChartDisplayType, FilterType } from '~/types'
 
+import { LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { commonActionFilterProps } from './Selectors'
 
@@ -98,10 +99,10 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                     showSeriesIndicator={true}
                                     entitiesLimit={1}
                                     showNumericalPropsOnly={true}
-                                    onlyPropertyMathDefinitions={[PropertyMathType.Sum]}
+                                    allowedMathTypes={LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES}
                                     {...commonActionFilterProps}
                                 />
-                                <div className="mt-4 space-y-4">
+                                <div className="mt-4 deprecated-space-y-4">
                                     <TestAccountFilterSwitch
                                         checked={hasFilters ? !!currentMetric.count_query?.filterTestAccounts : false}
                                         onChange={(checked: boolean) => {
@@ -144,8 +145,8 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                     <LemonButton
                                         className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
                                             !currentMetric.exposure_query
-                                                ? 'border-primary bg-primary-highlight'
-                                                : 'border-border'
+                                                ? 'border-accent bg-accent-highlight-secondary'
+                                                : 'border-primary'
                                         }`}
                                         onClick={() => {
                                             const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
@@ -162,10 +163,10 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                         <div className="font-semibold flex justify-between items-center">
                                             <span>Default</span>
                                             {!currentMetric.exposure_query && (
-                                                <IconCheckCircle fontSize={18} color="var(--primary)" />
+                                                <IconCheckCircle fontSize={18} color="var(--accent)" />
                                             )}
                                         </div>
-                                        <div className="text-muted text-sm leading-relaxed mt-1">
+                                        <div className="text-secondary text-sm leading-relaxed mt-1">
                                             Uses the number of unique users who trigger the{' '}
                                             <LemonTag>$feature_flag_called</LemonTag> event as your exposure count. This
                                             is the recommended setting for most experiments, as it accurately tracks
@@ -175,8 +176,8 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                     <LemonButton
                                         className={`trends-metric-form__exposure-button flex-1 cursor-pointer p-4 rounded border ${
                                             currentMetric.exposure_query
-                                                ? 'border-primary bg-primary-highlight'
-                                                : 'border-border'
+                                                ? 'border-accent bg-accent-highlight-secondary'
+                                                : 'border-primary'
                                         }`}
                                         disabledReason={
                                             isDataWarehouseMetric
@@ -225,10 +226,10 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                         <div className="font-semibold flex justify-between items-center">
                                             <span>Custom</span>
                                             {currentMetric.exposure_query && (
-                                                <IconCheckCircle fontSize={18} color="var(--primary)" />
+                                                <IconCheckCircle fontSize={18} color="var(--accent)" />
                                             )}
                                         </div>
-                                        <div className="text-muted text-sm leading-relaxed mt-1">
+                                        <div className="text-secondary text-sm leading-relaxed mt-1">
                                             Define your own exposure metric for specific use cases, such as counting by
                                             sessions instead of users. This gives you full control but requires careful
                                             configuration.
@@ -266,7 +267,7 @@ export function TrendsMetricForm({ isSecondary = false }: { isSecondary?: boolea
                                             showNumericalPropsOnly={true}
                                             {...commonActionFilterProps}
                                         />
-                                        <div className="mt-4 space-y-4">
+                                        <div className="mt-4 deprecated-space-y-4">
                                             <TestAccountFilterSwitch
                                                 checked={(() => {
                                                     const val = currentMetric.exposure_query?.filterTestAccounts

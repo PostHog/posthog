@@ -6,9 +6,15 @@ from posthog.hogql import ast
 from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.visitor import clear_locations
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.group.util import create_group
 from posthog.models.utils import UUIDT
 from posthog.schema import (
     ActorsQuery,
+    BaseMathType,
+    BreakdownFilter,
+    BreakdownType,
+    EventPropertyFilter,
     PersonPropertyFilter,
     HogQLPropertyFilter,
     PropertyOperator,
@@ -18,6 +24,7 @@ from posthog.schema import (
     EventsNode,
     IntervalType,
     InsightActorsQuery,
+    TrendsQuery,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -267,3 +274,234 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
         # Should show a single person despite multiple distinct_ids
         self.assertEqual(len(response.results), 1)
+
+    def test_actors_query_for_first_matching_event(self):
+        _create_person(
+            team=self.team,
+            distinct_ids=["p1"],
+            properties={},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["p2"],
+            properties={},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["p3"],
+            properties={},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["p4"],
+            properties={},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={"$browser": "Chrome", "breakdown_prop": 3},
+        )
+
+        for i in range(1, 5):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-08T12:00:00Z",
+                properties={"$browser": "Chrome", "breakdown_prop": f"{i if i == 3 else 1}"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-09T12:00:00Z",
+                properties={"$browser": "Chrome", "breakdown_prop": f"{i if i == 3 else 1}"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-10T12:00:00Z",
+                properties={"$browser": "Firefox", "breakdown_prop": f"{i if i == 3 else 1}"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"$browser": "Firefox", "breakdown_prop": f"{i if i == 3 else 1}"},
+            )
+
+        flush_persons_and_events()
+
+        source_query = TrendsQuery(
+            dateRange=DateRange(date_from="2020-01-08", date_to="2020-01-11"),
+            interval=IntervalType.DAY,
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_MATCHING_EVENT_FOR_USER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Firefox")],
+                )
+            ],
+            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="breakdown_prop"),
+        )
+
+        runner = self._create_runner(
+            ActorsQuery(source=InsightActorsQuery(source=source_query, day="2020-01-10T00:00:00Z", breakdown="3"))
+        )
+
+        response = runner.calculate()
+
+        assert len(response.results) == 1
+
+    def test_actors_query_url_normalization(self):
+        _create_person(
+            team=self.team,
+            distinct_ids=["p1"],
+            properties={},
+        )
+        _create_person(
+            team=self.team,
+            distinct_ids=["p2"],
+            properties={},
+        )
+
+        for i in range(1, 4):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-08T12:00:00Z",
+                properties={"$browser": "Chrome", "current_url": "https://example.com/"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-09T12:00:00Z",
+                properties={"$browser": "Chrome", "current_url": "https://example.com/"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-10T12:00:00Z",
+                properties={"$browser": "Firefox", "current_url": "https://example.com/"},
+            )
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"p{i}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"$browser": "Firefox", "current_url": "https://example.com/"},
+            )
+
+        flush_persons_and_events()
+
+        source_query = TrendsQuery(
+            dateRange=DateRange(date_from="2020-01-08", date_to="2020-01-11"),
+            interval=IntervalType.DAY,
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.FIRST_MATCHING_EVENT_FOR_USER,
+                    properties=[EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Firefox")],
+                )
+            ],
+            breakdownFilter=BreakdownFilter(
+                breakdown_type=BreakdownType.EVENT, breakdown="current_url", breakdown_normalize_url=True
+            ),
+        )
+
+        runner = self._create_runner(
+            ActorsQuery(
+                source=InsightActorsQuery(
+                    source=source_query, day="2020-01-10T00:00:00Z", breakdown="https://example.com"
+                )
+            )
+        )
+
+        response = runner.calculate()
+
+        assert len(response.results) == 3
+
+    def test_default_group_actors_query(self):
+        GroupTypeMapping.objects.create(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org1",
+            properties={"name": "org1.inc"},
+            sync=True,
+        )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["user1"],
+            properties={},
+        )
+
+        _create_event(
+            team=self.team,
+            event="pageview",
+            distinct_id="user1",
+            properties={"$group_0": "org1"},
+            timestamp="2023-01-01T12:00:00Z",
+        )
+
+        _create_person(
+            team=self.team,
+            distinct_ids=["user2"],
+            properties={},
+        )
+
+        _create_event(
+            team=self.team,
+            event="pageview",
+            distinct_id="user",
+            properties={"$group_0": "org2"},
+            timestamp="2023-01-01T12:30:00Z",
+        )
+
+        flush_persons_and_events()
+
+        runner = self._create_runner(
+            ActorsQuery(
+                select=["actor"],
+                source=InsightActorsQuery(
+                    source=TrendsQuery(
+                        dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-01"),
+                        interval=IntervalType.DAY,
+                        series=[EventsNode(event="pageview", math="unique_group", math_group_type_index=0)],
+                    ),
+                    series=0,
+                    day="2023-01-01T12:00:00Z",
+                ),
+            )
+        )
+        response = runner.calculate()
+
+        assert len(response.results) == 2
+        group = response.results[0][0]
+        assert group["id"] == "org1"
+        assert group["properties"]["name"] == "org1.inc"
+        assert set(group.keys()) == {
+            "id",
+            "group_key",
+            "group_type_index",
+            "created_at",
+            "properties",
+            "group_properties",
+            "type",
+        }
+
+        group = response.results[1][0]
+        assert group["id"] == "org2"
+        assert set(group.keys()) == {"id", "group_type_index"}

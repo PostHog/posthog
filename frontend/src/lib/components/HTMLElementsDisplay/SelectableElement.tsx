@@ -18,7 +18,10 @@ export function TagPart({
     readonly: boolean
 }): JSX.Element {
     const hoverSelector = readonly ? '' : 'hover:underline'
-    const htmlElementsSelector = clsx('decoration-primary-highlight', !readonly && 'cursor-pointer SelectableElement')
+    const htmlElementsSelector = clsx(
+        'decoration-accent-highlight-secondary',
+        !readonly && 'cursor-pointer SelectableElement'
+    )
     const isSelected = !readonly && !!selectedParts.tag
 
     return (
@@ -46,7 +49,10 @@ function IdPart({
     readonly: boolean
 }): JSX.Element | null {
     const hoverSelector = readonly ? '' : 'hover:underline'
-    const htmlElementsSelector = clsx('decoration-primary-highlight', !readonly && 'cursor-pointer SelectableElement')
+    const htmlElementsSelector = clsx(
+        'decoration-accent-highlight-secondary',
+        !readonly && 'cursor-pointer SelectableElement'
+    )
     const isSelected = !readonly && !!selectedParts.id
 
     return id ? (
@@ -178,7 +184,7 @@ function WithSelectedText({
     return (
         <>
             {text.slice(0, index)}
-            <span className="bg-brand-yellow">{text.slice(index, index + selectedText.length)}</span>
+            <span className="bg-accent/30 text-primary">{text.slice(index, index + selectedText.length)}</span>
             {text.slice(index + selectedText.length)}
         </>
     )
@@ -214,8 +220,8 @@ export function SelectableElement({
     return (
         <pre
             className={clsx(
-                'p-0 m-0 rounded whitespace-pre-wrap break-all text-text-3000',
-                isDeepestChild && highlight ? 'bg-brand-red' : 'bg-transparent',
+                '!p-0 !m-0 rounded whitespace-pre-wrap break-all text-primary',
+                isDeepestChild && highlight ? 'bg-accent/30 text-primary' : 'bg-transparent',
                 size === 'xsmall' ? 'text-xs' : 'text-sm'
             )}
         >

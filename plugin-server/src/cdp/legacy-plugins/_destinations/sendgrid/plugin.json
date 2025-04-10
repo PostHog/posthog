@@ -1,0 +1,26 @@
+{
+    "name": "Sendgrid",
+    "url": "https://github.com/PostHog/sendgrid-plugin",
+    "description": "Send emails and user data to Sendgrid when you identify users using PostHog.",
+    "main": "index.js",
+    "config": [
+        {
+            "key": "sendgridApiKey",
+            "hint": "The key needs PUT access",
+            "name": "Sendgrid API Key",
+            "type": "string",
+            "default": "",
+            "required": true,
+            "secret": true
+        },
+        {
+            "key": "customFields",
+            "hint": "Comma separated list of additional properties that will be sent to Sendgrid as custom fields. Optionally, you can define an alternative key for the field in Sendgrid. E.g. myProp1=my_prop1,myProp2=my_prop2",
+            "name": "Custom fields",
+            "type": "string",
+            "default": "",
+            "required": false,
+            "secret": false
+        }
+    ]
+}

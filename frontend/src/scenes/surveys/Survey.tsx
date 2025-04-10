@@ -6,14 +6,15 @@ import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { useEffect } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { FeatureFlagFilters, Survey, SurveyUrlMatchType } from '~/types'
+import { FeatureFlagFilters, Survey, SurveyMatchType } from '~/types'
 
-import { NewSurvey, SurveyUrlMatchTypeLabels } from './constants'
+import { NewSurvey, SurveyMatchTypeLabels } from './constants'
 import SurveyEdit from './SurveyEdit'
 import { surveyLogic } from './surveyLogic'
 import { SurveyView } from './SurveyView'
@@ -27,7 +28,20 @@ export const scene: SceneExport = {
 }
 
 export function SurveyComponent({ id }: { id?: string } = {}): JSX.Element {
+    const { editingSurvey, setSelectedPageIndex, setPropertyFilters } = useActions(surveyLogic)
     const { isEditingSurvey, surveyMissing } = useValues(surveyLogic)
+
+    /**
+     * Logic that cleans up surveyLogic state when the component unmounts.
+     * Necessary so if we load another survey, we don't have the old survey's state in the logic for things like editing, filters, preview, etc.
+     */
+    useEffect(() => {
+        return () => {
+            editingSurvey(false)
+            setSelectedPageIndex(0)
+            setPropertyFilters([])
+        }
+    }, [editingSurvey, setSelectedPageIndex, setPropertyFilters])
 
     if (surveyMissing) {
         return <NotFound object="survey" />
@@ -60,7 +74,14 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
     }
 
     return (
-        <Form id="survey" formKey="survey" logic={surveyLogic} props={{ id }} className="space-y-4" enableFormOnSubmit>
+        <Form
+            id="survey"
+            formKey="survey"
+            logic={surveyLogic}
+            props={{ id }}
+            className="deprecated-space-y-4"
+            enableFormOnSubmit
+        >
             <PageHeader
                 buttons={
                     <div className="flex items-center gap-2">
@@ -103,13 +124,16 @@ export function SurveyDisplaySummary({
     targetingFlagFilters?: FeatureFlagFilters
 }): JSX.Element {
     const hasConditions =
-        survey.conditions?.url || survey.conditions?.selector || survey.conditions?.seenSurveyWaitPeriodInDays
+        survey.conditions?.url ||
+        survey.conditions?.selector ||
+        survey.conditions?.seenSurveyWaitPeriodInDays ||
+        (survey.conditions?.events?.values.length ?? 0) > 0
     const hasFeatureFlags = survey.linked_flag_id || targetingFlagFilters
 
     return (
         <div className="flex flex-col mt-2 gap-2">
             <div className="font-semibold">Display conditions summary</div>
-            <span className="text-muted">
+            <span className="text-secondary">
                 {hasConditions || hasFeatureFlags
                     ? 'Surveys will be displayed to users that match the following conditions:'
                     : 'Surveys will be displayed to everyone.'}
@@ -119,13 +143,27 @@ export function SurveyDisplaySummary({
                     <div className="flex-row">
                         <span>
                             URL{' '}
-                            {SurveyUrlMatchTypeLabels[
-                                survey.conditions?.urlMatchType || SurveyUrlMatchType.Contains
-                            ].slice(2)}
+                            {SurveyMatchTypeLabels[survey.conditions?.urlMatchType || SurveyMatchType.Contains].slice(
+                                2
+                            )}
                             :
                         </span>{' '}
                         <LemonTag>{survey.conditions.url}</LemonTag>
                     </div>
+                </div>
+            )}
+            {survey.conditions?.deviceTypes && (
+                <div className="flex font-medium gap-1 items-center">
+                    <span>
+                        Device Types{' '}
+                        {SurveyMatchTypeLabels[
+                            survey.conditions?.deviceTypesMatchType || SurveyMatchType.Contains
+                        ].slice(2)}
+                        :
+                    </span>{' '}
+                    {survey.conditions.deviceTypes.map((type) => (
+                        <LemonTag key={type}>{type}</LemonTag>
+                    ))}
                 </div>
             )}
             {survey.conditions?.selector && (
@@ -159,10 +197,30 @@ export function SurveyDisplaySummary({
                 </div>
             )}
             {targetingFlagFilters && (
-                <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
-                    <span className="font-medium">User properties:</span>{' '}
-                    <FeatureFlagReleaseConditions readOnly excludeTitle filters={targetingFlagFilters} />
-                </BindLogic>
+                <div>
+                    <BindLogic logic={featureFlagLogic} props={{ id: survey.targeting_flag?.id || 'new' }}>
+                        <span className="font-medium">User properties:</span>{' '}
+                        <FeatureFlagReleaseConditions readOnly excludeTitle filters={targetingFlagFilters} />
+                    </BindLogic>
+                </div>
+            )}
+            {(survey.conditions?.events?.values.length ?? 0) > 0 && (
+                <div className="flex flex-col font-medium gap-1">
+                    <div className="flex-row">
+                        <span>
+                            When the user sends the following events (
+                            <span>
+                                {survey.conditions?.events?.repeatedActivation
+                                    ? 'every time they occur'
+                                    : 'once per user'}
+                            </span>
+                            ):
+                        </span>
+                        {survey.conditions?.events?.values.map((event) => (
+                            <LemonTag key={event.name}>{event.name}</LemonTag>
+                        ))}
+                    </div>
+                </div>
             )}
         </div>
     )

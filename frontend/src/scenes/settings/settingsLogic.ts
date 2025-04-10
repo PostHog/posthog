@@ -1,10 +1,8 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { Realm } from '~/types'
@@ -17,40 +15,48 @@ export const settingsLogic = kea<settingsLogicType>([
     props({} as SettingsLogicProps),
     key((props) => props.logicKey ?? 'global'),
     path((key) => ['scenes', 'settings', 'settingsLogic', key]),
-    connect({
+    connect(() => ({
         values: [
             featureFlagLogic,
             ['featureFlags'],
             userLogic,
             ['hasAvailableFeature'],
             preflightLogic,
-            ['preflight'],
+            ['preflight', 'isCloudOrDev'],
             teamLogic,
             ['currentTeam'],
         ],
-    }),
+    })),
 
     actions({
-        selectSection: (section: SettingSectionId, level: SettingLevelId) => ({ section, level }),
         selectLevel: (level: SettingLevelId) => ({ level }),
-        selectSetting: (setting: string) => ({ setting }),
+        selectSection: (section: SettingSectionId, level: SettingLevelId) => ({ section, level }),
+        selectSetting: (setting: SettingId) => ({ setting }),
         openCompactNavigation: true,
         closeCompactNavigation: true,
     }),
 
     reducers(({ props }) => ({
         selectedLevelRaw: [
-            (props.settingLevelId ?? 'project') as SettingLevelId,
+            props.settingLevelId ?? 'project',
             {
                 selectLevel: (_, { level }) => level,
                 selectSection: (_, { level }) => level,
             },
         ],
         selectedSectionIdRaw: [
-            (props.sectionId ?? null) as SettingSectionId | null,
+            props.sectionId ?? null,
             {
                 selectLevel: () => null,
                 selectSection: (_, { section }) => section,
+            },
+        ],
+        selectedSettingId: [
+            props.settingId ?? null,
+            {
+                selectLevel: () => null,
+                selectSection: () => null,
+                selectSetting: (_, { setting }) => setting,
             },
         ],
 
@@ -61,6 +67,7 @@ export const settingsLogic = kea<settingsLogicType>([
                 closeCompactNavigation: () => false,
                 selectLevel: () => false,
                 selectSection: () => false,
+                selectSetting: () => false,
             },
         ],
     })),
@@ -77,16 +84,16 @@ export const settingsLogic = kea<settingsLogicType>([
                 }, [])
             },
         ],
-        settingId: [
-            () => [(_, props) => props],
-            (props): SettingId | null => {
-                return props.settingId || null
-            },
-        ],
         sections: [
-            (s) => [s.doesMatchFlags, s.featureFlags],
-            (doesMatchFlags, featureFlags): SettingSection[] => {
-                const sections = SETTINGS_MAP.filter(doesMatchFlags)
+            (s) => [s.doesMatchFlags, s.featureFlags, s.isCloudOrDev],
+            (doesMatchFlags, featureFlags, isCloudOrDev): SettingSection[] => {
+                const sections = SETTINGS_MAP.filter(doesMatchFlags).filter((section) => {
+                    if (section.hideSelfHost && !isCloudOrDev) {
+                        return false
+                    }
+
+                    return true
+                })
                 if (!featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
                     return sections
                         .filter((section) => section.level !== 'project')
@@ -96,7 +103,10 @@ export const settingsLogic = kea<settingsLogicType>([
                             level: section.level === 'environment' ? 'project' : section.level,
                             settings: section.settings.map((setting) => ({
                                 ...setting,
-                                title: setting.title.replace('environment', 'project'),
+                                title:
+                                    typeof setting.title === 'string'
+                                        ? setting.title.replace('environment', 'project')
+                                        : setting.title,
                                 id: setting.id.replace('environment-', 'project-') as SettingId,
                             })),
                         }))
@@ -145,24 +155,8 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         settings: [
-            (s) => [
-                s.selectedLevel,
-                s.selectedSectionId,
-                s.sections,
-                s.settingId,
-                s.doesMatchFlags,
-                s.preflight,
-                s.currentTeam,
-            ],
-            (
-                selectedLevel,
-                selectedSectionId,
-                sections,
-                settingId,
-                doesMatchFlags,
-                preflight,
-                currentTeam
-            ): Setting[] => {
+            (s) => [s.selectedLevel, s.selectedSectionId, s.sections, s.doesMatchFlags, s.preflight, s.currentTeam],
+            (selectedLevel, selectedSectionId, sections, doesMatchFlags, preflight, currentTeam): Setting[] => {
                 let settings: Setting[] = []
 
                 if (selectedSectionId) {
@@ -171,10 +165,6 @@ export const settingsLogic = kea<settingsLogicType>([
                     settings = sections
                         .filter((section) => section.level === selectedLevel)
                         .reduce((acc, section) => [...acc, ...section.settings], [] as Setting[])
-                }
-
-                if (settingId) {
-                    return settings.filter((x) => x.id === settingId)
                 }
 
                 return settings.filter((x) => {
@@ -189,6 +179,12 @@ export const settingsLogic = kea<settingsLogicType>([
                     }
                     return true
                 })
+            },
+        ],
+        selectedSetting: [
+            (s) => [s.settings, s.selectedSettingId],
+            (settings, selectedSettingId): Setting | null => {
+                return settings.find((s) => s.id === selectedSettingId) ?? null
             },
         ],
         doesMatchFlags: [
@@ -217,15 +213,4 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
     }),
-
-    listeners(({ values }) => ({
-        async selectSetting({ setting }) {
-            const url = urls.absolute(
-                urls.currentProject(
-                    urls.settings(values.selectedSectionId ?? values.selectedLevel, setting as SettingId)
-                )
-            )
-            await copyToClipboard(url)
-        },
-    })),
 ])

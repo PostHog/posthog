@@ -7,7 +7,7 @@ from uuid import UUID
 
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 import structlog
 from django.core.paginator import Paginator
 from django.core.exceptions import ObjectDoesNotExist
@@ -29,6 +29,7 @@ ActivityScope = Literal[
     "Cohort",
     "FeatureFlag",
     "Person",
+    "Group",
     "Insight",
     "Plugin",
     "PluginConfig",
@@ -46,6 +47,7 @@ ActivityScope = Literal[
     "Comment",
     "Team",
     "Project",
+    "ErrorTrackingIssue",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
@@ -159,6 +161,12 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     ],
 }
 
+field_name_overrides: dict[ActivityScope, dict[str, str]] = {
+    "HogFunction": {
+        "execution_order": "priority",
+    },
+}
+
 field_exclusions: dict[ActivityScope, list[str]] = {
     "Cohort": [
         "version",
@@ -179,6 +187,8 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "is_simple_flag",
         "experiment",
         "featureflagoverride",
+        "usage_dashboard",
+        "analytics_dashboards",
     ],
     "Person": [
         "distinct_ids",
@@ -325,17 +335,19 @@ def changes_between(
             left_value = "masked" if field_name in masked_fields else left
             right_value = "masked" if field_name in masked_fields else right
 
+            # Use the override name if it exists
+            display_name = field_name_overrides.get(model_type, {}).get(field_name, field_name)
             if left_is_none and right_is_none:
                 pass  # could be {} vs None
             elif left_is_none and not right_is_none:
-                changes.append(Change(type=model_type, field=field_name, action="created", after=right_value))
+                changes.append(Change(type=model_type, field=display_name, action="created", after=right_value))
             elif right_is_none and not left_is_none:
-                changes.append(Change(type=model_type, field=field_name, action="deleted", before=left_value))
+                changes.append(Change(type=model_type, field=display_name, action="deleted", before=left_value))
             elif left != right:
                 changes.append(
                     Change(
                         type=model_type,
-                        field=field_name,
+                        field=display_name,
                         action="changed",
                         before=left_value,
                         after=right_value,
@@ -523,12 +535,14 @@ def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
                     distinct_id=user_data["distinct_id"] if user_data else f"team_{instance.team_id}",
                     properties=serialized_data,
                 ),
-                person=InternalEventPerson(
-                    id=user_data["id"],
-                    properties=user_data,
-                )
-                if user_data
-                else None,
+                person=(
+                    InternalEventPerson(
+                        id=user_data["id"],
+                        properties=user_data,
+                    )
+                    if user_data
+                    else None
+                ),
             )
     except Exception as e:
         # We don't want to hard fail here.

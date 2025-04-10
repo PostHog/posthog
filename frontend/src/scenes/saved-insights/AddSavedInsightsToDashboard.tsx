@@ -8,7 +8,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
@@ -40,10 +40,42 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
 
     const columns: LemonTableColumns<QueryBasedInsightModel> = [
         {
+            width: 0,
+            render: function Render(_, insight) {
+                const isInDashboard = dashboard?.tiles.some((tile) => tile.insight?.id === insight.id)
+                return (
+                    <LemonButton
+                        type="secondary"
+                        status={isInDashboard ? 'danger' : 'default'}
+                        size="small"
+                        fullWidth
+                        disabled={dashboardUpdatesInProgress[insight.id]}
+                        onClick={(e) => {
+                            e.preventDefault()
+                            if (dashboardUpdatesInProgress[insight.id]) {
+                                return
+                            }
+                            isInDashboard
+                                ? removeInsightFromDashboard(insight, dashboard?.id || 0)
+                                : addInsightToDashboard(insight, dashboard?.id || 0)
+                        }}
+                    >
+                        {dashboardUpdatesInProgress[insight.id] ? (
+                            <Spinner textColored />
+                        ) : isInDashboard ? (
+                            <IconMinusSmall />
+                        ) : (
+                            <IconPlusSmall />
+                        )}
+                    </LemonButton>
+                )
+            },
+        },
+        {
             key: 'id',
             width: 32,
             render: function renderType(_, insight) {
-                return <InsightIcon insight={insight} className="text-muted text-2xl" />
+                return <InsightIcon insight={insight} className="text-secondary text-2xl" />
             },
         },
         {
@@ -53,11 +85,14 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
             render: function renderName(name: string, insight) {
                 return (
                     <>
-                        <LemonTableLink
-                            to={urls.insightView(insight.short_id)}
-                            title={<>{name || <i>{summarizeInsight(insight.query)}</i>}</>}
-                            description={insight.description}
-                        />
+                        <div className="flex flex-col gap-1">
+                            <div className="inline-flex">
+                                <Link to={urls.insightView(insight.short_id)} target="_blank">
+                                    {name || <i>{summarizeInsight(insight.query)}</i>}
+                                </Link>
+                            </div>
+                            <div className="text-xs text-tertiary">{insight.description}</div>
+                        </div>
                     </>
                 )
             },
@@ -93,38 +128,6 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
                 )
             },
         },
-        {
-            width: 0,
-            render: function Render(_, insight) {
-                const isInDashboard = dashboard?.tiles.some((tile) => tile.insight?.id === insight.id)
-                return (
-                    <LemonButton
-                        type="secondary"
-                        status={isInDashboard ? 'danger' : 'default'}
-                        size="small"
-                        fullWidth
-                        disabled={dashboardUpdatesInProgress[insight.id]}
-                        onClick={(e) => {
-                            e.preventDefault()
-                            if (dashboardUpdatesInProgress[insight.id]) {
-                                return
-                            }
-                            isInDashboard
-                                ? removeInsightFromDashboard(insight, dashboard?.id || 0)
-                                : addInsightToDashboard(insight, dashboard?.id || 0)
-                        }}
-                    >
-                        {dashboardUpdatesInProgress[insight.id] ? (
-                            <Spinner textColored />
-                        ) : isInDashboard ? (
-                            <IconMinusSmall />
-                        ) : (
-                            <IconPlusSmall />
-                        )}
-                    </LemonButton>
-                )
-            },
-        },
     ]
 
     return (
@@ -132,7 +135,7 @@ export function AddSavedInsightsToDashboard(): JSX.Element {
             <SavedInsightsFilters filters={filters} setFilters={setModalFilters} />
             <LemonDivider className="my-4" />
             <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
-                <span className="text-muted-alt">
+                <span className="text-secondary">
                     {count
                         ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
                               count === 1 ? '' : 's'

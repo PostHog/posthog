@@ -1,10 +1,10 @@
 import { LemonButton, LemonCollapse, LemonInputSelect } from '@posthog/lemon-ui'
+import { EventType, eventWithTime, IncrementalSource } from '@posthog/rrweb-types'
 import { useActions, useValues } from 'kea'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { useEffect, useState } from 'react'
-import { EventType, eventWithTime, IncrementalSource } from 'rrweb'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
@@ -64,7 +64,7 @@ export function PlayerSidebarDebuggerTab(): JSX.Element {
     const sourceValues = debugSettings.incrementalSources.map((t) => t.toString())
 
     return (
-        <div className="h-full bg-bg-3000 overflow-auto">
+        <div className="h-full bg-primary overflow-auto">
             <div className="p-2 flex gap-1">
                 <LemonInputSelect
                     size="xsmall"

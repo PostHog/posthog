@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
 from django.db.utils import ProgrammingError
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 if TYPE_CHECKING:
     from ee.models.license import License
@@ -62,3 +62,11 @@ def TEST_clear_instance_license_cache(
     instance_license_cached = instance_license
     global is_instance_licensed_cached
     is_instance_licensed_cached = is_instance_licensed
+
+
+def get_api_host():
+    if settings.SITE_URL == "https://us.posthog.com":
+        return "https://us.i.posthog.com"
+    elif settings.SITE_URL == "https://eu.posthog.com":
+        return "https://eu.i.posthog.com"
+    return settings.SITE_URL

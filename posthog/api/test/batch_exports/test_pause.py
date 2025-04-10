@@ -6,6 +6,7 @@ from django.test.client import Client as HttpClient
 from rest_framework import status
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
+from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.batch_exports.operations import (
     create_batch_export_ok,
     get_batch_export_ok,
@@ -14,21 +15,18 @@ from posthog.api.test.batch_exports.operations import (
     unpause_batch_export,
     unpause_batch_export_ok,
 )
-from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.batch_exports.service import batch_export_delete_schedule
 from posthog.temporal.common.schedule import describe_schedule
-from posthog.temporal.common.client import sync_connect
 
 pytestmark = [
     pytest.mark.django_db,
 ]
 
 
-def test_pause_and_unpause_batch_export(client: HttpClient):
+def test_pause_and_unpause_batch_export(client: HttpClient, temporal):
     """Test pausing and unpausing a BatchExport."""
-    temporal = sync_connect()
 
     destination_data = {
         "type": "S3",
@@ -81,9 +79,7 @@ def test_pause_and_unpause_batch_export(client: HttpClient):
         assert schedule_desc.schedule.state.paused is False
 
 
-def test_connot_pause_and_unpause_batch_exports_of_other_organizations(client: HttpClient):
-    temporal = sync_connect()
-
+def test_cannot_pause_and_unpause_batch_exports_of_other_organizations(client: HttpClient, temporal):
     destination_data = {
         "type": "S3",
         "config": {
@@ -147,9 +143,7 @@ def test_connot_pause_and_unpause_batch_exports_of_other_organizations(client: H
         assert schedule_desc.schedule.state.paused is True
 
 
-def test_pause_and_unpause_are_partitioned_by_team_id(client: HttpClient):
-    temporal = sync_connect()
-
+def test_pause_and_unpause_are_partitioned_by_team_id(client: HttpClient, temporal):
     destination_data = {
         "type": "S3",
         "config": {
@@ -207,9 +201,8 @@ def test_pause_and_unpause_are_partitioned_by_team_id(client: HttpClient):
         assert schedule_desc.schedule.state.paused is True
 
 
-def test_pause_batch_export_that_is_already_paused(client: HttpClient):
+def test_pause_batch_export_that_is_already_paused(client: HttpClient, temporal):
     """Test pausing a BatchExport that is already paused doesn't actually do anything."""
-    temporal = sync_connect()
 
     destination_data = {
         "type": "S3",
@@ -262,9 +255,8 @@ def test_pause_batch_export_that_is_already_paused(client: HttpClient):
         assert last_updated_at == data["last_updated_at"]
 
 
-def test_unpause_batch_export_that_is_already_unpaused(client: HttpClient):
+def test_unpause_batch_export_that_is_already_unpaused(client: HttpClient, temporal):
     """Test unpausing a BatchExport that is already unpaused doesn't actually do anything."""
-    temporal = sync_connect()
 
     destination_data = {
         "type": "S3",
@@ -308,9 +300,8 @@ def test_unpause_batch_export_that_is_already_unpaused(client: HttpClient):
         assert last_updated_at == data["last_updated_at"]
 
 
-def test_pause_non_existent_batch_export(client: HttpClient):
+def test_pause_non_existent_batch_export(client: HttpClient, temporal):
     """Test pausing a BatchExport that doesn't exist."""
-    temporal = sync_connect()
 
     destination_data = {
         "type": "S3",
@@ -345,16 +336,15 @@ def test_pause_non_existent_batch_export(client: HttpClient):
         schedule_desc = describe_schedule(temporal, batch_export["id"])
         assert schedule_desc.schedule.state.paused is False
 
-        resp = batch_export_delete_schedule(temporal, batch_export["id"])
+        batch_export_delete_schedule(temporal, batch_export["id"])
 
         batch_export_id = batch_export["id"]
         resp = pause_batch_export(client, team.pk, batch_export_id)
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
 
-def test_unpause_can_trigger_a_backfill(client: HttpClient):
+def test_unpause_can_trigger_a_backfill(client: HttpClient, temporal):
     """Test unpausing a BatchExport can trigger a backfill."""
-    temporal = sync_connect()
 
     destination_data = {
         "type": "S3",

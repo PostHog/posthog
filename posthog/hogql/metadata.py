@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from django.conf import settings
 
+from posthog.clickhouse.explain import execute_explain_get_index_use
 from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
@@ -15,7 +16,6 @@ from posthog.hogql.parser import (
 )
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
-from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql_queries.query_runner import get_query_runner
@@ -25,6 +25,7 @@ from posthog.schema import (
     HogQLMetadata,
     HogQLMetadataResponse,
     HogQLNotice,
+    QueryIndexUsage,
 )
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -35,7 +36,6 @@ def get_hogql_metadata(
 ) -> HogQLMetadataResponse:
     response = HogQLMetadataResponse(
         isValid=True,
-        isValidView=False,
         query=query.query,
         errors=[],
         warnings=[],
@@ -72,15 +72,20 @@ def get_hogql_metadata(
                 select_ast = replace_filters(select_ast, query.filters, team)
             if query.variables:
                 select_ast = replace_variables(select_ast, list(query.variables.values()), team)
-            _is_valid_view = is_valid_view(select_ast)
+
             table_names = get_table_names(select_ast)
             response.table_names = table_names
-            response.isValidView = _is_valid_view
-            print_ast(
+
+            clickhouse_sql = print_ast(
                 select_ast,
                 context=context,
                 dialect="clickhouse",
             )
+
+            if context.errors:
+                response.isUsingIndices = QueryIndexUsage.UNDECISIVE
+            else:
+                response.isUsingIndices = execute_explain_get_index_use(clickhouse_sql, context)
         else:
             raise ValueError(f"Unsupported language: {query.language}")
         response.warnings = context.warnings
@@ -127,21 +132,6 @@ def process_expr_on_table(
         print_ast(select_query, context, "clickhouse")
     except (NotImplementedError, SyntaxError):
         raise
-
-
-def is_valid_view(select_query: ast.SelectQuery | ast.SelectSetQuery) -> bool:
-    """Is not a valid view if:
-    a) There are any function calls in the select clause
-    b) There are any wildcard fields in the select clause
-    """
-    for query in extract_select_queries(select_query):
-        for field in query.select:
-            if isinstance(field, ast.Call):
-                return False
-            if isinstance(field, ast.Field):
-                if field.chain and field.chain[-1] == "*":
-                    return False
-    return True
 
 
 def get_table_names(select_query: ast.SelectQuery | ast.SelectSetQuery) -> list[str]:

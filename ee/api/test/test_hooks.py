@@ -1,14 +1,16 @@
 from typing import cast
+import uuid
 
 from inline_snapshot import snapshot
 
-from ee.api.hooks import valid_domain
+from ee.api.hooks import valid_domain, create_zapier_hog_function
 from ee.api.test.base import APILicensedTest
 from ee.models.hook import Hook
-from hogvm.python.operation import HOGQL_BYTECODE_VERSION
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.test.base import ClickhouseTestMixin
+from posthog.cdp.templates.zapier.template_zapier import template as template_zapier
 
 
 class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
@@ -113,6 +115,8 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
             "resource_id": self.action.id,
         }
 
+        assert hog_function.description == template_zapier.description
+
         assert hog_function.filters == {
             "actions": [{"id": str(self.action.id), "name": "", "type": "actions", "order": 0}],
             "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11, 3, 1, 4, 1],
@@ -120,7 +124,19 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
 
         assert hog_function.hog == snapshot(
             """\
-let res := fetch(f'https://hooks.zapier.com/{inputs.hook}', {
+let hook_path := inputs.hook;
+let prefix := 'https://hooks.zapier.com/';
+// Remove the prefix if it exists
+if (position(hook_path, prefix) == 1) {
+  hook_path := replaceOne(hook_path, prefix, '');
+}
+
+// Remove leading slash if present to avoid double slashes
+if (position(hook_path, '/') == 1) {
+  hook_path := replaceOne(hook_path, '/', '');
+}
+
+let res := fetch(f'https://hooks.zapier.com/{hook_path}', {
   'method': 'POST',
   'body': inputs.body
 });
@@ -134,7 +150,7 @@ if (inputs.debug) {
         assert hog_function.inputs == snapshot(
             {
                 "body": {
-                    "order": 2,
+                    "order": 1,
                     "value": {
                         "data": {
                             "event": "{event.event}",
@@ -190,7 +206,7 @@ if (inputs.debug) {
                     "value": "hooks/standard/1234/abcd",
                     "bytecode": ["_H", 1, 32, "hooks/standard/1234/abcd"],
                 },
-                "debug": {"order": 1},
+                "debug": None,
             }
         )
 
@@ -206,13 +222,42 @@ if (inputs.debug) {
 
         hook_id = res.json()["id"]
 
-        assert HogFunction.objects.count() == 1
+        assert HogFunction.objects.filter(enabled=True, deleted=False).count() == 1
 
-        with self.settings(HOOK_HOG_FUNCTION_TEAMS="*"):
-            res = self.client.delete(f"/api/projects/{self.team.id}/hooks/{hook_id}")
-            assert res.status_code == 204
+        res = self.client.delete(f"/api/projects/{self.team.id}/hooks/{hook_id}")
+        assert res.status_code == 204
 
-        assert not HogFunction.objects.exists()
+        assert HogFunction.objects.filter(enabled=True, deleted=False).count() == 0
+
+    def test_delete_migrated_hog_function_via_hook(self):
+        hooks = []
+        hog_functions = []
+        for hook_id in [uuid.uuid4(), uuid.uuid4()]:
+            hook = Hook.objects.create(
+                id=hook_id,
+                user=self.user,
+                team=self.team,
+                resource_id=self.action.id,
+                target=f"https://hooks.zapier.com/hooks/standard/{hook_id}",
+            )
+
+            hog_function = create_zapier_hog_function(
+                hook, {"user": hook.user, "get_team": lambda hook=hook: hook.team}, from_migration=True
+            )
+            hog_function.save()
+            hooks.append(hook)
+            hog_functions.append(hog_function)
+
+        res = self.client.delete(f"/api/projects/{self.team.id}/hooks/{hooks[0].id}")
+        assert res.status_code == 204
+
+        # Ensure the right hook and hog function were deleted
+        loaded_hooks = Hook.objects.all()
+        assert len(loaded_hooks) == 1
+        assert str(loaded_hooks[0].id) == str(hooks[1].id)
+        loaded_hog_functions = HogFunction.objects.filter(enabled=True, deleted=False)
+        assert len(loaded_hog_functions) == 1
+        assert str(loaded_hog_functions[0].id) == str(hog_functions[1].id)
 
 
 def test_valid_domain() -> None:

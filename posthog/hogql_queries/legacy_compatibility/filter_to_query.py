@@ -63,7 +63,7 @@ def is_entity_variable(item: Any) -> bool:
     return isinstance(item, str) and item.startswith("{") and item.endswith("}")
 
 
-def clean_display(display: str):
+def clean_display(display: Optional[str]):
     if display not in [c.value for c in ChartDisplayType]:
         return None
     else:
@@ -130,7 +130,7 @@ def legacy_entity_to_node(
     """
     Takes a legacy entity and converts it into an EventsNode or ActionsNode.
     """
-    shared = {
+    shared: dict[str, Any] = {
         "name": entity.name,
         "custom_name": entity.custom_name,
     }
@@ -305,7 +305,7 @@ def _series(filter: dict, allow_variables: bool = False):
 
     # remove templates gone wrong
     if not allow_variables and filter.get("events") is not None:
-        filter["events"] = [event for event in filter.get("events") if not (isinstance(event, str))]
+        filter["events"] = [event for event in (filter.get("events") or []) if not (isinstance(event, str))]
 
     math_availability: MathAvailability = MathAvailability.Unavailable
     include_properties: bool = True
@@ -373,7 +373,7 @@ def _entities(filter: dict, allow_variables: bool = False):
 def _sampling_factor(filter: dict):
     if isinstance(filter.get("sampling_factor"), str):
         try:
-            return {"samplingFactor": float(filter.get("sampling_factor"))}
+            return {"samplingFactor": float(filter.get("sampling_factor"))}  # type: ignore
         except (ValueError, TypeError):
             return {}
     else:
@@ -492,6 +492,7 @@ def _insight_filter(filter: dict, allow_variables: bool = False):
                 showPercentStackView=filter.get("show_percent_stack_view"),
                 showLabelsOnSeries=filter.get("show_label_on_series"),
                 yAxisScaleType=filter.get("y_axis_scale_type"),
+                showMultipleYAxes=filter.get("show_multiple_y_axes"),
             )
         }
     elif _insight_type(filter) == "FUNNELS":
@@ -538,6 +539,8 @@ def _insight_filter(filter: dict, allow_variables: bool = False):
                 ),
                 period=filter.get("period"),
                 showMean=filter.get("show_mean"),
+                meanRetentionCalculation=filter.get("mean_retention_calculation")
+                or ("simple" if filter.get("show_mean") else "none" if filter.get("show_mean") is False else "simple"),
                 cumulative=filter.get("cumulative"),
             )
         }

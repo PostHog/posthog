@@ -21,12 +21,16 @@ services:
                     @capture {
                         path /e
                         path /e/*
-                        path /i/v0/e
-                        path /i/v0/e*
+                        path /i/v0/*
                         path /batch
                         path /batch*
                         path /capture
                         path /capture*
+                    }
+
+                    @flags {
+                        path /flags
+                        path /flags*
                     }
 
                     handle @capture {
@@ -35,6 +39,10 @@ services:
 
                     handle @replay-capture {
                         reverse_proxy replay-capture:3000
+                    }
+
+                    handle @flags {
+                        reverse_proxy feature-flags:3001
                     }
 
                     handle {
@@ -53,6 +61,8 @@ services:
             test: ['CMD-SHELL', 'pg_isready -U posthog']
             interval: 5s
             timeout: 5s
+        volumes:
+            - ./docker/postgres-init-scripts:/docker-entrypoint-initdb.d
 
     redis:
         image: redis:6.2.7-alpine
@@ -111,7 +121,7 @@ services:
             DYNAMIC_CONFIG_ENABLED: 'true'
 
     objectstorage:
-        image: minio/minio:RELEASE.2022-06-25T15-50-16Z
+        image: minio/minio:RELEASE.2025-02-18T16-25-55Z
         restart: on-failure
         environment:
             MINIO_ROOT_USER: object_storage_root_user
@@ -147,6 +157,7 @@ services:
             PGUSER: posthog
             PGPASSWORD: posthog
             DEPLOYMENT: hobby
+            CDP_API_URL: 'http://plugins:6738'
 
     web:
         <<: *worker
@@ -166,6 +177,7 @@ services:
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis:6379/'
             CAPTURE_MODE: events
+            RUST_LOG: 'info,rdkafka=warn'
 
     replay-capture:
         image: ghcr.io/posthog/posthog/capture:master
@@ -194,6 +206,24 @@ services:
             SKIP_WRITES: 'false'
             SKIP_READS: 'false'
             FILTER_MODE: 'opt-out'
+
+    feature-flags:
+        image: ghcr.io/posthog/posthog/feature-flags:master
+        build:
+            context: rust/
+            args:
+                BIN: feature-flags
+        restart: on-failure
+        volumes:
+            - ./share:/share
+        environment:
+            WRITE_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            READ_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            MAXMIND_DB_PATH: '/share/GeoLite2-City.mmdb'
+            REDIS_URL: 'redis://redis:6379/'
+            ADDRESS: '0.0.0.0:3001'
+            SKIP_WRITES: 'false'
+            SKIP_READS: 'false'
 
     plugins:
         command: ./bin/plugin-server --no-restart-loop
@@ -296,3 +326,42 @@ services:
         environment:
             <<: *worker_env
             TEMPORAL_HOST: temporal
+
+    cyclotron-fetch:
+        image: ghcr.io/posthog/posthog/cyclotron-fetch:master
+        build:
+            context: rust/
+            args:
+                BIN: cyclotron-fetch
+        restart: on-failure
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
+            KAFKA_HOSTS: 'kafka:9092'
+            KAFKA_TOPIC: 'clickhouse_app_metrics2'
+            WORKER_ID: 'default_worker_id'
+            JOB_POLL_INTERVAL: '1s'
+            MAX_CONCURRENT_JOBS: '10'
+            DEBUG: '1'
+            RUST_LOG: 'info'
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka:
+                condition: service_started
+
+    cyclotron-janitor:
+        image: ghcr.io/posthog/posthog/cyclotron-janitor:master
+        build:
+            context: rust/
+            args:
+                BIN: cyclotron-janitor
+        restart: on-failure
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/cyclotron'
+            KAFKA_HOSTS: 'kafka:9092'
+            KAFKA_TOPIC: 'clickhouse_app_metrics2'
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka:
+                condition: service_started

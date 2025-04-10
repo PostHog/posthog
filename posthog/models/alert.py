@@ -29,11 +29,9 @@ def are_alerts_supported_for_insight(insight: Insight) -> bool:
     return True
 
 
+# TODO: Enable `@deprecated` once we move to Python 3.13
+# @deprecated("AlertConfiguration should be used instead.")
 class Alert(models.Model):
-    """
-    @deprecated("AlertConfiguration should be used instead.")
-    """
-
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE)
 

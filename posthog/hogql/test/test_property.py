@@ -38,9 +38,9 @@ class TestProperty(BaseTest):
 
     def _property_to_expr(
         self,
-        property: Union[PropertyGroup, Property, dict, list],
+        property: Union[PropertyGroup, Property, HogQLPropertyFilter, dict, list],
         team: Optional[Team] = None,
-        scope: Optional[Literal["event", "person"]] = None,
+        scope: Optional[Literal["event", "person", "group"]] = None,
     ):
         return clear_locations(property_to_expr(property, team=team or self.team, scope=scope or "event"))
 
@@ -85,10 +85,32 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr(Property(type="group", group_type_index=0, key="a", value=["b", "c"])),
-            self._parse_expr("group_0.properties.a = 'b' OR group_0.properties.a = 'c'"),
+            self._parse_expr("group_0.properties.a in ('b', 'c')"),
         )
 
         self.assertEqual(self._property_to_expr({"type": "group", "key": "a", "value": "b"}), self._parse_expr("1"))
+
+    def test_property_to_expr_group_scope(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "group", "group_type_index": 0, "key": "name", "value": "Hedgebox Inc."}, scope="group"
+            ),
+            self._parse_expr("properties.name = 'Hedgebox Inc.'"),
+        )
+
+        self.assertEqual(
+            self._property_to_expr(
+                Property(type="group", group_type_index=0, key="a", value=["b", "c"]), scope="group"
+            ),
+            self._parse_expr("properties.a in ('b', 'c')"),
+        )
+
+        self.assertEqual(
+            self._property_to_expr(
+                Property(type="group", group_type_index=0, key="arr", operator="gt", value=100), scope="group"
+            ),
+            self._parse_expr("properties.arr > 100"),
+        )
 
     def test_property_to_expr_group_booleans(self):
         PropertyDefinition.objects.create(
@@ -146,11 +168,11 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "icontains"}),
-            self._parse_expr("properties.a ilike '%3%'"),
+            self._parse_expr("toString(properties.a) ilike '%3%'"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "not_icontains"}),
-            self._parse_expr("properties.a not ilike '%3%'"),
+            self._parse_expr("toString(properties.a) not ilike '%3%'"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
@@ -222,7 +244,7 @@ class TestProperty(BaseTest):
         # positive
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "exact"}),
-            self._parse_expr("properties.a = 'b' OR properties.a = 'c'"),
+            self._parse_expr("properties.a in ('b', 'c')"),
         )
         self.assertEqual(
             self._property_to_expr(
@@ -233,7 +255,7 @@ class TestProperty(BaseTest):
                     "operator": "icontains",
                 }
             ),
-            self._parse_expr("properties.a ilike '%b%' or properties.a ilike '%c%'"),
+            self._parse_expr("toString(properties.a) ilike '%b%' or toString(properties.a) ilike '%c%'"),
         )
         a = self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"})
         self.assertEqual(
@@ -247,7 +269,7 @@ class TestProperty(BaseTest):
         # negative
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "is_not"}),
-            self._parse_expr("properties.a != 'b' AND properties.a != 'c'"),
+            self._parse_expr("properties.a not in ('b', 'c')"),
         )
         self.assertEqual(
             self._property_to_expr(
@@ -258,7 +280,7 @@ class TestProperty(BaseTest):
                     "operator": "not_icontains",
                 }
             ),
-            self._parse_expr("properties.a not ilike '%b%' and properties.a not ilike '%c%'"),
+            self._parse_expr("toString(properties.a) not ilike '%b%' and toString(properties.a) not ilike '%c%'"),
         )
         a = self._property_to_expr(
             {
@@ -353,7 +375,7 @@ class TestProperty(BaseTest):
                     "operator": "icontains",
                 }
             ),
-            self._parse_expr("elements_chain_href ilike '%href-text.%'"),
+            self._parse_expr("toString(elements_chain_href) ilike '%href-text.%'"),
         )
         self.assertEqual(
             self._property_to_expr(
@@ -717,27 +739,31 @@ class TestProperty(BaseTest):
         action_mock = MagicMock()
         with patch("posthog.models.Action.objects.get", return_value=action_mock):
             entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_ACTIONS, "id": 123})
-            result = entity_to_expr(entity)
+            result = entity_to_expr(entity, self.team)
             self.assertIsInstance(result, ast.Expr)
 
     def test_entity_to_expr_events_type_with_id(self):
         entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": "event_id"})
-        result = entity_to_expr(entity)
-        expected = ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["events", "event"]),
-            right=ast.Constant(value="event_id"),
+        result = entity_to_expr(entity, self.team)
+        expected = ast.And(
+            exprs=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["events", "event"]),
+                    right=ast.Constant(value="event_id"),
+                )
+            ]
         )
         self.assertEqual(result, expected)
 
     def test_entity_to_expr_events_type_without_id(self):
         entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": None})
-        result = entity_to_expr(entity)
+        result = entity_to_expr(entity, self.team)
         self.assertEqual(result, ast.Constant(value=True))
 
     def test_entity_to_expr_default_case(self):
         entity = RetentionEntity()
-        result = entity_to_expr(entity)
+        result = entity_to_expr(entity, self.team)
         self.assertEqual(result, ast.Constant(value=True))
 
     def test_session_duration(self):
@@ -827,3 +853,30 @@ class TestProperty(BaseTest):
         self.assertIsInstance(compare_op_2.left, ast.Field)
         self.assertEqual(compare_op_2.left.chain, ["foobars", "properties", "$feature/test"])
         self.assertEqual(compare_op_2.right.value, "test")
+
+    def test_property_to_expr_event_metadata(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "distinct_id", "value": "p3", "operator": "exact"},
+                scope="event",
+            ),
+            self._parse_expr("distinct_id = 'p3'"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "distinct_id", "value": ["p3", "p4"], "operator": "exact"},
+                scope="event",
+            ),
+            self._parse_expr("distinct_id in ('p3', 'p4')"),
+        )
+
+    def test_property_to_expr_event_metadata_invalid_scope(self):
+        with self.assertRaises(Exception) as e:
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "distinct_id", "value": "p3", "operator": "exact"},
+                scope="person",
+            )
+        self.assertEqual(
+            str(e.exception),
+            "The 'event_metadata' property filter does not work in 'person' scope",
+        )

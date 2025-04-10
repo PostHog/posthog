@@ -8,6 +8,8 @@ import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { Breadcrumb, FeatureFlagType } from '~/types'
 
 import type { featureFlagsLogicType } from './featureFlagsLogicType'
@@ -59,9 +61,9 @@ export interface FlagLogicProps {
 export const featureFlagsLogic = kea<featureFlagsLogicType>([
     props({} as FlagLogicProps),
     path(['scenes', 'feature-flags', 'featureFlagsLogic']),
-    connect({
+    connect(() => ({
         values: [projectLogic, ['currentProjectId']],
-    }),
+    })),
     actions({
         updateFlag: (flag: FeatureFlagType) => ({ flag }),
         deleteFlag: (id: number) => ({ id }),
@@ -175,7 +177,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             },
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setFeatureFlagsFilters: async (_, breakpoint) => {
             await breakpoint(300)
             actions.loadFeatureFlags()
@@ -183,6 +185,11 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
         setActiveTab: () => {
             // Don't carry over pagination from previous tab
             actions.setFeatureFlagsFilters({ page: 1 }, true)
+        },
+        loadFeatureFlagsSuccess: () => {
+            if (values.featureFlags.results.length > 0) {
+                activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFeatureFlag)
+            }
         },
     })),
     actionToUrl(({ values }) => {

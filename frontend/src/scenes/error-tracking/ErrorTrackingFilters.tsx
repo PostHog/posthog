@@ -1,49 +1,115 @@
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { LemonDropdown } from '@posthog/lemon-ui'
+import { BindLogic, useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
+import { TaxonomicFilterSearchInput } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
+import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
-import { useEffect, useState } from 'react'
+import { dateMapping } from 'lib/utils'
+import { useEffect, useRef, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
-import { AssigneeSelect } from './AssigneeSelect'
+import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
+
 import { errorTrackingLogic } from './errorTrackingLogic'
-import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 
-export const FilterGroup = ({ children }: { children?: React.ReactNode }): JSX.Element => {
-    const { filterGroup, filterTestAccounts } = useValues(errorTrackingLogic)
-    const { setFilterGroup, setFilterTestAccounts } = useActions(errorTrackingLogic)
+const errorTrackingDateOptions = dateMapping.filter((dm) => dm.key != 'Yesterday')
 
+const taxonomicFilterLogicKey = 'error-tracking'
+const taxonomicGroupTypes = [
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.PersonProperties,
+    TaxonomicFilterGroupType.Cohorts,
+    TaxonomicFilterGroupType.HogQLExpression,
+]
+
+export const ErrorTrackingFilters = (): JSX.Element => {
     return (
-        <div className="flex flex-1 items-center justify-between space-x-2">
-            <div className="flex flex-1 items-center gap-2 mx-2">
-                {children}
-                <UniversalFilters
-                    rootKey="error-tracking"
-                    group={filterGroup}
-                    // TODO: Probably makes sense to create a new taxonomic group for exception-specific event property filters only, keep it clean.
-                    taxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.Cohorts,
-                    ]}
-                    onChange={setFilterGroup}
-                >
-                    <RecordingsUniversalFilterGroup />
-                </UniversalFilters>
-            </div>
-            <div>
-                <TestAccountFilter
-                    size="small"
-                    filters={{ filter_test_accounts: filterTestAccounts }}
-                    onChange={({ filter_test_accounts }) => {
-                        setFilterTestAccounts(filter_test_accounts || false)
-                    }}
-                />
+        <div className="space-y-1">
+            <div className="flex gap-2 items-center">
+                <DateRange />
+                <FilterGroup />
+                <InternalAccounts />
             </div>
         </div>
+    )
+}
+
+const FilterGroup = (): JSX.Element => {
+    const { filterGroup } = useValues(errorTrackingLogic)
+    const { setFilterGroup } = useActions(errorTrackingLogic)
+
+    return (
+        <UniversalFilters
+            rootKey={taxonomicFilterLogicKey}
+            group={filterGroup.values[0] as UniversalFiltersGroup}
+            // TODO: Probably makes sense to create a new taxonomic group for exception-specific event property filters only, keep it clean.
+            taxonomicGroupTypes={taxonomicGroupTypes}
+            onChange={(group) => setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })}
+        >
+            <UniversalSearch />
+        </UniversalFilters>
+    )
+}
+
+const UniversalSearch = (): JSX.Element => {
+    const [visible, setVisible] = useState<boolean>(false)
+    const { searchQuery } = useValues(errorTrackingLogic)
+    const { setSearchQuery } = useActions(errorTrackingLogic)
+    const { addGroupFilter } = useActions(universalFiltersLogic)
+
+    const searchInputRef = useRef<HTMLInputElement | null>(null)
+    const floatingRef = useRef<HTMLDivElement | null>(null)
+
+    const onClose = (query: string): void => {
+        searchInputRef.current?.blur()
+        setVisible(false)
+        setSearchQuery(query)
+    }
+
+    const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
+        taxonomicFilterLogicKey,
+        taxonomicGroupTypes,
+        onChange: (taxonomicGroup, value, item, originalQuery) => {
+            searchInputRef.current?.blur()
+            setVisible(false)
+            addGroupFilter(taxonomicGroup, value, item, originalQuery)
+        },
+        onEnter: onClose,
+        autoSelectItem: false,
+        initialSearchQuery: searchQuery,
+    }
+
+    return (
+        <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
+            <LemonDropdown
+                overlay={
+                    <InfiniteSelectResults
+                        focusInput={() => searchInputRef.current?.focus()}
+                        taxonomicFilterLogicProps={taxonomicFilterLogicProps}
+                        popupAnchorElement={floatingRef.current}
+                        useVerticalLayout={true}
+                    />
+                }
+                matchWidth
+                visible={visible}
+                closeOnClickInside={false}
+                floatingRef={floatingRef}
+                onClickOutside={() => onClose('')}
+            >
+                <TaxonomicFilterSearchInput
+                    prefix={<RecordingsUniversalFilterGroup />}
+                    onClick={() => setVisible(true)}
+                    searchInputRef={searchInputRef}
+                    onClose={() => onClose('')}
+                    size="small"
+                    fullWidth
+                />
+            </LemonDropdown>
+        </BindLogic>
     )
 }
 
@@ -60,9 +126,8 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
         <>
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
-                    <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                        <RecordingsUniversalFilterGroup />
-                        <UniversalFilters.AddFilterButton size="small" type="secondary" />
+                    <UniversalFilters.Group index={index} key={index} group={filterOrGroup}>
+                        <UniversalSearch />
                     </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value
@@ -79,94 +144,34 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
     )
 }
 
-export const Options = (): JSX.Element => {
-    const { dateRange, assignee } = useValues(errorTrackingLogic)
-    const { setDateRange, setAssignee } = useActions(errorTrackingLogic)
-    const { orderBy } = useValues(errorTrackingSceneLogic)
-    const { setOrderBy } = useActions(errorTrackingSceneLogic)
+const DateRange = (): JSX.Element => {
+    const { dateRange } = useValues(errorTrackingLogic)
+    const { setDateRange } = useActions(errorTrackingLogic)
 
     return (
-        <div className="flex justify-between">
-            <div className="flex gap-4 py-2">
-                <div className="flex items-center gap-1">
-                    <span>Date range:</span>
-                    <DateFilter
-                        dateFrom={dateRange.date_from}
-                        dateTo={dateRange.date_to}
-                        onChange={(changedDateFrom, changedDateTo) => {
-                            setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
-                        }}
-                        size="small"
-                    />
-                </div>
-                <div className="flex items-center gap-1">
-                    <span>Sort by:</span>
-                    <LemonSelect
-                        onSelect={setOrderBy}
-                        onChange={setOrderBy}
-                        value={orderBy}
-                        options={[
-                            {
-                                value: 'last_seen',
-                                label: 'Last seen',
-                            },
-                            {
-                                value: 'first_seen',
-                                label: 'First seen',
-                            },
-                            {
-                                value: 'occurrences',
-                                label: 'Occurrences',
-                            },
-                            {
-                                value: 'users',
-                                label: 'Users',
-                            },
-                            {
-                                value: 'sessions',
-                                label: 'Sessions',
-                            },
-                        ]}
-                        size="small"
-                    />
-                </div>
-            </div>
-            <div className="flex items-center gap-1">
-                <>
-                    <span>Assigned to:</span>
-                    <AssigneeSelect
-                        showName
-                        showIcon={false}
-                        assignee={assignee}
-                        onChange={(assignee) => setAssignee(assignee)}
-                        unassignedLabel="Any user"
-                        type="secondary"
-                        size="small"
-                    />
-                </>
-            </div>
-        </div>
-    )
-}
-
-export const UniversalSearch = (): JSX.Element => {
-    const { searchQuery } = useValues(errorTrackingLogic)
-    const { setSearchQuery } = useActions(errorTrackingLogic)
-
-    return (
-        <LemonInput
-            type="search"
-            placeholder="Search..."
-            value={searchQuery}
-            onChange={setSearchQuery}
-            className="flex-grow max-w-none"
+        <DateFilter
             size="small"
+            dateFrom={dateRange.date_from}
+            dateTo={dateRange.date_to}
+            dateOptions={errorTrackingDateOptions}
+            onChange={(changedDateFrom, changedDateTo) =>
+                setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
+            }
         />
     )
 }
 
-export default {
-    FilterGroup,
-    Options,
-    UniversalSearch,
+const InternalAccounts = (): JSX.Element => {
+    const { filterTestAccounts } = useValues(errorTrackingLogic)
+    const { setFilterTestAccounts } = useActions(errorTrackingLogic)
+
+    return (
+        <div>
+            <TestAccountFilter
+                size="small"
+                filters={{ filter_test_accounts: filterTestAccounts }}
+                onChange={({ filter_test_accounts }) => setFilterTestAccounts(filter_test_accounts || false)}
+            />
+        </div>
+    )
 }

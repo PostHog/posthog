@@ -26,7 +26,7 @@ export function PasswordResetComplete(): JSX.Element {
         <BridgePage view="password-reset-complete">
             {invalidLink && (
                 <div className="text-center mb-2">
-                    <IconErrorOutline className="text-muted text-4xl" />
+                    <IconErrorOutline className="text-secondary text-4xl" />
                 </div>
             )}
             <h2>{invalidLink ? 'Unable to reset' : 'Set a new password'}</h2>
@@ -53,7 +53,12 @@ function NewPasswordForm(): JSX.Element {
                         'Could not complete your password reset request. Please try again.'}
                 </LemonBanner>
             )}
-            <Form logic={passwordResetLogic} formKey="passwordReset" className="space-y-4" enableFormOnSubmit>
+            <Form
+                logic={passwordResetLogic}
+                formKey="passwordReset"
+                className="deprecated-space-y-4"
+                enableFormOnSubmit
+            >
                 <LemonField
                     name="password"
                     label={

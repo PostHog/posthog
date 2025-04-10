@@ -6,7 +6,7 @@ def test_format_label_date_with_hour_interval():
     date = datetime.datetime(2022, 12, 31, 23, 59)
     interval = "hour"
     formatted_date = format_label_date(date, interval)
-    assert formatted_date == "31-Dec-2022 23:59"
+    assert formatted_date == "31-Dec 23:59"
 
 
 def test_format_label_date_with_month_interval():

@@ -11,7 +11,7 @@ from posthog.api.dead_letter_queue import (
     get_dead_letter_queue_size,
 )
 from posthog.cache_utils import cache_for
-from posthog.client import query_with_columns, sync_execute
+from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.models.event.util import (
     get_event_count,
     get_event_count_for_last_month,

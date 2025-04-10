@@ -1,4 +1,5 @@
 @import '../../styles/mixins';
+@import '../../styles/vars';
 
 .saved-insights {
     .new-insight-dropdown-btn {
@@ -6,8 +7,8 @@
         padding: 8px 12px 8px 16px;
         color: white;
         cursor: pointer;
-        background-color: var(--primary-3000);
-        border: 1px solid var(--border);
+        background-color: var(--accent);
+        border: 1px solid var(--border-primary);
         border-radius: var(--radius);
     }
 
@@ -16,33 +17,6 @@
         align-items: center;
         justify-content: center;
         text-align: center;
-
-        .insight-empty-state__wrapper {
-            max-width: 600px;
-            margin-top: 5rem;
-            margin-bottom: 17rem;
-
-            .illustration-main {
-                margin-bottom: 1rem;
-                font-size: 5rem;
-                line-height: 1em;
-                color: var(--border);
-                text-align: center;
-            }
-
-            .empty-state__title {
-                font-size: 1.5rem;
-                font-weight: 600;
-                line-height: 1.6rem;
-            }
-
-            .empty-state__description {
-                font-size: 1rem;
-                font-weight: 500;
-                line-height: 1.7rem;
-                color: var(--muted);
-            }
-        }
     }
 }
 

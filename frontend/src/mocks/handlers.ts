@@ -17,7 +17,8 @@ import { SharingConfigurationType } from '~/types'
 
 import { getAvailableProductFeatures } from './features'
 import { billingJson } from './fixtures/_billing'
-import _hogFunctionTemplates from './fixtures/_hogFunctionTemplates.json'
+import _hogFunctionTemplatesDestinations from './fixtures/_hogFunctionTemplatesDestinations.json'
+import _hogFunctionTemplatesTransformations from './fixtures/_hogFunctionTemplatesTransformations.json'
 import * as statusPageAllOK from './fixtures/_status_page_all_ok.json'
 import { Mocks, MockSignature, mocksToHandlers } from './utils'
 
@@ -30,11 +31,22 @@ export const toPaginatedResponse = (results: any[]): typeof EMPTY_PAGINATED_RESP
 })
 
 const hogFunctionTemplateRetrieveMock: MockSignature = (req, res, ctx) => {
-    const hogFunctionTemplate = _hogFunctionTemplates.results.find((conf) => conf.id === req.params.id)
-    if (!_hogFunctionTemplates) {
+    const hogFunctionTemplate =
+        _hogFunctionTemplatesDestinations.results.find((conf) => conf.id === req.params.id) ||
+        _hogFunctionTemplatesTransformations.results.find((conf) => conf.id === req.params.id)
+    if (!hogFunctionTemplate) {
         return res(ctx.status(404))
     }
     return res(ctx.json({ ...hogFunctionTemplate }))
+}
+
+const hogFunctionTemplatesMock: MockSignature = (req, res, ctx) => {
+    const results =
+        req.url.searchParams.get('types') === 'transformation'
+            ? _hogFunctionTemplatesTransformations
+            : _hogFunctionTemplatesDestinations
+
+    return res(ctx.json({ ...results }))
 }
 
 // this really returns MaybePromise<ResponseFunction<any>>
@@ -60,9 +72,10 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/cohorts/': toPaginatedResponse([MOCK_DEFAULT_COHORT]),
         '/api/environments/:team_id/dashboards/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/alerts/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/hog_functions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/dashboard_templates': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/dashboard_templates/repository/': [],
-        '/api/projects/:team_id/external_data_sources/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/external_data_sources/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/notebooks': () => {
             // this was matching on `?contains=query` but that made MSW unhappy and seems unnecessary
             return [
@@ -78,6 +91,8 @@ export const defaultMocks: Mocks = {
         },
         '/api/projects/:team_id/groups/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/groups_types/': [],
+        '/api/environments/:team_id/groups/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/groups_types/': [],
         '/api/environments/:team_id/insights/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/insights/:insight_id/sharing/': {
             enabled: false,
@@ -91,7 +106,7 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/explicit_members/': [],
         '/api/projects/:team_id/warehouse_view_link/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
-        '/api/projects/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/@current/': (): MockSignature => [
             200,
             { ...MOCK_DEFAULT_ORGANIZATION, available_product_features: getAvailableProductFeatures() },
@@ -121,6 +136,17 @@ export const defaultMocks: Mocks = {
             },
         ],
         '/api/users/@me/two_factor_status/': () => [200, { is_enabled: true, backup_codes: [], method: 'TOTP' }],
+        '/api/users/@me/hedgehog_config/': {
+            skin: 'spiderhog',
+            color: null,
+            enabled: false,
+            accessories: ['tophat', 'sunglasses'],
+            use_as_profile: true,
+            walking_enabled: true,
+            controls_enabled: true,
+            party_mode_enabled: true,
+            interactions_enabled: true,
+        },
         '/api/environments/@current/': MOCK_DEFAULT_TEAM,
         '/api/projects/@current/': MOCK_DEFAULT_TEAM,
         '/api/projects/:team_id/comments/count': { count: 0 },
@@ -151,7 +177,7 @@ export const defaultMocks: Mocks = {
             eligible: false,
         },
         'https://status.posthog.com/api/v2/summary.json': statusPageAllOK,
-        '/api/projects/:team_id/hog_function_templates': _hogFunctionTemplates,
+        '/api/projects/:team_id/hog_function_templates': hogFunctionTemplatesMock,
         '/api/projects/:team_id/hog_function_templates/:id': hogFunctionTemplateRetrieveMock,
         '/api/projects/:team_id/hog_functions': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/data_color_themes': MOCK_DATA_COLOR_THEMES,
@@ -163,6 +189,9 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/insights/my_last_viewed': EMPTY_PAGINATED_RESPONSE,
         'api/projects/:team_id/early_access_feature': EMPTY_PAGINATED_RESPONSE,
         'api/environments/:team_id/early_access_feature': EMPTY_PAGINATED_RESPONSE,
+        '/api/organizations/:organization_id/proxy_records/': [],
+        '/api/projects/:team_id/dashboard_templates/json_schema/': EMPTY_PAGINATED_RESPONSE,
+        '/api/organizations/:organization_id/domains/': EMPTY_PAGINATED_RESPONSE,
     },
     post: {
         'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
@@ -175,6 +204,7 @@ export const defaultMocks: Mocks = {
     },
     patch: {
         '/api/projects/:team_id/session_recording_playlists/:playlist_id/': {},
+        '/api/environments/:team_id/': MOCK_DEFAULT_TEAM,
     },
     options: {
         'https://us.i.posthog.com/decide/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),

@@ -6,6 +6,7 @@ from posthog.hogql.escape_sql import escape_hogql_string
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    free=False,
     type="destination",
     id="template-posthog-replicator",
     name="PostHog",

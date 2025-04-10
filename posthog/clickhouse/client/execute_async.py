@@ -24,10 +24,18 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+CUSTOM_BUCKETS = (0.05, 0.1, 0.5, 1.0, 2.5, 5.0, 7.5, 10.0, 20, 30, 60, 120, 300, 600, float("inf"))
+
 QUERY_WAIT_TIME = Histogram(
-    "query_wait_time_seconds", "Time from query creation to pick-up", labelnames=["team", "mode"]
+    "query_wait_time_seconds",
+    "Time from query creation to pick-up",
+    labelnames=["team", "mode"],
+    buckets=Histogram.DEFAULT_BUCKETS[2:-1] + (20, 30, 60, 120, 300, 600, float("inf")),
 )
-QUERY_PROCESS_TIME = Histogram("query_process_time_seconds", "Time from query pick-up to result", labelnames=["team"])
+
+QUERY_PROCESS_TIME = Histogram(
+    "query_process_time_seconds", "Time from query pick-up to result", labelnames=["team"], buckets=CUSTOM_BUCKETS
+)
 
 
 class QueryNotFoundError(NotFound):
@@ -138,6 +146,7 @@ def execute_process_query(
     query_id: str,
     query_json: dict,
     limit_context: Optional[LimitContext],
+    is_query_service: bool = False,
 ):
     manager = QueryStatusManager(query_id, team_id)
 
@@ -185,6 +194,7 @@ def execute_process_query(
             insight_id=query_status.insight_id,
             dashboard_id=query_status.dashboard_id,
             user=user,
+            is_query_service=is_query_service,
         )
         if isinstance(results, BaseModel):
             results = results.model_dump(by_alias=True)
@@ -222,6 +232,7 @@ def enqueue_process_query_task(
     refresh_requested: bool = False,
     force: bool = False,
     _test_only_bypass_celery: bool = False,
+    is_query_service: bool = False,
 ) -> QueryStatus:
     if not query_id:
         query_id = uuid.uuid4().hex
@@ -245,7 +256,9 @@ def enqueue_process_query_task(
     )
     manager.store_query_status(query_status)
 
-    task_signature = process_query_task.si(team.id, user_id, query_id, query_json, LimitContext.QUERY_ASYNC)
+    task_signature = process_query_task.si(
+        team.id, user_id, query_id, query_json, is_query_service, LimitContext.QUERY_ASYNC
+    )
 
     if _test_only_bypass_celery:
         task_signature()
@@ -263,25 +276,41 @@ def get_query_status(team_id: int, query_id: str, show_progress: bool = False) -
     return manager.get_query_status(show_progress=show_progress)
 
 
-def cancel_query(team_id: int, query_id: str) -> bool:
+def cancel_query(team_id: int, query_id: str, dequeue_only: bool = False) -> str:
+    """
+    Cancel a query.
+    First tries to see if the query is queued in celery and revokes it.
+    If the query is not queued, it will be cancelled on clickhouse.
+
+    If dequeue_only is True, only tries to revoke the task, not cancel the query on clickhouse.
+    Useful as we don't want to overwhelm clickhouse with KILL queries.
+    """
     manager = QueryStatusManager(query_id, team_id)
+    message = "Query task revoked"
 
     try:
         query_status = manager.get_query_status()
 
+        if query_status.complete:
+            return "Query already complete"
+
         if query_status.task_id:
             logger.info("Got task id %s, attempting to revoke", query_status.task_id)
-            celery.app.control.revoke(query_status.task_id, terminate=True)
+            celery.app.control.revoke(query_status.task_id)
 
             logger.info("Revoked task id %s", query_status.task_id)
     except QueryNotFoundError:
         # Continue, to attempt to cancel the query even if it's not a task
         pass
 
-    from posthog.clickhouse.cancel import cancel_query_on_cluster
+    if dequeue_only:
+        message = "Only tried to dequeue, not cancelling query on clickhouse"
+    else:
+        from posthog.clickhouse.cancel import cancel_query_on_cluster
 
-    cancel_query_on_cluster(team_id, query_id)
+        cancel_query_on_cluster(team_id, query_id)
+        message = "Cancelled query on clickhouse"
 
     manager.delete_query_status()
 
-    return True
+    return message

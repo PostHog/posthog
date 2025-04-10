@@ -38,7 +38,7 @@ export function Annotations(): JSX.Element {
             width: '30%',
             render: function RenderAnnotation(_, annotation: AnnotationType): JSX.Element {
                 return (
-                    <div className="ph-no-capture font-semibold">
+                    <div className="font-semibold">
                         <Link subtle to={urls.annotation(annotation.id)}>
                             {annotation.content}
                         </Link>

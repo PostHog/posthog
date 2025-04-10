@@ -10,7 +10,7 @@
     width: 100%;
     height: 100vh;
     overflow: hidden;
-    background: var(--bg-3000);
+    background: var(--bg-primary);
 
     .storybook-test-runner & {
         height: auto;
@@ -97,7 +97,7 @@
         flex-direction: column;
         justify-content: space-between;
         overflow-y: auto;
-        background: var(--accent-3000);
+        background: var(--bg-surface-secondary);
 
         .LemonButton__chrome {
             --lemon-button-padding-horizontal: 0.25rem !important;
@@ -168,19 +168,19 @@
     --sidebar-slider-padding: 0.125rem;
     --sidebar-horizontal-padding: 0.5rem;
     --sidebar-row-height: 3rem;
-    --sidebar-background: var(--bg-3000);
+    --sidebar-background: var(--bg-primary);
 
     position: relative;
     box-sizing: content-box;
-    flex: 0 0 var(--sidebar-width);
-    height: 100vh;
+    flex: 1 0 var(--sidebar-width);
+    height: 100%;
 
     // This border is just for sizing, the visible border is on the content and slider
     // Hidden when the sidebar is closed
     border-right: min(1px, var(--sidebar-width)) solid transparent;
 
     [theme='dark'] & {
-        --sidebar-background: var(--accent-3000);
+        --sidebar-background: var(--bg-surface-primary);
     }
 
     &.Sidebar3000--resizing {
@@ -223,6 +223,7 @@
 
     .LemonInput--type-search {
         max-width: none;
+        height: 100%;
         border-color: transparent; // Only show border on focus here
         border-radius: 0;
         transition: none;
@@ -235,14 +236,13 @@
     flex-direction: column;
     align-items: stretch;
     width: var(--sidebar-width);
-    height: 100vh;
+    height: 100%;
     overflow: hidden;
     font-size: 0.6875rem;
     white-space: nowrap;
-    background: var(--sidebar-background);
 
     // Extend the border into viewport overscroll
-    border-right: min(1px, var(--sidebar-width)) solid var(--border);
+    border-right: min(1px, var(--sidebar-width)) solid var(--border-primary);
 
     .Sidebar3000--resizing & {
         will-change: width;
@@ -271,7 +271,7 @@
     padding: 0 var(--sidebar-horizontal-padding);
     font-weight: 500;
     user-select: none;
-    background: var(--bg-3000);
+    background: var(--bg-primary);
     border-top-width: 1px;
 }
 
@@ -302,7 +302,7 @@
     }
 
     &::before {
-        background: var(--border);
+        background: var(--border-primary);
         transition: 100ms ease transform;
     }
 
@@ -341,7 +341,7 @@
     --accordion-arrow-size: 1rem;
     --accordion-row-height: 32px;
     --accordion-inset-expandable: 1.25rem;
-    --accordion-header-background: var(--accent-3000);
+    --accordion-header-background: var(--bg-surface-primary);
     --accordion-inset: 0rem;
 
     display: flex;
@@ -351,7 +351,7 @@
     min-height: var(--accordion-row-height);
 
     [theme='dark'] & {
-        --accordion-header-background: var(--bg-3000);
+        --accordion-header-background: var(--bg-primary);
     }
 
     &[aria-expanded] {
@@ -386,11 +386,10 @@
     padding: 0 var(--sidebar-horizontal-padding);
     cursor: pointer;
     user-select: none;
-    background: var(--accordion-header-background);
     border-bottom-width: 1px;
 
     &:hover {
-        background: var(--border-3000);
+        background: var(--border-primary);
     }
 
     > .LemonIcon {
@@ -409,7 +408,7 @@
 .SidebarListItemAccordion {
     --accordion-arrow-size: 1rem;
     --accordion-inset-expandable: 1.25rem;
-    --accordion-header-background: var(--accent-3000);
+    --accordion-header-background: var(--bg-surface-primary);
     --accordion-inset: 0rem;
 
     display: flex;
@@ -419,7 +418,7 @@
     height: 100%;
 
     [theme='dark'] & {
-        --accordion-header-background: var(--bg-3000);
+        --accordion-header-background: var(--bg-primary);
     }
 
     &[role='region'] {
@@ -444,11 +443,10 @@
     padding: 0 var(--sidebar-horizontal-padding) 0 calc(var(--sidebar-horizontal-padding) + 1rem * var(--depth, 0));
     cursor: pointer;
     user-select: none;
-    background: var(--accordion-header-background);
     border-bottom-width: 1px;
 
     &:hover {
-        background: var(--border-3000);
+        background: var(--border-primary);
     }
 
     > .LemonIcon {
@@ -461,17 +459,21 @@
             transform: rotate(90deg);
         }
     }
+
+    .SidebarListItemAccordion__icon {
+        margin-right: 4px;
+    }
 }
 
 .SidebarListItem {
-    --sidebar-list-item-status-color: var(--muted);
+    --sidebar-list-item-status-color: var(--text-secondary);
     --sidebar-list-item-fold-size: 0.5rem;
     --sidebar-list-item-ribbon-width: 0.1875rem;
     --sidebar-list-item-background: var(--sidebar-background);
 
     position: relative;
     line-height: 1.125rem;
-    color: var(--muted);
+    color: var(--text-secondary);
     list-style: none;
     background: var(--sidebar-list-item-background);
     border-bottom-width: 1px;
@@ -480,7 +482,7 @@
     &:hover:not([aria-disabled='true']),
     &[aria-current='page'],
     &.SidebarListItem--is-renaming {
-        --sidebar-list-item-background: var(--border-3000);
+        --sidebar-list-item-background: var(--border-primary);
 
         opacity: 1;
     }
@@ -579,14 +581,14 @@
     display: flex;
     width: 100%;
     height: 100%;
-    color: inherit;
+    color: var(--text-3000);
 
     &:focus-visible::after {
         position: absolute;
         inset: 0 0 -1px;
         pointer-events: none;
         content: '';
-        border: 1px solid var(--border-3000);
+        border: 1px solid var(--border-primary);
     }
 }
 
@@ -595,7 +597,7 @@
     row-gap: 1px;
     justify-content: center;
     padding: 0 var(--sidebar-horizontal-padding) 0 var(--sidebar-list-item-inset);
-    color: inherit !important; // Disable link color
+
     .SidebarListItem[aria-disabled='true'] & {
         cursor: default;
     }
@@ -609,20 +611,14 @@
     padding: 0 var(--sidebar-horizontal-padding) 0
         calc(0.25rem + var(--sidebar-horizontal-padding) + 1rem * var(--depth, 0));
     font-size: 1.125rem; // Make icons bigger
-    color: inherit !important; // Disable link color
     cursor: pointer;
 
     &:hover {
-        background: var(--border-3000);
+        background: var(--border-primary);
     }
 
     .SidebarListItem__icon {
         flex-shrink: 0;
-    }
-
-    .SidebarListItem__name {
-        overflow: hidden;
-        text-overflow: ellipsis;
     }
 }
 
@@ -631,7 +627,7 @@
     justify-content: center;
 
     // Pseudo-elements don't work on inputs, so we use a wrapper div
-    background: var(--bg-light);
+    background: var(--bg-surface-primary);
 
     input {
         width: 100%;
@@ -648,7 +644,7 @@
         inset: 0 0 -1px;
         pointer-events: none;
         content: '';
-        border: 1px solid var(--border);
+        border: 1px solid var(--border-primary);
 
         .SidebarListItem[aria-invalid='true'] & {
             border-color: var(--danger);

@@ -27,7 +27,7 @@ DEFAULT_POSTGRES_OP = AsyncMigrationOperationSQL(database=AnalyticsDBMS.POSTGRES
 
 
 class TestUtils(AsyncMigrationBaseTest):
-    @patch("posthog.client.sync_execute")
+    @patch("posthog.clickhouse.client.sync_execute")
     def test_execute_op_clickhouse(self, mock_sync_execute):
         execute_op(DEFAULT_CH_OP, "some_id")
 

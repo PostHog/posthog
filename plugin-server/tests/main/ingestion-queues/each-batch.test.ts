@@ -1,3 +1,5 @@
+import { PostgresRouter } from '~/src/utils/db/postgres'
+
 import { buildStringMatcher } from '../../../src/config/config'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
 import {
@@ -16,6 +18,7 @@ import {
     ClickHouseTimestampSecondPrecision,
     ISOTimestamp,
     PostIngestionEvent,
+    ProjectId,
     RawKafkaEvent,
 } from '../../../src/types'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
@@ -35,7 +38,7 @@ jest.mock('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep', (
         processWebhooksStep: jest.fn(originalModule.processWebhooksStep),
     }
 })
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 jest.mock('./../../../src/worker/ingestion/utils')
 
 const runEventPipeline = jest.fn().mockResolvedValue('default value')
@@ -50,7 +53,7 @@ const event: PostIngestionEvent = {
     eventUuid: 'uuid1',
     distinctId: 'my_id',
     teamId: 2,
-    projectId: 1,
+    projectId: 1 as ProjectId,
     timestamp: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
     event: '$pageview',
     properties: {},
@@ -60,6 +63,7 @@ const event: PostIngestionEvent = {
     person_properties: {},
 }
 
+// @ts-expect-error TODO: Fix add `person_mode` to this
 const kafkaEvent: RawKafkaEvent = {
     event: '$pageview',
     properties: JSON.stringify({
@@ -69,7 +73,7 @@ const kafkaEvent: RawKafkaEvent = {
     elements_chain: '',
     timestamp: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
     team_id: 2,
-    project_id: 1,
+    project_id: 1 as ProjectId,
     distinct_id: 'my_id',
     created_at: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
     person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC',
@@ -134,11 +138,10 @@ describe('eachBatchX', () => {
         queue = {
             bufferSleep: jest.fn(),
             pluginsServer: {
-                WORKER_CONCURRENCY: 1,
                 TASKS_PER_WORKER: 10,
                 INGESTION_CONCURRENCY: 4,
                 kafkaProducer: {
-                    queueMessage: jest.fn(),
+                    queueMessages: jest.fn(() => Promise.resolve()),
                 },
                 pluginConfigsPerTeam: new Map(),
             },
@@ -169,11 +172,7 @@ describe('eachBatchX', () => {
     describe('eachBatchWebhooksHandlers', () => {
         it('calls runWebhooksHandlersEventPipeline', async () => {
             const actionManager = new ActionManager(queue.pluginsServer.postgres, queue.pluginsServer)
-            const actionMatcher = new ActionMatcher(
-                queue.pluginsServer.postgres,
-                actionManager,
-                queue.pluginsServer.teamManager
-            )
+            const actionMatcher = new ActionMatcher(queue.pluginsServer.postgres, actionManager)
             const hookCannon = new HookCommander(
                 queue.pluginsServer.postgres,
                 queue.pluginsServer.teamManager,
@@ -187,7 +186,7 @@ describe('eachBatchX', () => {
             } as unknown as GroupTypeManager
             const organizatonManager: OrganizationManager = {
                 hasAvailableFeature: jest.fn(() => Promise.resolve(true)),
-            } as unknown as GroupTypeManager
+            } as unknown as OrganizationManager
 
             const matchSpy = jest.spyOn(actionMatcher, 'match')
             // mock hasWebhooks to return true
@@ -198,7 +197,10 @@ describe('eachBatchX', () => {
                 hookCannon,
                 10,
                 groupTypeManager,
-                organizatonManager
+                organizatonManager,
+
+                // @ts-expect-error this is not being used in the function, so just passing null here
+                null as PostgresRouter
             )
 
             // NOTE: really it would be nice to verify that fire has been called

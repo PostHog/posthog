@@ -1,6 +1,6 @@
-import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { lemonToast, Spinner } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import api from 'lib/api'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -17,9 +17,9 @@ export interface LiveEventsTableProps {
 export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     path(['scenes', 'activity', 'live-events', 'liveEventsTableLogic']),
     props({} as LiveEventsTableProps),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
-    }),
+    })),
     actions(() => ({
         addEvents: (events) => ({ events }),
         clearEvents: true,
@@ -96,7 +96,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                     if (!state.includes(eventHost)) {
                         return [...state, eventHost]
                     }
-                    return state
+                    return state ?? []
                 },
             },
         ],
@@ -141,12 +141,12 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
             cache.batch = []
             cache.eventSourceController = new AbortController()
 
-            await fetchEventSource(url.toString(), {
+            await api.stream(url.toString(), {
                 headers: {
                     Authorization: `Bearer ${values.currentTeam.live_events_token}`,
                 },
                 signal: cache.eventSourceController.signal,
-                onmessage: (event) => {
+                onMessage: (event) => {
                     lemonToast.dismiss(ERROR_TOAST_ID)
                     const eventData = JSON.parse(event.data)
                     cache.batch.push(eventData)
@@ -156,7 +156,7 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                         cache.batch.length = 0
                     }
                 },
-                onerror: (error) => {
+                onError: (error) => {
                     if (!cache.hasShownLiveStreamErrorToast && props.showLiveStreamErrorToast) {
                         console.error('Failed to poll events. You likely have no events coming in.', error)
                         lemonToast.error(`No live events found. Continuing to retry in the background…`, {
@@ -192,6 +192,10 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
                 actions.setStats(data)
             } catch (error) {
                 console.error('Failed to poll stats:', error)
+            } finally {
+                cache.statsTimer = setTimeout(() => {
+                    actions.pollStats()
+                }, 1500)
             }
         },
         addEvents: ({ events }) => {
@@ -209,16 +213,14 @@ export const liveEventsTableLogic = kea<liveEventsTableLogicType>([
     events(({ actions, cache }) => ({
         afterMount: () => {
             actions.updateEventsConnection()
-            cache.statsInterval = setInterval(() => {
-                actions.pollStats()
-            }, 1500)
+            actions.pollStats()
         },
         beforeUnmount: () => {
             if (cache.eventSourceController) {
                 cache.eventSourceController.abort()
             }
-            if (cache.statsInterval) {
-                clearInterval(cache.statsInterval)
+            if (cache.statsTimer) {
+                clearTimeout(cache.statsTimer)
             }
         },
     })),

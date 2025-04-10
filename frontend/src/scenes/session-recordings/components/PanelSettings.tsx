@@ -1,5 +1,11 @@
+import './PanelSettings.scss'
+
 import clsx from 'clsx'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import {
+    LemonButton,
+    LemonButtonWithoutSideActionProps,
+    LemonButtonWithSideActionProps,
+} from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem, LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PropsWithChildren } from 'react'
@@ -19,6 +25,10 @@ interface SettingsMenuProps extends Omit<LemonMenuProps, 'items' | 'children'> {
     whenUnavailable?: LemonMenuItem
     highlightWhenActive?: boolean
     closeOnClickInside?: boolean
+    /**
+     * Whether the button should be rounded or not
+     */
+    rounded?: boolean
 }
 
 export function SettingsBar({
@@ -32,10 +42,12 @@ export function SettingsBar({
     return (
         <div
             className={clsx(
-                ['bottom', 'all'].includes(border) && 'border-b',
-                ['top', 'all'].includes(border) && 'border-t',
-                'flex flex-row w-full overflow-hidden font-light text-xs bg-bg-3000 items-center',
-                className
+                'flex flex-row w-full overflow-hidden font-light text-xs bg-primary items-center',
+                className,
+                {
+                    'border-b': ['bottom', 'all'].includes(border),
+                    'border-t': ['top', 'all'].includes(border),
+                }
             )}
         >
             {children}
@@ -51,6 +63,7 @@ export function SettingsMenu({
     closeOnClickInside = true,
     highlightWhenActive = true,
     whenUnavailable,
+    rounded = false,
     ...props
 }: SettingsMenuProps): JSX.Element {
     const active = items.some((cf) => !!cf.active)
@@ -62,7 +75,7 @@ export function SettingsMenu({
             {...props}
         >
             <LemonButton
-                className="rounded-[0px]"
+                className={clsx(rounded ? 'rounded' : 'rounded-[0px]')}
                 status={highlightWhenActive && active ? 'danger' : 'default'}
                 size="xsmall"
                 icon={icon}
@@ -73,7 +86,10 @@ export function SettingsMenu({
     )
 }
 
-type SettingsButtonProps = Omit<LemonButtonProps, 'status' | 'sideAction' | 'className'> & {
+type SettingsButtonProps = (
+    | Omit<LemonButtonWithoutSideActionProps, 'status' | 'className'>
+    | Omit<LemonButtonWithSideActionProps, 'status' | 'className'>
+) & {
     title?: string
     icon?: JSX.Element | null
     label: JSX.Element | string
@@ -81,16 +97,17 @@ type SettingsButtonProps = Omit<LemonButtonProps, 'status' | 'sideAction' | 'cla
 
 type SettingsToggleProps = SettingsButtonProps & {
     active: boolean
+    rounded?: boolean
 }
 
 export function SettingsButton(props: SettingsButtonProps): JSX.Element {
     return <SettingsToggle active={false} {...props} />
 }
 
-export function SettingsToggle({ title, icon, label, active, ...props }: SettingsToggleProps): JSX.Element {
+export function SettingsToggle({ title, icon, label, active, rounded, ...props }: SettingsToggleProps): JSX.Element {
     const button = (
         <LemonButton
-            className="rounded-[0px]"
+            className={clsx(rounded ? 'rounded' : 'rounded-[0px]')}
             icon={icon}
             size="xsmall"
             status={active ? 'danger' : 'default'}
@@ -101,5 +118,9 @@ export function SettingsToggle({ title, icon, label, active, ...props }: Setting
     )
 
     // otherwise the tooltip shows instead of the disabled reason
-    return props.disabledReason ? button : <Tooltip title={title}>{button}</Tooltip>
+    return (
+        <div className={clsx(rounded ? 'SettingsBar--button--rounded' : 'SettingsBar--button--square')}>
+            {props.disabledReason ? button : <Tooltip title={title}>{button}</Tooltip>}
+        </div>
+    )
 }

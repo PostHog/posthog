@@ -15,10 +15,10 @@ from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.models import GroupTypeMapping
 from posthog.schema import (
     AssistantMessage,
+    AssistantToolCallMessage,
     AssistantTrendsQuery,
     FailureMessage,
     HumanMessage,
-    RouterMessage,
     VisualizationMessage,
 )
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
@@ -46,47 +46,13 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_agent_reconstructs_conversation(self):
         node = self._get_node()
-        history = node._construct_messages(AssistantState(messages=[HumanMessage(content="Text")]))
+        history = node._construct_messages(
+            AssistantState(messages=[HumanMessage(content="Message")], root_tool_insight_plan="Text")
+        )
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0].type, "human")
         self.assertIn("Text", history[0].content)
         self.assertNotIn(f"{{question}}", history[0].content)
-
-        history = node._construct_messages(
-            AssistantState(
-                messages=[
-                    HumanMessage(content="Text", id="0"),
-                    VisualizationMessage(answer=self.schema, plan="randomplan", id="1", initiator="0"),
-                ],
-                start_id="1",
-            )
-        )
-        self.assertEqual(len(history), 2)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("Text", history[0].content)
-        self.assertNotIn("{{question}}", history[0].content)
-        self.assertEqual(history[1].type, "ai")
-        self.assertEqual(history[1].content, "randomplan")
-
-        history = node._construct_messages(
-            AssistantState(
-                messages=[
-                    HumanMessage(content="Text", id="0"),
-                    VisualizationMessage(answer=self.schema, plan="randomplan", id="1", initiator="0"),
-                    HumanMessage(content="Text", id="2"),
-                ],
-                start_id="2",
-            )
-        )
-        self.assertEqual(len(history), 3)
-        self.assertEqual(history[0].type, "human")
-        self.assertIn("Text", history[0].content)
-        self.assertNotIn("{{question}}", history[0].content)
-        self.assertEqual(history[1].type, "ai")
-        self.assertEqual(history[1].content, "randomplan")
-        self.assertEqual(history[2].type, "human")
-        self.assertIn("Text", history[2].content)
-        self.assertNotIn("{{question}}", history[2].content)
 
     def test_agent_reconstructs_conversation_and_omits_unknown_messages(self):
         node = self._get_node()
@@ -94,15 +60,15 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
             AssistantState(
                 messages=[
                     HumanMessage(content="Text", id="0"),
-                    RouterMessage(content="trends", id="1"),
                     AssistantMessage(content="test", id="2"),
                 ],
                 start_id="0",
+                root_tool_insight_plan="Question",
             )
         )
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0].type, "human")
-        self.assertIn("Text", history[0].content)
+        self.assertIn("Question", history[0].content)
         self.assertNotIn("{{question}}", history[0].content)
 
     def test_agent_reconstructs_conversation_with_failures(self):
@@ -114,11 +80,12 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
                     FailureMessage(content="Error"),
                     HumanMessage(content="Text"),
                 ],
+                root_tool_insight_plan="Question",
             )
         )
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0].type, "human")
-        self.assertIn("Text", history[0].content)
+        self.assertIn("Question", history[0].content)
         self.assertNotIn("{{question}}", history[0].content)
 
     def test_agent_reconstructs_typical_conversation(self):
@@ -126,23 +93,25 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         history = node._construct_messages(
             AssistantState(
                 messages=[
-                    HumanMessage(content="Question 1", id="0"),
-                    RouterMessage(content="trends", id="1"),
-                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1", id="2", initiator="0"),
+                    HumanMessage(content="General Question 1", id="0"),
+                    VisualizationMessage(
+                        answer=AssistantTrendsQuery(series=[]), plan="Plan 1", id="2", initiator="0", query="Question 1"
+                    ),
                     AssistantMessage(content="Summary 1", id="3"),
-                    HumanMessage(content="Question 2", id="4"),
-                    RouterMessage(content="funnel", id="5"),
+                    HumanMessage(content="General Question 2", id="4"),
+                    AssistantToolCallMessage(content="funnel", id="5", tool_call_id="5"),
                     AssistantMessage(content="Loop 1", id="6"),
                     HumanMessage(content="Loop Answer 1", id="7"),
-                    VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2", id="8", initiator="4"),
+                    VisualizationMessage(
+                        answer=AssistantTrendsQuery(series=[]), plan="Plan 2", id="8", initiator="4", query="Question 2"
+                    ),
                     AssistantMessage(content="Summary 2", id="9"),
-                    HumanMessage(content="Question 3", id="10"),
-                    RouterMessage(content="funnel", id="11"),
+                    HumanMessage(content="General Question 3", id="10"),
                 ],
-                start_id="10",
+                root_tool_insight_plan="Question 3",
             )
         )
-        self.assertEqual(len(history), 7)
+        self.assertEqual(len(history), 5)
         self.assertEqual(history[0].type, "human")
         self.assertIn("Question 1", history[0].content)
         self.assertEqual(history[1].type, "ai")
@@ -150,30 +119,18 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(history[2].type, "human")
         self.assertIn("Question 2", history[2].content)
         self.assertEqual(history[3].type, "ai")
-        self.assertEqual(history[3].content, "Loop 1")
+        self.assertEqual(history[3].content, "Plan 2")
         self.assertEqual(history[4].type, "human")
-        self.assertEqual(history[4].content, "Loop Answer 1")
-        self.assertEqual(history[5].type, "ai")
-        self.assertEqual(history[5].content, "Plan 2")
-        self.assertEqual(history[6].type, "human")
-        self.assertIn("Question 3", history[6].content)
+        self.assertIn("Question 3", history[4].content)
 
-    def test_agent_reconstructs_conversation_without_messages_after_parent(self):
+    def test_adds_format_reminder(self):
         node = self._get_node()
         history = node._construct_messages(
-            AssistantState(
-                messages=[
-                    HumanMessage(content="Question 1", id="0"),
-                    RouterMessage(content="trends", id="1"),
-                    AssistantMessage(content="Loop 1", id="2"),
-                    HumanMessage(content="Loop Answer 1", id="3"),
-                ],
-                start_id="0",
-            )
+            AssistantState(messages=[HumanMessage(content="Message")], root_tool_insight_plan="Text")
         )
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0].type, "human")
-        self.assertIn("Question 1", history[0].content)
+        self.assertIn("Reminder", history[0].content)
 
     def test_agent_filters_out_low_count_events(self):
         _create_person(distinct_ids=["test"], team=self.team)
@@ -244,9 +201,6 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         node = self._get_node()
         self.assertNotIn("Human:", node._get_react_format_prompt(DummyToolkit(self.team)))
         self.assertIn("retrieve_event_properties,", node._get_react_format_prompt(DummyToolkit(self.team)))
-        self.assertIn(
-            "retrieve_event_properties(event_name: str)", node._get_react_format_prompt(DummyToolkit(self.team))
-        )
 
     def test_property_filters_prompt(self):
         GroupTypeMapping.objects.create(team=self.team, project=self.project, group_type="org", group_type_index=0)
@@ -254,6 +208,63 @@ class TestTaxonomyAgentPlannerNode(ClickhouseTestMixin, APIBaseTest):
         node = self._get_node()
         prompt = node._get_react_property_filters_prompt()
         self.assertIn("org, account.", prompt)
+
+    def test_injects_insight_description(self):
+        node = self._get_node()
+        history = node._construct_messages(
+            AssistantState(
+                messages=[
+                    HumanMessage(content="Text", id="0"),
+                    AssistantMessage(content="test", id="2"),
+                ],
+                start_id="0",
+                root_tool_insight_plan="Foobar",
+                root_tool_insight_type="trends",
+            )
+        )
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0].type, "human")
+        self.assertIn("Foobar", history[0].content)
+        self.assertNotIn("{{question}}", history[0].content)
+
+    def test_visualization_message_limit(self):
+        # Create 15 visualization messages
+        messages = []
+        for i in range(15):
+            messages.append(
+                VisualizationMessage(
+                    answer=AssistantTrendsQuery(series=[]),
+                    plan=f"Plan {i}",
+                    id=str(i),
+                    initiator=str(i),
+                    query=f"Question {i}",
+                )
+            )
+
+        node = self._get_node()
+        history = node._construct_messages(AssistantState(messages=messages, root_tool_insight_plan="Final Question"))
+
+        # We expect 21 messages in total:
+        # - 10 pairs of human/ai messages from the last 10 visualization messages (20 total)
+        # - 1 final human message with root_tool_insight_plan
+        self.assertEqual(len(history), 21)
+
+        # Check that we only got the last 10 visualization messages
+        for i in range(10):
+            # The human messages should contain the questions from the last 10 visualization messages
+            human_msg = history[i * 2]
+            self.assertEqual(human_msg.type, "human")
+            self.assertIn(f"Question {i + 5}", human_msg.content)
+
+            # The AI messages should contain the plans from the last 10 visualization messages
+            ai_msg = history[i * 2 + 1]
+            self.assertEqual(ai_msg.type, "ai")
+            self.assertEqual(ai_msg.content, f"Plan {i + 5}")
+
+        # Check the final message contains the root_tool_insight_plan
+        final_msg = history[-1]
+        self.assertEqual(final_msg.type, "human")
+        self.assertIn("Final Question", final_msg.content)
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -294,8 +305,119 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
 
     def test_router(self):
         node = self._get_node()
-        self.assertEqual(node.router(AssistantState(messages=[HumanMessage(content="Question")])), "continue")
-        self.assertEqual(node.router(AssistantState(messages=[HumanMessage(content="Question")], plan="")), "continue")
         self.assertEqual(
-            node.router(AssistantState(messages=[HumanMessage(content="Question")], plan="plan")), "plan_found"
+            node.router(
+                AssistantState(messages=[HumanMessage(content="Question")], root_tool_call_id="1"),
+            ),
+            "continue",
         )
+        self.assertEqual(
+            node.router(
+                AssistantState(messages=[HumanMessage(content="Question")], root_tool_call_id="1", plan=""),
+            ),
+            "continue",
+        )
+        self.assertEqual(
+            node.router(
+                AssistantState(messages=[HumanMessage(content="Question")], root_tool_call_id="1", plan="plan"),
+            ),
+            "plan_found",
+        )
+        self.assertEqual(
+            node.router(
+                AssistantState(
+                    messages=[AssistantToolCallMessage(content="help", tool_call_id="1")], root_tool_call_id="", plan=""
+                ),
+            ),
+            "root",
+        )
+
+    def test_node_terminates_after_max_iterations(self):
+        # Create state with 16 intermediate steps
+        intermediate_steps = [
+            (AgentAction(tool="retrieve_event_properties", tool_input="input", log=f"log_{i}"), "observation")
+            for i in range(16)
+        ]
+        state = AssistantState(
+            intermediate_steps=intermediate_steps,
+            messages=[],
+            root_tool_call_id="1",
+        )
+
+        node = self._get_node()
+        state_update = node.run(state, {})
+
+        # Should reset state and return message about reaching limit
+        self.assertEqual(len(state_update.intermediate_steps), 0)
+        self.assertEqual(len(state_update.messages), 1)
+        self.assertIn("maximum number of iterations", state_update.messages[0].content.lower())
+
+    def test_node_allows_final_answer_at_max_iterations(self):
+        # Create state with 16 intermediate steps, last one being final_answer
+        intermediate_steps = [
+            (AgentAction(tool="retrieve_event_properties", tool_input="input", log=f"log_{i}"), "observation")
+            for i in range(15)
+        ]
+        intermediate_steps.append(
+            (AgentAction(tool="final_answer", tool_input="This is the final plan", log="final"), None)
+        )
+
+        state = AssistantState(
+            intermediate_steps=intermediate_steps,
+            messages=[],
+            root_tool_call_id="1",
+        )
+
+        node = self._get_node()
+        state_update = node.run(state, {})
+
+        # Should accept the final answer even at max iterations
+        self.assertEqual(len(state_update.intermediate_steps), 0)
+        self.assertEqual(state_update.plan, "This is the final plan")
+
+    def test_node_allows_help_request_at_max_iterations(self):
+        # Create state with 16 intermediate steps, last one being ask_user_for_help
+        intermediate_steps = [
+            (AgentAction(tool="retrieve_event_properties", tool_input="input", log=f"log_{i}"), "observation")
+            for i in range(15)
+        ]
+        intermediate_steps.append(
+            (AgentAction(tool="ask_user_for_help", tool_input="Need help with this", log="help"), None)
+        )
+
+        state = AssistantState(
+            intermediate_steps=intermediate_steps,
+            messages=[],
+            root_tool_call_id="1",
+        )
+
+        node = self._get_node()
+        state_update = node.run(state, {})
+
+        # Should accept the help request even at max iterations
+        self.assertEqual(len(state_update.intermediate_steps), 0)
+        self.assertEqual(len(state_update.messages), 1)
+        self.assertIn("need help with this", state_update.messages[0].content.lower())
+
+    def test_node_prioritizes_max_iterations_over_validation_error(self):
+        # Create state with 16 intermediate steps, last one causing validation error
+        intermediate_steps = [
+            (AgentAction(tool="retrieve_event_properties", tool_input="input", log=f"log_{i}"), "observation")
+            for i in range(15)
+        ]
+        intermediate_steps.append((AgentAction(tool="invalid_tool", tool_input="bad input", log="error"), None))
+
+        state = AssistantState(
+            intermediate_steps=intermediate_steps,
+            messages=[],
+            root_tool_call_id="1",
+        )
+
+        node = self._get_node()
+        state_update = node.run(state, {})
+
+        # Should return max iterations message instead of validation error
+        self.assertEqual(len(state_update.intermediate_steps), 0)
+        self.assertEqual(len(state_update.messages), 1)
+        self.assertIn("maximum number of iterations", state_update.messages[0].content.lower())
+        self.assertNotIn("pydantic", state_update.messages[0].content.lower())

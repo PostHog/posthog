@@ -1,6 +1,7 @@
 .LemonSwitch {
-    --lemon-switch-height: 1.125rem;
-    --lemon-switch-width: calc(11 / 6 * var(--lemon-switch-height)); // Same proportion as in IconToggle
+    --lemon-switch-handle-size: 13px;
+    --lemon-switch-height: calc(var(--lemon-switch-handle-size) + 2px);
+    --lemon-switch-width: calc(2 * var(--lemon-switch-handle-size) + 2px);
 
     display: flex;
     gap: 0.5rem;
@@ -18,6 +19,30 @@
         cursor: inherit;
     }
 
+    &.LemonSwitch--xxsmall {
+        --lemon-switch-handle-size: 6px;
+
+        label {
+            font-size: 0.75rem;
+        }
+    }
+
+    &.LemonSwitch--xsmall {
+        --lemon-switch-handle-size: 7px;
+
+        label {
+            font-size: 0.75rem;
+        }
+    }
+
+    &.LemonSwitch--small {
+        --lemon-switch-handle-size: 9px;
+
+        label {
+            font-size: 0.75rem;
+        }
+    }
+
     &.LemonSwitch--full-width {
         width: 100%;
         padding-right: 0.5rem;
@@ -28,8 +53,8 @@
         min-height: calc(2.125rem + 3px); // Medium size button height + button shadow height
         padding: 0 0.75rem;
         line-height: 1.4;
-        background: var(--bg-light);
-        border: 1px solid var(--border);
+        background: var(--bg-surface-primary);
+        border: 1px solid var(--border-primary);
         border-radius: var(--radius);
 
         &.LemonSwitch--small {
@@ -47,7 +72,7 @@
 
     > .LemonIcon {
         font-size: 1.5rem;
-        color: var(--muted-alt);
+        color: var(--text-secondary);
     }
 
     &.LemonSwitch--disabled {
@@ -61,69 +86,54 @@
 }
 
 .LemonSwitch__button {
+    --lemon-switch-handle-gutter: calc((var(--lemon-switch-height) - var(--lemon-switch-handle-size)) / 2);
+
     position: relative;
     display: inline-block;
     flex-shrink: 0;
     width: var(--lemon-switch-width);
     height: var(--lemon-switch-height);
-    padding: 0;
+    padding: var(--lemon-switch-handle-gutter);
     cursor: pointer;
-    background: none;
+    background-color: var(--bg-fill-switch);
     border: none;
+    border-radius: var(--lemon-switch-height);
+    outline: 1px solid var(--border-primary);
+    transition: background-color 100ms ease;
+
+    .LemonSwitch--checked & {
+        background-color: var(--accent);
+    }
 
     .LemonSwitch--disabled & {
         cursor: not-allowed;
     }
 }
 
-.LemonSwitch__slider {
-    position: absolute;
-    top: 0;
-    left: 0;
-    display: inline-block;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    background-color: var(--border-bold);
-    border-radius: var(--lemon-switch-height);
-    transition: background-color 100ms ease;
-
-    .LemonSwitch--checked & {
-        background-color: var(--primary-3000);
-    }
-}
-
 .LemonSwitch__handle {
-    --lemon-switch-handle-ratio: calc(3 / 4); // Same proportion as in IconToggle
-    --lemon-switch-handle-gutter: calc(var(--lemon-switch-height) * calc(1 - var(--lemon-switch-handle-ratio)) / 2);
-    --lemon-switch-handle-width: calc(var(--lemon-switch-height) * var(--lemon-switch-handle-ratio));
+    --lemon-switch-handle-height: var(--lemon-switch-handle-size);
+    --lemon-switch-handle-width: var(--lemon-switch-handle-size);
     --lemon-switch-active-translate: translateX(
-        calc(var(--lemon-switch-width) - var(--lemon-switch-handle-width) - var(--lemon-switch-handle-gutter) * 2)
+        calc(var(--lemon-switch-width) - var(--lemon-switch-handle-width) - 2 * var(--lemon-switch-handle-gutter))
     );
 
-    position: absolute;
-    top: var(--lemon-switch-handle-gutter);
-    left: var(--lemon-switch-handle-gutter);
-    display: flex;
-    align-items: center;
-    justify-content: center;
     width: var(--lemon-switch-handle-width);
-    height: calc(var(--lemon-switch-height) * var(--lemon-switch-handle-ratio));
+    height: var(--lemon-switch-handle-height);
     pointer-events: none;
     cursor: inherit;
     background-color: #fff;
     border: none;
-    border-radius: 0.625rem;
+    border-radius: var(--lemon-switch-handle-size);
     transition: background-color 100ms ease, transform 100ms ease, width 100ms ease, border-color 100ms ease;
 
     .LemonSwitch--checked & {
-        background-color: #fff;
-        border-color: var(--primary-3000);
+        background-color: var(--bg-surface-primary);
+        border-color: var(--accent);
         transform: var(--lemon-switch-active-translate);
     }
 
     .LemonSwitch--active & {
-        --lemon-switch-handle-width: calc(var(--lemon-switch-height) * var(--lemon-switch-handle-ratio) * 1.2);
+        --lemon-switch-handle-width: calc(var(--lemon-switch-handle-size) * 1.2);
 
         transform: none;
     }

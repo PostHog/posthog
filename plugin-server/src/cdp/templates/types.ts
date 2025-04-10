@@ -8,11 +8,17 @@ import {
     HogFunctionTypeType,
 } from '../types'
 
-export type SubTemplateId = 'early-access-feature-enrollment' | 'survey-response' | 'activity-log'
+export type SubTemplateId =
+    | 'early-access-feature-enrollment'
+    | 'survey-response'
+    | 'activity-log'
+    | 'error-tracking-issue-created'
+    | 'error-tracking-issue-reopened'
 
 export type HogFunctionSubTemplate = {
     id: SubTemplateId
     name: string
+    free?: boolean
     description?: string
     filters?: HogFunctionFilters
     masking?: HogFunctionMasking
@@ -26,7 +32,8 @@ export type HogFunctionMappingTemplate = HogFunctionMappingType & {
 }
 
 export type HogFunctionTemplate = {
-    status: 'alpha' | 'beta' | 'stable' | 'free' | 'client-side'
+    status: 'stable' | 'alpha' | 'beta' | 'deprecated'
+    free: boolean
     type: HogFunctionTypeType
     id: string
     name: string
@@ -77,5 +84,19 @@ export const SUB_TEMPLATE_COMMON: Record<SubTemplateId, HogFunctionSubTemplate> 
         name: 'Team Activity',
         type: 'internal_destination',
         filters: { events: [{ id: '$activity_log_entry_created', type: 'events' }] },
+    },
+    'error-tracking-issue-created': {
+        id: 'error-tracking-issue-created',
+        name: 'Issue Created',
+        type: 'internal_destination',
+        free: true,
+        filters: { events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
+    },
+    'error-tracking-issue-reopened': {
+        id: 'error-tracking-issue-reopened',
+        name: 'Issue Reopened',
+        type: 'internal_destination',
+        free: true,
+        filters: { events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] },
     },
 }

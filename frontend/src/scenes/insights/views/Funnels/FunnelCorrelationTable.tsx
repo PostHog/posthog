@@ -144,7 +144,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                 <div className="flex flex-col items-center py-2">
                     <Spinner className="text-2xl mb-2" />
                     <h3 className="mb-1 font-semibold">Loading correlation results…</h3>
-                    <p className="m-0 text-xs text-muted">This process can take up to 20 seconds.</p>
+                    <p className="m-0 text-xs text-secondary">This process can take up to 20 seconds.</p>
                 </div>
             )
         }
@@ -213,7 +213,9 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         CORRELATED EVENTS
                     </span>
                     <span className="table-options flex grow items-center justify-end">
-                        <p className="flex items-center m-1 font-sans text-xs text-muted font-semibold">CORRELATION</p>
+                        <p className="flex items-center m-1 font-sans text-xs text-secondary font-semibold">
+                            CORRELATION
+                        </p>
                         <div className="flex">
                             <LemonCheckbox
                                 checked={correlationTypes.includes(FunnelCorrelationType.Success)}
@@ -274,8 +276,8 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         <div className="p-4 m-auto max-w-140">
                             <div className="flex flex-col items-center justify-self-center text-center">
                                 {loadedEventCorrelationsTableOnce ? (
-                                    <div className="flex flex-col items-center justify-center space-y-1 min-h-24">
-                                        <IconArchive className="text-secondary-3000-hover text-2xl" />
+                                    <div className="flex flex-col items-center justify-center deprecated-space-y-1 min-h-24">
+                                        <IconArchive className="text-tertiary-hover text-2xl" />
                                         <div>No correlated events found.</div>
                                     </div>
                                 ) : (
@@ -290,7 +292,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                         <LemonButton
                                             onClick={() => loadEventCorrelations({})}
                                             type="secondary"
-                                            className="mx-auto mt-2"
+                                            className="mx-auto !mt-2"
                                         >
                                             Load results
                                         </LemonButton>

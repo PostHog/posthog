@@ -2,7 +2,7 @@ import { URL } from 'url'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { PreIngestionEvent, RawClickhouseHeatmapEvent, TimestampFormat } from '../../../types'
-import { status } from '../../../utils/status'
+import { logger } from '../../../utils/logger'
 import { castTimestampOrNow } from '../../../utils/utils'
 import { isDistinctIdIllegal } from '../person-state'
 import { captureIngestionWarning } from '../utils'
@@ -26,7 +26,7 @@ export async function extractHeatmapDataStep(
 ): Promise<[PreIngestionEvent, Promise<void>[]]> {
     const { eventUuid, teamId } = event
 
-    let acks: Promise<void>[] = []
+    const acks: Promise<void>[] = []
 
     try {
         const team = await runner.hub.teamManager.fetchTeam(teamId)
@@ -34,15 +34,17 @@ export async function extractHeatmapDataStep(
         if (team?.heatmaps_opt_in !== false) {
             const heatmapEvents = extractScrollDepthHeatmapData(event) ?? []
 
-            // eslint-disable-next-line @typescript-eslint/no-floating-promises
-            acks = heatmapEvents.map((rawEvent) => {
-                return runner.hub.kafkaProducer.produce({
-                    topic: runner.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                    key: eventUuid,
-                    value: Buffer.from(JSON.stringify(rawEvent)),
-                    waitForAck: true,
-                })
-            })
+            if (heatmapEvents.length > 0) {
+                acks.push(
+                    runner.hub.kafkaProducer.queueMessages({
+                        topic: runner.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                        messages: heatmapEvents.map((rawEvent) => ({
+                            key: eventUuid,
+                            value: JSON.stringify(rawEvent),
+                        })),
+                    })
+                )
+            }
         }
     } catch (e) {
         acks.push(
@@ -123,7 +125,7 @@ function extractScrollDepthHeatmapData(event: PreIngestionEvent): RawClickhouseH
     }
 
     if (!isValidNumber($viewport_height) || !isValidNumber($viewport_width)) {
-        status.warn('👀', '[extract-heatmap-data] dropping because invalid viewport dimensions', {
+        logger.warn('👀', '[extract-heatmap-data] dropping because invalid viewport dimensions', {
             parent: event.event,
             teamId: teamId,
             eventTimestamp: timestamp,

@@ -245,12 +245,12 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                                   size="small"
                                   onClick={() => (pathFilter === path ? setPathFilter(null) : setPathFilter(path))}
                               >
-                                  {path} <span className="ml-0.5 text-muted ligatures-none">({count})</span>
+                                  {path} <span className="ml-0.5 text-secondary ligatures-none">({count})</span>
                               </LemonButton>
                           ))
                         : null}
                     {!debugResponseLoading && !!debugResponse.stats ? (
-                        <div className="flex flex-row space-x-4 p-4 border rounded bg-bg-light">
+                        <div className="flex flex-row deprecated-space-x-4 p-4 border rounded bg-surface-primary">
                             <div className="flex flex-col items-center">
                                 <span className="text-sm font-bold">last 14 days</span>
                             </div>
@@ -322,7 +322,7 @@ export function DebugCHQueries({ insightId }: DebugCHQueriesProps): JSX.Element 
                         title: 'Query',
                         render: function Query(_, item) {
                             return (
-                                <div className="max-w-200 py-1 space-y-2">
+                                <div className="max-w-200 py-1 deprecated-space-y-2">
                                     <div>
                                         <LemonTag className="inline-block">
                                             <span className="font-bold tracking-wide">ID:</span>{' '}

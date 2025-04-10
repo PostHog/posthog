@@ -1,12 +1,8 @@
 import api, { ApiMethodOptions } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { delay } from 'lib/utils'
 import posthog from 'posthog-js'
+import { teamLogic } from 'scenes/teamLogic'
 
-import { OnlineExportContext, QueryExportContext } from '~/types'
-
-import { QueryWebSocketManager } from './queryWebSocket'
 import {
     DashboardFilter,
     DataNode,
@@ -17,18 +13,22 @@ import {
     PersonsNode,
     QueryStatus,
     RefreshType,
-} from './schema'
+} from '~/queries/schema/schema-general'
+import { OnlineExportContext, QueryExportContext } from '~/types'
+
 import {
     isAsyncResponse,
     isDataTableNode,
     isDataVisualizationNode,
     isHogQLQuery,
-    isInsightVizNode,
+    isInsightQueryNode,
     isPersonsNode,
+    shouldQueryBeAsync,
 } from './utils'
 
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
+export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
 
 //get export context for a given query
 export function queryExportContext<N extends DataNode>(
@@ -36,20 +36,15 @@ export function queryExportContext<N extends DataNode>(
     methodOptions?: ApiMethodOptions,
     refresh?: boolean
 ): OnlineExportContext | QueryExportContext {
-    if (isInsightVizNode(query) || isDataTableNode(query) || isDataVisualizationNode(query)) {
+    if (isDataTableNode(query) || isDataVisualizationNode(query)) {
         return queryExportContext(query.source, methodOptions, refresh)
+    } else if (isInsightQueryNode(query)) {
+        return { source: query }
     } else if (isPersonsNode(query)) {
         return { path: getPersonsEndpoint(query) }
     }
     return { source: query }
 }
-
-const SYNC_ONLY_QUERY_KINDS = [
-    'HogQuery',
-    'HogQLMetadata',
-    'HogQLAutocomplete',
-    'DatabaseSchemaQuery',
-] satisfies NodeKind[keyof NodeKind][]
 
 export async function pollForResults(
     queryId: string,
@@ -76,10 +71,8 @@ export async function pollForResults(
             throw e
         }
     }
-    throw new Error('Query timed out')
+    throw new Error(QUERY_TIMEOUT_ERROR_MESSAGE)
 }
-
-let socket: null | QueryWebSocketManager = null
 
 /**
  * Execute a query node and return the response, use async query if enabled
@@ -87,7 +80,7 @@ let socket: null | QueryWebSocketManager = null
 async function executeQuery<N extends DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
-    refresh?: boolean,
+    refresh?: RefreshType,
     queryId?: string,
     setPollResponse?: (response: QueryStatus) => void,
     filtersOverride?: DashboardFilter | null,
@@ -98,24 +91,77 @@ async function executeQuery<N extends DataNode>(
      */
     pollOnly = false
 ): Promise<NonNullable<N['response']>> {
-    const isAsyncQuery =
-        methodOptions?.async !== false &&
-        !SYNC_ONLY_QUERY_KINDS.includes(queryNode.kind) &&
-        !!featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC]
-
-    const refreshParam: RefreshType | undefined =
-        refresh && isAsyncQuery ? 'force_async' : isAsyncQuery ? 'async' : refresh
-
-    if (posthog.isFeatureEnabled('query-websocket')) {
-        if (!socket) {
-            socket = new QueryWebSocketManager(
-                `${window.location.protocol == 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/query/`
-            )
-        }
-        return socket.sendQuery(queryNode, methodOptions, refreshParam, queryId, filtersOverride, variablesOverride)
-    }
+    const useOptimizedPolling = posthog.isFeatureEnabled('query-optimized-polling')
+    const currentTeamId = teamLogic.findMounted()?.values.currentTeamId
 
     if (!pollOnly) {
+        // Determine the refresh type based on the query node type and refresh parameter
+        let refreshParam: RefreshType
+
+        // Handle insight-related queries - they should always be async
+        if (shouldQueryBeAsync(queryNode)) {
+            // For insight queries, use async variants but preserve explicit force requests
+            refreshParam = refresh || 'async'
+        } else {
+            // For other queries, use blocking unless explicitly set to a different RefreshType
+            refreshParam = refresh || 'blocking'
+        }
+
+        if (useOptimizedPolling) {
+            return new Promise((resolve, reject) => {
+                const abortController = new AbortController()
+
+                void api
+                    .stream(`/api/environments/${currentTeamId}/query_awaited/`, {
+                        method: 'POST',
+                        data: {
+                            query: queryNode,
+                            client_query_id: queryId,
+                            refresh: refreshParam,
+                            filters_override: filtersOverride,
+                            variables_override: variablesOverride,
+                        },
+                        signal: abortController.signal,
+                        onMessage(ev) {
+                            try {
+                                const data = JSON.parse(ev.data)
+                                if (data.error) {
+                                    logQueryEvent('error', data, queryNode)
+                                    abortController.abort()
+                                    // Create an error object that matches the API error format
+                                    const error = {
+                                        message: data.error,
+                                        status: data.status_code || 500,
+                                        detail: data.error_message || data.error,
+                                        type: 'network_error',
+                                    }
+                                    reject(error)
+                                } else if (data.complete === false) {
+                                    // Progress event - no results yet
+                                    logQueryEvent('progress', data, queryNode)
+                                    if (setPollResponse) {
+                                        setPollResponse(data)
+                                    }
+                                } else {
+                                    // Final results
+                                    logQueryEvent('data', data, queryNode)
+                                    abortController.abort()
+                                    resolve(data)
+                                }
+                            } catch (e) {
+                                abortController.abort()
+                                reject(e)
+                            }
+                        },
+                        onError(err) {
+                            abortController.abort()
+                            reject(err)
+                            throw err // make sure fetchEventSource doesn't attempt to retry
+                        },
+                    })
+                    .catch(reject)
+            })
+        }
         const response = await api.query(
             queryNode,
             methodOptions,
@@ -125,34 +171,68 @@ async function executeQuery<N extends DataNode>(
             variablesOverride
         )
 
+        if (response.detail) {
+            throw new Error(response.detail)
+        }
+
         if (!isAsyncResponse(response)) {
             // Executed query synchronously or from cache
             return response
         }
 
-        if (response.query_status.complete) {
-            // Async query returned immediately
-            return response.results
-        }
-
         queryId = response.query_status.id
     } else {
-        if (!isAsyncQuery) {
+        if (refresh !== 'async' && refresh !== 'force_async') {
             throw new Error('pollOnly is only supported for async queries')
         }
         if (!queryId) {
             throw new Error('pollOnly requires a queryId')
         }
     }
+
     const statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
     return statusResponse.results
 }
+
+type LogType = 'error' | 'progress' | 'data'
+
+// Logging this as chrome devtools doesn't support showing the event stream for non-native EventSource, but EventSource doesn't support POST requests
+/* eslint-disable no-console */
+function logQueryEvent(type: LogType, data: any, queryNode: any): void {
+    const logConfig = {
+        error: {
+            title: '⚠️ Query Error',
+            titleColor: '#ff0000',
+            primaryLog: (data: any) => console.error('Error Details:', data),
+            secondaryLog: (queryNode: any) => console.warn('Query Payload:', queryNode),
+        },
+        progress: {
+            title: '🔄 Query Progress',
+            titleColor: '#2196f3',
+            primaryLog: (data: any) => console.info('Progress Update:', data),
+            secondaryLog: (queryNode: any) => console.debug('Query Payload:', queryNode),
+        },
+        data: {
+            title: '✅ Query Result',
+            titleColor: '#4caf50',
+            primaryLog: (data: any) => console.info('Data:', data),
+            secondaryLog: (queryNode: any) => console.debug('Query Payload:', queryNode),
+        },
+    }
+
+    const config = logConfig[type]
+    console.group(`%c${config.title}`, `color: ${config.titleColor}; font-weight: bold; font-size: 12px;`)
+    config.primaryLog(data)
+    config.secondaryLog(queryNode)
+    console.groupEnd()
+}
+/* eslint-enable no-console */
 
 // Return data for a given query
 export async function performQuery<N extends DataNode>(
     queryNode: N,
     methodOptions?: ApiMethodOptions,
-    refresh?: boolean,
+    refresh?: RefreshType,
     queryId?: string,
     setPollResponse?: (status: QueryStatus) => void,
     filtersOverride?: DashboardFilter | null,
@@ -185,6 +265,7 @@ export async function performQuery<N extends DataNode>(
             query: queryNode,
             queryId,
             duration: performance.now() - startTime,
+            is_cached: response?.is_cached,
             ...logParams,
         })
         return response

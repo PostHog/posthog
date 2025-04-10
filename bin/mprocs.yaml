@@ -1,4 +1,7 @@
 procs:
+    backend:
+        shell: 'bin/check_kafka_clickhouse_up && python manage.py migrate && ./bin/start-backend'
+
     celery-worker:
         shell: 'bin/check_kafka_clickhouse_up && ./bin/start-celery worker'
 
@@ -8,19 +11,47 @@ procs:
     plugin-server:
         shell: 'bin/check_kafka_clickhouse_up && ./bin/plugin-server'
 
-    backend:
-        shell: 'bin/check_kafka_clickhouse_up && ./bin/start-backend'
-
     frontend:
         shell: 'bin/check_kafka_clickhouse_up && ./bin/start-frontend'
 
-    temporal-worker:
+    temporal-worker-general-purpose:
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue general-purpose-task-queue'
+
+    temporal-worker-batch-exports:
         # added a sleep to give the docker stuff time to start
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue batch-exports-task-queue --metrics-port 8002'
 
     docker-compose:
         # docker-compose makes sure the stack is up, and then follows its logs - but doesn't tear down on exit for speed
-        shell: 'docker compose -f docker-compose.dev.yml up -d && docker compose -f docker-compose.dev.yml logs --tail=0 -f'
+        shell: 'docker compose -f docker-compose.dev.yml up --pull always -d && docker compose -f docker-compose.dev.yml logs --tail=0 -f'
+
+    cyclotron-fetch:
+        shell: |-
+            bin/check_postgres_up cyclotron && \
+            bin/check_kafka_clickhouse_up && \
+            bin/start-rust-service cyclotron-fetch
+
+    cyclotron-janitor:
+        shell: |-
+            bin/check_postgres_up cyclotron && \
+            bin/check_kafka_clickhouse_up && \
+            bin/start-rust-service cyclotron-janitor
+
+    cymbal:
+        shell: |-
+            bin/check_postgres_up cyclotron && \
+            bin/check_kafka_clickhouse_up && \
+            bin/start-rust-service cymbal
+
+    property-defs-rs:
+        shell: |-
+            bin/check_postgres_up cyclotron && \
+            bin/check_kafka_clickhouse_up && \
+            bin/start-rust-service property-defs-rs
+
+    storybook:
+        shell: 'pnpm --filter=@posthog/storybook install && pnpm --filter=@posthog/storybook start'
+        autostart: false
 
 mouse_scroll_speed: 1
 scrollback: 10000

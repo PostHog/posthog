@@ -1,6 +1,7 @@
 import { HogFunctionTemplate, SUB_TEMPLATE_COMMON } from '../../types'
 
 export const template: HogFunctionTemplate = {
+    free: false,
     status: 'beta',
     type: 'destination',
     id: 'template-webhook',
@@ -105,6 +106,16 @@ if (inputs.debug) {
             name: 'HTTP Webhook on team activity',
             filters: SUB_TEMPLATE_COMMON['activity-log'].filters,
             type: 'internal_destination',
+        },
+        {
+            ...SUB_TEMPLATE_COMMON['error-tracking-issue-created'],
+            name: 'HTTP Webhook on issue created',
+            description: 'Send a webhook when an issue is created.',
+        },
+        {
+            ...SUB_TEMPLATE_COMMON['error-tracking-issue-reopened'],
+            name: 'HTTP Webhook on issue reopened',
+            description: 'Send a webhook when an issue is reopened.',
         },
     ],
 }

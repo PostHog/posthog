@@ -233,7 +233,7 @@ const SLASH_COMMANDS: SlashCommandsItem[] = [
             ),
     },
     {
-        title: 'HogQL',
+        title: 'SQL',
         search: 'sql',
         icon: <IconHogQL color="currentColor" />,
         command: (chain, pos) =>
@@ -456,7 +456,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     }
 
     return (
-        <div className="space-y-px">
+        <div className="deprecated-space-y-px">
             <div className="flex items-center gap-1">
                 {TEXT_CONTROLS.map((item, index) => (
                     <LemonButton
@@ -484,7 +484,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
             ))}
 
             {filteredSlashCommands.length === 0 && (
-                <div className="text-muted-alt p-1">
+                <div className="text-secondary p-1">
                     Nothing matching <code>/{query}</code>
                 </div>
             )}
@@ -492,7 +492,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
             {mode === 'add' && (
                 <>
                     <LemonDivider className="my-0" />
-                    <div className="text-xs text-muted-alt p-1">
+                    <div className="text-xs text-secondary p-1">
                         You can trigger this menu by typing <KeyboardShortcut forwardslash />
                     </div>
                 </>

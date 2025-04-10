@@ -1,9 +1,6 @@
-import { urls } from '@posthog/apps-common'
 import { afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { combineUrl } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import { groupsListLogic, GroupsPaginatedResponse } from 'scenes/groups/groupsListLogic'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { asDisplay, asLink } from 'scenes/persons/person-utils'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -49,8 +46,8 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
     })),
     selectors(({ values, cache }) => ({
         contents: [
-            (s) => [s.persons, s.infinitePersons, s.personsLoading, s.groupTypes, s.groups, s.groupsLoading],
-            (persons, infinitePersons, personsLoading, groupTypes, groups, groupsLoading): SidebarCategory[] => {
+            (s) => [s.persons, s.infinitePersons, s.personsLoading],
+            (persons, infinitePersons, personsLoading): SidebarCategory[] => {
                 return [
                     {
                         key: 'persons',
@@ -92,70 +89,7 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
                             minimumBatchSize: 100,
                         },
                     } as SidebarCategory,
-                    ...Array.from(groupTypes.values()).map(
-                        (groupType) =>
-                            ({
-                                key: `groups-${groupType.group_type_index}`,
-                                noun: [
-                                    groupType.name_singular || `${groupType.group_type} group`,
-                                    groupType.name_plural || `${groupType.group_type} groups`,
-                                ],
-                                items:
-                                    groups[groupType.group_type_index]?.results.map((group) => {
-                                        const { searchTerm } = values
-                                        const displayId = groupDisplayId(group.group_key, group.group_properties)
-                                        return {
-                                            key: group.group_key,
-                                            name: displayId,
-                                            url: urls.group(groupType.group_type_index, group.group_key),
-                                            searchMatch: findSearchTermInItemName(displayId, searchTerm),
-                                        } as BasicListItem
-                                    }) || [],
-                                loading: groupsLoading[groupType.group_type_index],
-                                // FIXME: Add remote
-                            } as SidebarCategory)
-                    ),
                 ]
-            },
-        ],
-        groups: [
-            (s) =>
-                Array(5)
-                    .fill(null)
-                    .map((_, groupTypeIndex) => (state) => {
-                        if (s.groupTypes(state)[groupTypeIndex]) {
-                            groupsListLogic({ groupTypeIndex }).mount()
-                            return groupsListLogic({ groupTypeIndex }).selectors.groups(state)
-                        }
-                    }),
-            (
-                groups0: GroupsPaginatedResponse,
-                groups1: GroupsPaginatedResponse,
-                groups2: GroupsPaginatedResponse,
-                groups3: GroupsPaginatedResponse,
-                groups4: GroupsPaginatedResponse
-            ) => {
-                return [groups0, groups1, groups2, groups3, groups4]
-            },
-        ],
-        groupsLoading: [
-            (s) =>
-                Array(5)
-                    .fill(null)
-                    .map((_, groupTypeIndex) => (state) => {
-                        if (s.groupTypes(state)[groupTypeIndex]) {
-                            groupsListLogic({ groupTypeIndex }).mount()
-                            return groupsListLogic({ groupTypeIndex }).selectors.groupsLoading(state)
-                        }
-                    }),
-            (
-                groupsLoading0: boolean,
-                groupsLoading1: boolean,
-                groupsLoading2: boolean,
-                groupsLoading3: boolean,
-                groupsLoading4: boolean
-            ) => {
-                return [groupsLoading0, groupsLoading1, groupsLoading2, groupsLoading3, groupsLoading4]
             },
         ],
         activeListItemKey: [
@@ -164,10 +98,6 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
                 if (activeScene === Scene.Person) {
                     const { _: personDistinctId } = sceneParams.params
                     return personDistinctId ? ['persons', personDistinctId as string] : null
-                }
-                if (activeScene === Scene.Group) {
-                    const { groupKey, groupTypeIndex } = sceneParams.params
-                    return groupKey ? [`groups-${groupTypeIndex}`, decodeURIComponent(groupKey as string)] : null
                 }
                 return null
             },
@@ -183,13 +113,10 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
             }
         },
     })),
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions }) => ({
         searchTerm: (searchTerm) => {
             actions.setPersonsListFilters({ search: searchTerm })
             actions.loadPersons()
-            for (const { group_type_index: groupTypeIndex } of Object.values(values.groupTypes)) {
-                groupsListLogic({ groupTypeIndex }).actions.setSearch(searchTerm, false)
-            }
         },
     })),
     afterMount(({ actions, cache }) => {

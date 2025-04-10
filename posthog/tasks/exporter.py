@@ -49,7 +49,7 @@ EXPORT_TIMER = Histogram(
     time_limit=HOGQL_INCREASED_MAX_EXECUTION_TIME + 120,
     queue=CeleryQueue.EXPORTS.value,
     autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
-    retry_backoff=1,
+    retry_backoff=2,
     retry_backoff_max=3,
     max_retries=3,
 )

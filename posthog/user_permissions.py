@@ -169,10 +169,7 @@ class UserTeamPermissions:
         if organization is None or organization_membership is None:
             return None
 
-        if (
-            not organization.is_feature_available(AvailableFeature.PROJECT_BASED_PERMISSIONING)
-            or not self.team.access_control
-        ):
+        if not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS) or not self.team.access_control:
             return organization_membership.level
 
         explicit_membership_level = self.p.explicit_team_memberships.get(self.team.id)

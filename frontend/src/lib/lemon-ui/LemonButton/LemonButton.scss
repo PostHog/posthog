@@ -1,6 +1,6 @@
 @mixin secondary-variables {
     --button-border-color: var(--secondary-3000-button-border);
-    --lemon-button-bg-color-active: var(--bg-light);
+    --lemon-button-bg-color-active: var(--bg-surface-primary);
     --lemon-button-border-color-hover: var(--secondary-3000-button-border-hover);
     --lemon-button-frame-bg-color: var(--secondary-3000-frame-bg);
 }
@@ -19,7 +19,7 @@
     &--small {
         --lemon-button-padding-horizontal: 0.5rem;
         --lemon-button-height: 2.0625rem;
-        --lemon-button-gap: 0.25rem;
+        --lemon-button-gap: 0.5rem;
         --lemon-button-side-action-width: 1.75rem;
         --lemon-button-icon-size: 1.25rem;
     }
@@ -67,7 +67,7 @@
     flex-shrink: 0;
     align-items: center;
     padding: 0;
-    font-family: var(--font-title);
+    font-family: var(--font-button);
     appearance: none !important; // Important as this gets overridden by Ant styles...
     cursor: pointer;
     user-select: none;
@@ -213,7 +213,7 @@
     &.LemonButton--status-danger,
     &.LemonButton--primary.LemonButton--status-danger,
     &.LemonButton--secondary.LemonButton--status-danger {
-        --lemon-button-color: var(--danger-3000-button-border-hover);
+        --lemon-button-color: var(--danger-3000-button-border-hover) !important;
         --button-border-color: var(--danger-3000-button-border);
         --lemon-button-border-color-hover: var(--danger-3000-button-border-hover);
         --lemon-button-frame-bg-color: var(--danger-3000-frame-bg);
@@ -231,7 +231,7 @@
     }
 
     &.LemonButton--secondary.LemonButton--status-alt {
-        --lemon-button-color: var(--muted);
+        --lemon-button-color: var(--text-secondary);
 
         &.LemonButton--active,
         &:hover:not([aria-disabled='true']) {
@@ -279,7 +279,7 @@
 
             &::after {
                 position: absolute;
-                inset: -1px -1px calc(var(--lemon-button-chrome-depth) - 1px) -1px;
+                inset: -1px -1px calc(var(--lemon-button-chrome-depth) - 1px);
                 z-index: 0;
                 content: '';
                 background: var(--lemon-button-bg-color);
@@ -333,8 +333,19 @@
 
     &.LemonButton--tertiary {
         &:not([aria-disabled='true']):hover,
-        &.LemonButton--active {
-            background-color: var(--glass-border-3000);
+        &[data-focused='true']:not([aria-disabled='true']):focus-visible {
+            background-color: var(--bg-fill-button-tertiary-hover);
+        }
+
+        &.LemonButton--active,
+        &[aria-expanded='true'] {
+            background-color: var(--bg-fill-button-tertiary-active);
+
+            // When inside a LemonButtonWithSideAction, we don't want the side button to have a background color (until hovered)
+            // This is because we changed the background color for tertiary to be based on a background color with opacity
+            .LemonButtonWithSideAction__side-button & {
+                background-color: transparent;
+            }
         }
 
         &.LemonButton--status-danger {
@@ -372,7 +383,7 @@
                 var(--lemon-button-padding-right, var(--lemon-button-padding-horizontal))
         );
         height: calc(var(--lemon-button-height) - 1.0625rem);
-        color: var(--muted);
+        color: var(--text-secondary);
 
         &--divider {
             padding: 0;

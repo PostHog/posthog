@@ -140,7 +140,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                     </div>
                     <div className="table-options flex grow items-center justify-end flex-wrap">
                         <div className="flex">
-                            <p className="flex items-center m-1 font-sans text-xs text-muted font-semibold">
+                            <p className="flex items-center m-1 font-sans text-xs text-secondary font-semibold">
                                 PROPERTIES
                             </p>
                             <Popover
@@ -189,7 +189,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                             </Popover>
                         </div>
                         <div className="flex">
-                            <p className="flex items-center m-1 font-sans text-xs text-muted font-semibold ml-2">
+                            <p className="flex items-center m-1 font-sans text-xs text-secondary font-semibold ml-2">
                                 CORRELATION
                             </p>
                             <div className="flex">
@@ -256,8 +256,8 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                         <div className="p-4 m-auto max-w-140">
                             <div className="flex flex-col items-center justify-self-center text-center">
                                 {loadedPropertyCorrelationsTableOnce ? (
-                                    <div className="flex flex-col items-center justify-center space-y-1 min-h-24">
-                                        <IconArchive className="text-secondary-3000-hover text-2xl" />
+                                    <div className="flex flex-col items-center justify-center deprecated-space-y-1 min-h-24">
+                                        <IconArchive className="text-tertiary-hover text-2xl" />
                                         <div>No correlated properties found.</div>
                                     </div>
                                 ) : (
@@ -272,7 +272,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                         <LemonButton
                                             type="secondary"
                                             onClick={() => setIsPropertiesOpen(true)}
-                                            className="mx-auto mt-2"
+                                            className="mx-auto !mt-2"
                                         >
                                             Select properties
                                         </LemonButton>

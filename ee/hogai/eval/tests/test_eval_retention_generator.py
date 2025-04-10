@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import datetime
 from typing import cast
 
 import pytest
@@ -73,4 +74,20 @@ def test_basic_retention_structure(call_node):
     )
     assert actual_output.retentionFilter.returningEntity == RetentionEntity(
         id="file_uploaded", type="events", name="file_uploaded", order=0
+    )
+
+
+def test_current_date(call_node):
+    query = "Show retention for users who signed up in this January?"
+    plan = """Target Event:
+    - signed_up
+
+    Returning Event:
+    - file_uploaded
+    """
+    date_range = call_node(query, plan).dateRange
+    assert date_range is not None
+    year = str(datetime.now().year)
+    assert (date_range.date_from and year in date_range.date_from) or (
+        date_range.date_to and year in date_range.date_to
     )

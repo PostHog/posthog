@@ -1,13 +1,12 @@
 import ClickHouse from '@posthog/clickhouse'
 import { CacheOptions, Properties } from '@posthog/plugin-scaffold'
-import { captureException } from '@sentry/node'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
-import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
 
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
+import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import {
     Action,
     ClickHouseEvent,
@@ -19,8 +18,6 @@ import {
     CohortPeople,
     Database,
     DeadLetterQueueEvent,
-    EventDefinitionType,
-    EventPropertyType,
     Group,
     GroupKey,
     GroupTypeIndex,
@@ -36,7 +33,6 @@ import {
     ProjectId,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
-    PropertyDefinitionType,
     RawClickHouseEvent,
     RawGroup,
     RawOrganization,
@@ -50,8 +46,10 @@ import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestio
 import { fetchOrganization } from '../../worker/ingestion/organization-manager'
 import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
 import { parseRawClickHouseEvent } from '../event'
+import { parseJSON } from '../json-parse'
+import { logger } from '../logger'
 import { instrumentQuery } from '../metrics'
-import { status } from '../status'
+import { captureException } from '../posthog'
 import {
     castTimestampOrNow,
     escapeClickHouseString,
@@ -63,7 +61,7 @@ import {
     UUIDT,
 } from '../utils'
 import { OrganizationPluginsAccessLevel } from './../../types'
-import { KafkaProducerWrapper } from './kafka-producer-wrapper'
+import { RedisOperationError } from './error'
 import { personUpdateVersionMismatchCounter, pluginLogEntryCounter } from './metrics'
 import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
 import {
@@ -194,6 +192,57 @@ export class DB {
 
     // Redis
 
+    private instrumentRedisQuery<T>(
+        operationName: string,
+        tag: string | undefined,
+        logContext: Record<string, string | string[] | number>,
+        runQuery: (client: Redis.Redis) => Promise<T>
+    ): Promise<T> {
+        return instrumentQuery(operationName, tag, async () => {
+            let client: Redis.Redis
+            const timeout = timeoutGuard(`${operationName} delayed. Waiting over 30 sec.`, logContext)
+            try {
+                client = await this.redisPool.acquire()
+            } catch (error) {
+                throw new RedisOperationError('Failed to acquire redis client from pool', error, operationName)
+            }
+
+            // Don't use a single try/catch/finally for this, as there are 2 potential errors that could be thrown
+            // (error and cleanup) and we want to be explicit about which one we choose, rather than relying on
+            // "what happens when you throw in a finally block".
+            // We explicitly want to throw the error from the operation if there is one, prioritising it over any errors
+            // from the cleanup
+            let operationResult: { value: T } | { error: Error }
+            let cleanupError: Error | undefined
+
+            try {
+                operationResult = { value: await runQuery(client) }
+            } catch (error) {
+                operationResult = { error }
+            }
+
+            try {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            } catch (error) {
+                cleanupError = error
+            }
+
+            if ('error' in operationResult) {
+                throw new RedisOperationError(
+                    `${operationName} failed for ${JSON.stringify(logContext)}`,
+                    operationResult.error,
+                    operationName,
+                    logContext
+                )
+            }
+            if (cleanupError) {
+                throw new RedisOperationError('Failed to release redis client from pool', cleanupError, operationName)
+            }
+            return operationResult.value
+        })
+    }
+
     public redisGet<T = unknown>(
         key: string,
         defaultValue: T,
@@ -201,10 +250,7 @@ export class DB {
         options: CacheOptions = {}
     ): Promise<T | null> {
         const { jsonSerialize = true } = options
-
-        return instrumentQuery('query.redisGet', tag, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('Getting redis key delayed. Waiting over 30 sec to get key.', { key })
+        return this.instrumentRedisQuery('query.redisGet', tag, { key }, async (client) => {
             try {
                 const value = await tryTwice(
                     async () => await client.get(key),
@@ -213,7 +259,7 @@ export class DB {
                 if (typeof value === 'undefined' || value === null) {
                     return defaultValue
                 }
-                return value ? (jsonSerialize ? JSON.parse(value) : value) : null
+                return value ? (jsonSerialize ? parseJSON(value) : value) : null
             } catch (error) {
                 if (error instanceof SyntaxError) {
                     // invalid JSON
@@ -221,26 +267,16 @@ export class DB {
                 } else {
                     throw error
                 }
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
             }
         })
     }
 
     public redisGetBuffer(key: string, tag: string): Promise<Buffer | null> {
-        return instrumentQuery('query.redisGetBuffer', tag, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('Getting redis key delayed. Waiting over 30 sec to get key.', { key })
-            try {
-                return await tryTwice(
-                    async () => await client.getBuffer(key),
-                    `Waited 5 sec to get redis key: ${key}, retrying once!`
-                )
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
-            }
+        return this.instrumentRedisQuery('query.redisGetBuffer', tag, { key }, async (client) => {
+            return await tryTwice(
+                async () => await client.getBuffer(key),
+                `Waited 5 sec to get redis key: ${key}, retrying once!`
+            )
         })
     }
 
@@ -253,36 +289,22 @@ export class DB {
     ): Promise<void> {
         const { jsonSerialize = true } = options
 
-        return instrumentQuery('query.redisSet', tag, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('Setting redis key delayed. Waiting over 30 sec to set key', { key })
-            try {
-                const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
-                if (ttlSeconds) {
-                    await client.set(key, serializedValue, 'EX', ttlSeconds)
-                } else {
-                    await client.set(key, serializedValue)
-                }
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
+        return this.instrumentRedisQuery('query.redisSet', tag, { key }, async (client) => {
+            const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
+            if (ttlSeconds) {
+                await client.set(key, serializedValue, 'EX', ttlSeconds)
+            } else {
+                await client.set(key, serializedValue)
             }
         })
     }
 
     public redisSetBuffer(key: string, value: Buffer, tag: string, ttlSeconds?: number): Promise<void> {
-        return instrumentQuery('query.redisSetBuffer', tag, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('Setting redis key delayed. Waiting over 30 sec to set key', { key })
-            try {
-                if (ttlSeconds) {
-                    await client.setBuffer(key, value, 'EX', ttlSeconds)
-                } else {
-                    await client.setBuffer(key, value)
-                }
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
+        return this.instrumentRedisQuery('query.redisSetBuffer', tag, { key }, async (client) => {
+            if (ttlSeconds) {
+                await client.setBuffer(key, value, 'EX', ttlSeconds)
+            } else {
+                await client.setBuffer(key, value)
             }
         })
     }
@@ -296,19 +318,12 @@ export class DB {
     ): Promise<'OK' | null> {
         const { jsonSerialize = true } = options
 
-        return instrumentQuery('query.redisSetNX', tag, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('Setting redis key delayed. Waiting over 30 sec to set key (NX)', { key })
-            try {
-                const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
-                if (ttlSeconds) {
-                    return await client.set(key, serializedValue, 'EX', ttlSeconds, 'NX')
-                } else {
-                    return await client.set(key, serializedValue, 'NX')
-                }
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
+        return this.instrumentRedisQuery('query.redisSetNX', tag, { key }, async (client) => {
+            const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
+            if (ttlSeconds) {
+                return await client.set(key, serializedValue, 'EX', ttlSeconds, 'NX')
+            } else {
+                return await client.set(key, serializedValue, 'NX')
             }
         })
     }
@@ -316,210 +331,133 @@ export class DB {
     public redisSetMulti(kv: Array<[string, unknown]>, ttlSeconds?: number, options: CacheOptions = {}): Promise<void> {
         const { jsonSerialize = true } = options
 
-        return instrumentQuery('query.redisSet', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('Setting redis key delayed. Waiting over 30 sec to set keys', {
-                keys: kv.map((x) => x[0]),
-            })
-            try {
-                let pipeline = client.multi()
-                for (const [key, value] of kv) {
-                    const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
-                    if (ttlSeconds) {
-                        pipeline = pipeline.set(key, serializedValue, 'EX', ttlSeconds)
-                    } else {
-                        pipeline = pipeline.set(key, serializedValue)
-                    }
+        return this.instrumentRedisQuery('query.redisSet', undefined, { keys: kv.map((x) => x[0]) }, async (client) => {
+            let pipeline = client.multi()
+            for (const [key, value] of kv) {
+                const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string)
+                if (ttlSeconds) {
+                    pipeline = pipeline.set(key, serializedValue, 'EX', ttlSeconds)
+                } else {
+                    pipeline = pipeline.set(key, serializedValue)
                 }
-                await pipeline.exec()
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
             }
+            await pipeline.exec()
         })
     }
 
     public redisIncr(key: string): Promise<number> {
-        return instrumentQuery('query.redisIncr', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('Incrementing redis key delayed. Waiting over 30 sec to incr key', { key })
-            try {
-                return await client.incr(key)
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
-            }
+        return this.instrumentRedisQuery('query.redisIncr', undefined, { key }, async (client) => {
+            return await client.incr(key)
         })
     }
 
     public redisExpire(key: string, ttlSeconds: number): Promise<boolean> {
-        return instrumentQuery('query.redisExpire', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('Expiring redis key delayed. Waiting over 30 sec to expire key', { key })
-            try {
-                return (await client.expire(key, ttlSeconds)) === 1
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
-            }
+        return this.instrumentRedisQuery('query.redisExpire', undefined, { key }, async (client) => {
+            return (await client.expire(key, ttlSeconds)) === 1
         })
     }
 
     public redisLPush(key: string, value: unknown, options: CacheOptions = {}): Promise<number> {
         const { jsonSerialize = true } = options
 
-        return instrumentQuery('query.redisLPush', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('LPushing redis key delayed. Waiting over 30 sec to lpush key', { key })
-            try {
-                const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string | string[])
-                return await client.lpush(key, serializedValue)
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
-            }
+        return this.instrumentRedisQuery('query.redisLPush', undefined, { key }, async (client) => {
+            const serializedValue = jsonSerialize ? JSON.stringify(value) : (value as string | string[])
+            return await client.lpush(key, serializedValue)
         })
     }
 
-    public redisLRange(key: string, startIndex: number, endIndex: number): Promise<string[]> {
-        return instrumentQuery('query.redisLRange', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('LRANGE delayed. Waiting over 30 sec to perform LRANGE', {
-                key,
-                startIndex,
-                endIndex,
-            })
-            try {
-                return await client.lrange(key, startIndex, endIndex)
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
-            }
+    public redisLRange(key: string, startIndex: number, endIndex: number, tag?: string): Promise<string[]> {
+        return this.instrumentRedisQuery('query.redisLRange', tag, { key, startIndex, endIndex }, async (client) => {
+            return await client.lrange(key, startIndex, endIndex)
         })
     }
 
     public redisLLen(key: string): Promise<number> {
-        return instrumentQuery('query.redisLLen', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('LLEN delayed. Waiting over 30 sec to perform LLEN', {
-                key,
-            })
-            try {
-                return await client.llen(key)
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
-            }
+        return this.instrumentRedisQuery('query.redisLLen', undefined, { key }, async (client) => {
+            return await client.llen(key)
         })
     }
 
     public redisBRPop(key1: string, key2: string): Promise<[string, string]> {
-        return instrumentQuery('query.redisBRPop', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('BRPoping redis key delayed. Waiting over 30 sec to brpop keys', {
-                key1,
-                key2,
-            })
-            try {
-                return await client.brpop(key1, key2)
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
-            }
+        return this.instrumentRedisQuery('query.redisBRPop', undefined, { key1, key2 }, async (client) => {
+            return await client.brpop(key1, key2)
         })
     }
 
     public redisLRem(key: string, count: number, elementKey: string): Promise<number> {
-        return instrumentQuery('query.redisLRem', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('LREM delayed. Waiting over 30 sec to perform LREM', {
+        return this.instrumentRedisQuery(
+            'query.redisLRem',
+            undefined,
+            {
                 key,
                 count,
                 elementKey,
-            })
-            try {
+            },
+            async (client) => {
                 return await client.lrem(key, count, elementKey)
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
             }
-        })
+        )
     }
 
     public redisLPop(key: string, count: number): Promise<string[]> {
-        return instrumentQuery('query.redisLPop', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('LPOP delayed. Waiting over 30 sec to perform LPOP', {
+        return this.instrumentRedisQuery(
+            'query.redisLPop',
+            undefined,
+            {
                 key,
                 count,
-            })
-            try {
+            },
+            async (client) => {
                 return await client.lpop(key, count)
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
             }
-        })
+        )
     }
 
     public redisSAddAndSCard(key: string, value: Redis.ValueType, ttlSeconds?: number): Promise<number> {
-        return instrumentQuery('query.redisSAddAndSCard', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('SADD+SCARD delayed. Waiting over 30 sec to perform SADD+SCARD', {
-                key,
-                value,
-            })
-            try {
-                const multi = client.multi()
-                multi.sadd(key, value)
-                if (ttlSeconds) {
-                    multi.expire(key, ttlSeconds)
-                }
-                multi.scard(key)
-                const results = await multi.exec()
-                const scardResult = ttlSeconds ? results[2] : results[1]
-                return scardResult[1]
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
+        return this.instrumentRedisQuery('query.redisSAddAndSCard', undefined, { key }, async (client) => {
+            const multi = client.multi()
+            multi.sadd(key, value)
+            if (ttlSeconds) {
+                multi.expire(key, ttlSeconds)
             }
+            multi.scard(key)
+            const results = await multi.exec()
+            const scardResult = ttlSeconds ? results[2] : results[1]
+            return scardResult[1]
         })
     }
 
     public redisSCard(key: string): Promise<number> {
-        return instrumentQuery('query.redisSCard', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('SCARD delayed. Waiting over 30 sec to perform SCARD', {
+        return this.instrumentRedisQuery(
+            'query.redisSCard',
+            undefined,
+            {
                 key,
-            })
-            try {
+            },
+            async (client) => {
                 return await client.scard(key)
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
             }
-        })
+        )
     }
 
     public redisPublish(channel: string, message: string): Promise<number> {
-        return instrumentQuery('query.redisPublish', undefined, async () => {
-            const client = await this.redisPool.acquire()
-            const timeout = timeoutGuard('Publish delayed. Waiting over 30 sec to perform Publish', {
+        return this.instrumentRedisQuery(
+            'query.redisPublish',
+            undefined,
+            {
                 channel,
                 message,
-            })
-            try {
+            },
+            async (client) => {
                 return await client.publish(channel, message)
-            } finally {
-                clearTimeout(timeout)
-                await this.redisPool.release(client)
             }
-        })
+        )
     }
 
     private toPerson(row: RawPerson): InternalPerson {
         return {
             ...row,
+            id: String(row.id),
             created_at: DateTime.fromISO(row.created_at).toUTC(),
             version: Number(row.version || 0),
         }
@@ -697,7 +635,7 @@ export class DB {
             })
         }
 
-        await this.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
+        await this.kafkaProducer.queueMessages(kafkaMessages)
         return person
     }
 
@@ -706,7 +644,7 @@ export class DB {
         person: InternalPerson,
         update: Partial<InternalPerson>,
         tx?: TransactionClient
-    ): Promise<[InternalPerson, ProducerRecord[]]> {
+    ): Promise<[InternalPerson, TopicMessage[]]> {
         let versionString = 'COALESCE(version, 0)::numeric + 1'
         if (update.version) {
             versionString = update.version.toString()
@@ -750,7 +688,7 @@ export class DB {
 
         const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
 
-        status.debug(
+        logger.debug(
             '🧑‍🦰',
             `Updated person ${updatedPerson.uuid} of team ${updatedPerson.team_id} to version ${updatedPerson.version}.`
         )
@@ -758,7 +696,7 @@ export class DB {
         return [updatedPerson, [kafkaMessage]]
     }
 
-    public async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<ProducerRecord[]> {
+    public async deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]> {
         const { rows } = await this.postgres.query<{ version: string }>(
             tx ?? PostgresUse.COMMON_WRITE,
             'DELETE FROM posthog_person WHERE team_id = $1 AND id = $2 RETURNING version',
@@ -766,7 +704,7 @@ export class DB {
             'deletePerson'
         )
 
-        let kafkaMessages: ProducerRecord[] = []
+        let kafkaMessages: TopicMessage[] = []
 
         if (rows.length > 0) {
             const [row] = rows
@@ -881,7 +819,7 @@ export class DB {
     ): Promise<void> {
         const kafkaMessages = await this.addDistinctIdPooled(person, distinctId, version, tx)
         if (kafkaMessages.length) {
-            await this.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
+            await this.kafkaProducer.queueMessages(kafkaMessages)
         }
     }
 
@@ -890,7 +828,7 @@ export class DB {
         distinctId: string,
         version: number,
         tx?: TransactionClient
-    ): Promise<ProducerRecord[]> {
+    ): Promise<TopicMessage[]> {
         const insertResult = await this.postgres.query(
             tx ?? PostgresUse.COMMON_WRITE,
             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
@@ -923,7 +861,7 @@ export class DB {
         source: InternalPerson,
         target: InternalPerson,
         tx?: TransactionClient
-    ): Promise<ProducerRecord[]> {
+    ): Promise<TopicMessage[]> {
         let movedDistinctIdResult: QueryResult<any> | null = null
         try {
             movedDistinctIdResult = await this.postgres.query(
@@ -1086,7 +1024,7 @@ export class DB {
         ).data.map((event) => {
             return {
                 ...event,
-                snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
+                snapshot_data: event.snapshot_data ? parseJSON(event.snapshot_data) : null,
             }
         })
         return events
@@ -1099,12 +1037,12 @@ export class DB {
         return queryResult.data as PluginLogEntry[]
     }
 
-    public async queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
+    public queuePluginLogEntry(entry: LogEntryPayload): Promise<void> {
         const { pluginConfig, source, message, type, timestamp, instanceId } = entry
         const configuredLogLevel = pluginConfig.plugin?.log_level || this.pluginsDefaultLogLevel
 
         if (!shouldStoreLog(configuredLogLevel, type)) {
-            return
+            return Promise.resolve()
         }
 
         const parsedEntry = {
@@ -1121,83 +1059,35 @@ export class DB {
 
         if (parsedEntry.message.length > 50_000) {
             const { message, ...rest } = parsedEntry
-            status.warn('⚠️', 'Plugin log entry too long, ignoring.', rest)
-            return
+            logger.warn('⚠️', 'Plugin log entry too long, ignoring.', rest)
+            return Promise.resolve()
         }
 
         pluginLogEntryCounter.labels({ plugin_id: String(pluginConfig.plugin_id), source }).inc()
 
         try {
-            await this.kafkaProducer.queueSingleJsonMessage({
-                topic: KAFKA_PLUGIN_LOG_ENTRIES,
-                key: parsedEntry.id,
-                object: parsedEntry,
-                // For logs, we relax our durability requirements a little and
-                // do not wait for acks that Kafka has persisted the message to
-                // disk.
-                waitForAck: false,
-            })
+            // For logs, we relax our durability requirements a little and
+            // do not wait for acks that Kafka has persisted the message to
+            // disk.
+            void this.kafkaProducer
+                .queueMessages({
+                    topic: KAFKA_PLUGIN_LOG_ENTRIES,
+                    messages: [{ key: parsedEntry.id, value: JSON.stringify(parsedEntry) }],
+                })
+                .catch((error) => {
+                    logger.warn('⚠️', 'Failed to produce plugin log entry', {
+                        error,
+                        entry: parsedEntry,
+                    })
+                })
+
+            // TRICKY: We don't want to block the caller, so we return a promise that resolves immediately.
+            return Promise.resolve()
         } catch (e) {
             captureException(e, { tags: { team_id: entry.pluginConfig.team_id } })
             console.error('Failed to produce message', e, parsedEntry)
+            return Promise.resolve()
         }
-    }
-
-    // EventDefinition
-
-    public async fetchEventDefinitions(teamId?: number): Promise<EventDefinitionType[]> {
-        return (
-            await this.postgres.query(
-                PostgresUse.COMMON_READ,
-                `
-                SELECT * FROM posthog_eventdefinition
-                ${teamId ? 'WHERE team_id = $1' : ''}
-                -- Order by something that gives a deterministic order. Note
-                -- that this is a unique index.
-                ORDER BY (team_id, name)
-                `,
-                teamId ? [teamId] : undefined,
-                'fetchEventDefinitions'
-            )
-        ).rows as EventDefinitionType[]
-    }
-
-    // PropertyDefinition
-
-    public async fetchPropertyDefinitions(teamId?: number): Promise<PropertyDefinitionType[]> {
-        return (
-            await this.postgres.query(
-                PostgresUse.COMMON_READ,
-                `
-                SELECT * FROM posthog_propertydefinition
-                ${teamId ? 'WHERE team_id = $1' : ''}
-                -- Order by something that gives a deterministic order. Note
-                -- that this is a unique index.
-                ORDER BY (team_id, name, type, coalesce(group_type_index, -1))
-                `,
-                teamId ? [teamId] : undefined,
-                'fetchPropertyDefinitions'
-            )
-        ).rows as PropertyDefinitionType[]
-    }
-
-    // EventProperty
-
-    public async fetchEventProperties(teamId?: number): Promise<EventPropertyType[]> {
-        return (
-            await this.postgres.query(
-                PostgresUse.COMMON_READ,
-                `
-                    SELECT * FROM posthog_eventproperty
-                    ${teamId ? 'WHERE team_id = $1' : ''}
-                    -- Order by something that gives a deterministic order. Note
-                    -- that this is a unique index.
-                    ORDER BY (team_id, event, property)
-                `,
-                teamId ? [teamId] : undefined,
-                'fetchEventProperties'
-            )
-        ).rows as EventPropertyType[]
     }
 
     // Action & ActionStep & Action<>Event
@@ -1412,23 +1302,20 @@ export class DB {
         createdAt: DateTime,
         version: number
     ): Promise<void> {
-        await this.kafkaProducer.queueMessage({
-            kafkaMessage: {
-                topic: KAFKA_GROUPS,
-                messages: [
-                    {
-                        value: JSON.stringify({
-                            group_type_index: groupTypeIndex,
-                            group_key: groupKey,
-                            team_id: teamId,
-                            group_properties: JSON.stringify(properties),
-                            created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
-                            version,
-                        }),
-                    },
-                ],
-            },
-            waitForAck: true,
+        await this.kafkaProducer.queueMessages({
+            topic: KAFKA_GROUPS,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        group_type_index: groupTypeIndex,
+                        group_key: groupKey,
+                        team_id: teamId,
+                        group_properties: JSON.stringify(properties),
+                        created_at: castTimestampOrNow(createdAt, TimestampFormat.ClickHouseSecondPrecision),
+                        version,
+                    }),
+                },
+            ],
         })
     }
 
@@ -1453,38 +1340,6 @@ export class DB {
             row.project_id = Number(row.project_id) as ProjectId
         }
         return selectResult.rows
-    }
-
-    public async addOrUpdatePublicJob(
-        pluginId: number,
-        jobName: string,
-        jobPayloadJson: Record<string, any>
-    ): Promise<void> {
-        await this.postgres.transaction(PostgresUse.COMMON_WRITE, 'addOrUpdatePublicJob', async (tx) => {
-            let publicJobs: Record<string, any> = (
-                await this.postgres.query(
-                    tx,
-                    'SELECT public_jobs FROM posthog_plugin WHERE id = $1 FOR UPDATE',
-                    [pluginId],
-                    'selectPluginPublicJobsForUpdate'
-                )
-            ).rows[0]?.public_jobs
-
-            if (
-                !publicJobs ||
-                !(jobName in publicJobs) ||
-                JSON.stringify(publicJobs[jobName]) !== JSON.stringify(jobPayloadJson)
-            ) {
-                publicJobs = { ...publicJobs, [jobName]: jobPayloadJson }
-
-                await this.postgres.query(
-                    tx,
-                    'UPDATE posthog_plugin SET public_jobs = $1 WHERE id = $2',
-                    [JSON.stringify(publicJobs), pluginId],
-                    'updatePublicJob'
-                )
-            }
-        })
     }
 
     public async getPluginSource(pluginId: Plugin['id'], filename: string): Promise<string | null> {

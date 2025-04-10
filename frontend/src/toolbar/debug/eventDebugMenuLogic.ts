@@ -1,8 +1,9 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
-import { CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS, CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_KEYS } from 'lib/taxonomy'
 import { uuid } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
+import { CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS } from '~/taxonomy/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { EventType } from '~/types'
 
@@ -17,7 +18,6 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
         addEvent: (event: EventType) => ({ event }),
         markExpanded: (id: string | null | undefined) => ({ id }),
         setSearchText: (searchText: string) => ({ searchText }),
-        setSearchVisible: (visible: boolean) => ({ visible }),
         setSelectedEventType: (eventType: 'posthog' | 'custom' | 'snapshot', enabled: boolean) => ({
             eventType,
             enabled,
@@ -36,12 +36,6 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
             false,
             {
                 setHidePostHogFlags: (_, { hide }) => hide,
-            },
-        ],
-        searchVisible: [
-            false,
-            {
-                setSearchVisible: (_, { visible }) => visible,
             },
         ],
         searchText: [
@@ -144,33 +138,36 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
                 if (!expandedEvent) {
                     return []
                 }
-                const theExpandedEvent = events.find((e) => e.uuid === expandedEvent)
-                if (!theExpandedEvent) {
+                const allProperties = events.find((e) => e.uuid === expandedEvent)?.properties
+                if (!allProperties) {
                     return []
                 }
 
-                const propsFiltered = hidePostHogProperties
+                const posthogPropertiesFiltered = hidePostHogProperties
                     ? Object.fromEntries(
-                          Object.entries(theExpandedEvent.properties).filter(([key]) => {
+                          Object.entries(allProperties).filter(([key]) => {
                               const isPostHogProperty = key.startsWith('$') && PROPERTY_KEYS.includes(key)
                               const isNonDollarPostHogProperty = CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS.includes(key)
                               return !isPostHogProperty && !isNonDollarPostHogProperty
                           })
                       )
-                    : theExpandedEvent.properties
+                    : allProperties
 
-                return Object.fromEntries(
-                    Object.entries(propsFiltered).filter(([key]) => {
-                        if (hidePostHogFlags) {
-                            if (key === '$active_feature_flags') {
-                                return false
-                            } else if (key.startsWith('$feature/')) {
-                                return false
-                            }
-                        }
-                        return true
-                    })
-                )
+                const posthogFlagsFiltered = hidePostHogFlags
+                    ? Object.fromEntries(
+                          Object.entries(posthogPropertiesFiltered).filter(([key]) => {
+                              if (key === '$active_feature_flags') {
+                                  return false
+                              } else if (key.startsWith('$feature/')) {
+                                  return false
+                              }
+
+                              return true
+                          })
+                      )
+                    : posthogPropertiesFiltered
+
+                return posthogFlagsFiltered
             },
         ],
     }),

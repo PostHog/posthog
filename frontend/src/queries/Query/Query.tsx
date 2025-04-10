@@ -3,11 +3,11 @@ import { useEffect, useState } from 'react'
 import { HogDebug } from 'scenes/debug/HogDebug'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { CoreWebVitals } from '~/queries/nodes/CoreWebVitals/CoreWebVitals'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightViz, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { WebOverview } from '~/queries/nodes/WebOverview/WebOverview'
+import { WebVitals } from '~/queries/nodes/WebVitals/WebVitals'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import {
     AnyResponseType,
@@ -17,19 +17,21 @@ import {
     HogQLVariable,
     InsightVizNode,
     Node,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualization'
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
+import { WebVitalsPathBreakdown } from '../nodes/WebVitals/WebVitalsPathBreakdown'
 import {
-    isCoreWebVitalsQuery,
     isDataTableNode,
     isDataVisualizationNode,
     isHogQuery,
     isInsightVizNode,
     isSavedInsightNode,
     isWebOverviewQuery,
+    isWebVitalsPathBreakdownQuery,
+    isWebVitalsQuery,
 } from '../utils'
 
 export interface QueryProps<Q extends Node> {
@@ -55,6 +57,8 @@ export interface QueryProps<Q extends Node> {
     filtersOverride?: DashboardFilter | null
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
+    /** Passed down if implemented by the query type to e.g. set data attr on a LemonTable in a data table */
+    dataAttr?: string
 }
 
 export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null {
@@ -66,6 +70,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         filtersOverride,
         variablesOverride,
         inSharedMode,
+        dataAttr,
     } = props
 
     const [localQuery, localSetQuery] = useState(propsQuery)
@@ -105,6 +110,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 cachedResults={props.cachedResults}
                 uniqueKey={uniqueKey}
                 readOnly={readOnly}
+                dataAttr={dataAttr}
             />
         )
     } else if (isDataVisualizationNode(query)) {
@@ -137,8 +143,10 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         )
     } else if (isWebOverviewQuery(query)) {
         component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
-    } else if (isCoreWebVitalsQuery(query)) {
-        return <CoreWebVitals query={query} cachedResults={props.cachedResults} context={queryContext} />
+    } else if (isWebVitalsQuery(query)) {
+        component = <WebVitals query={query} cachedResults={props.cachedResults} context={queryContext} />
+    } else if (isWebVitalsPathBreakdownQuery(query)) {
+        component = <WebVitalsPathBreakdown query={query} cachedResults={props.cachedResults} context={queryContext} />
     } else if (isHogQuery(query)) {
         component = <HogDebug query={query} setQuery={setQuery as (query: any) => void} queryKey={String(uniqueKey)} />
     } else {

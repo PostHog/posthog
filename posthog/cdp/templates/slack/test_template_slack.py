@@ -1,5 +1,5 @@
 import pytest
-from hogvm.python.utils import UncaughtHogVMException
+from common.hogvm.python.utils import UncaughtHogVMException
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.slack.template_slack import template as template_slack
 

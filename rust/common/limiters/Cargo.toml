@@ -1,0 +1,15 @@
+[package]
+name = "limiters"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+common-redis = { path = "../redis" }
+governor = { workspace = true }
+metrics = { workspace = true }
+rand = { workspace = true }
+strum = { version = "0.26", features = ["derive"] }
+tokio = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }

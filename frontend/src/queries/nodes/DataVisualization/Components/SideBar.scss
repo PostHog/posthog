@@ -1,5 +1,3 @@
-@import '../../../../styles/mixins';
-
 .DataVisualization {
     .LemonTabs .LemonTabs__bar {
         margin-bottom: 0;
@@ -8,7 +6,6 @@
     .SideBar {
         min-width: 18rem;
         max-width: 18rem;
-        min-height: var(--viz-min-height);
         border-radius: var(--radius);
 
         .LemonInput.LemonInput--medium {

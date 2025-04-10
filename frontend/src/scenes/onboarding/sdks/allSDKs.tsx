@@ -4,12 +4,12 @@ import { SDK, SDKKey, SDKTag } from '~/types'
 export const allSDKs: SDK[] = [
     // Web
     {
-        name: 'JavaScript web',
-        key: SDKKey.JS_WEB,
+        name: 'Next.js',
+        key: SDKKey.NEXT_JS,
+        tags: [SDKTag.WEB, SDKTag.RECOMMENDED],
         recommended: true,
-        tags: [SDKTag.RECOMMENDED, SDKTag.WEB],
-        image: require('./logos/javascript_web.svg'),
-        docsLink: 'https://posthog.com/docs/libraries/js',
+        image: require('./logos/nextjs.svg'),
+        docsLink: 'https://posthog.com/docs/libraries/next-js',
     },
     {
         name: 'HTML snippet',
@@ -18,6 +18,30 @@ export const allSDKs: SDK[] = [
         tags: [SDKTag.RECOMMENDED, SDKTag.WEB],
         image: require('./logos/html.svg'),
         docsLink: 'https://posthog.com/docs/libraries/js',
+    },
+    {
+        name: 'JavaScript web',
+        key: SDKKey.JS_WEB,
+        recommended: true,
+        tags: [SDKTag.RECOMMENDED, SDKTag.WEB],
+        image: require('./logos/javascript_web.svg'),
+        docsLink: 'https://posthog.com/docs/libraries/js',
+    },
+    {
+        name: 'React',
+        key: SDKKey.REACT,
+        tags: [SDKTag.WEB, SDKTag.RECOMMENDED],
+        recommended: true,
+        image: require('./logos/react.svg'),
+        docsLink: 'https://posthog.com/docs/libraries/react',
+    },
+    {
+        name: 'React Native',
+        key: SDKKey.REACT_NATIVE,
+        tags: [SDKTag.MOBILE, SDKTag.RECOMMENDED],
+        recommended: true,
+        image: require('./logos/react.svg'),
+        docsLink: 'https://posthog.com/docs/libraries/react-native',
     },
     {
         name: 'Android',
@@ -136,13 +160,6 @@ export const allSDKs: SDK[] = [
         docsLink: 'https://posthog.com/docs/libraries/laravel',
     },
     {
-        name: 'Next.js',
-        key: SDKKey.NEXT_JS,
-        tags: [SDKTag.WEB],
-        image: require('./logos/nextjs.svg'),
-        docsLink: 'https://posthog.com/docs/libraries/next-js',
-    },
-    {
         name: 'Node.js',
         key: SDKKey.NODE_JS,
         tags: [SDKTag.SERVER, SDKTag.RECOMMENDED],
@@ -171,21 +188,6 @@ export const allSDKs: SDK[] = [
         recommended: true,
         image: require('./logos/python.svg'),
         docsLink: 'https://posthog.com/docs/libraries/python',
-    },
-    {
-        name: 'React',
-        key: SDKKey.REACT,
-        tags: [SDKTag.WEB, SDKTag.RECOMMENDED],
-        recommended: true,
-        image: require('./logos/react.svg'),
-        docsLink: 'https://posthog.com/docs/libraries/react',
-    },
-    {
-        name: 'React Native',
-        key: SDKKey.REACT_NATIVE,
-        tags: [SDKTag.MOBILE],
-        image: require('./logos/react.svg'),
-        docsLink: 'https://posthog.com/docs/libraries/react-native',
     },
     {
         name: 'Remix',

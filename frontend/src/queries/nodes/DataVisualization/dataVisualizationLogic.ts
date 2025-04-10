@@ -15,7 +15,7 @@ import {
     ConditionalFormattingRule,
     DataVisualizationNode,
     HogQLVariable,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, DashboardType, ItemMode } from '~/types'
 
@@ -178,6 +178,9 @@ export const convertTableValue = (
 }
 
 const toFriendlyClickhouseTypeName = (type: string): ColumnScalar => {
+    if (type.indexOf('Array') !== -1) {
+        return 'ARRAY'
+    }
     if (type.indexOf('Tuple') !== -1) {
         return 'TUPLE'
     }
@@ -299,7 +302,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         visualizationType: [
-            ChartDisplayType.ActionsTable as ChartDisplayType,
+            props.query.display ?? ChartDisplayType.ActionsTable,
             {
                 setVisualizationType: (_, { visualizationType }) => visualizationType,
             },
@@ -780,7 +783,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
         isTableVisualization: [
             (state) => [state.visualizationType],
-            (visualizationType): boolean => visualizationType === ChartDisplayType.ActionsTable,
+            (visualizationType): boolean =>
+                // BoldNumber relies on yAxis formatting so it's considered a table visualization
+                visualizationType === ChartDisplayType.ActionsTable ||
+                visualizationType === ChartDisplayType.BoldNumber,
         ],
         showTableSettings: [
             (state) => [state.visualizationType],

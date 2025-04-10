@@ -7,7 +7,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { removeFlagIdIfPresent, removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { getProjectSwitchTargetUrl } from 'lib/utils/router-utils'
 import { useMemo } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
@@ -35,7 +35,7 @@ export function ProjectSwitcherOverlay({ onClickInside }: { onClickInside?: () =
     const { featureFlags } = useValues(featureFlagLogic)
 
     if (featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
-        return <EnvironmentSwitcherOverlay />
+        return <EnvironmentSwitcherOverlay onClickInside={onClickInside} />
     }
 
     return (
@@ -76,7 +76,7 @@ function CurrentProjectButton({ onClickInside }: { onClickInside?: () => void })
         <LemonButton
             active
             sideAction={{
-                icon: <IconGear className="text-muted-alt" />,
+                icon: <IconGear className="text-secondary" />,
                 tooltip: `Go to ${currentTeam.name} settings`,
                 onClick: () => {
                     onClickInside?.()
@@ -93,33 +93,17 @@ function CurrentProjectButton({ onClickInside }: { onClickInside?: () => void })
 
 function OtherProjectButton({ team }: { team: TeamBasicType; onClickInside?: () => void }): JSX.Element {
     const { location } = useValues(router)
+    const { currentTeam } = useValues(teamLogic)
 
     const relativeOtherProjectPath = useMemo(() => {
-        // NOTE: There is a tradeoff here - because we choose keep the whole path it could be that the
-        // project switch lands on something like insight/abc that won't exist.
-        // On the other hand, if we remove the ID, it could be that someone opens a page, realizes they're in the wrong project
-        // and after switching is on a different page than before.
-        let route = removeProjectIdIfPresent(location.pathname)
-        route = removeFlagIdIfPresent(route)
-
-        // List of routes that should redirect to project home
-        // instead of keeping the current path.
-        const redirectToHomeRoutes = ['/products', '/onboarding']
-
-        const shouldRedirectToHome = redirectToHomeRoutes.some((redirectRoute) => route.includes(redirectRoute))
-
-        if (shouldRedirectToHome) {
-            return urls.project(team.id) // Go to project home
-        }
-
-        return urls.project(team.id, route)
-    }, [location.pathname])
+        return getProjectSwitchTargetUrl(location.pathname, team.id, currentTeam?.project_id, team.project_id)
+    }, [location.pathname, team.id, team.project_id, currentTeam?.project_id])
 
     return (
         <LemonButton
             to={relativeOtherProjectPath}
             sideAction={{
-                icon: <IconGear className="text-muted-alt" />,
+                icon: <IconGear className="text-secondary" />,
                 tooltip: `Go to ${team.name} settings`,
                 to: urls.project(team.id, urls.settings()),
             }}

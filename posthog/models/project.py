@@ -1,8 +1,8 @@
-from typing import TYPE_CHECKING, Optional, cast
 from functools import cached_property
-from django.db import models
-from django.db import transaction
+from typing import TYPE_CHECKING, Optional, cast
+
 from django.core.validators import MinLengthValidator
+from django.db import models, transaction
 
 from posthog.models.utils import sane_repr
 
@@ -48,6 +48,7 @@ class Project(models.Model):
         validators=[MinLengthValidator(1, "Project must have a name!")],
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    # Deprecated in favor of CoreMemory
     product_description = models.TextField(null=True, blank=True, max_length=1000)
 
     objects: ProjectManager = ProjectManager()

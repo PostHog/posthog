@@ -36,7 +36,7 @@ export function OtherIntegrations(): JSX.Element {
                 data warehouse or pipeline destinations. To connect a new integration, visit the relevant product area.
             </p>
 
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 {otherIntegrations?.length ? (
                     otherIntegrations.map((integration) => (
                         <IntegrationView

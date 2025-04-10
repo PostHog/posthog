@@ -8,13 +8,13 @@ use axum::extract::{MatchedPath, Query, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use base64::Engine;
-use common_types::CapturedEvent;
+use common_types::{CapturedEvent, RawEvent};
+use limiters::token_dropper::TokenDropper;
 use metrics::counter;
 use serde_json::json;
 use serde_json::Value;
 use tracing::instrument;
 
-use crate::limiters::token_dropper::TokenDropper;
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{
     Compression, DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext, RawRequest,
@@ -23,7 +23,7 @@ use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     router, sinks,
     utils::uuid_v7,
-    v0_request::{EventFormData, EventQuery, RawEvent},
+    v0_request::{EventFormData, EventQuery},
 };
 
 /// Flexible endpoint that targets wide compatibility with the wide range of requests
@@ -116,6 +116,7 @@ async fn handle_common(
         now: state.timesource.current_time(),
         client_ip: ip.to_string(),
         historical_migration,
+        user_agent: Some(user_agent.to_string()),
     };
 
     let billing_limited = state
@@ -182,7 +183,6 @@ pub async fn event(
             .await
             {
                 let cause = match err {
-                    CaptureError::EmptyDistinctId => "empty_distinct_id",
                     CaptureError::MissingDistinctId => "missing_distinct_id",
                     CaptureError::MissingEventName => "missing_event_name",
                     _ => "process_events_error",
@@ -234,7 +234,6 @@ pub async fn recording(
             let count = events.len() as u64;
             if let Err(err) = process_replay_events(state.sink.clone(), events, &context).await {
                 let cause = match err {
-                    CaptureError::EmptyDistinctId => "empty_distinct_id",
                     CaptureError::MissingDistinctId => "missing_distinct_id",
                     CaptureError::MissingSessionId => "missing_session_id",
                     CaptureError::MissingWindowId => "missing_window_id",
@@ -295,12 +294,17 @@ pub fn process_single_event(
 
     let event = CapturedEvent {
         uuid: event.uuid.unwrap_or_else(uuid_v7),
-        distinct_id: event.extract_distinct_id()?,
+        distinct_id: event
+            .extract_distinct_id()
+            .ok_or(CaptureError::MissingDistinctId)?,
         ip: context.client_ip.clone(),
         data,
         now: context.now.clone(),
         sent_at: context.sent_at,
         token: context.token.clone(),
+        is_cookieless_mode: event
+            .extract_is_cookieless_mode()
+            .ok_or(CaptureError::InvalidCookielessMode)?,
     };
     Ok(ProcessedEvent { metadata, event })
 }
@@ -347,16 +351,48 @@ pub async fn process_replay_events<'a>(
         .properties
         .remove("$session_id")
         .ok_or(CaptureError::MissingSessionId)?;
+
+    // Validate session_id is a valid UUID
+    let session_id_str = session_id.as_str().ok_or(CaptureError::InvalidSessionId)?;
+
+    // Reject session_ids that are too long, or that contains non-alphanumeric characters,
+    // this is a proxy for "not a valid UUID"
+    // we can't just reject non-UUIDv7 strings because
+    // some running versions of PostHog JS in the wild are still pre-version 1.73.0
+    // when we started sending valid UUIDv7 session_ids
+    // at time of writing they are ~4-5% of all sessions
+    // they'll be having a bad time generally but replay probably works a little for them
+    // so we don't drop non-UUID strings, but we use length as a proxy definitely bad UUIDs
+    if session_id_str.len() > 70
+        || !session_id_str
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return Err(CaptureError::InvalidSessionId);
+    }
+
     let window_id = events[0]
         .properties
         .remove("$window_id")
         .unwrap_or(session_id.clone());
     let uuid = events[0].uuid.unwrap_or_else(uuid_v7);
-    let distinct_id = events[0].extract_distinct_id()?;
+    let distinct_id = events[0]
+        .extract_distinct_id()
+        .ok_or(CaptureError::MissingDistinctId)?;
     let snapshot_source = events[0]
         .properties
         .remove("$snapshot_source")
         .unwrap_or(Value::String(String::from("web")));
+    let is_cookieless_mode = events[0]
+        .extract_is_cookieless_mode()
+        .ok_or(CaptureError::InvalidCookielessMode)?;
+    let snapshot_library = events[0]
+        .properties
+        .remove("$lib")
+        .and_then(|v| v.as_str().map(|v| v.to_string()))
+        // missing lib could be one of multiple libraries, so we try to fall back to user agent
+        .or_else(|| snapshot_library_fallback_from(context.user_agent.as_ref()))
+        .unwrap_or_else(|| String::from("unknown"));
 
     let mut snapshot_items: Vec<Value> = Vec::with_capacity(events.len());
     for mut event in events {
@@ -378,12 +414,7 @@ pub async fn process_replay_events<'a>(
 
     let metadata = ProcessedEventMetadata {
         data_type: DataType::SnapshotMain,
-        session_id: Some(
-            session_id
-                .as_str()
-                .ok_or(CaptureError::InvalidSessionId)?
-                .to_string(),
-        ),
+        session_id: Some(session_id_str.to_string()),
     };
 
     let event = CapturedEvent {
@@ -398,13 +429,24 @@ pub async fn process_replay_events<'a>(
                 "$window_id": window_id,
                 "$snapshot_source": snapshot_source,
                 "$snapshot_items": snapshot_items,
+                "$lib": snapshot_library,
             }
         })
         .to_string(),
         now: context.now.clone(),
         sent_at: context.sent_at,
         token: context.token.clone(),
+        is_cookieless_mode,
     };
 
     sink.send(ProcessedEvent { metadata, event }).await
+}
+
+fn snapshot_library_fallback_from(user_agent: Option<&String>) -> Option<String> {
+    user_agent?
+        .split('/')
+        .next()
+        .map(|s| s.to_string())
+        .filter(|s| s.contains("posthog"))
+        .or(Some("web".to_string()))
 }

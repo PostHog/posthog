@@ -3,12 +3,12 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { getFilterLabel } from 'lib/taxonomy'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
+import { getFilterLabel } from '~/taxonomy/helpers'
 import { AvailableFeature, Breadcrumb, Definition, PropertyDefinition } from '~/types'
 
 import { DataManagementTab } from '../DataManagementScene'
@@ -19,6 +19,8 @@ import type { definitionLogicType } from './definitionLogicType'
 export const createNewDefinition = (isEvent: boolean): Definition => ({
     id: 'new',
     name: `New ${isEvent ? 'Event' : 'Event property'}`,
+    verified: false,
+    hidden: false,
 })
 
 export interface SetDefinitionProps {

@@ -6,7 +6,6 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { WebExperimentTransform } from '~/toolbar/types'
 
 import { experimentsLogic } from './experimentsLogic'
 import { experimentsTabLogic } from './experimentsTabLogic'
@@ -17,13 +16,7 @@ const web_experiments = [
         name: 'Test Experiment 1',
         variants: {
             control: {
-                transforms: [
-                    {
-                        html: '',
-                        selector: 'h1',
-                        text: '',
-                    },
-                ],
+                transforms: [],
             },
         },
     },
@@ -39,7 +32,6 @@ const web_experiments = [
                     {
                         html: '<b> Hello world! </b>',
                         selector: 'h1',
-                        text: 'Hello world',
                     },
                 ],
             },
@@ -48,7 +40,6 @@ const web_experiments = [
                     {
                         html: '<b> Goodbye world! </b>',
                         selector: 'h1',
-                        text: 'Goodbye world',
                     },
                 ],
             },
@@ -137,25 +128,16 @@ describe('experimentsTabLogic', () => {
                         name: '',
                         variants: {
                             control: {
-                                transforms: [
-                                    {
-                                        text: '',
-                                        html: '',
-                                    } as unknown as WebExperimentTransform,
-                                ],
+                                transforms: [],
                                 rollout_percentage: 50,
                             },
                             test: {
                                 is_new: true,
-                                transforms: [
-                                    {
-                                        text: '',
-                                        html: '',
-                                    } as unknown as WebExperimentTransform,
-                                ],
+                                transforms: [{}],
                                 rollout_percentage: 50,
                             },
                         },
+                        original_html_state: {},
                     },
                 })
                 .toDispatchActions(['selectExperiment'])
@@ -168,15 +150,20 @@ describe('experimentsTabLogic', () => {
             })
                 .toMatchValues({
                     experimentForm: {
-                        name: '',
+                        name: 'Test Experiment 1',
                         variants: {
-                            'variant #0': {
+                            control: {
+                                transforms: [],
+                                rollout_percentage: 50,
+                            },
+                            'variant #1': {
+                                transforms: [{}],
+                                rollout_percentage: 50,
                                 is_new: true,
                                 conditions: null,
-                                rollout_percentage: 100,
-                                transforms: [{ html: '', text: '' }],
                             },
                         },
+                        original_html_state: {},
                     },
                 })
                 .toDispatchActions(['selectExperiment', 'addNewVariant'])
@@ -185,12 +172,18 @@ describe('experimentsTabLogic', () => {
         it('can remove an existing variant', async () => {
             await expectLogic(theExperimentsTabLogic, () => {
                 theExperimentsTabLogic.actions.selectExperiment(1)
-                theExperimentsTabLogic.actions.removeVariant('control')
+                theExperimentsTabLogic.actions.removeVariant('variant #1')
             })
                 .toMatchValues({
                     experimentForm: {
-                        name: '',
-                        variants: {},
+                        name: 'Test Experiment 1',
+                        variants: {
+                            control: {
+                                transforms: [],
+                                rollout_percentage: 100,
+                            },
+                        },
+                        original_html_state: {},
                     },
                 })
                 .toDispatchActions(['selectExperiment'])
@@ -209,46 +202,21 @@ describe('experimentsTabLogic', () => {
                         name: 'New Test Experiment',
                         variants: {
                             control: {
-                                transforms: [
-                                    {
-                                        text: '',
-                                        html: '',
-                                    } as unknown as WebExperimentTransform,
-                                ],
+                                transforms: [],
                                 rollout_percentage: 50,
                             },
                             test: {
                                 is_new: true,
-                                transforms: [
-                                    {
-                                        text: '',
-                                        html: '',
-                                    } as unknown as WebExperimentTransform,
-                                ],
+                                transforms: [{}],
                                 rollout_percentage: 50,
                             },
                         },
+                        original_html_state: {},
                     },
                 })
                 .toDispatchActions(['newExperiment', 'setExperimentFormValue', 'submitExperimentForm'])
         })
     })
-
-    const createTestDocument = (): HTMLSpanElement => {
-        const elTarget = document.createElement('img')
-        elTarget.id = 'primary_button'
-
-        const elParent = document.createElement('span')
-        elParent.innerText = 'original'
-        elParent.className = 'original'
-        elParent.appendChild(elTarget)
-
-        document.querySelectorAll = function () {
-            return [elParent] as unknown as NodeListOf<Element>
-        }
-
-        return elParent
-    }
 
     describe('selecting html elements', () => {
         it('can highlight all elements on a page', async () => {
@@ -305,7 +273,16 @@ describe('experimentsTabLogic', () => {
             })
                 .toDispatchActions(['selectExperiment', 'setExperimentFormValue', 'submitExperimentForm'])
                 .toMatchValues({
-                    experimentForm: { name: 'Updated Experiment 1', variants: {} },
+                    experimentForm: {
+                        name: 'Updated Experiment 1',
+                        variants: {
+                            control: {
+                                transforms: [],
+                                rollout_percentage: 100,
+                            },
+                        },
+                        original_html_state: {},
+                    },
                 })
         })
 
@@ -316,9 +293,7 @@ describe('experimentsTabLogic', () => {
                 .delay(0)
                 .then(() => {
                     theExperimentsTabLogic.actions.selectExperiment(2)
-                    const element = createTestDocument()
-                    theExperimentsTabLogic.actions.applyVariant('', 'test')
-                    expect(element.innerText).toEqual('Hello world')
+                    theExperimentsTabLogic.actions.applyVariant('test')
                 })
         })
 
@@ -329,28 +304,8 @@ describe('experimentsTabLogic', () => {
                 .delay(0)
                 .then(() => {
                     theExperimentsTabLogic.actions.selectExperiment(2)
-                    const element = createTestDocument()
-                    theExperimentsTabLogic.actions.applyVariant('', 'test')
-                    expect(element.innerText).toEqual('Hello world')
-                    theExperimentsTabLogic.actions.applyVariant('test', 'test2')
-                    expect(element.innerText).toEqual('Goodbye world')
-                })
-        })
-
-        it('can reset to control', async () => {
-            await expectLogic(theExperimentsLogic, () => {
-                theExperimentsLogic.actions.getExperiments()
-            })
-                .delay(0)
-                .then(() => {
-                    theExperimentsTabLogic.actions.selectExperiment(2)
-                    const element = createTestDocument()
-                    theExperimentsTabLogic.actions.applyVariant('', 'test')
-                    expect(element.innerText).toEqual('Hello world')
-                    theExperimentsTabLogic.actions.applyVariant('test', 'test2')
-                    expect(element.innerText).toEqual('Goodbye world')
-                    theExperimentsTabLogic.actions.applyVariant('test2', 'control')
-                    expect(element.innerText).toEqual('original')
+                    theExperimentsTabLogic.actions.applyVariant('test')
+                    theExperimentsTabLogic.actions.applyVariant('test2')
                 })
         })
     })

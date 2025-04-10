@@ -16,6 +16,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.batch_exports.batch_exports import (
+    BackfillDetails,
     finish_batch_export_run,
     iter_records,
     start_batch_export_run,
@@ -75,6 +76,7 @@ async def assert_clickhouse_records_in_mock_server(
     data_interval_end: dt.datetime,
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
+    backfill_details: BackfillDetails | None = None,
 ):
     """Assert expected records are written to a MockServer instance."""
     posted_records = mock_server.records
@@ -91,6 +93,7 @@ async def assert_clickhouse_records_in_mock_server(
         include_events=include_events,
         fields=http_default_fields(),
         extra_query_parameters=None,
+        backfill_details=backfill_details,
     ):
         for record in records.select(schema_column_names).to_pylist():
             expected_record = {}
@@ -152,6 +155,7 @@ async def test_insert_into_http_activity_inserts_data_into_http_endpoint(
         duplicate=True,
         properties={"$browser": "Chrome", "$os": "Mac OS X"},
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
+        table="sharded_events",
     )
 
     await generate_test_events_in_clickhouse(
@@ -165,6 +169,7 @@ async def test_insert_into_http_activity_inserts_data_into_http_endpoint(
         properties=None,
         person_properties=None,
         event_name="test-no-prop-{i}",
+        table="sharded_events",
     )
 
     if exclude_events:
@@ -178,6 +183,7 @@ async def test_insert_into_http_activity_inserts_data_into_http_endpoint(
                 count_outside_range=0,
                 count_other_team=0,
                 event_name=event_name,
+                table="sharded_events",
             )
 
     insert_inputs = HttpInsertInputs(
@@ -186,6 +192,11 @@ async def test_insert_into_http_activity_inserts_data_into_http_endpoint(
         data_interval_end=data_interval_end.isoformat(),
         exclude_events=exclude_events,
         batch_export_schema=None,
+        backfill_details=BackfillDetails(
+            backfill_id=None,
+            start_at=data_interval_start.isoformat(),
+            end_at=data_interval_end.isoformat(),
+        ),
         **http_config,
     )
 
@@ -204,6 +215,7 @@ async def test_insert_into_http_activity_inserts_data_into_http_endpoint(
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
         exclude_events=exclude_events,
+        backfill_details=insert_inputs.backfill_details,
     )
 
 
@@ -229,6 +241,7 @@ async def test_insert_into_http_activity_throws_on_bad_http_status(
         duplicate=True,
         properties={"$browser": "Chrome", "$os": "Mac OS X"},
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
+        table="sharded_events",
     )
 
     insert_inputs = HttpInsertInputs(
@@ -237,6 +250,11 @@ async def test_insert_into_http_activity_throws_on_bad_http_status(
         data_interval_end=data_interval_end.isoformat(),
         exclude_events=exclude_events,
         batch_export_schema=None,
+        backfill_details=BackfillDetails(
+            backfill_id=None,
+            start_at=data_interval_start.isoformat(),
+            end_at=data_interval_end.isoformat(),
+        ),
         **http_config,
     )
 
@@ -304,7 +322,7 @@ async def test_http_export_workflow(
     The workflow should update the batch export run status to completed and produce the expected
     records to the mock server.
     """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     data_interval_start = data_interval_end - http_batch_export.interval_time_delta
 
     await generate_test_events_in_clickhouse(
@@ -548,7 +566,7 @@ async def test_insert_into_http_activity_heartbeats(
 
     We use a function that runs on_heartbeat to check and track the heartbeat contents.
     """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-20T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     data_interval_start = data_interval_end - http_batch_export.interval_time_delta
 
     num_expected_parts = 3

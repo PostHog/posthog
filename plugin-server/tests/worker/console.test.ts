@@ -1,5 +1,7 @@
-import { ConsoleExtension } from '@posthog/plugin-scaffold'
+// eslint-disable-next-line simple-import-sort/imports
+import { getParsedQueuedMessages, mockProducer } from '../helpers/mocks/producer.mock'
 
+import { ConsoleExtension } from '@posthog/plugin-scaffold'
 import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -7,8 +9,7 @@ import { createConsole } from '../../src/worker/vm/extensions/console'
 import { pluginConfig39 } from '../../tests/helpers/plugins'
 
 jest.setTimeout(60000) // 60 sec timeout
-jest.mock('../../src/utils/status')
-jest.mock('../../src/utils/db/kafka-producer-wrapper')
+jest.mock('../../src/utils/logger')
 
 describe('console extension', () => {
     let hub: Hub
@@ -35,27 +36,29 @@ describe('console extension', () => {
 
             testCases.forEach(([description, args, expectedFinalMessage]) => {
                 it(`leaves a well-formed ${description} entry in the database`, async () => {
-                    const queueSingleJsonMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueSingleJsonMessage')
                     const console = createConsole(hub, pluginConfig39)
 
                     await (console[typeMethod](...args) as unknown as Promise<void>)
 
-                    expect(queueSingleJsonMessageSpy).toHaveBeenCalledTimes(1)
-                    expect(queueSingleJsonMessageSpy).toHaveBeenCalledWith({
+                    expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+                    expect(getParsedQueuedMessages()[0]).toEqual({
                         topic: KAFKA_PLUGIN_LOG_ENTRIES,
-                        key: expect.any(String),
-                        object: {
-                            source: PluginLogEntrySource.Console,
-                            type,
-                            id: expect.any(String),
-                            team_id: pluginConfig39.team_id,
-                            plugin_id: pluginConfig39.plugin_id,
-                            plugin_config_id: pluginConfig39.id,
-                            timestamp: expect.any(String),
-                            message: expectedFinalMessage,
-                            instance_id: hub.instanceId.toString(),
-                        },
-                        waitForAck: false,
+                        messages: [
+                            {
+                                key: expect.any(String),
+                                value: {
+                                    source: PluginLogEntrySource.Console,
+                                    type,
+                                    id: expect.any(String),
+                                    team_id: pluginConfig39.team_id,
+                                    plugin_id: pluginConfig39.plugin_id,
+                                    plugin_config_id: pluginConfig39.id,
+                                    timestamp: expect.any(String),
+                                    message: expectedFinalMessage,
+                                    instance_id: hub.instanceId.toString(),
+                                },
+                            },
+                        ],
                     })
                 })
             })

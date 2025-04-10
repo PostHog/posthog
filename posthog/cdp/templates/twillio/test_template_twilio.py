@@ -1,5 +1,5 @@
 import pytest
-from hogvm.python.utils import UncaughtHogVMException
+from common.hogvm.python.utils import UncaughtHogVMException
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.twillio.template_twilio import template as template_twilio
 from inline_snapshot import snapshot

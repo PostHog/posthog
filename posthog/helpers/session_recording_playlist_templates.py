@@ -104,7 +104,7 @@ DEFAULT_PLAYLISTS = [
         "filters": {
             "order": "start_time",
             "date_to": "null",
-            "duration": [{"key": "active_seconds", "type": "recording", "value": 5, "operator": "gt"}],
+            "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": "gt"}],
             "date_from": "-3d",
             "filter_group": {"type": "AND", "values": [{"type": "AND", "values": []}]},
             "filter_test_accounts": "true",

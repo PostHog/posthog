@@ -2,15 +2,16 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { EarlyAccessFeatureStage, EarlyAccessFeatureType, NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
+
 import {
     EarlyAccessFeatureLogicProps,
     earlyAccessFeatureLogic,
-} from 'scenes/early-access-features/earlyAccessFeatureLogic'
-import { PersonList } from 'scenes/early-access-features/EarlyAccessFeature'
+} from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
+import { PersonList } from 'products/early_access_features/frontend/EarlyAccessFeature'
+import { urls } from '~/scenes/urls'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { useEffect } from 'react'
 import { NotFound } from 'lib/components/NotFound'
@@ -92,7 +93,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttr
                                         {earlyAccessFeature.description ? (
                                             earlyAccessFeature.description
                                         ) : (
-                                            <span className="text-muted">No description</span>
+                                            <span className="text-secondary">No description</span>
                                         )}
                                     </div>
                                 </div>
@@ -102,7 +103,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttr
                                         {earlyAccessFeature.documentation_url ? (
                                             earlyAccessFeature.documentation_url
                                         ) : (
-                                            <span className="text-muted">No documentation URL</span>
+                                            <span className="text-secondary">No documentation URL</span>
                                         )}
                                     </div>
                                 </div>

@@ -1,56 +1,52 @@
-import asyncio
 import dataclasses
 import datetime as dt
 import json
 import re
-import threading
-import time
+import typing
 
-from django.conf import settings
-from django.db import close_old_connections
 import posthoganalytics
-import psutil
+from django.db import close_old_connections
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
-
-
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE_V2
 
 # TODO: remove dependency
-from posthog.settings.base_variables import TEST
-from posthog.temporal.batch_exports.base import PostHogWorkflow
-from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.temporal.data_imports.metrics import get_data_import_finished_metric
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import (
     CheckBillingLimitsActivityInputs,
     check_billing_limits_activity,
 )
-from posthog.temporal.data_imports.workflow_activities.import_data_sync import import_data_activity_sync
+from posthog.temporal.data_imports.workflow_activities.create_job_model import (
+    CreateExternalDataJobModelActivityInputs,
+    create_external_data_job_model_activity,
+)
+from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
+    ImportDataActivityInputs,
+    import_data_activity_sync,
+)
 from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
     sync_new_schemas_activity,
 )
 from posthog.temporal.utils import ExternalDataWorkflowInputs
-from posthog.temporal.data_imports.workflow_activities.create_job_model import (
-    CreateExternalDataJobModelActivityInputs,
-    create_external_data_job_model_activity,
-)
-from posthog.temporal.data_imports.workflow_activities.import_data_sync import ImportDataActivityInputs
 from posthog.utils import get_machine_id
-from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
-
-from posthog.warehouse.external_data_source.jobs import (
-    update_external_job_status,
+from posthog.warehouse.data_load.source_templates import (
+    create_warehouse_templates_for_source,
 )
-from posthog.warehouse.models import (
-    ExternalDataJob,
-    ExternalDataSource,
-)
-from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.warehouse.external_data_source.jobs import update_external_job_status
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
 from posthog.warehouse.models.external_data_schema import update_should_sync
 
+Any_Source_Errors: list[str] = [
+    "Could not establish session to SSH gateway",
+    "Primary key required for incremental syncs",
+]
 
 Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
+    ExternalDataSource.Type.BIGQUERY: [
+        "PermissionDenied: 403 request failed",
+    ],
     ExternalDataSource.Type.STRIPE: [
         "401 Client Error: Unauthorized for url: https://api.stripe.com",
         "403 Client Error: Forbidden for url: https://api.stripe.com",
@@ -67,9 +63,28 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSource.Type, list[str]] = {
         "No primary key defined for table",
         "failed: timeout expired",
         "SSL connection has been closed unexpectedly",
+        "Address not in tenant allow_list",
+        "FATAL: no such database",
+        "does not exist",
     ],
     ExternalDataSource.Type.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
-    ExternalDataSource.Type.MYSQL: ["Can't connect to MySQL server on", "No primary key defined for table"],
+    ExternalDataSource.Type.MYSQL: [
+        "Can't connect to MySQL server on",
+        "No primary key defined for table",
+        "Access denied for user",
+    ],
+    ExternalDataSource.Type.SALESFORCE: [
+        "400 Client Error: Bad Request for url",
+        "403 Client Error: Forbidden for url",
+    ],
+    ExternalDataSource.Type.SNOWFLAKE: [
+        "This account has been marked for decommission",
+        "404 Not Found",
+        "Your free trial has ended",
+        "Your account is suspended due to lack of payment method",
+    ],
+    ExternalDataSource.Type.CHARGEBEE: ["403 Client Error: Forbidden for url", "Unauthorized for url"],
+    ExternalDataSource.Type.HUBSPOT: ["missing or invalid refresh token"],
 }
 
 
@@ -82,6 +97,16 @@ class UpdateExternalDataJobStatusInputs:
     status: str
     internal_error: str | None
     latest_error: str | None
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "job_id": self.job_id,
+            "schema_id": self.schema_id,
+            "source_id": self.source_id,
+            "status": self.status,
+        }
 
 
 @activity.defn
@@ -114,23 +139,27 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
         source: ExternalDataSource = ExternalDataSource.objects.get(pk=inputs.source_id)
         non_retryable_errors = Non_Retryable_Schema_Errors.get(ExternalDataSource.Type(source.source_type))
 
-        if non_retryable_errors is not None:
-            has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors)
-            if has_non_retryable_error:
-                logger.info("Schema has a non-retryable error - turning off syncing")
-                posthoganalytics.capture(
-                    get_machine_id(),
-                    "schema non-retryable error",
-                    {
-                        "schemaId": inputs.schema_id,
-                        "sourceId": inputs.source_id,
-                        "sourceType": source.source_type,
-                        "jobId": inputs.job_id,
-                        "teamId": inputs.team_id,
-                        "error": inputs.internal_error,
-                    },
-                )
-                update_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
+        if non_retryable_errors is None:
+            non_retryable_errors = Any_Source_Errors
+        else:
+            non_retryable_errors.extend(Any_Source_Errors)
+
+        has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors)
+        if has_non_retryable_error:
+            logger.info("Schema has a non-retryable error - turning off syncing")
+            posthoganalytics.capture(
+                get_machine_id(),
+                "schema non-retryable error",
+                {
+                    "schemaId": inputs.schema_id,
+                    "sourceId": inputs.source_id,
+                    "sourceType": source.source_type,
+                    "jobId": inputs.job_id,
+                    "teamId": inputs.team_id,
+                    "error": inputs.internal_error,
+                },
+            )
+            update_should_sync(schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False)
 
     update_external_job_status(
         job_id=job_id,
@@ -144,57 +173,22 @@ def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInputs) ->
     )
 
 
-@activity.defn
-def trigger_pipeline_v2(inputs: ExternalDataWorkflowInputs):
-    logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
-    logger.debug("Triggering V2 pipeline")
-
-    temporal = sync_connect()
-    try:
-        asyncio.run(
-            temporal.start_workflow(
-                workflow="external-data-job",
-                arg=dataclasses.asdict(inputs),
-                id=f"{inputs.external_data_schema_id}-V2",
-                task_queue=str(DATA_WAREHOUSE_TASK_QUEUE_V2),
-                retry_policy=RetryPolicy(
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=1,
-                    non_retryable_error_types=["NondeterminismError"],
-                ),
-            )
-        )
-    except WorkflowAlreadyStartedError:
-        pass
-
-    logger.debug("V2 pipeline triggered")
-
-
 @dataclasses.dataclass
 class CreateSourceTemplateInputs:
     team_id: int
     run_id: str
 
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "run_id": self.run_id,
+        }
+
 
 @activity.defn
 def create_source_templates(inputs: CreateSourceTemplateInputs) -> None:
     create_warehouse_templates_for_source(team_id=inputs.team_id, run_id=inputs.run_id)
-
-
-def log_memory_usage():
-    process = psutil.Process()
-    logger = bind_temporal_worker_logger_sync(team_id=0)
-
-    while True:
-        memory_info = process.memory_info()
-        logger.info(f"Memory Usage: RSS = {memory_info.rss / (1024 * 1024):.2f} MB")
-
-        time.sleep(10)  # Log every 10 seconds
-
-
-if settings.TEMPORAL_TASK_QUEUE == DATA_WAREHOUSE_TASK_QUEUE_V2:
-    thread = threading.Thread(target=log_memory_usage, daemon=True)
-    thread.start()
 
 
 # TODO: update retry policies
@@ -209,14 +203,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
     async def run(self, inputs: ExternalDataWorkflowInputs):
         assert inputs.external_data_schema_id is not None
 
-        if settings.TEMPORAL_TASK_QUEUE != DATA_WAREHOUSE_TASK_QUEUE_V2 and not TEST:
-            await workflow.execute_activity(
-                trigger_pipeline_v2,
-                inputs,
-                start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
-
         update_inputs = UpdateExternalDataJobStatusInputs(
             job_id=None,
             status=ExternalDataJob.Status.COMPLETED,
@@ -227,12 +213,14 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             source_id=str(inputs.external_data_source_id),
         )
 
+        source_type = None
         try:
             # create external data job and trigger activity
             create_external_data_job_inputs = CreateExternalDataJobModelActivityInputs(
                 team_id=inputs.team_id,
                 schema_id=inputs.external_data_schema_id,
                 source_id=inputs.external_data_source_id,
+                billable=inputs.billable,
             )
 
             job_id, incremental, source_type = await workflow.execute_activity(
@@ -280,18 +268,19 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 run_id=job_id,
                 schema_id=inputs.external_data_schema_id,
                 source_id=inputs.external_data_source_id,
+                reset_pipeline=inputs.reset_pipeline,
             )
 
             timeout_params = (
-                {"start_to_close_timeout": dt.timedelta(weeks=1), "retry_policy": RetryPolicy(maximum_attempts=1)}
+                {"start_to_close_timeout": dt.timedelta(weeks=1), "retry_policy": RetryPolicy(maximum_attempts=3)}
                 if incremental
-                else {"start_to_close_timeout": dt.timedelta(hours=12), "retry_policy": RetryPolicy(maximum_attempts=3)}
+                else {"start_to_close_timeout": dt.timedelta(hours=12), "retry_policy": RetryPolicy(maximum_attempts=1)}
             )
 
             await workflow.execute_activity(
                 import_data_activity_sync,
                 job_inputs,
-                heartbeat_timeout=dt.timedelta(minutes=5),
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 **timeout_params,
             )  # type: ignore
 
@@ -315,6 +304,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             update_inputs.status = ExternalDataJob.Status.FAILED
             raise
         finally:
+            get_data_import_finished_metric(source_type=source_type, status=update_inputs.status.lower()).add(1)
+
             await workflow.execute_activity(
                 update_external_data_job_model,
                 update_inputs,

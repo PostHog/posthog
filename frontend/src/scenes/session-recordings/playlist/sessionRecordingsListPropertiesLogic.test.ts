@@ -14,7 +14,7 @@ const EXPECTED_RECORDING_PROPERTIES = [
             $geoip_country_code: 'AU',
             $os: 'Windows',
             $os_name: 'Windows 10',
-            $referring_domain: 'google.com',
+            $entry_referring_domain: 'google.com',
         },
     },
     {
@@ -25,7 +25,7 @@ const EXPECTED_RECORDING_PROPERTIES = [
             $geoip_country_code: 'GB',
             $os: 'iOS',
             $os_name: 'iOS 14',
-            $referring_domain: 'google.com',
+            $entry_referring_domain: 'google.com',
         },
     },
 ]
@@ -37,7 +37,7 @@ const EXPECTED_RECORDING_PROPERTIES_BY_ID = {
         $geoip_country_code: 'AU',
         $os: 'Windows',
         $os_name: 'Windows 10',
-        $referring_domain: 'google.com',
+        $entry_referring_domain: 'google.com',
     },
     s2: {
         $browser: 'Safari',
@@ -45,7 +45,7 @@ const EXPECTED_RECORDING_PROPERTIES_BY_ID = {
         $geoip_country_code: 'GB',
         $os: 'iOS',
         $os_name: 'iOS 14',
-        $referring_domain: 'google.com',
+        $entry_referring_domain: 'google.com',
     },
 }
 
@@ -55,6 +55,7 @@ const mockSessons: SessionRecordingType[] = [
         start_time: '2021-01-01T00:00:00Z',
         end_time: '2021-01-01T01:00:00Z',
         viewed: false,
+        viewers: [],
         recording_duration: 0,
         snapshot_source: 'web',
     },
@@ -63,6 +64,7 @@ const mockSessons: SessionRecordingType[] = [
         start_time: '2021-01-01T02:00:00Z',
         end_time: '2021-01-01T03:00:00Z',
         viewed: false,
+        viewers: [],
         recording_duration: 0,
         snapshot_source: 'mobile',
     },
@@ -72,6 +74,7 @@ const mockSessons: SessionRecordingType[] = [
         start_time: '2021-01-01T03:00:00Z',
         end_time: '2021-01-01T04:00:00Z',
         viewed: false,
+        viewers: [],
         recording_duration: 0,
         snapshot_source: 'unknown',
     },

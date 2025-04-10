@@ -14,13 +14,13 @@ import time
 import uuid
 import zlib
 from collections.abc import Generator, Mapping
+from contextlib import contextmanager
 from enum import Enum
 from functools import lru_cache, wraps
 from operator import itemgetter
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
 from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
-from rest_framework import serializers
 
 import lzstring
 import posthoganalytics
@@ -31,16 +31,18 @@ from celery.result import AsyncResult
 from celery.schedules import crontab
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
+from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
+from django.db import ProgrammingError
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
 from django.utils import timezone
 from django.utils.cache import patch_cache_control
+from rest_framework import serializers
 from rest_framework.request import Request
 from sentry_sdk import configure_scope
-from sentry_sdk.api import capture_exception
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
@@ -48,6 +50,7 @@ from posthog.exceptions import (
     RequestParsingError,
     UnspecifiedCompressionFallbackParsingError,
 )
+from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
@@ -79,11 +82,17 @@ __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file
 def format_label_date(date: datetime.datetime, interval: str = "default") -> str:
     date_formats = {
         "default": "%-d-%b-%Y",
-        "minute": "%-d-%b-%Y %H:%M",
-        "hour": "%-d-%b-%Y %H:%M",
+        "minute": "%-d-%b %H:%M",
+        "hour": "%-d-%b %H:%M",
+        "week": "%-d-%b – %-d-%b",
         "month": "%b %Y",
     }
     labels_format = date_formats.get(interval, date_formats["default"])
+
+    if interval == "week":
+        end_date = date + datetime.timedelta(days=6)
+        return f"{date.strftime('%-d-%b')} – {end_date.strftime('%-d-%b')}"
+
     return date.strftime(labels_format)
 
 
@@ -355,38 +364,30 @@ def render_template(
         context["debug"] = True
         context["git_branch"] = get_git_branch()
 
-    context["js_posthog_ui_host"] = "''"
+    context["js_posthog_ui_host"] = ""
 
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
-        context["js_posthog_api_key"] = "'phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO'"
-        context["js_posthog_host"] = "'https://internal-t.posthog.com'"
-        context["js_posthog_ui_host"] = "'https://us.posthog.com'"
+        context["js_posthog_api_key"] = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
+        context["js_posthog_host"] = "https://internal-t.posthog.com"
+        context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     elif settings.SELF_CAPTURE:
-        api_token = get_self_capture_api_token(request)
-
-        if api_token:
-            context["js_posthog_api_key"] = f"'{api_token}'"
-            context["js_posthog_host"] = "window.location.origin"
+        if posthoganalytics.api_key:
+            context["js_posthog_api_key"] = posthoganalytics.api_key
+            context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
     else:
-        context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
-        context["js_posthog_host"] = "'https://internal-t.posthog.com'"
-        context["js_posthog_ui_host"] = "'https://us.posthog.com'"
+        context["js_posthog_api_key"] = "sTMFPsFhdP1Ssg"
+        context["js_posthog_host"] = "https://internal-t.posthog.com"
+        context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
     context["js_url"] = get_js_url(request)
 
-    try:
-        year_in_hog_url = f"/year_in_posthog/2024/{str(request.user.uuid)}"  # type: ignore
-    except:
-        year_in_hog_url = None
-
     posthog_app_context: dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
-        "year_in_hog_url": year_in_hog_url,
     }
 
     posthog_bootstrap: dict[str, Any] = {}
@@ -394,12 +395,12 @@ def render_template(
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
+        from posthog.api.project import ProjectSerializer
         from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team import TeamSerializer
-        from posthog.api.project import ProjectSerializer
         from posthog.api.user import UserSerializer
-        from posthog.user_permissions import UserPermissions
         from posthog.rbac.user_access_control import UserAccessControl
+        from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
 
         posthog_app_context = {
@@ -411,6 +412,7 @@ def render_template(
             "switched_team": getattr(request, "switched_team", None),
             "suggested_users_with_access": getattr(request, "suggested_users_with_access", None),
             "commit_sha": context["git_rev"],
+            "livestream_host": settings.LIVESTREAM_HOST,
             **posthog_app_context,
         }
 
@@ -454,6 +456,8 @@ def render_template(
                 posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
                 posthog_app_context["default_event_name"] = get_default_event_name(user.team)
 
+    # JSON dumps here since there may be objects like Queries
+    # that are not serializable by Django's JSON serializer
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 
     if posthog_distinct_id:
@@ -497,22 +501,35 @@ def render_template(
     return response
 
 
-def get_self_capture_api_token(request: Optional[HttpRequest]) -> Optional[str]:
-    from posthog.models import Team
+async def initialize_self_capture_api_token():
+    """
+    Configures `posthoganalytics` for self-capture, in an ASGI-compatible, async way.
+    """
 
-    # Get the current user's team (or first team in the instance) to set self capture configs
-    team: Optional[Team] = None
-    if request and getattr(request, "user", None) and getattr(request.user, "team", None):
-        team = request.user.team  # type: ignore
-    else:
-        try:
-            team = Team.objects.only("api_token").first()
-        except Exception:
-            pass
+    User = apps.get_model("posthog", "User")
+    Team = apps.get_model("posthog", "Team")
+    try:
+        user = (
+            await User.objects.filter(last_login__isnull=False)
+            .order_by("-last_login")
+            .select_related("current_team")
+            .afirst()
+        )
+        # Get the current user's team (or first team in the instance) to set self capture configs
+        team = None
+        if user and getattr(user, "current_team", None):
+            team = user.current_team
+        else:
+            team = await Team.objects.only("api_token").aget()
+        local_api_key = team.api_token
+    except (User.DoesNotExist, Team.DoesNotExist, ProgrammingError):
+        local_api_key = None
 
-    if team:
-        return team.api_token
-    return None
+    # This is running _after_ PostHogConfig.ready(), so we re-enable posthoganalytics while setting the params
+    if local_api_key is not None:
+        posthoganalytics.disabled = False
+        posthoganalytics.api_key = local_api_key
+        posthoganalytics.host = settings.SITE_URL
 
 
 def get_default_event_name(team: "Team"):
@@ -925,6 +942,7 @@ def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool
     - if on PostHog Cloud
     - if running end-to-end tests
     - if there's no organization yet
+    - if DEBUG is True
     - if an appropriate license is active and MULTI_ORG_ENABLED is True
     """
     from posthog.models.organization import Organization
@@ -933,6 +951,7 @@ def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool
         is_cloud()  # There's no limit of organizations on Cloud
         or (settings.DEMO and user.is_anonymous)  # Demo users can have a single demo org, but not more
         or settings.E2E_TESTING
+        or settings.DEBUG
         or not Organization.objects.filter(for_internal_metrics=False).exists()  # Definitely can create an org if zero
     ):
         return True
@@ -1249,7 +1268,7 @@ def is_json(val):
     return True
 
 
-def cast_timestamp_or_now(timestamp: Optional[Union[timezone.datetime, str]]) -> str:
+def cast_timestamp_or_now(timestamp: Optional[Union[datetime.datetime, str]]) -> str:
     if not timestamp:
         timestamp = timezone.now()
 
@@ -1433,19 +1452,61 @@ async def wait_for_parallel_celery_group(task: Any, expires: Optional[datetime.d
 def patchable(fn):
     """
     Decorator which allows patching behavior of a function at run-time.
+    Supports chaining multiple patches in sequence, where earlier patches
+    are applied before later ones.
 
-    Used in benchmarking scripts.
+    Used in benchmarking scripts and tests.
     """
+
+    import posthog
+
+    if not posthog.settings.TEST:
+        return fn
 
     @wraps(fn)
     def inner(*args, **kwargs):
-        return inner._impl(*args, **kwargs)  # type: ignore
+        # Execute patches in sequence: first patch → second patch → ... → original function
+        return execute_patch_chain(0, *args, **kwargs)
+
+    # Initialize empty patch list
+    inner._patch_list = []  # type: ignore[attr-defined]
+
+    # Function to execute the patch chain starting from a specific index
+    def execute_patch_chain(index, *args, **kwargs):
+        # If we've gone through all patches, execute the original function
+        if index >= len(inner._patch_list):  # type: ignore[attr-defined]
+            return fn(*args, **kwargs)
+
+        # Execute the current patch, passing a function that will invoke the next patch
+        next_fn = lambda *a, **kw: execute_patch_chain(index + 1, *a, **kw)
+        return inner._patch_list[index](next_fn, *args, **kwargs)  # type: ignore[attr-defined]
+
+    inner._execute_patch_chain = execute_patch_chain  # type: ignore[attr-defined]
 
     def patch(wrapper):
-        inner._impl = lambda *args, **kw: wrapper(fn, *args, **kw)  # type: ignore
+        # Add the wrapper to the end of the patch list
+        inner._patch_list.append(wrapper)  # type: ignore[attr-defined]
 
-    inner._impl = fn  # type: ignore
-    inner._patch = patch  # type: ignore
+    def unpatch():
+        # Remove the most recent patch if there is one
+        if inner._patch_list:  # type: ignore[attr-defined]
+            inner._patch_list.pop()  # type: ignore[attr-defined]
+
+    @contextmanager
+    def temp_patch(wrapper):
+        """
+        Context manager for temporary patching. Adds the wrapper to the patch list
+        and removes it when the 'with' block exits.
+        """
+        patch(wrapper)
+        try:
+            yield
+        finally:
+            unpatch()
+
+    inner._patch = patch  # type: ignore[attr-defined]
+    inner._unpatch = unpatch  # type: ignore[attr-defined]
+    inner._temp_patch = temp_patch  # type: ignore[attr-defined]
 
     return inner
 

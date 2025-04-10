@@ -6,7 +6,7 @@
     "configurations": [
         {
             "name": "Frontend",
-            "command": "pnpm start",
+            "command": "bin/start-frontend",
             "request": "launch",
             "type": "node-terminal",
             "cwd": "${workspaceFolder}",
@@ -16,8 +16,22 @@
             "skipFiles": ["${workspaceFolder}/node_modules/kea-typegen/**/*.js"]
         },
         {
+            "name": "Frontend (no typegen)",
+            "command": "bin/start-frontend",
+            "request": "launch",
+            "type": "node-terminal",
+            "cwd": "${workspaceFolder}",
+            "presentation": {
+                "group": "main"
+            },
+            "skipFiles": ["${workspaceFolder}/node_modules/kea-typegen/**/*.js"],
+            "env": {
+                "SKIP_TYPEGEN": "1"
+            }
+        },
+        {
             "name": "Frontend (https)",
-            "command": "pnpm start",
+            "command": "bin/start-frontend",
             "request": "launch",
             "type": "node-terminal",
             "cwd": "${workspaceFolder}",
@@ -132,19 +146,17 @@
         },
         {
             "name": "Plugin Server",
-            "command": "npm run start:dev",
+            "command": "bin/turbo --env-mode=loose --filter=@posthog/plugin-server start",
             "request": "launch",
             "type": "node-terminal",
-            "cwd": "${workspaceFolder}/plugin-server",
+            "cwd": "${workspaceFolder}",
             "env": {
                 "CLICKHOUSE_SECURE": "False",
                 "DATABASE_URL": "postgres://posthog:posthog@localhost:5432/posthog",
                 "KAFKA_HOSTS": "localhost:9092",
                 "WORKER_CONCURRENCY": "2",
                 "OBJECT_STORAGE_ENABLED": "True",
-                "HOG_HOOK_URL": "http://localhost:3300/hoghook",
-                "CDP_ASYNC_FUNCTIONS_RUSTY_HOOK_TEAMS": "",
-                "CDP_CYCLOTRON_ENABLED_TEAMS": "*"
+                "HOG_HOOK_URL": "http://localhost:3300/hoghook"
             },
             "presentation": {
                 "group": "main"
@@ -245,6 +257,19 @@
             },
             "autoStartBrowser": false,
             "program": "${workspaceFolder}/manage.py"
+        },
+        {
+            "name": "Dagster: Debug Dagit UI",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "dagster",
+            "justMyCode": true,
+            "args": ["dev"],
+            "env": {
+                "DAGSTER_HOME": "${workspaceFolder}/.dagster_home",
+                "DEBUG": "1",
+                "AWS_PROFILE": "dev"
+            }
         }
     ],
     "inputs": [
@@ -267,7 +292,36 @@
             ],
             "stopAll": true,
             "presentation": {
-                "order": 1,
+                "group": "compound"
+            }
+        },
+        {
+            "name": "PostHog (no typegen)",
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Celery Beat",
+                "Frontend (no typegen)",
+                "Plugin Server",
+                "Temporal Worker"
+            ],
+            "stopAll": true,
+            "presentation": {
+                "group": "compound"
+            }
+        },
+        {
+            "name": "PostHog (https)",
+            "configurations": [
+                "Backend",
+                "Celery Threaded Pool",
+                "Celery Beat",
+                "Frontend (https)",
+                "Plugin Server",
+                "Temporal Worker"
+            ],
+            "stopAll": true,
+            "presentation": {
                 "group": "compound"
             }
         },
@@ -282,22 +336,6 @@
             ],
             "stopAll": true,
             "presentation": {
-                "order": 2,
-                "group": "compound"
-            }
-        },
-        {
-            "name": "PostHog (https)",
-            "configurations": [
-                "Backend",
-                "Celery Threaded Pool",
-                "Frontend (https)",
-                "Plugin Server",
-                "Temporal Worker"
-            ],
-            "stopAll": true,
-            "presentation": {
-                "order": 2,
                 "group": "compound"
             }
         }

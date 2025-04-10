@@ -7,10 +7,10 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { hogFunctionListLogic } from 'scenes/pipeline/hogfunctions/list/hogFunctionListLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, ActionType } from '~/types'
@@ -36,7 +36,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
     path((key) => ['scenes', 'actions', 'actionEditLogic', key]),
     props({} as ActionEditLogicProps),
     key((props) => props.id || 'new'),
-    connect({
+    connect(() => ({
         actions: [
             actionsModel,
             ['loadActions'],
@@ -46,7 +46,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
             ['loadTags'],
         ],
         values: [sceneLogic, ['activeScene']],
-    }),
+    })),
     actions({
         setAction: (action: Partial<ActionType>, options: SetActionProps = { merge: true }) => ({
             action,
@@ -76,11 +76,21 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
             submit: async (updatedAction, breakpoint) => {
                 let action: ActionType
+                // Remove URL from steps if it's not an autocapture or a pageview
+                let updatedSteps = updatedAction.steps
+                if (updatedSteps !== undefined) {
+                    updatedSteps = updatedSteps.map((step) => ({
+                        ...step,
+                        ...(step.event === '$autocapture' || step.event === '$pageview'
+                            ? {}
+                            : { url: null, url_matching: null }),
+                    }))
+                }
                 try {
                     if (updatedAction.id) {
-                        action = await api.actions.update(updatedAction.id, updatedAction)
+                        action = await api.actions.update(updatedAction.id, { ...updatedAction, steps: updatedSteps })
                     } else {
-                        action = await api.actions.create(updatedAction)
+                        action = await api.actions.create({ ...updatedAction, steps: updatedSteps })
                     }
                     breakpoint()
                 } catch (response: any) {
@@ -105,6 +115,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
                 lemonToast.success(`Action saved`)
                 actions.resetAction(updatedAction)
+                refreshTreeItem('action', String(action.id))
                 if (!props.id) {
                     router.actions.push(urls.action(action.id))
                 } else {
@@ -137,32 +148,12 @@ export const actionEditLogic = kea<actionEditLogicType>([
         ],
     }),
 
-    loaders(({ actions, props, values }) => ({
+    loaders(({ props, values }) => ({
         action: [
             { ...props.action } as ActionType,
             {
                 setAction: ({ action, options: { merge } }) =>
                     (merge ? { ...values.action, ...action } : action) as ActionType,
-            },
-        ],
-        migration: [
-            true,
-            {
-                migrateToHogFunction: async () => {
-                    if (props.id) {
-                        const hogFunction = await api.actions.migrate(props.id)
-                        actions.setActionValues({ post_to_slack: false })
-                        actions.loadActions()
-                        if (hogFunctionListLogic.isMounted()) {
-                            hogFunctionListLogic.actions.addHogFunction(hogFunction)
-                        }
-                        if (actionLogic({ id: props.id }).isMounted()) {
-                            actionLogic({ id: props.id }).actions.updateAction({ post_to_slack: false })
-                        }
-                        lemonToast.success('Action migrated to a destination!')
-                    }
-                    return true
-                },
             },
         ],
     })),

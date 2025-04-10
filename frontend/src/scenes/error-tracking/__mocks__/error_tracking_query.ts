@@ -1,4 +1,6 @@
-import { range } from 'lib/utils'
+import { range, uuid } from 'lib/utils'
+
+import { ErrorTrackingQueryResponse, ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 const eventProperties = JSON.stringify({
     $os: 'Mac OS X',
@@ -85,41 +87,40 @@ const eventProperties = JSON.stringify({
     '$sentry_tags__PostHog Recording URL': 'https://us.posthog.com/project/:project_id/replay/:recording_id',
 })
 
-const errorTrackingQueryResponse = {
+const errorTrackingTypeIssue: ErrorTrackingRelationalIssue = {
+    id: uuid(),
+    name: 'TypeError',
+    description: 'This is a TypeError',
+    assignee: null,
+    status: 'active',
+    first_seen: '2023-07-07T00:00:00.000000-00:00',
+}
+
+const errorTrackingGenericIssue: ErrorTrackingRelationalIssue = {
+    id: uuid(),
+    name: 'Error',
+    description: 'This is an Error',
+    assignee: null,
+    status: 'active',
+    first_seen: '2023-07-07T00:00:00.000000-00:00',
+}
+
+const errorTrackingQueryResponse: ErrorTrackingQueryResponse = {
     columns: ['occurrences', 'sessions', 'users', 'last_seen', 'first_seen', 'description', 'fingerprint', 'volume'],
     hasMore: false,
     results: [
-        { name: 'TypeError', occurrences: 1000, sessions: 750, users: 500 },
-        { name: ['SyntaxError'], occurrences: 800, sessions: 200, users: 50 },
-        { name: 'Error', occurrences: 6, sessions: 3, users: 1 },
-    ].map(({ name, occurrences, sessions, users }) => ({
-        assignee: null,
-        description: `This is a ${name} error`,
-        name: name,
-        first_seen: '2023-07-07T00:00:00.000000-00:00',
+        { ...errorTrackingTypeIssue, occurrences: 1000, sessions: 750, users: 500 },
+        { ...errorTrackingGenericIssue, occurrences: 6, sessions: 3, users: 1 },
+    ].map(({ occurrences, sessions, users, ...props }) => ({
+        ...props,
         last_seen: '2024-07-07T00:00:00.000000-00:00',
-        occurrences: occurrences,
-        sessions: sessions,
-        users: users,
-        status: 'active',
-        volume: [
-            '__hx_tag',
-            'Sparkline',
-            'data',
-            [1, 2, 3, 4, 5, 6, 2, 3, 1],
-            'labels',
-            [
-                '1 Jul, 2024 00:00 (UTC)',
-                '2 Jul, 2024 00:00 (UTC)',
-                '3 Jul, 2024 00:00 (UTC)',
-                '4 Jul, 2024 00:00 (UTC)',
-                '5 Jul, 2024 00:00 (UTC)',
-                '6 Jul, 2024 00:00 (UTC)',
-                '7 Jul, 2024 00:00 (UTC)',
-                '8 Jul, 2024 00:00 (UTC)',
-                '9 Jul, 2024 00:00 (UTC)',
-            ],
-        ],
+        aggregations: {
+            occurrences: occurrences,
+            sessions: sessions,
+            users: users,
+            volumeDay: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            volumeRange: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        },
     })),
 }
 
@@ -139,4 +140,4 @@ const errorTrackingEventsQueryResponse = {
     ]),
 }
 
-export { errorTrackingEventsQueryResponse, errorTrackingQueryResponse }
+export { errorTrackingEventsQueryResponse, errorTrackingQueryResponse, errorTrackingTypeIssue }

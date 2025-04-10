@@ -17,9 +17,23 @@ import { urls } from 'scenes/urls'
 import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
-import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode, LLMTracePerson } from '~/queries/schema'
+import {
+    DataTableNode,
+    EventsQueryPersonColumn,
+    HasPropertiesNode,
+    LLMTracePerson,
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { isActorsQuery, isEventsQuery, isHogQLQuery, isPersonsNode, isTracesQuery, trimQuotes } from '~/queries/utils'
+import {
+    isActorsQuery,
+    isEventsQuery,
+    isGroupsQuery,
+    isHogQLQuery,
+    isPersonsNode,
+    isRevenueExampleEventsQuery,
+    isTracesQuery,
+    trimQuotes,
+} from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
 export function renderColumn(
@@ -147,7 +161,6 @@ export function renderColumn(
                 : '#'
             return (
                 <Link
-                    className="ph-no-capture"
                     to={newUrl}
                     onClick={(e) => {
                         e.preventDefault()
@@ -194,7 +207,6 @@ export function renderColumn(
                 : '#'
             return (
                 <Link
-                    className="ph-no-capture"
                     to={newUrl}
                     onClick={(e) => {
                         e.preventDefault()
@@ -220,7 +232,7 @@ export function renderColumn(
             noPopover: true,
         }
 
-        if (isEventsQuery(query.source)) {
+        if (isEventsQuery(query.source) || isRevenueExampleEventsQuery(query.source)) {
             displayProps.person = value.distinct_id ? (value as EventsQueryPersonColumn) : value
             displayProps.noPopover = false // If we are in an events list, the popover experience is better
         }
@@ -263,12 +275,25 @@ export function renderColumn(
         return (
             <CopyToClipboardInline
                 explicitValue={String(value)}
-                iconStyle={{ color: 'var(--primary)' }}
+                iconStyle={{ color: 'var(--accent)' }}
                 description="person id"
             >
                 {String(value)}
             </CopyToClipboardInline>
         )
+    } else if (key === 'key' && isGroupsQuery(query.source)) {
+        return (
+            <CopyToClipboardInline
+                explicitValue={String(value)}
+                iconStyle={{ color: 'var(--accent)' }}
+                description="group id"
+            >
+                {String(value)}
+            </CopyToClipboardInline>
+        )
+    } else if (key === 'group_name' && isGroupsQuery(query.source)) {
+        const key = (record as any[])[1] // 'key' is the second column in the groups query
+        return <Link to={urls.group(query.source.group_type_index, key, true)}>{value}</Link>
     }
     if (typeof value === 'object') {
         return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />

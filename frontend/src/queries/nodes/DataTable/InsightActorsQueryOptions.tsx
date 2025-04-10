@@ -4,7 +4,7 @@ import { cleanedInsightActorsQueryOptions } from 'scenes/trends/persons-modal/pe
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightActorsQueryOptionsLogic } from '~/queries/nodes/DataTable/insightActorsQueryOptionsLogic'
-import { InsightActorsQuery } from '~/queries/schema'
+import { InsightActorsQuery } from '~/queries/schema/schema-general'
 
 interface InsightActorsQueryOptionsProps {
     query: InsightActorsQuery

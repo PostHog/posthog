@@ -1,8 +1,8 @@
-import * as Sentry from '@sentry/node'
 import { exponentialBuckets, Histogram } from 'prom-client'
 
 import { timeoutGuard } from '../utils/db/utils'
-import { status } from '../utils/status'
+import { logger } from '../utils/logger'
+import { captureException } from '../utils/posthog'
 
 interface FunctionInstrumentation<T> {
     statsKey: string
@@ -16,7 +16,7 @@ interface FunctionInstrumentation<T> {
 }
 
 const logTime = (startTime: number, statsKey: string, error?: any) => {
-    status.info('⏱️', `${statsKey} took ${Math.round(performance.now() - startTime)}ms`, {
+    logger.info('⏱️', `${statsKey} took ${Math.round(performance.now() - startTime)}ms`, {
         error,
         statsKey,
         type: 'instrumented_function_time_log',
@@ -53,11 +53,11 @@ export async function runInstrumentedFunction<T>({
         return result
     } catch (error) {
         end({ success: 'false' })
-        status.info('🔔', error)
+        logger.info('🔔', error)
         if (logExecutionTime) {
             logTime(startTime, statsKey, error)
         }
-        Sentry.captureException(error, { tags: { team_id: teamId } })
+        captureException(error, { tags: { team_id: teamId } })
         throw error
     } finally {
         clearTimeout(t)

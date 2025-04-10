@@ -10,6 +10,7 @@ from posthog.schema import (
     DataWarehouseNode,
     ElementPropertyFilter,
     EmptyPropertyFilter,
+    EventMetadataPropertyFilter,
     EventPropertyFilter,
     EventsNode,
     DataWarehousePropertyFilter,
@@ -32,6 +33,7 @@ from posthog.schema import (
     PathsQuery,
     StickinessQuery,
     LifecycleQuery,
+    StickinessActorsQuery,
 )
 
 FilterType: TypeAlias = Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
@@ -46,12 +48,15 @@ InsightQueryNode: TypeAlias = Union[
     LifecycleQuery,
 ]
 
-InsightActorsQueryNode: TypeAlias = Union[InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery]
+InsightActorsQueryNode: TypeAlias = Union[
+    InsightActorsQuery, FunnelsActorsQuery, FunnelCorrelationActorsQuery, StickinessActorsQuery
+]
 
 AnyPropertyFilter: TypeAlias = Union[
     EventPropertyFilter,
     PersonPropertyFilter,
     ElementPropertyFilter,
+    EventMetadataPropertyFilter,
     SessionPropertyFilter,
     LogEntryPropertyFilter,
     CohortPropertyFilter,

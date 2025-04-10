@@ -1,8 +1,9 @@
-import { connect, kea, path, selectors } from 'kea'
+import { connect, kea, listeners, path, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -10,7 +11,7 @@ import { Breadcrumb } from '~/types'
 
 import { settingsLogic } from './settingsLogic'
 import type { settingsSceneLogicType } from './settingsSceneLogicType'
-import { SettingLevelId, SettingLevelIds, SettingSectionId } from './types'
+import { SettingId, SettingLevelId, SettingLevelIds, SettingSectionId } from './types'
 
 export const settingsSceneLogic = kea<settingsSceneLogicType>([
     path(['scenes', 'settings', 'settingsSceneLogic']),
@@ -42,6 +43,17 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
             ],
         ],
     }),
+
+    listeners(({ values }) => ({
+        async selectSetting({ setting }) {
+            const url = urls.absolute(
+                urls.currentProject(
+                    urls.settings(values.selectedSectionId ?? values.selectedLevel, setting as SettingId)
+                )
+            )
+            await copyToClipboard(url)
+        },
+    })),
 
     urlToAction(({ actions, values }) => ({
         '/settings/:section': ({ section }) => {

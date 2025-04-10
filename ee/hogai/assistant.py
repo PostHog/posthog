@@ -1,12 +1,16 @@
 import json
 from collections.abc import Generator, Iterator
+from contextlib import contextmanager
 from typing import Any, Optional, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+import posthoganalytics
+import structlog
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.errors import GraphRecursionError
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
@@ -15,8 +19,10 @@ from ee.hogai.graph import AssistantGraph
 from ee.hogai.memory.nodes import MemoryInitializerNode
 from ee.hogai.retention.nodes import RetentionGeneratorNode
 from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
+from ee.hogai.sql.nodes import SQLGeneratorNode
 from ee.hogai.trends.nodes import TrendsGeneratorNode
 from ee.hogai.utils.asgi import SyncIterableToAsync
+from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.state import (
     GraphMessageUpdateTuple,
     GraphTaskStartedUpdateTuple,
@@ -31,13 +37,13 @@ from ee.hogai.utils.state import (
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
-from posthog.models import Team, User
-from posthog.ph_client import get_ph_client
+from posthog.models import Action, Team, User
 from posthog.schema import (
     AssistantEventType,
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantMessage,
+    AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
     ReasoningMessage,
@@ -45,44 +51,57 @@ from posthog.schema import (
 )
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
-posthog_client = get_ph_client()
-
 VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
     AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
     AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
+    AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
 }
 
 STREAMING_NODES: set[AssistantNodeName] = {
+    AssistantNodeName.ROOT,
+    AssistantNodeName.INKEEP_DOCS,
     AssistantNodeName.MEMORY_ONBOARDING,
     AssistantNodeName.MEMORY_INITIALIZER,
-    AssistantNodeName.SUMMARIZER,
 }
 """Nodes that can stream messages to the client."""
 
 
-VERBOSE_NODES = STREAMING_NODES | {AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT}
+VERBOSE_NODES = STREAMING_NODES | {
+    AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
+    AssistantNodeName.SESSION_RECORDINGS_FILTERS,
+    AssistantNodeName.ROOT_TOOLS,
+}
 """Nodes that can send messages to the client."""
+
+
+logger = structlog.get_logger(__name__)
 
 
 class Assistant:
     _team: Team
     _graph: CompiledStateGraph
     _user: Optional[User]
+    _contextual_tools: dict[str, Any]
     _conversation: Conversation
     _latest_message: HumanMessage
     _state: Optional[AssistantState]
     _callback_handler: Optional[BaseCallbackHandler]
+    _trace_id: Optional[str | UUID]
 
     def __init__(
         self,
         team: Team,
         conversation: Conversation,
         new_message: HumanMessage,
+        *,
         user: Optional[User] = None,
+        contextual_tools: Optional[dict[str, Any]] = None,
         is_new_conversation: bool = False,
+        trace_id: Optional[str | UUID] = None,
     ):
         self._team = team
+        self._contextual_tools = contextual_tools or {}
         self._user = user
         self._conversation = conversation
         self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())})
@@ -90,19 +109,20 @@ class Assistant:
         self._graph = AssistantGraph(team).compile_full_graph()
         self._chunks = AIMessageChunk(content="")
         self._state = None
-        distinct_id = user.distinct_id if user else None
         self._callback_handler = (
             CallbackHandler(
-                posthog_client,
-                distinct_id,
+                posthoganalytics.default_client,
+                distinct_id=user.distinct_id if user else None,
                 properties={
                     "conversation_id": str(self._conversation.id),
                     "is_first_conversation": is_new_conversation,
                 },
+                trace_id=trace_id,
             )
-            if posthog_client
+            if posthoganalytics.default_client
             else None
         )
+        self._trace_id = trace_id
 
     def stream(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
@@ -120,36 +140,62 @@ class Assistant:
             state, config=config, stream_mode=["messages", "values", "updates", "debug"]
         )
 
-        # Assign the conversation id to the client.
-        if self._is_new_conversation:
-            yield self._serialize_conversation()
+        with self._lock_conversation():
+            # Assign the conversation id to the client.
+            if self._is_new_conversation:
+                yield self._serialize_conversation()
 
-        # Send the last message with the initialized id.
-        yield self._serialize_message(self._latest_message)
+            # Send the last message with the initialized id.
+            yield self._serialize_message(self._latest_message)
 
-        try:
-            last_viz_message = None
-            for update in generator:
-                if message := self._process_update(update):
-                    if isinstance(message, VisualizationMessage):
-                        last_viz_message = message
-                    yield self._serialize_message(message)
+            try:
+                last_viz_message = None
+                for update in generator:
+                    if message := self._process_update(update):
+                        if isinstance(message, VisualizationMessage):
+                            last_viz_message = message
+                        yield self._serialize_message(message)
 
-            # Check if the assistant has requested help.
-            state = self._graph.get_state(config)
-            if state.next:
-                interrupt_value = state.tasks[0].interrupts[0].value
+                # Check if the assistant has requested help.
+                state = self._graph.get_state(config)
+                if state.next:
+                    interrupt_messages = []
+                    for task in state.tasks:
+                        for interrupt in task.interrupts:
+                            interrupt_message = (
+                                AssistantMessage(content=interrupt.value, id=str(uuid4()))
+                                if isinstance(interrupt.value, str)
+                                else interrupt.value
+                            )
+                            interrupt_messages.append(interrupt_message)
+                            yield self._serialize_message(interrupt_message)
+
+                    self._graph.update_state(
+                        config,
+                        PartialAssistantState(
+                            messages=interrupt_messages,
+                            # LangGraph by some reason doesn't store the interrupt exceptions in checkpoints.
+                            graph_status="interrupted",
+                        ),
+                    )
+                else:
+                    self._report_conversation_state(last_viz_message)
+            except GraphRecursionError:
                 yield self._serialize_message(
-                    AssistantMessage(content=interrupt_value, id=str(uuid4()))
-                    if isinstance(interrupt_value, str)
-                    else interrupt_value
+                    FailureMessage(
+                        content="The assistant has reached the maximum number of steps. You can explicitly ask to continue.",
+                        id=str(uuid4()),
+                    )
                 )
-            else:
-                self._report_conversation_state(last_viz_message)
-        except:
-            # This is an unhandled error, so we just stop further generation at this point
-            yield self._serialize_message(FailureMessage())
-            raise  # Re-raise, so that the error is printed or goes into Sentry
+            except Exception as e:
+                # Reset the state, so that the next generation starts from the beginning.
+                self._graph.update_state(config, PartialAssistantState.get_reset_state())
+
+                if not isinstance(e, GenerationCanceled):
+                    logger.exception("Error in assistant stream", error=e)
+                    # This is an unhandled error, so we just stop further generation at this point
+                    yield self._serialize_message(FailureMessage())
+                    raise  # Re-raise, so that the error is printed or goes into Sentry
 
     @property
     def _initial_state(self) -> AssistantState:
@@ -158,21 +204,32 @@ class Assistant:
     def _get_config(self) -> RunnableConfig:
         callbacks = [self._callback_handler] if self._callback_handler else None
         config: RunnableConfig = {
-            "recursion_limit": 24,
+            "recursion_limit": 48,
             "callbacks": callbacks,
-            "configurable": {"thread_id": self._conversation.id},
+            "configurable": {
+                "thread_id": self._conversation.id,
+                "trace_id": self._trace_id,
+                "distinct_id": self._user.distinct_id if self._user else None,
+                "contextual_tools": self._contextual_tools,
+            },
         }
         return config
 
     def _init_or_update_state(self):
         config = self._get_config()
         snapshot = self._graph.get_state(config)
+
+        # If the graph previously hasn't reset the state, it is an interrupt. We resume from the point of interruption.
         if snapshot.next:
             saved_state = validate_state_update(snapshot.values)
-            self._state = saved_state
-            self._graph.update_state(config, PartialAssistantState(messages=[self._latest_message], resumed=True))
+            if saved_state.graph_status == "interrupted":
+                self._state = saved_state
+                self._graph.update_state(
+                    config, PartialAssistantState(messages=[self._latest_message], graph_status="resumed")
+                )
+                # Return None to indicate that we want to continue the execution from the interrupted point.
+                return None
 
-            return None
         initial_state = self._initial_state
         self._state = initial_state
         return initial_state
@@ -181,8 +238,6 @@ class Assistant:
         self, node_name: AssistantNodeName, input: AssistantState
     ) -> Optional[ReasoningMessage]:
         match node_name:
-            case AssistantNodeName.ROUTER:
-                return ReasoningMessage(content="Identifying type of analysis")
             case (
                 AssistantNodeName.TRENDS_PLANNER
                 | AssistantNodeName.TRENDS_PLANNER_TOOLS
@@ -190,6 +245,8 @@ class Assistant:
                 | AssistantNodeName.FUNNEL_PLANNER_TOOLS
                 | AssistantNodeName.RETENTION_PLANNER
                 | AssistantNodeName.RETENTION_PLANNER_TOOLS
+                | AssistantNodeName.SQL_PLANNER
+                | AssistantNodeName.SQL_PLANNER_TOOLS
             ):
                 substeps: list[str] = []
                 if input:
@@ -210,6 +267,25 @@ class Assistant:
                                     substeps.append(
                                         f"Analyzing {action.tool_input['entity']} property `{action.tool_input['property_name']}`"
                                     )
+                                case "retrieve_action_properties" | "retrieve_action_property_values":
+                                    id = (
+                                        action.tool_input
+                                        if isinstance(action.tool_input, str)
+                                        else action.tool_input["action_id"]
+                                    )
+                                    try:
+                                        action_model = Action.objects.get(pk=id, team__project_id=self._team.project_id)
+                                        if action.tool == "retrieve_action_properties":
+                                            substeps.append(f"Exploring `{action_model.name}` action properties")
+                                        elif action.tool == "retrieve_action_property_values" and isinstance(
+                                            action.tool_input, dict
+                                        ):
+                                            substeps.append(
+                                                f"Analyzing `{action.tool_input['property_name']}` action property of `{action_model.name}`"
+                                            )
+                                    except Action.DoesNotExist:
+                                        pass
+
                 return ReasoningMessage(content="Picking relevant events and properties", substeps=substeps)
             case AssistantNodeName.TRENDS_GENERATOR:
                 return ReasoningMessage(content="Creating trends query")
@@ -217,6 +293,12 @@ class Assistant:
                 return ReasoningMessage(content="Creating funnel query")
             case AssistantNodeName.RETENTION_GENERATOR:
                 return ReasoningMessage(content="Creating retention query")
+            case AssistantNodeName.SQL_GENERATOR:
+                return ReasoningMessage(content="Creating SQL query")
+            case AssistantNodeName.INKEEP_DOCS:
+                return ReasoningMessage(content="Checking PostHog docs")
+            case AssistantNodeName.SESSION_RECORDINGS_FILTERS:
+                return ReasoningMessage(content="Coming up with session recordings filters")
             case _:
                 return None
 
@@ -236,10 +318,7 @@ class Assistant:
         _, maybe_state_update = update
         state_update = validate_value_update(maybe_state_update)
 
-        if node_val := state_update.get(AssistantNodeName.ROUTER):
-            if isinstance(node_val, PartialAssistantState) and node_val.messages:
-                return node_val.messages[0]
-        elif intersected_nodes := state_update.keys() & VISUALIZATION_NODES.keys():
+        if intersected_nodes := state_update.keys() & VISUALIZATION_NODES.keys():
             # Reset chunks when schema validation fails.
             self._chunks = AIMessageChunk(content="")
 
@@ -256,7 +335,18 @@ class Assistant:
             if node_val := state_update.get(node_name):
                 if isinstance(node_val, PartialAssistantState) and node_val.messages:
                     self._chunks = AIMessageChunk(content="")
-                    return node_val.messages[0]
+                    for candidate_message in node_val.messages:
+                        if (
+                            # Filter out tool calls without a UI payload
+                            not isinstance(candidate_message, AssistantToolCallMessage)
+                            or candidate_message.ui_payload is not None
+                        ) and (
+                            # Also filter out empty assistant messages
+                            not isinstance(candidate_message, AssistantMessage)
+                            or isinstance(candidate_message, AssistantMessage)
+                            and candidate_message.content
+                        ):
+                            return candidate_message
 
         return None
 
@@ -264,13 +354,7 @@ class Assistant:
         langchain_message, langgraph_state = update[1]
         if isinstance(langchain_message, AIMessageChunk):
             node_name = langgraph_state["langgraph_node"]
-            if node_name in VISUALIZATION_NODES.keys():
-                self._chunks += langchain_message  # type: ignore
-                parsed_message = VISUALIZATION_NODES[node_name].parse_output(self._chunks.tool_calls[0]["args"])
-                if parsed_message:
-                    initiator_id = self._state.start_id if self._state is not None else None
-                    return VisualizationMessage(answer=parsed_message.query, initiator=initiator_id)
-            elif node_name in STREAMING_NODES:
+            if node_name in STREAMING_NODES:
                 self._chunks += langchain_message  # type: ignore
                 if node_name == AssistantNodeName.MEMORY_INITIALIZER:
                     if not MemoryInitializerNode.should_process_message_chunk(langchain_message):
@@ -279,7 +363,9 @@ class Assistant:
                         return AssistantMessage(
                             content=MemoryInitializerNode.format_message(cast(str, self._chunks.content))
                         )
-                return AssistantMessage(content=self._chunks.content)
+                if self._chunks.content:
+                    # Only return an in-progress message if there is already some content (and not e.g. just tool calls)
+                    return AssistantMessage(content=self._chunks.content)
         return None
 
     def _process_task_started_update(self, update: GraphTaskStartedUpdateTuple) -> BaseModel | None:
@@ -296,7 +382,7 @@ class Assistant:
             output += f"event: {AssistantEventType.STATUS}\n"
         else:
             output += f"event: {AssistantEventType.MESSAGE}\n"
-        return output + f"data: {message.model_dump_json(exclude_none=True)}\n\n"
+        return output + f"data: {message.model_dump_json(exclude_none=True, exclude={'tool_calls'})}\n\n"
 
     def _serialize_conversation(self) -> str:
         output = f"event: {AssistantEventType.CONVERSATION}\n"
@@ -312,3 +398,13 @@ class Assistant:
                 "chat with ai",
                 {"prompt": human_message.content, "response": message.model_dump_json(exclude_none=True)},
             )
+
+    @contextmanager
+    def _lock_conversation(self):
+        try:
+            self._conversation.status = Conversation.Status.IN_PROGRESS
+            self._conversation.save()
+            yield
+        finally:
+            self._conversation.status = Conversation.Status.IDLE
+            self._conversation.save()

@@ -5,8 +5,8 @@
 
     .ActivityDescription {
         padding: 1rem;
-        background: var(--bg-light);
-        border: 1px solid var(--border);
+        background: var(--bg-surface-primary);
+        border: 1px solid var(--border-primary);
         border-radius: var(--radius);
 
         .taxonomic-breakdown-filter.tag-pill {
@@ -29,15 +29,11 @@
 }
 
 .ActivityLogRow {
-    display: flex;
-    gap: 0.5rem;
-    max-width: 50rem;
-    padding: 0.5rem;
     line-height: 24px;
     overflow-wrap: anywhere;
 
     &--unread {
-        background-color: var(--primary-highlight);
+        background-color: var(--accent-highlight-secondary);
         border-radius: var(--radius);
     }
 
@@ -46,8 +42,6 @@
     }
 
     .ActivityLogRow__details {
-        flex-grow: 1;
-
         .highlighted-activity {
             display: inline;
             background-color: var(--mark);

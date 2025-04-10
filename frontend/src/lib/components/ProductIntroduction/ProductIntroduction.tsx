@@ -17,7 +17,7 @@ import { BuilderHog3, DetectiveHog } from '../hedgehogs'
 export type ProductIntroductionProps = {
     /** The name of the product, e.g. "Cohorts" */
     productName: string
-    productKey: ProductKey
+    productKey?: ProductKey
     /** The name of the thing that they will create, e.g. "cohort" */
     thingName: string
     description: string
@@ -52,29 +52,33 @@ export const ProductIntroduction = ({
         return null
     }
 
-    if (!isEmpty && user.has_seen_product_intro_for?.[productKey]) {
+    if (!isEmpty && (!productKey || user.has_seen_product_intro_for?.[productKey])) {
         // Hide if its not an empty list but the user has seen it before
         return null
     }
 
     const actionable = action || actionElementOverride
     return (
-        <div className="border-2 border-dashed border-border w-full p-8 justify-center rounded mt-2 mb-4">
+        <div
+            className="border-2 border-dashed border-primary w-full p-8 justify-center rounded mt-2 mb-4"
+            data-attr={`product-introduction-${thingName}`}
+        >
             {!isEmpty && (
                 <div className="flex justify-end -mb-6 -mt-2 -mr-2">
                     <div>
                         <LemonButton
                             icon={<IconX />}
+                            size="small"
                             onClick={() => {
-                                updateHasSeenProductIntroFor(productKey, true)
+                                productKey && updateHasSeenProductIntroFor(productKey, true)
                             }}
                         />
                     </div>
                 </div>
             )}
-            <div className="flex items-center gap-8 w-full justify-center flex-wrap">
+            <div className="flex items-center gap-8 w-full justify-center">
                 <div>
-                    <div className="w-50 mx-auto mb-4">
+                    <div className="w-40 lg:w-50 mx-auto mb-4 hidden md:block">
                         {CustomHog ? (
                             <CustomHog className="w-full h-full" />
                         ) : actionable ? (
@@ -107,7 +111,7 @@ export const ProductIntroduction = ({
                                 type="primary"
                                 icon={<IconPlus />}
                                 onClick={() => {
-                                    updateHasSeenProductIntroFor(productKey, true)
+                                    productKey && updateHasSeenProductIntroFor(productKey, true)
                                     action && action()
                                 }}
                                 data-attr={'create-' + thingName.replace(' ', '-').toLowerCase()}

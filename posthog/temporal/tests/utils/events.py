@@ -7,6 +7,7 @@ import random
 import typing
 import uuid
 
+from posthog.models.raw_sessions.sql import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.datetimes import date_range
 
@@ -100,7 +101,7 @@ def generate_test_events(
 
 
 async def insert_event_values_in_clickhouse(
-    client: ClickHouseClient, events: list[EventValues], table: str = "sharded_events"
+    client: ClickHouseClient, events: list[EventValues], table: str = "sharded_events", insert_sessions: bool = False
 ):
     """Execute an insert query to insert provided EventValues into sharded_events."""
     await client.execute_query(
@@ -143,6 +144,20 @@ async def insert_event_values_in_clickhouse(
     )
 
 
+async def insert_sessions_in_clickhouse(client: ClickHouseClient, table: str = "sharded_events"):
+    generate_sessions_query = RAW_SESSION_TABLE_BACKFILL_SELECT_SQL()
+    if table == "events_recent":
+        generate_sessions_query = generate_sessions_query.replace("posthog_test.events", "posthog_test.events_recent")
+        generate_sessions_query = generate_sessions_query.replace(
+            "`$session_id`", "JSONExtractString(properties, '$session_id')"
+        )
+
+    await client.execute_query(f"""
+    INSERT INTO raw_sessions
+    {generate_sessions_query}
+    """)
+
+
 async def generate_test_events_in_clickhouse(
     client: ClickHouseClient,
     team_id: int,
@@ -158,9 +173,10 @@ async def generate_test_events_in_clickhouse(
     distinct_ids: list[str] | None = None,
     duplicate: bool = False,
     batch_size: int = 10000,
-    table: str = "sharded_events",
+    table: str = "events_recent",
+    insert_sessions: bool = False,
 ) -> tuple[list[EventValues], list[EventValues], list[EventValues]]:
-    """Insert test events into the sharded_events table.
+    """Insert test events into the given table.
 
     These events are used in most batch exports tests, so we have a function here to generate
     multiple events with different characteristics.
@@ -182,6 +198,9 @@ async def generate_test_events_in_clickhouse(
         properties: A properties dictionary for events.
         person_properties: A person_properties for events.
         duplicate: Generate and insert duplicate events.
+        batch_size: The number of events to insert in a single query.
+        table: The table to insert the events into (defaults to events_recent, since this is used by the majority of
+            batch exports, except for backfills older than 6 days).
     """
     possible_datetimes = list(date_range(start_time, end_time, dt.timedelta(minutes=1)))
 
@@ -205,9 +224,16 @@ async def generate_test_events_in_clickhouse(
         if duplicate is True:
             duplicate_events = events_to_insert
 
-        await insert_event_values_in_clickhouse(client=client, events=events_to_insert + duplicate_events, table=table)
+        await insert_event_values_in_clickhouse(
+            client=client,
+            events=events_to_insert + duplicate_events,
+            table=table,
+        )
 
         events.extend(events_to_insert)
+
+    if insert_sessions:
+        await insert_sessions_in_clickhouse(client=client, table=table)
 
     # Events outside original date range
     delta = end_time - start_time
@@ -220,7 +246,7 @@ async def generate_test_events_in_clickhouse(
         team_id=team_id,
         possible_datetimes=possible_datetimes_outside_range,
         event_name=event_name,
-        properties=properties,
+        properties={k: v for k, v in properties.items() if k != "$session_id"} if properties is not None else None,
         person_properties=person_properties,
         inserted_at=inserted_at,
         distinct_ids=distinct_ids,
@@ -241,4 +267,5 @@ async def generate_test_events_in_clickhouse(
     await insert_event_values_in_clickhouse(
         client=client, events=events_outside_range + events_from_other_team, table=table
     )
+
     return (events, events_outside_range, events_from_other_team)

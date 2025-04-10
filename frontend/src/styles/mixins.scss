@@ -1,5 +1,3 @@
-@import 'vars';
-
 %mixin-gradient-overlay {
     position: absolute;
     bottom: 0;
@@ -7,7 +5,7 @@
     height: 3rem;
     pointer-events: none;
     content: '';
-    background: linear-gradient(to top, var(--bg-light), transparent);
+    background: linear-gradient(to top, var(--bg-surface-primary), transparent);
 }
 
 %mixin-gradient-overlay-right {
@@ -17,7 +15,7 @@
     height: 100%;
     pointer-events: none;
     content: '';
-    background: linear-gradient(to left, var(--bg-light), transparent);
+    background: linear-gradient(to left, var(--bg-surface-primary), transparent);
 }
 
 %mixin-text-ellipsis {

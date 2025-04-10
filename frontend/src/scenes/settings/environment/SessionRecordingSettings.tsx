@@ -4,6 +4,7 @@ import {
     LemonButton,
     LemonDialog,
     LemonDivider,
+    LemonSelect,
     LemonSwitch,
     LemonTag,
     Link,
@@ -14,83 +15,111 @@ import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
+import { InternalMultipleChoiceSurvey } from 'lib/components/InternalSurvey/InternalMultipleChoiceSurvey'
 import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { SESSION_RECORDING_OPT_OUT_SURVEY_ID_2 } from 'lib/constants'
 import { IconSelectEvents } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { isObject, objectsEqual } from 'lib/utils'
-import { ReactNode } from 'react'
+import { ReactNode, useState } from 'react'
+import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { SessionRecordingAIConfig } from '~/types'
+import { SessionRecordingAIConfig, type SessionRecordingMaskingLevel } from '~/types'
 
 interface SupportedPlatformProps {
     note?: ReactNode
     label: string
-    supported: boolean
+    supportedSinceVersion: false | string
 }
 
 function SupportedPlatform(props: SupportedPlatformProps): JSX.Element {
     const node = (
         <div
             className={clsx(
-                props.supported ? 'bg-success-highlight' : 'bg-danger-highlight',
+                props.supportedSinceVersion ? 'bg-fill-success-highlight' : 'bg-fill-error-highlight',
                 'px-1 py-0.5',
-                props.note && 'cursor-pointer'
+                props.note && props.supportedSinceVersion && 'cursor-pointer'
             )}
         >
-            {props.note ? <IconInfo /> : props.supported ? <IconCheck /> : <IconX />} {props.label}
+            {props.note ? <IconInfo /> : props.supportedSinceVersion ? <IconCheck /> : <IconX />} {props.label}
         </div>
     )
-    if (props.note) {
-        return <Tooltip title={props.note}>{node}</Tooltip>
+    let tooltip = null
+    if (props.supportedSinceVersion || props.note) {
+        tooltip = (
+            <div className="flex flex-col gap-1">
+                {props.supportedSinceVersion && <div>Since version {props.supportedSinceVersion}</div>}
+                {props.note && <div>{props.note}</div>}
+            </div>
+        )
+    }
+    if (tooltip) {
+        return <Tooltip title={tooltip}>{node}</Tooltip>
     }
     return node
 }
 
 export function SupportedPlatforms(props: {
-    web?: boolean | { note?: ReactNode }
-    android?: boolean | { note?: ReactNode }
-    ios?: boolean | { note?: ReactNode }
-    reactNative?: boolean | { note?: ReactNode }
-    flutter?: boolean | { note?: ReactNode }
+    web?: false | { note?: ReactNode; version?: string }
+    android?: false | { note?: ReactNode; version?: string }
+    ios?: false | { note?: ReactNode; version?: string }
+    reactNative?: false | { note?: ReactNode; version?: string }
+    flutter?: false | { note?: ReactNode; version?: string }
 }): JSX.Element {
     return (
-        <div className="text-xs inline-flex flex-row bg-bg-3000 rounded items-center border overflow-hidden mb-2 w-fit">
+        <div className="text-xs inline-flex flex-row bg-primary rounded items-center border overflow-hidden mb-2 w-fit">
             <span className="px-1 py-0.5 font-semibold">Supported platforms:</span>
             <LemonDivider vertical className="h-full" />
             <SupportedPlatform
                 note={isObject(props.web) ? props.web.note : undefined}
                 label="Web"
-                supported={!!props.web}
+                supportedSinceVersion={
+                    isObject(props.web) && typeof props.web?.version === 'string' ? props.web.version : false
+                }
             />
 
             <LemonDivider vertical className="h-full" />
             <SupportedPlatform
                 note={isObject(props.android) ? props.android.note : undefined}
                 label="Android"
-                supported={!!props.android}
+                supportedSinceVersion={
+                    isObject(props.android) && typeof props.android?.version === 'string'
+                        ? props.android.version
+                        : false
+                }
             />
 
             <LemonDivider vertical className="h-full" />
             <SupportedPlatform
                 note={isObject(props.ios) ? props.ios.note : undefined}
                 label="iOS"
-                supported={!!props.ios}
+                supportedSinceVersion={
+                    isObject(props.ios) && typeof props.ios?.version === 'string' ? props.ios.version : false
+                }
             />
 
             <LemonDivider vertical className="h-full" />
             <SupportedPlatform
                 note={isObject(props.reactNative) ? props.reactNative.note : undefined}
                 label="React Native"
-                supported={!!props.reactNative}
+                supportedSinceVersion={
+                    isObject(props.reactNative) && typeof props.reactNative?.version === 'string'
+                        ? props.reactNative.version
+                        : false
+                }
             />
 
             <LemonDivider vertical className="h-full" />
             <SupportedPlatform
                 note={isObject(props.flutter) ? props.flutter.note : undefined}
                 label="Flutter"
-                supported={!!props.flutter}
+                supportedSinceVersion={
+                    isObject(props.flutter) && typeof props.flutter?.version === 'string'
+                        ? props.flutter.version
+                        : false
+                }
             />
         </div>
     )
@@ -103,7 +132,13 @@ function LogCaptureSettings(): JSX.Element {
     return (
         <div>
             <h3>Log capture</h3>
-            <SupportedPlatforms android={true} ios={false} flutter={false} web={true} reactNative={true} />
+            <SupportedPlatforms
+                android={{ version: '1.0.0' }}
+                ios={false}
+                flutter={false}
+                web={{ version: '1.18.0' }}
+                reactNative={{ version: '3.9.0' }}
+            />
             <p>
                 This setting controls if browser console logs will be captured as a part of recordings. The console logs
                 will be shown in the recording player to help you debug any issues.
@@ -140,13 +175,15 @@ function CanvasCaptureSettings(): JSX.Element | null {
                 android={false}
                 ios={false}
                 flutter={{
+                    version: '4.7.0',
                     note: (
                         <>
-                            If you're using the `canvaskit` renderer on Flutter Web, you must also enable canvas capture
+                            If you're using the <code>canvaskit</code> renderer on Flutter Web, you must also enable
+                            canvas capture
                         </>
                     ),
                 }}
-                web={true}
+                web={{ version: '1.101.0' }}
                 reactNative={false}
             />
             <p>
@@ -167,7 +204,7 @@ function CanvasCaptureSettings(): JSX.Element | null {
                     })
                 }}
                 label={
-                    <div className="space-x-1">
+                    <div className="deprecated-space-x-1">
                         <LemonTag type="success">New</LemonTag>
                         <LemonLabel>Capture canvas elements</LemonLabel>
                     </div>
@@ -209,10 +246,10 @@ export function NetworkCaptureSettings(): JSX.Element {
     return (
         <>
             <SupportedPlatforms
-                android={true}
-                ios={true}
+                android={{ version: '3.1.0' }}
+                ios={{ version: '3.12.6' }}
                 flutter={false}
-                web={true}
+                web={{ version: '1.39.0' }}
                 reactNative={{ note: <>RN network capture is only supported on iOS</> }}
             />
             <p>
@@ -247,8 +284,14 @@ export function NetworkCaptureSettings(): JSX.Element {
                 <LemonBanner type="info" className="mb-4">
                     <PayloadWarning />
                 </LemonBanner>
-                <SupportedPlatforms android={false} ios={false} flutter={false} web={true} reactNative={false} />
-                <div className="flex flex-row space-x-2">
+                <SupportedPlatforms
+                    android={false}
+                    ios={false}
+                    flutter={false}
+                    web={{ version: '1.104.4' }}
+                    reactNative={false}
+                />
+                <div className="flex flex-row deprecated-space-x-2">
                     <LemonSwitch
                         data-attr="opt-in-capture-network-headers-switch"
                         onChange={(checked) => {
@@ -327,8 +370,14 @@ export function NetworkCaptureSettings(): JSX.Element {
  */
 export function ReplayAuthorizedDomains(): JSX.Element {
     return (
-        <div className="space-y-2">
-            <SupportedPlatforms android={false} ios={false} flutter={false} web={true} reactNative={false} />
+        <div className="deprecated-space-y-2">
+            <SupportedPlatforms
+                android={false}
+                ios={false}
+                flutter={false}
+                web={{ version: '1.5.0' }}
+                reactNative={false}
+            />
             <p>
                 Use the settings below to restrict the domains where recordings will be captured. If no domains are
                 selected, then there will be no domain restriction.
@@ -501,14 +550,76 @@ export function ReplayAISettings(): JSX.Element | null {
     )
 }
 
+export function ReplayMaskingSettings(): JSX.Element {
+    const { updateCurrentTeam } = useActions(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
+
+    const handleMaskingChange = (level: SessionRecordingMaskingLevel): void => {
+        updateCurrentTeam({
+            session_recording_masking_config: getMaskingConfigFromLevel(level),
+        })
+    }
+
+    const maskingConfig = {
+        maskAllInputs: currentTeam?.session_recording_masking_config?.maskAllInputs ?? true,
+        maskTextSelector: currentTeam?.session_recording_masking_config?.maskTextSelector,
+        blockSelector: currentTeam?.session_recording_masking_config?.blockSelector,
+    }
+
+    const maskingLevel = getMaskingLevelFromConfig(maskingConfig)
+
+    return (
+        <div>
+            <SupportedPlatforms web={{ version: '1.227.0' }} />
+            <p>This controls what data is masked during session recordings.</p>
+            <p>
+                You can configure more advanced settings or change masking for other platforms directly in code.{' '}
+                <Link to="https://posthog.com/docs/session-replay/privacy" target="_blank">
+                    Learn more
+                </Link>
+            </p>
+            <p>If you specify this in code, it will take precedence over the setting here.</p>
+            <LemonSelect
+                value={maskingLevel}
+                onChange={(val) => val && handleMaskingChange(val)}
+                options={[
+                    { value: 'total-privacy', label: 'Total privacy (mask all text/images)' },
+                    { value: 'normal', label: 'Normal (mask inputs but not text/images)' },
+                    { value: 'free-love', label: 'Free love (mask only passwords)' },
+                ]}
+            />
+        </div>
+    )
+}
+
 export function ReplayGeneral(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const [showSurvey, setShowSurvey] = useState<boolean>(false)
+
+    /**
+     * Handle the opt in change
+     * @param checked
+     */
+    const handleOptInChange = (checked: boolean): void => {
+        updateCurrentTeam({
+            session_recording_opt_in: checked,
+        })
+
+        //If the user opts out, we show the survey
+        setShowSurvey(!checked)
+    }
 
     return (
         <div className="flex flex-col gap-4">
             <div>
-                <SupportedPlatforms android={true} ios={true} flutter={true} web={true} reactNative={true} />
+                <SupportedPlatforms
+                    android={{ version: '3.11.0' }}
+                    ios={{ version: '3.19.2' }}
+                    flutter={{ version: '4.7.0' }}
+                    web={{ version: '1.5.0' }}
+                    reactNative={{ version: '3.9.0' }}
+                />
                 <p>
                     Watch recordings of how users interact with your web app to see what can be improved.{' '}
                     <Link
@@ -521,16 +632,13 @@ export function ReplayGeneral(): JSX.Element {
                 <LemonSwitch
                     data-attr="opt-in-session-recording-switch"
                     onChange={(checked) => {
-                        updateCurrentTeam({
-                            // when switching replay on or off,
-                            // we set defaults for some of the other settings
-                            session_recording_opt_in: checked,
-                        })
+                        handleOptInChange(checked)
                     }}
                     label="Record user sessions"
                     bordered
                     checked={!!currentTeam?.session_recording_opt_in}
                 />
+                {showSurvey && <InternalMultipleChoiceSurvey surveyId={SESSION_RECORDING_OPT_OUT_SURVEY_ID_2} />}
             </div>
             <LogCaptureSettings />
             <CanvasCaptureSettings />

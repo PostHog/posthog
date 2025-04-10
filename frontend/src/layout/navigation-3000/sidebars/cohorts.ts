@@ -1,7 +1,7 @@
-import { api } from '@posthog/apps-common'
 import Fuse from 'fuse.js'
 import { connect, kea, path, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -25,10 +25,10 @@ const fuse = new Fuse<CohortType>([], {
 
 export const cohortsSidebarLogic = kea<cohortsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'cohortsSidebarLogic']),
-    connect({
+    connect(() => ({
         values: [cohortsModel, ['cohorts', 'cohortsLoading'], sceneLogic, ['activeScene', 'sceneParams']],
-        actions: [cohortsModel, ['deleteCohort']],
-    }),
+        actions: [cohortsModel, ['loadCohorts', 'deleteCohort']],
+    })),
     selectors(({ actions }) => ({
         contents: [
             (s) => [s.relevantCohorts, s.cohortsLoading],

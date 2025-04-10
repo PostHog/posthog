@@ -4,7 +4,13 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useState } from 'react'
 
 import { groupsModel } from '~/models/groupsModel'
-import { EventsNode, EventsQuery, HogQLQuery, SessionAttributionExplorerQuery, TracesQuery } from '~/queries/schema'
+import {
+    EventsNode,
+    EventsQuery,
+    HogQLQuery,
+    SessionAttributionExplorerQuery,
+    TracesQuery,
+} from '~/queries/schema/schema-general'
 import { isHogQLQuery, isSessionAttributionExplorerQuery } from '~/queries/utils'
 import { AnyPropertyFilter } from '~/types'
 
@@ -39,6 +45,7 @@ export function EventPropertyFilters<
                     TaxonomicFilterGroupType.EventProperties,
                     TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.EventFeatureFlags,
+                    TaxonomicFilterGroupType.EventMetadata,
                     ...groupsTaxonomicTypes,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,

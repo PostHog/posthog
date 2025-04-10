@@ -1,13 +1,14 @@
 import { DateTime } from 'luxon'
 
 import { createHub } from '../../../../src/utils/db/hub'
+import { parseJSON } from '../../../../src/utils/json-parse'
 import { UUIDT } from '../../../../src/utils/utils'
 import { normalizeEventStep } from '../../../../src/worker/ingestion/event-pipeline/normalizeEventStep'
 import { createOrganization, createTeam, resetTestDatabase } from '../../../helpers/sql'
 
 // A simple deep copy to ensure we aren't comparing an event object with itself below.
 function copy(a: any) {
-    return JSON.parse(JSON.stringify(a))
+    return parseJSON(JSON.stringify(a))
 }
 
 describe('normalizeEventStep()', () => {

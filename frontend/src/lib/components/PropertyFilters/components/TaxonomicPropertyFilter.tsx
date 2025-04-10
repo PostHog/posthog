@@ -23,7 +23,13 @@ import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
 import { useMemo } from 'react'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { AnyPropertyFilter, FilterLogicalOperator, PropertyDefinitionType, PropertyFilterType } from '~/types'
+import {
+    AnyPropertyFilter,
+    FilterLogicalOperator,
+    GroupTypeIndex,
+    PropertyDefinitionType,
+    PropertyFilterType,
+} from '~/types'
 
 import { OperandTag } from './OperandTag'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
@@ -46,6 +52,7 @@ export function TaxonomicPropertyFilter({
     hasRowOperator,
     metadataSource,
     propertyAllowList,
+    excludedProperties,
     taxonomicFilterOptionsFromProp,
     allowRelativeDateOptions,
     exactMatchFeatureFlagCohortOperators,
@@ -60,12 +67,13 @@ export function TaxonomicPropertyFilter({
         TaxonomicFilterGroupType.Elements,
         TaxonomicFilterGroupType.HogQLExpression,
     ]
-    const taxonomicOnChange: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void = (
-        taxonomicGroup,
-        value,
-        item
-    ) => {
-        selectItem(taxonomicGroup, value, item?.propertyFilterType)
+    const taxonomicOnChange: (
+        group: TaxonomicFilterGroup,
+        value: TaxonomicFilterValue,
+        item: any,
+        originalQuery?: string
+    ) => void = (taxonomicGroup, value, item, originalQuery) => {
+        selectItem(taxonomicGroup, value, item?.propertyFilterType, item, originalQuery)
         if (taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression) {
             onComplete?.()
         }
@@ -80,8 +88,9 @@ export function TaxonomicPropertyFilter({
         taxonomicOnChange,
         eventNames,
         propertyAllowList,
+        excludedProperties,
     })
-    const { filter, dropdownOpen, selectedCohortName, activeTaxonomicGroup } = useValues(logic)
+    const { filter, dropdownOpen, activeTaxonomicGroup } = useValues(logic)
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
     const valuePresent = filter?.type === 'cohort' || !!filter?.key
     const showInitialSearchInline =
@@ -114,6 +123,7 @@ export function TaxonomicPropertyFilter({
             eventNames={eventNames}
             schemaColumns={schemaColumns}
             propertyAllowList={propertyAllowList}
+            excludedProperties={excludedProperties}
             optionsFromProp={taxonomicFilterOptionsFromProp}
             hideBehavioralCohorts={hideBehavioralCohorts}
         />
@@ -140,6 +150,7 @@ export function TaxonomicPropertyFilter({
                         value: newValue || null,
                         operator: newOperator,
                         type: filter?.type,
+                        label: filter?.label,
                         ...(isGroupPropertyFilter(filter) ? { group_type_index: filter.group_type_index } : {}),
                     } as AnyPropertyFilter)
                 }
@@ -147,6 +158,11 @@ export function TaxonomicPropertyFilter({
                     onComplete()
                 }
             }}
+            groupTypeIndex={
+                isGroupPropertyFilter(filter) && typeof filter?.group_type_index === 'number'
+                    ? (filter?.group_type_index as GroupTypeIndex)
+                    : undefined
+            }
         />
     )
 
@@ -205,7 +221,10 @@ export function TaxonomicPropertyFilter({
                                 onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                             >
                                 {filter?.type === 'cohort' ? (
-                                    selectedCohortName || `Cohort #${filter?.value}`
+                                    filter.cohort_name || `Cohort #${filter?.value}`
+                                ) : filter?.type === PropertyFilterType.EventMetadata &&
+                                  filter?.key?.startsWith('$group_') ? (
+                                    filter.label || `Group ${filter?.value}`
                                 ) : filter?.key ? (
                                     <PropertyKeyInfo
                                         value={filter.key}

@@ -1,7 +1,7 @@
 import { LemonDropdown, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
-import { FunnelPathsFilter } from '~/queries/schema'
+import { FunnelPathsFilter } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { PATH_NODE_CARD_LEFT_OFFSET, PATH_NODE_CARD_TOP_OFFSET, PATH_NODE_CARD_WIDTH } from './constants'
@@ -57,7 +57,7 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
                 matchWidth
             >
                 <div
-                    className="absolute rounded bg-bg-light p-1"
+                    className="absolute rounded bg-surface-primary p-1"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         width: PATH_NODE_CARD_WIDTH,
@@ -69,7 +69,9 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
                             : // use middle for end nodes
                               node.y0 + (node.y1 - node.y0) / 2,
                         border: `1px solid ${
-                            isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node) ? 'purple' : 'var(--border)'
+                            isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node)
+                                ? 'purple'
+                                : 'var(--border-primary)'
                         }`,
                     }}
                     data-attr="path-node-card-button"

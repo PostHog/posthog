@@ -4,6 +4,7 @@ from typing import cast
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
+from posthog.hogql_queries.insights.funnels import FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.test.test_funnel import PseudoFunnelActors
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
@@ -17,10 +18,10 @@ from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
 from posthog.schema import FunnelsQuery
 
 from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
-    FunnelStepResult,
     funnel_breakdown_test_factory,
     funnel_breakdown_group_test_factory,
     assert_funnel_results_equal,
+    FunnelStepResult,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -43,7 +44,7 @@ def _create_action(**kwargs):
     return action
 
 
-class TestFunnelUnorderedStepsBreakdown(
+class BaseTestFunnelUnorderedStepsBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_test_factory(  # type: ignore
         FunnelOrderType.UNORDERED,
@@ -52,6 +53,7 @@ class TestFunnelUnorderedStepsBreakdown(
         _create_person,
     ),
 ):
+    __test__ = False
     maxDiff = None
 
     def test_funnel_step_breakdown_event_single_person_events_with_multiple_properties(self):
@@ -288,7 +290,13 @@ class TestFunnelUnorderedStepsBreakdown(
         people = journeys_for(events_by_person, self.team)
 
         query = cast(FunnelsQuery, filter_to_query(filters))
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+        if isinstance(runner.funnel_class, FunnelUDF):
+            # We don't actually support non step 0 attribution in unordered funnels. Test is vestigial.
+            self.assertRaises(ValidationError, runner.calculate)
+            return
+        results = runner.calculate().results
         results = sorted(results, key=lambda res: res[0]["breakdown"])
 
         self.assertEqual(len(results), 6)
@@ -382,7 +390,12 @@ class TestFunnelUnorderedStepsBreakdown(
         people = journeys_for(events_by_person, self.team)
 
         query = cast(FunnelsQuery, filter_to_query(filters))
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+        if isinstance(runner.funnel_class, FunnelUDF):
+            # We don't actually support non step 0 attribution in unordered funnels. Test is vestigial.
+            self.assertRaises(ValidationError, runner.calculate)
+            return
+        results = runner.calculate().results
         results = sorted(results, key=lambda res: res[0]["breakdown"])
 
         # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
@@ -496,7 +509,12 @@ class TestFunnelUnorderedStepsBreakdown(
         people = journeys_for(events_by_person, self.team)
 
         query = cast(FunnelsQuery, filter_to_query(filters))
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+        if isinstance(runner.funnel_class, FunnelUDF):
+            # We don't actually support non step 0 attribution in unordered funnels. Test is vestigial.
+            self.assertRaises(ValidationError, runner.calculate)
+            return
+        results = runner.calculate().results
         results = sorted(results, key=lambda res: res[0]["breakdown"])
 
         # Breakdown by step_1 means funnel items that never reach step_1 are NULLed out
@@ -624,7 +642,13 @@ class TestFunnelUnorderedStepsBreakdown(
         journeys_for(events_by_person, self.team)
 
         query = cast(FunnelsQuery, filter_to_query(filters))
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+        if isinstance(runner.funnel_class, FunnelUDF):
+            # We don't actually support non step 0 attribution in unordered funnels. Test is vestigial.
+            self.assertRaises(ValidationError, runner.calculate)
+            return
+
+        results = runner.calculate().results
         results = sorted(results, key=lambda res: res[0]["breakdown"])
 
         self.assertEqual(len(results), 3)
@@ -642,18 +666,21 @@ class TestUnorderedFunnelGroupBreakdown(
     pass
 
 
-class TestFunnelUnorderedStepsConversionTime(
+class BaseTestFunnelUnorderedStepsConversionTime(
     ClickhouseTestMixin,
     funnel_conversion_time_test_factory(  # type: ignore
         FunnelOrderType.UNORDERED,
         PseudoFunnelActors,
     ),
 ):
+    __test__ = False
     maxDiff = None
     pass
 
 
-class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
+class BaseTestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
+    __test__ = False
+
     def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
         filter = Filter(data=filter, team=self.team)
         person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
@@ -1036,18 +1063,23 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         # Second time: 3 hours + 3 hours = total 6 hours.
 
         query = cast(FunnelsQuery, filter_to_query(filters))
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+        results = runner.calculate().results
 
         self.assertEqual(results[0]["name"], "Completed 1 step")
         self.assertEqual(results[1]["name"], "Completed 2 steps")
         self.assertEqual(results[2]["name"], "Completed 3 steps")
         self.assertEqual(results[0]["count"], 3)
 
-        self.assertEqual(results[1]["average_conversion_time"], 6300)
-        # 1 hour for Person 2, (2+3)/2 hours for Person 3, total = 3.5 hours, average = 3.5/2 = 1.75 hours
-
-        self.assertEqual(results[2]["average_conversion_time"], 9000)
-        # (2+3)/2 hours for Person 3 = 2.5 hours
+        if isinstance(runner.funnel_class, FunnelUDF):
+            # UDF Funnels take the first conversion, not an average of all of their conversions
+            self.assertEqual(results[1]["average_conversion_time"], 5400)
+            self.assertEqual(results[2]["average_conversion_time"], 7200)
+        else:
+            # 1 hour for Person 2, (2+3)/2 hours for Person 3, total = 3.5 hours, average = 3.5/2 = 1.75 hours
+            self.assertEqual(results[1]["average_conversion_time"], 6300)
+            # (2+3)/2 hours for Person 3 = 2.5 hours
+            self.assertEqual(results[2]["average_conversion_time"], 9000)
 
         self.assertCountEqual(
             self._get_actor_ids_at_step(filters, 1),
@@ -1070,43 +1102,6 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             self._get_actor_ids_at_step(filters, 3),
             [person3_stopped_after_insight_view.uuid],
         )
-
-    def test_single_event_unordered_funnel(self):
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_order_type": "unordered",
-            "events": [{"id": "user signed up", "order": 0}],
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 23:59:59",
-        }
-
-        _create_person(distinct_ids=["stopped_after_signup1"], team_id=self.team.pk)
-        _create_event(
-            team=self.team,
-            event="user signed up",
-            distinct_id="stopped_after_signup1",
-            timestamp="2021-05-02 00:00:00",
-        )
-
-        _create_person(distinct_ids=["stopped_after_pageview1"], team_id=self.team.pk)
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="stopped_after_pageview1",
-            timestamp="2021-05-02 00:00:00",
-        )
-        _create_event(
-            team=self.team,
-            event="user signed up",
-            distinct_id="stopped_after_pageview1",
-            timestamp="2021-05-02 01:00:00",
-        )
-
-        query = cast(FunnelsQuery, filter_to_query(filters))
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
-
-        self.assertEqual(results[0]["name"], "Completed 1 step")
-        self.assertEqual(results[0]["count"], 2)
 
     def test_funnel_exclusions_invalid_params(self):
         filters = {
@@ -1220,19 +1215,81 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         query = cast(FunnelsQuery, filter_to_query(filters))
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+        results = runner.calculate().results
 
         self.assertEqual(len(results), 2)
         self.assertEqual(results[0]["name"], "Completed 1 step")
         self.assertEqual(results[0]["count"], 3)
-        self.assertEqual(results[1]["name"], "Completed 2 steps")
-        self.assertEqual(results[1]["count"], 2)
-
         self.assertCountEqual(
             self._get_actor_ids_at_step(filters, 1),
             [person1.uuid, person2.uuid, person3.uuid],
         )
+        self.assertEqual(results[1]["name"], "Completed 2 steps")
+        self.assertEqual(results[1]["count"], 2)
+
         self.assertCountEqual(self._get_actor_ids_at_step(filters, 2), [person1.uuid, person3.uuid])
+
+    def test_unordered_exclusion_after_completion(self):
+        filters = {
+            "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "unordered",
+            "events": [
+                {"id": "user signed up", "type": "events", "order": 0},
+                {"id": "paid", "type": "events", "order": 1},
+                {"id": "left", "type": "events", "order": 3},
+            ],
+            "funnel_window_days": 14,
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-14 00:00:00",
+            "exclusions": [
+                {
+                    "id": "x",
+                    "type": "events",
+                    "funnel_from_step": 0,
+                    "funnel_to_step": 2,
+                }
+            ],
+        }
+
+        # event 1
+        _create_person(distinct_ids=["person1"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="user signed up",
+            distinct_id="person1",
+            timestamp="2021-05-01 01:00:00",
+        )
+        _create_event(
+            team=self.team,
+            event="paid",
+            distinct_id="person1",
+            timestamp="2021-05-01 02:00:00",
+        )
+        _create_event(
+            team=self.team,
+            event="left",
+            distinct_id="person1",
+            timestamp="2021-05-01 03:00:00",
+        )
+        _create_event(
+            team=self.team,
+            event="x",
+            distinct_id="person1",
+            timestamp="2021-05-01 04:00:00",
+        )
+        _create_event(
+            team=self.team,
+            event="left",
+            distinct_id="person1",
+            timestamp="2021-05-01 05:00:00",
+        )
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+        results = runner.calculate().results
+
+        self.assertTrue(all(x["count"] == 1 for x in results))
 
     def test_advanced_funnel_multiple_exclusions_between_steps(self):
         filters = {
@@ -1490,9 +1547,11 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         )
 
         query = cast(FunnelsQuery, filter_to_query(filters))
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+        runner = FunnelsQueryRunner(query=query, team=self.team)
+        results = runner.calculate().results
 
         self.assertEqual(results[0]["name"], "Completed 1 step")
+
         self.assertEqual(results[0]["count"], 5)
         self.assertEqual(results[1]["count"], 2)
         self.assertEqual(results[2]["count"], 1)
@@ -1671,3 +1730,93 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[1]["count"], 1)
         self.assertEqual(results[1]["average_conversion_time"], 1_207_020)
         self.assertEqual(results[1]["median_conversion_time"], 1_207_020)
+
+    def test_unordered_trend_with_partial_steps_and_exclusion(self):
+        # Test unordered_trend with partial steps (up to step 2) in a 3-step funnel with exclusion
+
+        # Person 1: step 1 -> step 2 -> exclusion -> step 3
+        # Person 2: step 1 -> step 2 -> step 3
+        events_by_person = {
+            "user_1": [
+                {
+                    "event": "step 1",
+                    "timestamp": datetime(2024, 3, 1, 10, 0),
+                },
+                {
+                    "event": "step 2",
+                    "timestamp": datetime(2024, 3, 1, 11, 0),
+                },
+                {
+                    "event": "exclusion event",
+                    "timestamp": datetime(2024, 3, 1, 12, 0),
+                },
+                {
+                    "event": "step 3",
+                    "timestamp": datetime(2024, 3, 1, 13, 0),
+                },
+            ],
+            "user_2": [
+                {
+                    "event": "step 1",
+                    "timestamp": datetime(2024, 3, 1, 10, 0),
+                },
+                {
+                    "event": "step 2",
+                    "timestamp": datetime(2024, 3, 1, 11, 0),
+                },
+                {
+                    "event": "step 3",
+                    "timestamp": datetime(2024, 3, 1, 12, 0),
+                },
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+
+        # Define a 3-step funnel with exclusion
+        filters = {
+            "events": [
+                {"id": "step 1", "type": "events", "order": 0},
+                {"id": "step 2", "type": "events", "order": 1},
+                {"id": "step 3", "type": "events", "order": 2},
+            ],
+            "exclusions": [{"id": "exclusion event", "type": "events", "funnel_from_step": 0, "funnel_to_step": 2}],
+            "insight": INSIGHT_FUNNELS,
+            "funnel_order_type": "unordered",
+            "funnel_window_interval": 6,
+            "funnel_window_interval_unit": "hour",
+            "date_from": "2024-03-01",
+            "date_to": "2024-03-01",
+        }
+
+        # Run the full funnel query
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        full_results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        # User 1 should be excluded, only user 2 completes all steps
+        self.assertEqual(full_results[0]["count"], 2)  # Step 1: both users
+        self.assertEqual(full_results[1]["count"], 1)  # Step 2: only user 2 (user 1 excluded)
+        self.assertEqual(full_results[2]["count"], 1)  # Step 3: only user 2 (user 1 excluded)
+
+        # Now run with unordered_trend requesting only up to step 2
+        filters["funnel_to_step"] = 1  # Up to step 1
+        filters["funnel_viz_type"] = "trends"
+
+        query = cast(FunnelsQuery, filter_to_query(filters))
+        trend_results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        # Only the second user gets to step 2, after the exclusion
+        self.assertEqual(len(trend_results), 1)  # One day of data
+        self.assertEqual(trend_results[0]["count"], 1)
+        self.assertEqual(trend_results[0]["data"], [50.0])  # Only one user completes step 2
+
+
+class TestFunnelUnorderedStepsBreakdown(BaseTestFunnelUnorderedStepsBreakdown):
+    __test__ = True
+
+
+class TestFunnelUnorderedStepsConversionTime(BaseTestFunnelUnorderedStepsConversionTime):
+    __test__ = True
+
+
+class TestFunnelUnorderedSteps(BaseTestFunnelUnorderedSteps):
+    __test__ = True

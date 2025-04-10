@@ -96,12 +96,26 @@ describe('the authorized urls list logic', () => {
                 proposedUrl: 'http://valid.example.com:*',
                 validityMessage: 'Wildcards are not allowed in the port position',
             },
+            {
+                proposedUrl: 'http://*.localhost:3000',
+                validityMessage: undefined,
+            },
+            {
+                proposedUrl: 'http://*.valid.com:3000',
+                validityMessage: undefined,
+            },
         ]
 
         testCases.forEach((testCase) => {
             it(`a proposal of "${testCase.proposedUrl}" has validity message "${testCase.validityMessage}"`, () => {
                 expect(validateProposedUrl(testCase.proposedUrl, [], false)).toEqual(testCase.validityMessage)
             })
+        })
+
+        it('can refuse wildcards', () => {
+            expect(validateProposedUrl('https://*.example.com', [], false, false)).toEqual('Wildcards are not allowed')
+            expect(validateProposedUrl('https://*.example.com', [], false, true)).toEqual(undefined)
+            expect(validateProposedUrl('https://*.example.com', [], false)).toEqual(undefined)
         })
 
         it('fails if the proposed URL is already authorized', () => {

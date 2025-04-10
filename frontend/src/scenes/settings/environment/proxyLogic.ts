@@ -20,7 +20,9 @@ export type FormState = 'collapsed' | 'active' | 'complete'
 
 export const proxyLogic = kea<proxyLogicType>([
     path(['scenes', 'project', 'Settings', 'proxyLogic']),
-    connect({ values: [organizationLogic, ['currentOrganization']] }),
+    connect(() => ({
+        values: [organizationLogic, ['currentOrganization']],
+    })),
     actions(() => ({
         collapseForm: true,
         showForm: true,
@@ -89,6 +91,7 @@ export const proxyLogic = kea<proxyLogicType>([
             }),
             submit: ({ domain }) => {
                 actions.createRecord({ domain })
+                actions.resetCreateRecord()
             },
         },
     })),

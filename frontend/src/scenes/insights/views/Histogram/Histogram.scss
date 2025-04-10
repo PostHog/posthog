@@ -1,5 +1,3 @@
-@import '../../../../styles/mixins';
-
 .dashboard-wrapper {
     width: 100%;
     height: calc(100% - 2rem);
@@ -16,18 +14,21 @@
          * Axis
          */
         g#y-axis {
+            // Vertical line axis
             .domain {
-                stroke: var(--funnel-axis);
+                stroke: var(--color-graph-axis-line);
             }
         }
 
         g#x-axis {
+            // Horizontal line axis
             .domain {
-                stroke: var(--funnel-axis);
+                stroke: var(--color-graph-axis-line);
             }
 
+            // Ticks at each interval
             .tick {
-                color: var(--funnel-axis);
+                color: var(--text-secondary);
             }
         }
 
@@ -37,7 +38,7 @@
                 font-family: var(--font-sans);
                 font-size: 0.75rem;
                 font-weight: 500;
-                fill: var(--text-3000);
+                fill: var(--text-tertiary);
             }
         }
 
@@ -48,7 +49,7 @@
             stroke-dasharray: 4, 2;
 
             g.tick:not(:first-child) {
-                color: var(--funnel-grid);
+                color: var(--color-graph-axis-line);
             }
 
             .domain,
@@ -61,20 +62,20 @@
          * Bars
          */
         g#bars {
-            fill: var(--primary-3000);
+            fill: var(--histogram-fill);
         }
 
         g#labels {
             text.bar-label {
-                font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+                font-family: 'Emoji Flags Polyfill', 'Helvetica Neue', Helvetica, Arial, sans-serif;
 
                 // same as chart-js
                 font-size: 12px;
                 font-weight: normal;
-                fill: var(--white);
+                fill: var(--color-white);
 
                 &.outside {
-                    fill: #0f0f0f;
+                    fill: var(--text-secondary);
                 }
             }
         }

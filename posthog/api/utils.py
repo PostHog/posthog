@@ -1,30 +1,28 @@
 import json
-from django.http import HttpRequest
-from rest_framework.decorators import action as drf_action
-from functools import wraps
-from posthog.api.documentation import extend_schema
 import re
 import socket
 import urllib.parse
 from enum import Enum, auto
+from functools import wraps
 from ipaddress import ip_address
+from typing import Any, Literal, Optional, Union
 from urllib.parse import urlparse
-
-from requests.adapters import HTTPAdapter
-from typing import Literal, Optional, Union, Any
-
-from rest_framework.fields import Field
-from urllib3 import HTTPSConnectionPool, HTTPConnectionPool, PoolManager
 from uuid import UUID
 
 import structlog
 from django.core.exceptions import RequestDataTooBig
 from django.db.models import QuerySet
+from django.http import HttpRequest
 from prometheus_client import Counter
-from rest_framework import request, status, serializers
+from requests.adapters import HTTPAdapter
+from rest_framework import request, serializers, status
+from rest_framework.decorators import action as drf_action
 from rest_framework.exceptions import ValidationError
+from rest_framework.fields import Field
 from statshog.defaults.django import statsd
+from urllib3 import HTTPConnectionPool, HTTPSConnectionPool, PoolManager
 
+from posthog.api.documentation import extend_schema
 from posthog.constants import EventDefinitionType
 from posthog.exceptions import (
     RequestParsingError,
@@ -313,7 +311,7 @@ def create_event_definitions_sql(
             SELECT {",".join(event_definition_fields)}
             FROM posthog_eventdefinition
             {enterprise_join}
-            WHERE team_id = %(project_id)s {conditions}
+            WHERE (project_id = %(project_id)s OR (project_id IS NULL AND team_id = %(project_id)s)) {conditions}
             ORDER BY {additional_ordering}name ASC
         """
 
@@ -365,13 +363,13 @@ def raise_if_connected_to_private_ip(conn):
 class PublicIPOnlyHTTPConnectionPool(HTTPConnectionPool):
     def _validate_conn(self, conn):
         raise_if_connected_to_private_ip(conn)
-        super()._validate_conn(conn)
+        super()._validate_conn(conn)  # type: ignore[misc]
 
 
 class PublicIPOnlyHTTPSConnectionPool(HTTPSConnectionPool):
     def _validate_conn(self, conn):
         raise_if_connected_to_private_ip(conn)
-        super()._validate_conn(conn)
+        super()._validate_conn(conn)  # type: ignore[misc]
 
 
 class PublicIPOnlyHttpAdapter(HTTPAdapter):
@@ -390,7 +388,7 @@ class PublicIPOnlyHttpAdapter(HTTPAdapter):
             block=block,
             **pool_kwargs,
         )
-        self.poolmanager.pool_classes_by_scheme = {
+        self.poolmanager.pool_classes_by_scheme = {  # type: ignore[attr-defined]
             "http": PublicIPOnlyHTTPConnectionPool,
             "https": PublicIPOnlyHTTPSConnectionPool,
         }

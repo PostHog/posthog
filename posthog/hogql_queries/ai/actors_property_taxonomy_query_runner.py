@@ -52,7 +52,11 @@ class ActorsPropertyTaxonomyQueryRunner(TaxonomyCacheMixin, QueryRunner):
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         query = ast.SelectQuery(
             select=[
-                ast.Call(name="groupArray", args=[ast.Field(chain=["prop"])], params=[ast.Constant(value=5)]),
+                ast.Call(
+                    name="groupArray",
+                    args=[ast.Field(chain=["prop"])],
+                    params=[ast.Constant(value=self.query.maxPropertyValues or 5)],
+                ),
                 ast.Call(name="count", args=[]),
             ],
             select_from=ast.JoinExpr(table=self._get_subquery()),

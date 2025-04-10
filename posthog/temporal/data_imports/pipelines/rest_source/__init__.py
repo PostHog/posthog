@@ -8,6 +8,7 @@ from typing import (
 from collections.abc import AsyncGenerator, Iterator
 from collections.abc import Callable
 import graphlib  # type: ignore[import,unused-ignore]
+from dateutil import parser
 
 import dlt
 from dlt.common.validation import validate_dict
@@ -29,6 +30,8 @@ from .typing import (
     Endpoint,
     EndpointResource,
     RESTAPIConfig,
+    TAnySchemaColumns,
+    TTableHintTemplate,
 )
 from .config_setup import (
     IncrementalParam,
@@ -40,6 +43,27 @@ from .config_setup import (
     create_response_hooks,
 )
 from .utils import exclude_keys  # noqa: F401
+
+
+def convert_types(
+    data: Iterator[Any] | list[Any], types: Optional[dict[str, dict[str, Any]]]
+) -> Iterator[dict[str, Any]]:
+    if types is None:
+        yield from data
+        return
+
+    for item in data:
+        for key, column in types.items():
+            data_type = column.get("data_type")
+
+            if key in item:
+                current_value = item.get(key)
+                if data_type == "timestamp" and isinstance(current_value, str):
+                    item[key] = parser.parse(current_value)
+                elif data_type == "date" and isinstance(current_value, str):
+                    item[key] = parser.parse(current_value).date()
+
+        yield item
 
 
 def rest_api_source(
@@ -226,7 +250,7 @@ def create_resources(
         include_from_parent: list[str] = endpoint_resource.get("include_from_parent", [])
         if not resolved_param and include_from_parent:
             raise ValueError(
-                f"Resource {resource_name} has include_from_parent but is not " "dependent on another resource"
+                f"Resource {resource_name} has include_from_parent but is not dependent on another resource"
             )
 
         (
@@ -246,6 +270,8 @@ def create_resources(
 
         resource_kwargs = exclude_keys(endpoint_resource, {"endpoint", "include_from_parent"})
 
+        columns_config = endpoint_resource.get("columns")
+
         if resolved_param is None:
 
             async def paginate_resource(
@@ -257,6 +283,7 @@ def create_resources(
                 data_selector: Optional[jsonpath.TJsonPath],
                 hooks: Optional[dict[str, Any]],
                 client: RESTClient = client,
+                columns_config: Optional[TTableHintTemplate[TAnySchemaColumns]] = None,
                 incremental_object: Optional[Incremental[Any]] = incremental_object,
                 incremental_param: Optional[IncrementalParam] = incremental_param,
                 incremental_cursor_transform: Optional[Callable[..., Any]] = incremental_cursor_transform,
@@ -272,14 +299,17 @@ def create_resources(
                         db_incremental_field_last_value,
                     )
 
-                yield client.paginate(
-                    method=method,
-                    path=path,
-                    params=params,
-                    json=json,
-                    paginator=paginator,
-                    data_selector=data_selector,
-                    hooks=hooks,
+                yield convert_types(
+                    client.paginate(
+                        method=method,
+                        path=path,
+                        params=params,
+                        json=json,
+                        paginator=paginator,
+                        data_selector=data_selector,
+                        hooks=hooks,
+                    ),
+                    columns_config,
                 )
 
             resources[resource_name] = dlt.resource(
@@ -293,6 +323,7 @@ def create_resources(
                 paginator=paginator,
                 data_selector=endpoint_config.get("data_selector"),
                 hooks=hooks,
+                columns_config=columns_config,
             )
 
         else:
@@ -311,11 +342,12 @@ def create_resources(
                 client: RESTClient = client,
                 resolved_param: ResolvedParam = resolved_param,
                 include_from_parent: list[str] = include_from_parent,
+                columns_config: Optional[TTableHintTemplate[TAnySchemaColumns]] = None,
                 incremental_object: Optional[Incremental[Any]] = incremental_object,
                 incremental_param: Optional[IncrementalParam] = incremental_param,
                 incremental_cursor_transform: Optional[Callable[..., Any]] = incremental_cursor_transform,
             ) -> AsyncGenerator[Any, Any]:
-                yield dlt.mark.materialize_table_schema()  # type: ignore
+                yield dlt.mark.materialize_table_schema()
 
                 if incremental_object:
                     params = _set_incremental_params(
@@ -342,7 +374,8 @@ def create_resources(
                         if parent_record:
                             for child_record in child_page:
                                 child_record.update(parent_record)
-                        yield child_page
+
+                        yield convert_types(child_page, columns_config)
 
             resources[resource_name] = dlt.resource(  # type: ignore[call-overload]
                 paginate_dependent_resource,
@@ -355,6 +388,7 @@ def create_resources(
                 paginator=paginator,
                 data_selector=endpoint_config.get("data_selector"),
                 hooks=hooks,
+                columns_config=columns_config,
             )
 
     return resources

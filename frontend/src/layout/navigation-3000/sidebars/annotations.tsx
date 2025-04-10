@@ -1,10 +1,10 @@
-import { urls } from '@posthog/apps-common'
 import Fuse from 'fuse.js'
 import { connect, kea, path, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { AnnotationModal } from 'scenes/annotations/AnnotationModal'
 import { annotationModalLogic } from 'scenes/annotations/annotationModalLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { annotationsModel } from '~/models/annotationsModel'
@@ -23,10 +23,10 @@ const fuse = new Fuse<AnnotationType>([], {
 
 export const annotationsSidebarLogic = kea<annotationsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'annotationsSidebarLogic']),
-    connect({
+    connect(() => ({
         values: [annotationsModel, ['annotations', 'annotationsLoading'], sceneLogic, ['activeScene', 'sceneParams']],
         actions: [annotationsModel, ['deleteAnnotation'], annotationModalLogic, ['openModalToCreateAnnotation']],
-    }),
+    })),
     selectors(({ actions }) => ({
         contents: [
             (s) => [s.relevantAnnotations, s.annotationsLoading],

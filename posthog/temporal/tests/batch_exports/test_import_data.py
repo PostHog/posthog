@@ -1,8 +1,10 @@
 from typing import Any
 from unittest import mock
+
 import pytest
+
 from posthog.models.team.team import Team
-from posthog.temporal.data_imports import import_data_activity_sync
+from posthog.temporal.data_imports.settings import import_data_activity_sync
 from posthog.temporal.data_imports.workflow_activities.import_data_sync import ImportDataActivityInputs
 from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.models.external_data_job import ExternalDataJob
@@ -68,15 +70,12 @@ def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
     activity_inputs = _setup(team, job_inputs)
 
     with (
-        mock.patch(
-            "posthog.temporal.data_imports.pipelines.sql_database_v2.sql_source_for_type"
-        ) as sql_source_for_type,
+        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres.postgres_source") as mock_postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
     ):
         activity_environment.run(import_data_activity_sync, activity_inputs)
 
-        sql_source_for_type.assert_called_once_with(
-            source_type=ExternalDataSource.Type.POSTGRES,
+        mock_postgres_source.assert_called_once_with(
             host="host.com",
             port="5432",
             user="Username",
@@ -85,11 +84,12 @@ def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
             sslmode="prefer",
             schema="schema",
             table_names=["table_1"],
+            is_incremental=False,
+            logger=mock.ANY,
+            db_incremental_field_last_value=None,
             incremental_field=None,
             incremental_field_type=None,
-            db_incremental_field_last_value=None,
             team_id=team.id,
-            using_ssl=True,
         )
 
 
@@ -107,15 +107,12 @@ def test_postgres_source_without_ssh_tunnel(activity_environment, team, **kwargs
     activity_inputs = _setup(team, job_inputs)
 
     with (
-        mock.patch(
-            "posthog.temporal.data_imports.pipelines.sql_database_v2.sql_source_for_type"
-        ) as sql_source_for_type,
+        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres.postgres_source") as mock_postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
     ):
         activity_environment.run(import_data_activity_sync, activity_inputs)
 
-        sql_source_for_type.assert_called_once_with(
-            source_type=ExternalDataSource.Type.POSTGRES,
+        mock_postgres_source.assert_called_once_with(
             host="host.com",
             port="5432",
             user="Username",
@@ -124,11 +121,12 @@ def test_postgres_source_without_ssh_tunnel(activity_environment, team, **kwargs
             sslmode="prefer",
             schema="schema",
             table_names=["table_1"],
+            is_incremental=False,
+            logger=mock.ANY,
             incremental_field=None,
             incremental_field_type=None,
             db_incremental_field_last_value=None,
             team_id=team.id,
-            using_ssl=True,
         )
 
 
@@ -149,15 +147,12 @@ def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **
     activity_inputs = _setup(team, job_inputs)
 
     with (
-        mock.patch(
-            "posthog.temporal.data_imports.pipelines.sql_database_v2.sql_source_for_type"
-        ) as sql_source_for_type,
+        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres.postgres_source") as mock_postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
     ):
         activity_environment.run(import_data_activity_sync, activity_inputs)
 
-        sql_source_for_type.assert_called_once_with(
-            source_type=ExternalDataSource.Type.POSTGRES,
+        mock_postgres_source.assert_called_once_with(
             host="host.com",
             port="5432",
             user="Username",
@@ -166,11 +161,12 @@ def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **
             sslmode="prefer",
             schema="schema",
             table_names=["table_1"],
+            is_incremental=False,
+            logger=mock.ANY,
             incremental_field=None,
             incremental_field_type=None,
             db_incremental_field_last_value=None,
             team_id=team.id,
-            using_ssl=True,
         )
 
 
@@ -208,16 +204,13 @@ def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **k
         return MockedTunnel()
 
     with (
-        mock.patch(
-            "posthog.temporal.data_imports.pipelines.sql_database_v2.sql_source_for_type"
-        ) as sql_source_for_type_v2,
+        mock.patch("posthog.temporal.data_imports.pipelines.postgres.postgres.postgres_source") as mock_postgres_source,
         mock.patch("posthog.temporal.data_imports.workflow_activities.import_data_sync._run"),
         mock.patch.object(SSHTunnel, "get_tunnel", mock_get_tunnel),
     ):
         activity_environment.run(import_data_activity_sync, activity_inputs)
 
-        sql_source_for_type_v2.assert_called_once_with(
-            source_type=ExternalDataSource.Type.POSTGRES,
+        mock_postgres_source.assert_called_once_with(
             host="other-host.com",
             port=55550,
             user="Username",
@@ -226,9 +219,10 @@ def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **k
             sslmode="prefer",
             schema="schema",
             table_names=["table_1"],
+            is_incremental=False,
+            logger=mock.ANY,
             incremental_field=None,
             incremental_field_type=None,
             db_incremental_field_last_value=None,
             team_id=team.id,
-            using_ssl=True,
         )

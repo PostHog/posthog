@@ -4,7 +4,8 @@ from copy import deepcopy
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="beta",
+    free=False,
     type="destination",
     id="template-rudderstack",
     name="RudderStack",
@@ -95,7 +96,7 @@ fun getPayload() {
     }
 }
 
-fetch(f'{inputs.host}/v1/batch', getPayload())
+fetch(f'{replaceAll(inputs.host, '/v1/batch', '')}/v1/batch', getPayload())
 """.strip(),
     inputs_schema=[
         {

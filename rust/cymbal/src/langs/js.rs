@@ -10,7 +10,8 @@ use crate::{
     error::{Error, FrameError, JsResolveErr, UnhandledError},
     frames::{Context, ContextLine, Frame},
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
-    symbol_store::{sourcemap::OwnedSourceMapCache, SymbolCatalog},
+    sanitize_string,
+    symbol_store::{chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog},
 };
 
 // A minifed JS stack frame. Just the minimal information needed to lookup some
@@ -24,6 +25,8 @@ pub struct RawJSFrame {
     pub in_app: bool,
     #[serde(rename = "function")]
     pub fn_name: String,
+    #[serde(alias = "chunkId", skip_serializing_if = "Option::is_none")]
+    pub chunk_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Eq, PartialEq)]
@@ -37,29 +40,32 @@ pub struct FrameLocation {
 impl RawJSFrame {
     pub async fn resolve<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, UnhandledError>
     where
-        C: SymbolCatalog<Url, OwnedSourceMapCache>,
+        C: SymbolCatalog<OrChunkId<Url>, OwnedSourceMapCache>,
     {
         match self.resolve_impl(team_id, catalog).await {
             Ok(frame) => Ok(frame),
             Err(Error::ResolutionError(FrameError::JavaScript(e))) => {
                 Ok(self.handle_resolution_error(e))
             }
+            Err(Error::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
+                Ok(self.handle_resolution_error(JsResolveErr::NoSourcemapUploaded(chunk_id)))
+            }
             Err(Error::UnhandledError(e)) => Err(e),
+            Err(Error::EventError(_)) => unreachable!(),
         }
     }
 
     async fn resolve_impl<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, Error>
     where
-        C: SymbolCatalog<Url, OwnedSourceMapCache>,
+        C: SymbolCatalog<OrChunkId<Url>, OwnedSourceMapCache>,
     {
-        let url = self.source_url()?;
-
         let Some(location) = &self.location else {
             return Ok(Frame::from(self)); // We're probably an unminified frame
         };
 
-        let sourcemap = catalog.lookup(team_id, url).await?;
+        let r = self.get_ref()?; // We need either a chunk ID or a source URL to resolve a frame
 
+        let sourcemap = catalog.lookup(team_id, r).await?;
         let smc = sourcemap.get_smc();
 
         // Note: javascript stack frame lines are 1-indexed, so we have to subtract 1
@@ -86,7 +92,22 @@ impl RawJSFrame {
         (self, e, location).into()
     }
 
-    pub fn source_url(&self) -> Result<Url, JsResolveErr> {
+    fn get_ref(&self) -> Result<OrChunkId<Url>, JsResolveErr> {
+        match (self.source_url().ok(), self.chunk_id.clone()) {
+            (Some(url), Some(id)) => Ok(OrChunkId::both(url, id)),
+            (Some(url), None) => Ok(OrChunkId::inner(url)),
+            (None, Some(id)) => Ok(OrChunkId::chunk_id(id)),
+            (None, None) => Err(JsResolveErr::NoUrlOrChunkId),
+        }
+    }
+
+    pub fn symbol_set_ref(&self) -> Option<String> {
+        // If we have a chunk ID for a frame, no matter where the data we save comes from, we save it with that
+        // chunk id as the ref.
+        self.get_ref().ok().map(|r| r.to_string())
+    }
+
+    fn source_url(&self) -> Result<Url, JsResolveErr> {
         // We can't resolve a frame without a source ref, and are forced
         // to assume this frame is not minified
         let Some(source_url) = &self.source_url else {
@@ -149,7 +170,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
         metrics::counter!(FRAME_RESOLVED, "lang" => "javascript").increment(1);
 
         let resolved_name = match token.scope() {
-            ScopeLookupResult::NamedScope(name) => Some(name.to_string()),
+            ScopeLookupResult::NamedScope(name) => Some(sanitize_string(name.to_string())),
             ScopeLookupResult::AnonymousScope => Some("<anonymous>".to_string()),
             ScopeLookupResult::Unknown => None,
         };
@@ -165,7 +186,10 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(token.line()),
             column: Some(token.column()),
-            source: token.file().and_then(|f| f.name()).map(|s| s.to_string()),
+            source: token
+                .file()
+                .and_then(|f| f.name())
+                .map(|s| sanitize_string(s.to_string())),
             in_app,
             resolved_name,
             lang: "javascript".to_string(),
@@ -189,8 +213,9 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
 
         // TODO - extremely rough
         let was_minified = match err {
-            JsResolveErr::NoSourceUrl => false, // This frame's `source` was None
-            JsResolveErr::NoSourcemap(_) => false, // A total guess
+            JsResolveErr::NoSourceUrl | JsResolveErr::NoUrlOrChunkId => false, // This frame's `source` didn't exist
+            // A total guess - intuition is people tend not to write lines longer than about 300 chars
+            JsResolveErr::NoSourcemap(_) => location.column > 300,
             _ => true,
         };
 
@@ -308,6 +333,7 @@ mod test {
             source_url: Some("http://example.com/path/to/file.js:1:2".to_string()),
             in_app: true,
             fn_name: "main".to_string(),
+            chunk_id: None,
         };
 
         assert_eq!(
@@ -320,6 +346,7 @@ mod test {
             source_url: Some("http://example.com/path/to/file.js".to_string()),
             in_app: true,
             fn_name: "main".to_string(),
+            chunk_id: None,
         };
 
         assert_eq!(

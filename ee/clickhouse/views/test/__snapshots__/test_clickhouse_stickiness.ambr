@@ -10,7 +10,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), 0), plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-02-15 23:59:59', 6, 'UTC')), 0), toIntervalWeek(1)))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('week', toStartOfWeek(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), 0), plus(toStartOfWeek(assumeNotNull(toDateTime('2020-02-15 23:59:59', 'UTC')), 0), toIntervalWeek(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -20,7 +20,7 @@
              (SELECT e.`$group_0` AS aggregation_target,
                      toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS start_of_interval
               FROM events AS e SAMPLE 1
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-02-15 23:59:59', 6, 'UTC'))), equals(e.event, 'watched movie'), ifNull(notEquals(nullIf(nullIf(e.`$group_0`, ''), 'null'), ''), 1), notEquals(e.`$group_0`, ''))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-02-15 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(notEquals(nullIf(nullIf(e.`$group_0`, ''), 'null'), ''), 1), notEquals(e.`$group_0`, ''))
               GROUP BY aggregation_target,
                        start_of_interval
               HAVING ifNull(greater(count(), 0), 0))
@@ -35,7 +35,9 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestClickhouseStickiness.test_aggregate_by_groups.1
@@ -151,7 +153,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), toIntervalDay(1)))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), plus(toStartOfDay(assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), toIntervalDay(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -168,7 +170,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), equals(e.event, 'watched movie'))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
               HAVING ifNull(greater(count(), 0), 0))
@@ -183,7 +185,9 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestClickhouseStickiness.test_compare.1
@@ -197,7 +201,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC'))), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), toIntervalDay(1)))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC'))), plus(toStartOfDay(assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), toIntervalDay(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -214,7 +218,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), equals(e.event, 'watched movie'))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2019-12-24 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2019-12-31 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
               HAVING ifNull(greater(count(), 0), 0))
@@ -229,7 +233,9 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties
@@ -243,7 +249,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(dateDiff('week', toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), 0), plus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-02-15 23:59:59', 6, 'UTC')), 0), toIntervalWeek(1)))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('week', toStartOfWeek(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), 0), plus(toStartOfWeek(assumeNotNull(toDateTime('2020-02-15 23:59:59', 'UTC')), 0), toIntervalWeek(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -268,7 +274,7 @@
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
                           groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-02-15 23:59:59', 6, 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(e__group_0.properties___industry, 'technology'), 0))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-02-15 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(e__group_0.properties___industry, 'technology'), 0))
               GROUP BY aggregation_target,
                        start_of_interval
               HAVING ifNull(greater(count(), 0), 0))
@@ -283,7 +289,9 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestClickhouseStickiness.test_filter_by_group_properties.1
@@ -428,7 +436,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 12:00:00', 6, 'UTC'))), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), toIntervalDay(1)))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), plus(toStartOfDay(assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), toIntervalDay(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -445,7 +453,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 12:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), equals(e.event, 'watched movie'))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
               HAVING ifNull(greater(count(), 0), 0))
@@ -460,7 +468,9 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestClickhouseStickiness.test_stickiness_all_time.2
@@ -496,7 +506,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 12:00:00', 6, 'UTC'))), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), toIntervalDay(1)))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), plus(toStartOfDay(assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), toIntervalDay(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -513,7 +523,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 12:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), equals(e.event, 'watched movie'))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
               HAVING ifNull(greater(count(), 0), 0))
@@ -528,7 +538,9 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestClickhouseStickiness.test_stickiness_all_time_with_sampling.2
@@ -553,7 +565,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(dateDiff('hour', toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 12:00:00', 6, 'UTC'))), plus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 20:00:00', 6, 'UTC'))), toIntervalHour(1)))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('hour', toStartOfHour(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), plus(toStartOfHour(assumeNotNull(toDateTime('2020-01-01 20:00:00', 'UTC'))), toIntervalHour(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -570,7 +582,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 12:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 20:00:00', 6, 'UTC'))), equals(e.event, 'watched movie'))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfHour(assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-01 20:00:00', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
               HAVING ifNull(greater(count(), 0), 0))
@@ -585,7 +597,9 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestClickhouseStickiness.test_stickiness_people_endpoint
@@ -704,7 +718,7 @@
      FROM
        (SELECT 0 AS num_actors,
                plus(numbers.number, 1) AS num_intervals
-        FROM numbers(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), toIntervalDay(1)))) AS numbers
+        FROM numbers(ceil(divide(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), plus(toStartOfDay(assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), toIntervalDay(1))), 1))) AS numbers
         UNION ALL SELECT count(DISTINCT aggregation_target) AS num_actors,
                          num_intervals AS num_intervals
         FROM
@@ -721,7 +735,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), equals(e.event, 'watched movie'))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-08 23:59:59', 'UTC'))), equals(e.event, 'watched movie'))
               GROUP BY aggregation_target,
                        start_of_interval
               HAVING ifNull(greater(count(), 0), 0))
@@ -736,7 +750,9 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestClickhouseStickiness.test_timezones

@@ -3,11 +3,14 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, selecto
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { toSentenceCase } from 'lib/utils'
+import posthog from 'posthog-js'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
+    AccessControlResourceType,
     AccessControlResponseType,
     AccessControlType,
     AccessControlTypeMember,
@@ -31,7 +34,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
     props({} as AccessControlLogicProps),
     key((props) => `${props.resource}-${props.resource_id}`),
     path((key) => ['scenes', 'accessControl', 'accessControlLogic', key]),
-    connect({
+    connect(() => ({
         values: [
             membersLogic,
             ['sortedMembers'],
@@ -43,7 +46,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
             ['guardAvailableFeature'],
         ],
         actions: [membersLogic, ['ensureAllMembersLoaded']],
-    }),
+    })),
     actions({
         updateAccessControl: (
             accessControl: Pick<AccessControlType, 'access_level' | 'organization_member' | 'role'>
@@ -89,6 +92,12 @@ export const accessControlLogic = kea<accessControlLogicType>([
                         access_level: level,
                     })
 
+                    posthog.capture('access control default access level changed', {
+                        resource: values.resource,
+                        access_level: level,
+                        old_access_level: values.accessControlDefault?.access_level,
+                    })
+
                     return values.accessControls
                 },
 
@@ -97,6 +106,15 @@ export const accessControlLogic = kea<accessControlLogicType>([
                         await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
                             role: role,
                             access_level: level,
+                        })
+
+                        const oldAccessControl = values.accessControlRoles.find((ac) => ac.role === role)
+                        posthog.capture('access control role access level changed', {
+                            resource: values.resource,
+                            action: oldAccessControl ? (level === null ? 'removed' : 'changed') : 'added',
+                            role: role,
+                            access_level: level,
+                            old_access_level: oldAccessControl?.access_level,
                         })
                     }
 
@@ -108,6 +126,17 @@ export const accessControlLogic = kea<accessControlLogicType>([
                         await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
                             organization_member: member,
                             access_level: level,
+                        })
+
+                        const oldAccessControl = values.accessControlMembers.find(
+                            (ac) => ac.organization_member === member
+                        )
+                        posthog.capture('access control member access level changed', {
+                            resource: values.resource,
+                            action: oldAccessControl ? (level === null ? 'removed' : 'changed') : 'added',
+                            member: member,
+                            access_level: level,
+                            old_access_level: oldAccessControl?.access_level,
                         })
                     }
 
@@ -122,6 +151,13 @@ export const accessControlLogic = kea<accessControlLogicType>([
         updateAccessControlMembersSuccess: () => actions.loadAccessControls(),
     })),
     selectors({
+        resource: [
+            () => [(_, props) => props],
+            (props): AccessControlResourceType => {
+                return props.resource as AccessControlResourceType
+            },
+        ],
+
         endpoint: [
             () => [(_, props) => props],
             (props): string => {
@@ -132,6 +168,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 return `api/projects/@current/${props.resource}s/${props.resource_id}/access_controls`
             },
         ],
+
         humanReadableResource: [
             () => [(_, props) => props],
             (props): string => {
@@ -179,6 +216,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 return options
             },
         ],
+
         accessControlDefault: [
             (s) => [s.accessControls, s.accessControlDefaultLevel],
             (accessControls, accessControlDefaultLevel): AccessControlTypeProject => {
@@ -193,12 +231,39 @@ export const accessControlLogic = kea<accessControlLogicType>([
             },
         ],
 
+        organizationAdmins: [
+            (s) => [s.sortedMembers],
+            (members): OrganizationMemberType[] => {
+                return members?.filter((member) => member.level >= OrganizationMembershipLevel.Admin) ?? []
+            },
+        ],
+
+        organizationAdminsAsAccessControlMembers: [
+            (s) => [s.organizationAdmins],
+            (organizationAdmins): AccessControlTypeMember[] => {
+                return organizationAdmins.map((admin) => ({
+                    organization_member: admin.id,
+                    access_level: 'admin',
+                    created_by: null,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                    resource: 'organization',
+                }))
+            },
+        ],
+
         accessControlMembers: [
-            (s) => [s.accessControls],
-            (accessControls): AccessControlTypeMember[] => {
-                return (accessControls?.access_controls || []).filter(
-                    (accessControl) => !!accessControl.organization_member
-                ) as AccessControlTypeMember[]
+            (s) => [s.accessControls, s.organizationAdminsAsAccessControlMembers],
+            (accessControls, organizationAdminsAsAccessControlMembers): AccessControlTypeMember[] => {
+                const members = (accessControls?.access_controls || [])
+                    .filter((accessControl) => !!accessControl.organization_member)
+                    .filter(
+                        (accessControl) =>
+                            !organizationAdminsAsAccessControlMembers.some(
+                                (admin) => admin.organization_member === accessControl.organization_member
+                            )
+                    ) as AccessControlTypeMember[]
+                return organizationAdminsAsAccessControlMembers.concat(members)
             },
         ],
 
@@ -233,11 +298,13 @@ export const accessControlLogic = kea<accessControlLogicType>([
         ],
 
         addableMembers: [
-            (s) => [s.sortedMembers, s.accessControlMembers],
-            (members, accessControlMembers): any[] => {
+            (s) => [s.sortedMembers, s.accessControlMembers, s.organizationAdmins],
+            (members, accessControlMembers, organizationAdmins): any[] => {
                 return members
                     ? members.filter(
-                          (member) => !accessControlMembers.find((ac) => ac.organization_member === member.id)
+                          (member) =>
+                              !accessControlMembers.find((ac) => ac.organization_member === member.id) &&
+                              !organizationAdmins.find((admin) => admin.id === member.id)
                       )
                     : []
             },

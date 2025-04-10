@@ -1,0 +1,30 @@
+import { expect, test } from '../utils/playwright-test-base'
+
+test.describe('Before Onboarding', () => {
+    test.beforeAll(async ({ request }) => {
+        await request.patch('/api/projects/1/', {
+            data: { completed_snippet_onboarding: false },
+            headers: { Authorization: 'Bearer e2e_demo_api_key' },
+        })
+    })
+
+    test.afterAll(async ({ request }) => {
+        await request.patch('/api/projects/1/', {
+            data: { completed_snippet_onboarding: true },
+            headers: { Authorization: 'Bearer e2e_demo_api_key' },
+        })
+    })
+
+    test('Navigate to /products when a product has not been set up', async ({ page }) => {
+        await page.goto('/project/1/data-management/events')
+        await expect(page.locator('[data-attr=top-bar-name] > span')).toContainText('Products')
+    })
+
+    test('Navigate to a settings page even when a product has not been set up', async ({ page }) => {
+        await page.goto('/settings/user')
+        await expect(page.locator('[data-attr=top-bar-name] > span')).toContainText('User')
+
+        await page.goto('/settings/organization')
+        await expect(page.locator('[data-attr=top-bar-name] > span')).toContainText('Organization')
+    })
+})

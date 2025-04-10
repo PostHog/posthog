@@ -1,21 +1,28 @@
 import time
 from datetime import datetime
-from typing import Any, Literal, Optional, Union, cast
+from typing import Any, Literal, Optional, Union, cast, TYPE_CHECKING
 
+import posthoganalytics
 import structlog
 from django.conf import settings
 from django.db import connection, models
-from django.db.models import Case, Q, When
+from django.db.models import Case, Q, When, QuerySet
 from django.db.models.expressions import F
+
 from django.utils import timezone
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.constants import PropertyOperatorType
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.filters.filter import Filter
 from posthog.models.person import Person
 from posthog.models.property import BehavioralPropertyType, Property, PropertyGroup
-from posthog.models.utils import sane_repr
+from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.settings.base_variables import TEST
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 
 # The empty string literal helps us determine when the cohort is invalid/deleted, when
@@ -67,7 +74,7 @@ class Group:
         return dup
 
 
-class CohortManager(models.Manager):
+class CohortManager(RootTeamManager):
     def create(self, *args: Any, **kwargs: Any):
         if kwargs.get("groups"):
             kwargs["groups"] = [Group(**group).to_dict() for group in kwargs["groups"]]
@@ -75,7 +82,7 @@ class CohortManager(models.Manager):
         return cohort
 
 
-class Cohort(models.Model):
+class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.CharField(max_length=1000, blank=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -100,10 +107,29 @@ class Cohort(models.Model):
     # deprecated in favor of filters
     groups = models.JSONField(default=list)
 
-    objects = CohortManager()
+    objects = CohortManager()  # type: ignore
 
     def __str__(self):
-        return self.name
+        return self.name or "Untitled cohort"
+
+    @classmethod
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Cohort"]:
+        base_qs = cls.objects.filter(team=team, deleted=False)
+        return cls._filter_unfiled_queryset(base_qs, team, type="cohort", ref_field="id")
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        return FileSystemRepresentation(
+            base_folder="Unfiled/Cohorts",
+            type="cohort",  # sync with APIScopeObject in scopes.py
+            ref=str(self.pk),
+            name=self.name or "Untitled",
+            href=f"/cohorts/{self.pk}",
+            meta={
+                "created_at": str(self.created_at),
+                "created_by": self.created_by_id,
+            },
+            should_delete=self.deleted,
+        )
 
     @property
     def properties(self) -> PropertyGroup:
@@ -194,6 +220,13 @@ class Cohort(models.Model):
         from posthog.models.cohort.util import recalculate_cohortpeople
         from posthog.tasks.calculate_cohort import clear_stale_cohort
 
+        use_hogql_cohorts = posthoganalytics.feature_enabled(
+            "enable_hogql_cohort_calculation",
+            str(self.team.organization_id),
+            groups={"organization": str(self.team.organization_id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+        )
+
         logger.warn(
             "cohort_calculation_started",
             id=self.pk,
@@ -203,7 +236,9 @@ class Cohort(models.Model):
         start_time = time.monotonic()
 
         try:
-            count = recalculate_cohortpeople(self, pending_version, initiating_user_id=initiating_user_id)
+            count = recalculate_cohortpeople(
+                self, pending_version, initiating_user_id=initiating_user_id, hogql=use_hogql_cohorts
+            )
             self.count = count
 
             self.last_calculation = timezone.now()

@@ -229,7 +229,7 @@ function onLoad() {
         assert "const filterMatches = " in result
         assert '__getGlobal("event") == "$pageview"' in result
         assert (
-            '(ilike(__getProperty(__getProperty(__getGlobal("person"), "properties", true), "email", true), "%@test.com%")'
+            '(ilike(toString(__getProperty(__getProperty(__getGlobal("person"), "properties", true), "email", true)), "%@test.com%")'
             in result
         )
 

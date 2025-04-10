@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
@@ -9,6 +10,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { privilegeLevelToName } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -26,12 +28,19 @@ import { userLogic } from 'scenes/userLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { notebooksModel } from '~/models/notebooksModel'
 import { tagsModel } from '~/models/tagsModel'
-import { DashboardMode, DashboardType, ExporterFormat, QueryBasedInsightModel } from '~/types'
+import {
+    AccessControlResourceType,
+    DashboardMode,
+    DashboardType,
+    ExporterFormat,
+    QueryBasedInsightModel,
+} from '~/types'
 
-import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
+import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
+import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
@@ -57,6 +66,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
+    const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
 
     const { user } = useValues(userLogic)
 
@@ -66,6 +76,8 @@ export function DashboardHeader(): JSX.Element | null {
     const { tags } = useValues(tagsModel)
 
     const { push } = useActions(router)
+
+    const hasDashboardColors = useFeatureFlag('DASHBOARD_COLORS')
 
     const exportOptions: ExportButtonItem[] = [
         {
@@ -116,7 +128,7 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
                     {canEditDashboard && <DeleteDashboardModal />}
                     {canEditDashboard && <DuplicateDashboardModal />}
-                    {canEditDashboard && <AddInsightToDashboardModal />}
+                    {canEditDashboard && <DashboardInsightColorsModal />}
                 </>
             )}
 
@@ -170,7 +182,7 @@ export function DashboardHeader(): JSX.Element | null {
                                         <>
                                             {dashboard.created_by && (
                                                 <>
-                                                    <div className="flex p-2 text-muted-alt">
+                                                    <div className="flex p-2 text-secondary">
                                                         Created by{' '}
                                                         {dashboard.created_by.first_name ||
                                                             dashboard.created_by.email ||
@@ -179,6 +191,14 @@ export function DashboardHeader(): JSX.Element | null {
                                                     </div>
                                                     <LemonDivider />
                                                 </>
+                                            )}
+                                            {canEditDashboard && hasDashboardColors && (
+                                                <LemonButton
+                                                    onClick={() => showInsightColorsModal(dashboard.id)}
+                                                    fullWidth
+                                                >
+                                                    Customize colors
+                                                </LemonButton>
                                             )}
                                             {canEditDashboard && (
                                                 <LemonButton
@@ -260,8 +280,12 @@ export function DashboardHeader(): JSX.Element | null {
                                             >
                                                 Create notebook from dashboard
                                             </LemonButton>
+
                                             {canEditDashboard && (
-                                                <LemonButton
+                                                <AccessControlledLemonButton
+                                                    userAccessLevel={dashboard.user_access_level}
+                                                    minAccessLevel="editor"
+                                                    resourceType={AccessControlResourceType.Dashboard}
                                                     onClick={() => {
                                                         showDeleteDashboardModal(dashboard.id)
                                                     }}
@@ -269,7 +293,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                     fullWidth
                                                 >
                                                     Delete dashboard
-                                                </LemonButton>
+                                                </AccessControlledLemonButton>
                                             )}
                                         </>
                                     ) : undefined
@@ -278,10 +302,12 @@ export function DashboardHeader(): JSX.Element | null {
                             <LemonDivider vertical />
                             {dashboard && (
                                 <>
-                                    <CollaboratorBubbles
-                                        dashboard={dashboard}
-                                        onClick={() => push(urls.dashboardSharing(dashboard.id))}
-                                    />
+                                    {dashboard.access_control_version === 'v1' && (
+                                        <CollaboratorBubbles
+                                            dashboard={dashboard}
+                                            onClick={() => push(urls.dashboardSharing(dashboard.id))}
+                                        />
+                                    )}
                                     <LemonButton
                                         type="secondary"
                                         data-attr="dashboard-share-button"
@@ -292,17 +318,22 @@ export function DashboardHeader(): JSX.Element | null {
                                 </>
                             )}
                             {dashboard ? (
-                                <LemonButton
+                                <AccessControlledLemonButton
+                                    userAccessLevel={dashboard.user_access_level}
+                                    minAccessLevel="editor"
+                                    resourceType={AccessControlResourceType.Dashboard}
                                     onClick={showAddInsightToDashboardModal}
                                     type="primary"
                                     data-attr="dashboard-add-graph-header"
-                                    disabledReason={canEditDashboard ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
                                     sideAction={{
                                         dropdown: {
                                             placement: 'bottom-end',
                                             overlay: (
                                                 <>
-                                                    <LemonButton
+                                                    <AccessControlledLemonButton
+                                                        userAccessLevel={dashboard.user_access_level}
+                                                        minAccessLevel="editor"
+                                                        resourceType={AccessControlResourceType.Dashboard}
                                                         fullWidth
                                                         onClick={() => {
                                                             push(urls.dashboardTextTile(dashboard.id, 'new'))
@@ -310,7 +341,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                         data-attr="add-text-tile-to-dashboard"
                                                     >
                                                         Add text card
-                                                    </LemonButton>
+                                                    </AccessControlledLemonButton>
                                                 </>
                                             ),
                                         },
@@ -319,7 +350,7 @@ export function DashboardHeader(): JSX.Element | null {
                                     }}
                                 >
                                     Add insight
-                                </LemonButton>
+                                </AccessControlledLemonButton>
                             ) : null}
                         </>
                     )

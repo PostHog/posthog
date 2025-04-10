@@ -3,14 +3,14 @@ import {
     IconBolt,
     IconChat,
     IconCloud,
+    IconCollapse,
     IconCursor,
     IconDashboard,
+    IconExpand,
     IconEye,
     IconGear,
     IconLeave,
     IconLogomark,
-    IconMinusSquare,
-    IconPlusSquare,
     IconTerminal,
 } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -19,26 +19,25 @@ import { useActions, useValues } from 'kea'
 import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
-import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
+import { ceilMsToClosestSecond } from 'lib/utils'
 import { useEffect, useRef } from 'react'
+import { ItemTimeDisplay } from 'scenes/session-recordings/components/ItemTimeDisplay'
 import { ItemComment, ItemCommentDetail } from 'scenes/session-recordings/player/inspector/components/ItemComment'
 import { ItemInactivity } from 'scenes/session-recordings/player/inspector/components/ItemInactivity'
 import { ItemSummary } from 'scenes/session-recordings/player/inspector/components/ItemSummary'
 import { useDebouncedCallback } from 'use-debounce'
 import useResizeObserver from 'use-resize-observer'
 
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { FilterableInspectorListItemTypes } from '~/types'
 
 import { ItemPerformanceEvent, ItemPerformanceEventDetail } from '../../../apm/playerInspector/ItemPerformanceEvent'
 import { IconWindow } from '../../icons'
-import { playerSettingsLogic, TimestampFormat } from '../../playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic'
 import { ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
 import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
 import { ItemEvent, ItemEventDetail } from './ItemEvent'
-
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
 
 const typeToIconAndDescription = {
@@ -113,37 +112,6 @@ export function eventToIcon(event: string | undefined | null) {
     }
 
     return BaseIcon
-}
-
-function ItemTimeDisplay({ item }: { item: InspectorListItem }): JSX.Element {
-    const { timestampFormat } = useValues(playerSettingsLogic)
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { durationMs } = useValues(playerInspectorLogic(logicProps))
-
-    const fixedUnits = durationMs / 1000 > 3600 ? 3 : 2
-
-    return (
-        <span className="px-2 py-1 text-xs min-w-18 text-center">
-            {timestampFormat != TimestampFormat.Relative ? (
-                (timestampFormat === TimestampFormat.UTC ? item.timestamp.tz('UTC') : item.timestamp).format(
-                    'DD, MMM HH:mm:ss'
-                )
-            ) : (
-                <>
-                    {item.timeInRecording < 0 ? (
-                        <Tooltip
-                            title="This event occured before the recording started, likely as the page was loading."
-                            placement="left"
-                        >
-                            <span className="text-muted">load</span>
-                        </Tooltip>
-                    ) : (
-                        colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)
-                    )}
-                </>
-            )}
-        </span>
-    )
 }
 
 function RowItemTitle({
@@ -275,9 +243,9 @@ export function PlayerInspectorListItem({
             ref={ref}
             className={clsx(
                 'ml-1 flex flex-col items-center',
-                isExpanded && 'border border-primary',
+                isExpanded && 'border border-accent',
                 isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
-                isHovering && 'bg-bg-light'
+                isHovering && 'bg-surface-primary'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
@@ -320,14 +288,18 @@ export function PlayerInspectorListItem({
                         </Tooltip>
                     ) : null}
 
-                    {item.type !== 'inspector-summary' && item.type !== 'inactivity' && <ItemTimeDisplay item={item} />}
+                    {item.type !== 'inspector-summary' && item.type !== 'inactivity' && (
+                        <ItemTimeDisplay timestamp={item.timestamp} timeInRecording={item.timeInRecording} />
+                    )}
 
                     {TypeIcon ? <TypeIcon /> : <BaseIcon className="min-w-4" />}
 
                     <div
                         className={clsx(
                             'flex-1 overflow-hidden',
-                            item.highlightColor && `bg-${item.highlightColor}-highlight`
+                            item.highlightColor === 'danger' && `bg-fill-error-highlight`,
+                            item.highlightColor === 'warning' && `bg-fill-warning-highlight`,
+                            item.highlightColor === 'primary' && `bg-fill-accent-highlight-secondary`
                         )}
                     >
                         <RowItemTitle item={item} finalTimestamp={end} />
@@ -335,7 +307,7 @@ export function PlayerInspectorListItem({
                 </div>
                 {item.type !== 'inspector-summary' && item.type !== 'inactivity' && (
                     <LemonButton
-                        icon={isExpanded ? <IconMinusSquare /> : <IconPlusSquare />}
+                        icon={isExpanded ? <IconCollapse /> : <IconExpand />}
                         size="small"
                         noPadding
                         onClick={() => setItemExpanded(index, !isExpanded)}
@@ -364,7 +336,7 @@ export function PlayerInspectorListItem({
                             className="flex justify-end cursor-pointer mx-2 my-1"
                             onClick={() => setItemExpanded(index, false)}
                         >
-                            <span className="text-muted-alt">Collapse</span>
+                            <span className="text-secondary">Collapse</span>
                         </div>
                     </div>
                 </div>

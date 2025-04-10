@@ -4,9 +4,10 @@ import { createPluginConfigVM, TimeoutError } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 
-jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/logger')
 
 const defaultEvent = {
+    uuid: '7e98a694-96e8-454e-b99b-2775cb44fa4f',
     distinct_id: 'my_id',
     ip: '127.0.0.1',
     site_url: 'http://localhost',
@@ -14,7 +15,7 @@ const defaultEvent = {
     now: new Date().toISOString(),
     event: 'default event',
     properties: {},
-}
+} as const
 
 // since we introduced super lazy vms, setupPlugin does not run immediately with
 // createPluginConfigVM - this function sets up the VM and runs setupPlugin immediately after

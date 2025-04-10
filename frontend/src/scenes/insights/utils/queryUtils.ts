@@ -1,9 +1,10 @@
-import { objectCleanWithEmpty, objectsEqual } from 'lib/utils'
+import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils'
 
-import { DataNode, InsightQueryNode, Node } from '~/queries/schema'
+import { DataNode, InsightQueryNode, Node } from '~/queries/schema/schema-general'
 import {
     filterForQuery,
     filterKeyForQuery,
+    getMathTypeWarning,
     isEventsNode,
     isFunnelsQuery,
     isHogQLQuery,
@@ -11,8 +12,9 @@ import {
     isInsightQueryWithDisplay,
     isInsightQueryWithSeries,
     isInsightVizNode,
+    isTrendsQuery,
 } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
+import { BaseMathType, ChartDisplayType } from '~/types'
 
 type CompareQueryOpts = { ignoreVisualizationOnlyChanges: boolean }
 
@@ -39,14 +41,19 @@ export const compareQuery = (a: Node, b: Node, opts?: CompareQueryOpts): boolean
         const { source: sourceA, ...restA } = a
         const { source: sourceB, ...restB } = b
         return (
-            objectsEqual(objectCleanWithEmpty(restA), objectCleanWithEmpty(restB)) &&
-            compareDataNodeQuery(sourceA, sourceB, opts)
+            objectsEqual(
+                objectCleanWithEmpty(removeUndefinedAndNull(restA)),
+                objectCleanWithEmpty(removeUndefinedAndNull(restB))
+            ) && compareDataNodeQuery(sourceA, sourceB, opts)
         )
     } else if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
-        return compareDataNodeQuery(a, b, opts)
+        return compareDataNodeQuery(removeUndefinedAndNull(a), removeUndefinedAndNull(b), opts)
     }
 
-    return objectsEqual(objectCleanWithEmpty(a as any), objectCleanWithEmpty(b as any))
+    return objectsEqual(
+        objectCleanWithEmpty(removeUndefinedAndNull(a as any)),
+        objectCleanWithEmpty(removeUndefinedAndNull(b as any))
+    )
 }
 
 export const haveVariablesOrFiltersChanged = (a: Node, b: Node): boolean => {
@@ -117,16 +124,18 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
     const cleanedQuery = objectCleanWithEmpty(dupQuery) as InsightQueryNode
 
     if (isInsightQueryWithSeries(cleanedQuery)) {
-        cleanedQuery.series?.forEach((e) => {
+        cleanedQuery.series?.forEach((series) => {
             // event math `total` is the default
-            if (isEventsNode(e) && e.math === 'total') {
-                delete e.math
+            if (isEventsNode(series) && series.math === 'total') {
+                delete series.math
+            } else if (isTrendsQuery(cleanedQuery) && series.math && getMathTypeWarning(series.math, query, false)) {
+                series.math = BaseMathType.UniqueUsers
             }
         })
     }
 
     if (opts?.ignoreVisualizationOnlyChanges) {
-        // Keep this in sync with the backend side clean_insight_queries method
+        // Keep this in sync with posthog/schema_helpers.py `serialize_query` method
         const insightFilter = filterForQuery(cleanedQuery)
         const insightFilterKey = filterKeyForQuery(cleanedQuery)
         cleanedQuery[insightFilterKey] = {
@@ -142,12 +151,14 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
             toggledLifecycles: undefined,
             showLabelsOnSeries: undefined,
             showMean: undefined,
-            cumulative: undefined,
+            meanRetentionCalculation: undefined,
             yAxisScaleType: undefined,
             hiddenLegendIndexes: undefined,
             hiddenLegendBreakdowns: undefined,
             resultCustomizations: undefined,
             resultCustomizationBy: undefined,
+            goalLines: undefined,
+            dashboardDisplay: undefined,
         }
 
         cleanedQuery.dataColorTheme = undefined

@@ -60,7 +60,7 @@ describe('Trends', () => {
             .type(
                 '{backspace}{backspace}{backspace}{backspace}{backspace}{backspace}{backspace}{backspace}{backspace}avg(1042) * 2048'
             )
-        cy.contains('Update HogQL expression').click()
+        cy.contains('Update SQL expression').click()
 
         cy.get('[data-attr=chart-filter]').click()
         cy.contains('Table').click()
@@ -149,13 +149,6 @@ describe('Trends', () => {
     it('Apply property breakdown', () => {
         cy.get('[data-attr=add-breakdown-button]').click()
         cy.get('[data-attr=prop-filter-event_properties-1]').click()
-        cy.get('[data-attr=trend-line-graph]').should('exist')
-    })
-
-    it('Apply all users cohort breakdown', () => {
-        cy.get('[data-attr=add-breakdown-button]').click()
-        cy.get('[data-attr=taxonomic-tab-cohorts_with_all]').click()
-        cy.contains('All Users*').click()
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
 

@@ -6,6 +6,7 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 
 template: HogFunctionTemplate = HogFunctionTemplate(
     status="beta",
+    free=False,
     type="destination",
     id="template-customerio",
     name="Customer.io",
@@ -16,17 +17,14 @@ template: HogFunctionTemplate = HogFunctionTemplate(
 let action := inputs.action
 let name := event.event
 
-let hasIdentifier := false
 
-for (let key, value in inputs.identifiers) {
-    if (not empty(value)) {
-        hasIdentifier := true
-    }
+if (empty(inputs.identifier_value) or empty(inputs.identifier_key)) {
+    print('No identifier set. Skipping as identifier is required.')
+    return
 }
 
-if (not hasIdentifier) {
-    print('No identifier set. Skipping as at least 1 identifier is needed.')
-    return
+let identifiers := {
+    inputs.identifier_key: inputs.identifier_value
 }
 
 if (action == 'automatic') {
@@ -65,7 +63,7 @@ let res := fetch(f'https://{inputs.host}/api/v2/entity', {
         'type': 'person',
         'action': action,
         'name': name,
-        'identifiers': inputs.identifiers,
+        'identifiers': identifiers,
         'attributes': attributes,
         'timestamp': timestamp
     }
@@ -112,13 +110,34 @@ if (res.status >= 400) {
             "required": True,
         },
         {
-            "key": "identifiers",
-            "type": "dictionary",
-            "label": "Identifiers",
-            "description": "You can choose to fill this from an `email` property or an `id` property. If the value is empty nothing will be sent. See here for more information: https://customer.io/docs/api/track/#operation/entity",
-            "default": {
-                "email": "{person.properties.email}",
-            },
+            "key": "identifier_key",
+            "type": "choice",
+            "label": "Identifier key",
+            "description": "The kind of identifier to be used. See here for more information: https://customer.io/docs/api/track/#operation/entity",
+            "default": "email",
+            "choices": [
+                {
+                    "label": "Email",
+                    "value": "email",
+                },
+                {
+                    "label": "ID",
+                    "value": "id",
+                },
+                {
+                    "label": "Customer.io ID",
+                    "value": "cio_id",
+                },
+            ],
+            "secret": False,
+            "required": True,
+        },
+        {
+            "key": "identifier_value",
+            "type": "string",
+            "label": "Identifier value",
+            "description": "The value to be used for the identifier. If the value is empty nothing will be sent. See here for more information: https://customer.io/docs/api/track/#operation/entity",
+            "default": "{person.properties.email}",
             "secret": False,
             "required": True,
         },
@@ -240,9 +259,8 @@ class TemplateCustomerioMigrator(HogFunctionTemplateMigrator):
             "site_id": {"value": customerio_site_id},
             "token": {"value": token},
             "host": {"value": host},
-            "identifiers": {"value": {"email": "{person.properties.email}"}}
-            if identify_by_email
-            else {"value": {"id": "{event.distinct_id}"}},
+            "identifier_key": {"value": "email" if identify_by_email else "id"},
+            "identifier_value": {"value": "{person.properties.email}" if identify_by_email else "{event.distinct_id}"},
             "include_all_properties": {"value": True},
             "attributes": {"value": {}},
         }

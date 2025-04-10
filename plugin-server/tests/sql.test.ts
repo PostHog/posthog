@@ -6,7 +6,7 @@ import { commonOrganizationId } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
 
 jest.setTimeout(20_000)
-jest.mock('../src/utils/status')
+jest.mock('../src/utils/logger')
 
 describe('sql', () => {
     let hub: Hub
@@ -78,7 +78,6 @@ describe('sql', () => {
                 log_level: null,
                 name: 'test-maxmind-plugin',
                 plugin_type: 'custom',
-                public_jobs: null,
                 source__plugin_json:
                     '{"name":"posthog-maxmind-plugin","description":"just for testing","url":"http://example.com/plugin","config":{},"main":"index.js"}',
                 source__index_ts: 'const processEvent = event => event',

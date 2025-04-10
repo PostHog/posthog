@@ -1,12 +1,13 @@
 import { HogFunctionTemplate } from '../../types'
 
 export const template: HogFunctionTemplate = {
-    status: 'beta',
+    free: true,
+    status: 'alpha',
     type: 'transformation',
     id: 'template-geoip',
     name: 'GeoIP',
     description: 'Adds geoip data to the event',
-    icon_url: '/static/hedgehog/builder-hog-01.png',
+    icon_url: '/static/transformations/geoip.png',
     category: ['Custom'],
     hog: `
 // Define the properties to be added to the event
@@ -27,25 +28,25 @@ let geoipProperties := {
     'accuracy_radius': null,
     'time_zone': null
 }
-// Check if the event has an IP address l
+// Check if the event has an IP address
 if (event.properties?.$geoip_disable or empty(event.properties?.$ip)) {
-    print('geoip disabled or no ip', event.properties, event.properties?.$ip)
+    print('geoip disabled or no ip.')
     return event
 }
 let ip := event.properties.$ip
 if (ip == '127.0.0.1') {
-    ip := '13.106.122.3' // Spoofing an Australian IP address for local development
+    print('spoofing ip for local development', ip)
+    ip := '89.160.20.129'
 }
 let response := geoipLookup(ip)
-print(response)
 if (not response) {
+    print('geoip lookup failed for ip', ip)
     return event
 }
 let location := {}
 if (response.city) {
     location['city_name'] := response.city.names?.en
 }
-print(location)
 if (response.country) {
     location['country_name'] := response.country.names?.en
     location['country_code'] := response.country.isoCode
@@ -69,6 +70,7 @@ if (response.subdivisions) {
         location[f'subdivision_{index + 1}_name'] := subdivision.names?.en
     }
 }
+print('geoip location data for ip:', location) 
 let returnEvent := event
 returnEvent.properties := returnEvent.properties ?? {}
 returnEvent.properties.$set := returnEvent.properties.$set ?? {}

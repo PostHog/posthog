@@ -1,18 +1,21 @@
+import { IconAreaChart, IconComment, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
 import { allOperatorsMapping } from 'lib/utils'
 
 import {
     Survey,
     SurveyAppearance,
+    SurveyMatchType,
     SurveyQuestionDescriptionContentType,
     SurveyQuestionType,
+    SurveySchedule,
     SurveyType,
-    SurveyUrlMatchType,
 } from '~/types'
 
 export const SURVEY_EVENT_NAME = 'survey sent'
 export const SURVEY_RESPONSE_PROPERTY = '$survey_response'
+export const SURVEY_PAGE_SIZE = 100
 
-export const SurveyQuestionLabel = {
+export const SurveyQuestionLabel: Record<SurveyQuestionType, string> = {
     [SurveyQuestionType.Open]: 'Freeform text',
     [SurveyQuestionType.Rating]: 'Rating',
     [SurveyQuestionType.Link]: 'Link',
@@ -20,14 +23,14 @@ export const SurveyQuestionLabel = {
     [SurveyQuestionType.MultipleChoice]: 'Multiple choice select',
 }
 
-// Create SurveyUrlMatchTypeLabels using allOperatorsMapping
-export const SurveyUrlMatchTypeLabels = {
-    [SurveyUrlMatchType.Exact]: allOperatorsMapping[SurveyUrlMatchType.Exact],
-    [SurveyUrlMatchType.IsNot]: allOperatorsMapping[SurveyUrlMatchType.IsNot],
-    [SurveyUrlMatchType.Contains]: allOperatorsMapping[SurveyUrlMatchType.Contains],
-    [SurveyUrlMatchType.NotIContains]: allOperatorsMapping[SurveyUrlMatchType.NotIContains],
-    [SurveyUrlMatchType.Regex]: allOperatorsMapping[SurveyUrlMatchType.Regex],
-    [SurveyUrlMatchType.NotRegex]: allOperatorsMapping[SurveyUrlMatchType.NotRegex],
+// Create SurveyMatchTypeLabels using allOperatorsMapping
+export const SurveyMatchTypeLabels = {
+    [SurveyMatchType.Exact]: allOperatorsMapping[SurveyMatchType.Exact],
+    [SurveyMatchType.IsNot]: allOperatorsMapping[SurveyMatchType.IsNot],
+    [SurveyMatchType.Contains]: allOperatorsMapping[SurveyMatchType.Contains],
+    [SurveyMatchType.NotIContains]: allOperatorsMapping[SurveyMatchType.NotIContains],
+    [SurveyMatchType.Regex]: allOperatorsMapping[SurveyMatchType.Regex],
+    [SurveyMatchType.NotRegex]: allOperatorsMapping[SurveyMatchType.NotRegex],
 }
 
 export const defaultSurveyAppearance = {
@@ -43,6 +46,9 @@ export const defaultSurveyAppearance = {
     displayThankYouMessage: true,
     thankYouMessageHeader: 'Thank you for your feedback!',
     position: 'right',
+    widgetType: 'tab' as const,
+    widgetLabel: 'Feedback',
+    widgetColor: 'black',
 }
 
 export const defaultSurveyFieldValues = {
@@ -148,6 +154,8 @@ export interface NewSurvey
         | 'response_sampling_interval_type'
         | 'response_sampling_interval'
         | 'response_sampling_limit'
+        | 'schedule'
+        | 'enable_partial_responses'
     > {
     id: 'new'
     linked_flag_id: number | null
@@ -157,6 +165,7 @@ export const NEW_SURVEY: NewSurvey = {
     id: 'new',
     name: '',
     description: '',
+    schedule: SurveySchedule.Once,
     questions: [
         {
             type: SurveyQuestionType.Open,
@@ -190,9 +199,14 @@ export enum SurveyTemplateType {
     CES = 'Customer effort score (CES)',
     CCR = 'Customer churn rate (CCR)',
     PMF = 'Product-market fit (PMF)',
+    ErrorTracking = 'Capture exceptions',
 }
 
-export const defaultSurveyTemplates = [
+type SurveyTemplate = Partial<Survey> & {
+    templateType: SurveyTemplateType
+}
+
+export const defaultSurveyTemplates: SurveyTemplate[] = [
     {
         type: SurveyType.Popover,
         templateType: SurveyTemplateType.OpenFeedback,
@@ -216,6 +230,7 @@ export const defaultSurveyTemplates = [
                 description: 'We are looking for feedback on our product and would love to hear from you!',
                 descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
                 buttonText: 'Schedule',
+                link: null,
             },
         ],
         appearance: {
@@ -306,14 +321,54 @@ export const defaultSurveyTemplates = [
     },
 ]
 
+export const errorTrackingSurvey: SurveyTemplate = {
+    type: SurveyType.Popover,
+    templateType: SurveyTemplateType.ErrorTracking,
+    questions: [
+        {
+            type: SurveyQuestionType.Open,
+            question: 'Looks like something went wrong',
+            description: "We've captured the basics, but please tell us more to help us fix it!",
+            descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
+        },
+    ],
+    conditions: {
+        url: '',
+        seenSurveyWaitPeriodInDays: 14,
+        actions: null,
+        events: { repeatedActivation: true, values: [{ name: '$exception' }] },
+    },
+    appearance: {
+        surveyPopupDelaySeconds: 2,
+    },
+    description: 'Ask users for context when they hit an exception.',
+}
+
 export const WEB_SAFE_FONTS = [
-    'system-ui',
-    'Arial',
-    'Verdana',
-    'Tahoma',
-    'Trebuchet MS',
-    'Helvetica',
-    'Times New Roman',
-    'Georgia',
-    'Courier New',
+    { value: 'system-ui', label: 'system-ui (default)' },
+    { value: 'inherit', label: 'inherit (uses the font family of your website)' },
+    { value: 'Arial', label: 'Arial' },
+    { value: 'Verdana', label: 'Verdana' },
+    { value: 'Tahoma', label: 'Tahoma' },
+    { value: 'Trebuchet MS', label: 'Trebuchet MS' },
+    { value: 'Helvetica', label: 'Helvetica' },
+    { value: 'Times New Roman', label: 'Times New Roman' },
+    { value: 'Georgia', label: 'Georgia' },
+    { value: 'Courier New', label: 'Courier New' },
 ] as const
+
+export const NPS_DETRACTOR_LABEL = 'Detractors'
+export const NPS_PASSIVE_LABEL = 'Passives'
+export const NPS_PROMOTER_LABEL = 'Promoters'
+
+export const NPS_PROMOTER_VALUES = ['9', '10']
+export const NPS_PASSIVE_VALUES = ['7', '8']
+export const NPS_DETRACTOR_VALUES = ['0', '1', '2', '3', '4', '5', '6']
+
+export const QUESTION_TYPE_ICON_MAP = {
+    [SurveyQuestionType.Open]: <IconComment className="text-muted" />,
+    [SurveyQuestionType.Link]: <IconLink className="text-muted" />,
+    [SurveyQuestionType.Rating]: <IconAreaChart className="text-muted" />,
+    [SurveyQuestionType.SingleChoice]: <IconListView className="text-muted" />,
+    [SurveyQuestionType.MultipleChoice]: <IconGridView className="text-muted" />,
+}

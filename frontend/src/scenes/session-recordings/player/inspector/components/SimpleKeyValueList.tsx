@@ -2,12 +2,14 @@
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { getCoreFilterDefinition } from 'lib/taxonomy'
-import { useEffect, useState } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
+
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 export interface SimpleKeyValueListProps {
     item: Record<string, any>
-    emptyMessage?: string | JSX.Element | null
+    emptyMessage?: ReactNode
+    header?: ReactNode
     /**
      * SimpleKeyValueList will render these keys first.
      * keys are otherwise rendered in alphabetical order.
@@ -19,6 +21,7 @@ export function SimpleKeyValueList({
     item,
     emptyMessage = 'No properties to display',
     promotedKeys,
+    header,
 }: SimpleKeyValueListProps): JSX.Element {
     const [sortedItemsPromotedFirst, setSortedItemsPromotedFirst] = useState<[string, any][]>([])
 
@@ -52,7 +55,8 @@ export function SimpleKeyValueList({
     }, [item, promotedKeys])
 
     return (
-        <div className="text-xs space-y-1 max-w-full">
+        <div className="text-xs deprecated-space-y-1 max-w-full">
+            {header}
             {sortedItemsPromotedFirst.map(([key, value]) => (
                 <div key={key} className="flex gap-4 items-start justify-between overflow-hidden">
                     <span className="font-semibold">

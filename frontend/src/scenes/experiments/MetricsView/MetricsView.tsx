@@ -90,7 +90,7 @@ export function AddSecondaryMetric(): JSX.Element {
 export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
     const {
         experiment,
-        _getMetricType,
+        getInsightType,
         metricResults,
         secondaryMetricResults,
         primaryMetricsResultErrors,
@@ -128,8 +128,8 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                 return []
             }
             return variants.flatMap((variant) => {
-                const metricType = _getMetricType(metric)
-                const interval = credibleIntervalForVariant(result, variant.key, metricType)
+                const insightType = getInsightType(metric)
+                const interval = credibleIntervalForVariant(result, variant.key, insightType)
                 return interval ? [Math.abs(interval[0] / 100), Math.abs(interval[1] / 100)] : []
             })
         })
@@ -144,7 +144,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
         <div className="mb-4 -mt-2">
             <div className="flex">
                 <div className="w-1/2 pt-5">
-                    <div className="inline-flex items-center space-x-2 mb-0">
+                    <div className="inline-flex items-center deprecated-space-x-2 mb-0">
                         <h2 className="mb-0 font-semibold text-lg leading-6">
                             {isSecondary ? 'Secondary metrics' : 'Primary metrics'}
                         </h2>
@@ -156,7 +156,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                                         : 'Primary metrics represent the main goal of your experiment. They directly measure whether your hypothesis was successful and are the key factor in deciding if the test achieved its primary objective.'
                                 }
                             >
-                                <IconInfo className="text-muted-alt text-lg" />
+                                <IconInfo className="text-secondary text-lg" />
                             </Tooltip>
                         )}
                         {hasSomeResults && !isSecondary && (
@@ -183,9 +183,9 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                                                 </li>
                                             </ul>
                                             <p className="mb-4">
-                                                The <strong>width of the bar</strong> represents uncertainty. A{' '}
-                                                <strong>narrower bar</strong> means we're more confident in that result,
-                                                while a <strong>wider bar</strong> means it could shift either way.
+                                                The shape of each bar represents the probability distribution. The true
+                                                value is more likely to be near the center (where the bar is wider) than
+                                                at the edges (where it tapers off).
                                             </p>
                                             <p className="mb-4">
                                                 The control (baseline) is always shown in gray. Other bars will be green
@@ -193,7 +193,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                                                 negative.
                                             </p>
                                             <img
-                                                src="https://res.cloudinary.com/dmukukwp6/image/upload/Screenshot_2024_12_28_at_21_09_55_8828faf254.png"
+                                                src="https://res.cloudinary.com/dmukukwp6/image/upload/violin_plot_screenshot_acca775d36.png"
                                                 width={700}
                                                 className="rounded border object-contain"
                                                 alt="How to read metrics"
@@ -201,7 +201,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                                         </div>
                                     }
                                 >
-                                    <span className="text-xs text-muted-alt cursor-help">How to read</span>
+                                    <span className="text-xs text-secondary cursor-help">How to read</span>
                                 </Tooltip>
                             </>
                         )}
@@ -228,7 +228,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                             return (
                                 <div
                                     key={metricIndex}
-                                    className={`w-full border border-border bg-light ${
+                                    className={`w-full border border-primary bg-light ${
                                         metrics.length === 1
                                             ? 'rounded'
                                             : isFirstMetric
@@ -243,7 +243,7 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                                         result={result}
                                         error={errors?.[metricIndex]}
                                         variants={variants}
-                                        metricType={_getMetricType(metric)}
+                                        metricType={getInsightType(metric)}
                                         metricIndex={metricIndex}
                                         isFirstMetric={isFirstMetric}
                                         metric={metric}
@@ -256,11 +256,18 @@ export function MetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Ele
                     </div>
                 </div>
             ) : (
-                <div className="border rounded bg-bg-light pt-6 pb-8 text-muted mt-2">
-                    <div className="flex flex-col items-center mx-auto space-y-3">
+                <div className="border rounded bg-surface-primary pt-6 pb-8 text-secondary mt-2">
+                    <div className="flex flex-col items-center mx-auto deprecated-space-y-3">
                         <IconAreaChart fontSize="30" />
-                        <div className="text-sm text-center text-balance">
-                            Add up to {MAX_PRIMARY_METRICS} {isSecondary ? 'secondary' : 'primary'} metrics.
+                        <div className="text-sm text-center text-balance max-w-sm">
+                            <p>
+                                Add up to {MAX_PRIMARY_METRICS} {isSecondary ? 'secondary' : 'primary'} metrics.
+                            </p>
+                            <p>
+                                {isSecondary
+                                    ? 'Secondary metrics provide additional context and help detect unintended side effects.'
+                                    : 'Primary metrics represent the main goal of the experiment and directly measure if your hypothesis was successful.'}
+                            </p>
                         </div>
                         {isSecondary ? <AddSecondaryMetric /> : <AddPrimaryMetric />}
                     </div>

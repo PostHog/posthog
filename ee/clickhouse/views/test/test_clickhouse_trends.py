@@ -69,7 +69,7 @@ def test_includes_only_intervals_within_range(client: Client):
             client=client,
             team_id=team.id,
             name="test cohort",
-            groups=[{"properties": [{"key": "cohort_identifier", "value": 1, "type": "person"}]}],
+            groups=[{"properties": [{"key": "cohort_identifier", "value": "1", "type": "person"}]}],
         )
 
         journeys_for(
@@ -122,8 +122,7 @@ def test_includes_only_intervals_within_range(client: Client):
                     "label": "test cohort",
                     "count": 3.0,
                     "data": [1.0, 1.0, 1.0],
-                    # Prior to the fix this would also include '29-Aug-2021'
-                    "labels": ["5-Sep-2021", "12-Sep-2021", "19-Sep-2021"],
+                    "labels": ["5-Sep – 11-Sep", "12-Sep – 18-Sep", "19-Sep – 25-Sep"],
                     "days": ["2021-09-05", "2021-09-12", "2021-09-19"],
                     "filter": ANY,
                 }

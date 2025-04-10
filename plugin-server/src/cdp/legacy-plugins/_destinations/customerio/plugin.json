@@ -1,0 +1,60 @@
+{
+    "name": "Customer.io",
+    "description": "Send event data and emails into Customer.io.",
+    "posthogVersion": ">= 1.25.0",
+    "main": "index.ts",
+    "config": [
+        {
+            "key": "customerioSiteId",
+            "hint": "Provided during Customer.io setup.",
+            "name": "Customer.io Site ID",
+            "type": "string",
+            "default": "",
+            "required": true,
+            "secret": true
+        },
+        {
+            "key": "customerioToken",
+            "hint": "Provided during Customer.io setup.",
+            "name": "Customer.io API Key",
+            "type": "string",
+            "default": "",
+            "required": true,
+            "secret": true
+        },
+        {
+            "key": "host",
+            "name": "Tracking Endpoint",
+            "hint": "Use the EU variant if your Customer.io account is based in the EU region.",
+            "type": "choice",
+            "default": "track.customer.io",
+            "choices": ["track.customer.io", "track-eu.customer.io"]
+        },
+        {
+            "key": "identifyByEmail",
+            "name": "Identify by email",
+            "hint": "If enabled, the plugin will identify users by email instead of ID, whenever an email is available.",
+            "type": "choice",
+            "default": "No",
+            "choices": ["Yes", "No"]
+        },
+        {
+            "key": "sendEventsFromAnonymousUsers",
+            "name": "Filtering of Anonymous Users",
+            "type": "choice",
+            "hint": "Customer.io pricing is based on the number of customers. This is an option to only send events from users that have been identified. Take into consideration that merging after identification won't work (as those previously anonymous events won't be there).",
+            "default": "Send all events",
+            "choices": [
+                "Send all events",
+                "Only send events from users that have been identified",
+                "Only send events from users with emails"
+            ]
+        },
+        {
+            "key": "eventsToSend",
+            "name": "PostHog Event Allowlist",
+            "type": "string",
+            "hint": "If this is set, only the specified events (comma-separated) will be sent to Customer.io."
+        }
+    ]
+}

@@ -11,6 +11,7 @@ from posthog.hogql_queries.insights.utils.aggregations import (
     QueryAlternator,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql.database.schema.exchange_rate import convert_currency_call
 from posthog.models.team.team import Team
 from posthog.schema import (
     ActionsNode,
@@ -19,6 +20,10 @@ from posthog.schema import (
     DataWarehouseNode,
     EventsNode,
 )
+
+
+DEFAULT_CURRENCY_VALUE = "USD"
+DEFAULT_REVENUE_PROPERTY = "$revenue"
 
 
 class AggregationOperations(DataWarehouseInsightQueryMixin):
@@ -64,23 +69,23 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             return parse_expr(f'count(DISTINCT e."$group_{int(self.series.math_group_type_index)}")')
         elif self.series.math_property is not None:
             if self.series.math == "avg":
-                return self._math_func("avg", None)
+                return self._math_func("avg")
             elif self.series.math == "sum":
-                return self._math_func("sum", None)
+                return self._math_func("sum")
             elif self.series.math == "min":
-                return self._math_func("min", None)
+                return self._math_func("min")
             elif self.series.math == "max":
-                return self._math_func("max", None)
+                return self._math_func("max")
             elif self.series.math == "median":
-                return self._math_quantile(0.5, None)
+                return self._math_quantile(0.5)
             elif self.series.math == "p75":
-                return self._math_quantile(0.75, None)
+                return self._math_quantile(0.75)
             elif self.series.math == "p90":
-                return self._math_quantile(0.9, None)
+                return self._math_quantile(0.9)
             elif self.series.math == "p95":
-                return self._math_quantile(0.95, None)
+                return self._math_quantile(0.95)
             elif self.series.math == "p99":
-                return self._math_quantile(0.99, None)
+                return self._math_quantile(0.99)
 
         return parse_expr("count()")  # All "count per actor" get replaced during query orchestration
 
@@ -118,12 +123,26 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         return self.series.math in ["weekly_active", "monthly_active"]
 
     def is_first_time_ever_math(self):
-        return self.series.math == "first_time_for_user"
+        return self.series.math in {"first_time_for_user", "first_matching_event_for_user"}
 
     def is_first_matching_event(self):
         return self.series.math == "first_matching_event_for_user"
 
-    def _math_func(self, method: str, override_chain: Optional[list[str | int]]) -> ast.Call:
+    def _get_math_chain(self) -> list[str | int]:
+        if not self.series.math_property:
+            raise ValueError("No math property set")
+        if self.series.math_property == "$session_duration":
+            return ["session_duration"]
+        elif isinstance(self.series, DataWarehouseNode):
+            return [self.series.math_property]
+        elif self.series.math_property_type == "data_warehouse_person_properties":
+            return ["person", *self.series.math_property.split(".")]
+        elif self.series.math_property_type == "person_properties":
+            return ["person", "properties", self.series.math_property]
+        else:
+            return ["properties", self.series.math_property]
+
+    def _math_func(self, method: str, override_chain: Optional[list[str | int]] = None) -> ast.Call:
         if override_chain is not None:
             return ast.Call(name=method, args=[ast.Field(chain=override_chain)])
 
@@ -138,17 +157,36 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 ],
             )
 
-        if self.series.math_property == "$session_duration":
-            chain = ["session_duration"]
-        elif isinstance(self.series, DataWarehouseNode) and self.series.math_property:
-            chain = [self.series.math_property]
-        elif self.series.math_property_type == "data_warehouse_person_properties" and self.series.math_property:
-            chain = ["person", *self.series.math_property.split(".")]
-        else:
-            chain = ["properties", self.series.math_property]
+        chain = self._get_math_chain()
+
+        if self.series.math_property_revenue_currency is not None:
+            event_currency = (
+                ast.Constant(value=self.series.math_property_revenue_currency.static.value)
+                if self.series.math_property_revenue_currency.static is not None
+                else ast.Field(chain=["properties", self.series.math_property_revenue_currency.property])
+                if self.series.math_property_revenue_currency.property is not None
+                else ast.Field(chain=["properties", DEFAULT_REVENUE_PROPERTY])
+            )
+            base_currency = (
+                ast.Constant(value=self.team.revenue_config.baseCurrency.value)
+                if self.team.revenue_config.baseCurrency is not None
+                else ast.Constant(value=DEFAULT_CURRENCY_VALUE)
+            )
+
+            return ast.Call(
+                name=method,
+                args=[
+                    convert_currency_call(
+                        ast.Field(chain=chain),
+                        event_currency,
+                        base_currency,
+                        ast.Call(name="_toDate", args=[ast.Field(chain=["timestamp"])]),
+                    )
+                ],
+            )
 
         return ast.Call(
-            # Two caveats here:
+            # Two caveats here - similar to the math_quantile, but not quite:
             # 1. We always parse/convert the value to a Float64, to make sure it's a number. This truncates precision
             # of very large integers, but it's a tradeoff preventing queries failing with "Illegal type String"
             # 2. We fall back to 0 when there's no data, which is not quite kosher for math functions other than sum
@@ -160,16 +198,24 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
             ],
         )
 
-    def _math_quantile(self, percentile: float, override_chain: Optional[list[str | int]]) -> ast.Call:
-        if self.series.math_property == "$session_duration":
-            chain = ["session_duration"]
-        else:
-            chain = ["properties", self.series.math_property]
+    def _math_quantile(self, percentile: float, override_chain: Optional[list[str | int]] = None) -> ast.Call:
+        chain = override_chain or self._get_math_chain()
 
         return ast.Call(
-            name="quantile",
-            params=[ast.Constant(value=percentile)],
-            args=[ast.Field(chain=override_chain or chain)],
+            # Two caveats here - similar to the math_func, but not quite:
+            # 1. We always parse/convert the value to a Float64, to make sure it's a number. This truncates precision
+            # of very large integers, but it's a tradeoff preventing queries failing with "Illegal type String"
+            # 2. We fall back to 0 when there's no data, which makes some kind of sense for percentile,
+            # (null would actually be more meaningful for e.g. min or max), but formulas aren't equipped to handle nulls
+            name="ifNull",
+            args=[
+                ast.Call(
+                    name="quantile",
+                    params=[ast.Constant(value=percentile)],
+                    args=[ast.Call(name="toFloat", args=[ast.Field(chain=chain)])],
+                ),
+                ast.Constant(value=0),
+            ],
         )
 
     def _interval_placeholders(self):
@@ -201,6 +247,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                 "SELECT total FROM {inner_query}",
                 placeholders={"inner_query": inner_query},
             )
+            assert isinstance(query, ast.SelectQuery)
 
             if not self.is_total_value:
                 query.select.append(ast.Field(chain=["day_start"]))
@@ -274,6 +321,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                     "total_alias": total_alias,
                 },
             )
+            assert isinstance(query, ast.SelectQuery)
 
             if not self.is_total_value:
                 query.select.append(ast.Field(chain=["day_start"]))
@@ -281,33 +329,32 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
             return query
 
-        query = cast(
-            ast.SelectQuery,
-            parse_select(
-                """
+        query = parse_select(
+            """
                 SELECT
                     d.timestamp,
                     COUNT(DISTINCT actor_id) AS counts
-                FROM (
+                FROM {cross_join_select_query} e
+                CROSS JOIN (
                     SELECT
                         {date_to_start_of_interval} - {number_interval_period} AS timestamp
                     FROM
                         numbers(dateDiff({interval}, {date_from_start_of_interval} - {inclusive_lookback}, {date_to}))
                 ) d
-                CROSS JOIN {cross_join_select_query} e
                 WHERE
                     e.timestamp <= d.timestamp + INTERVAL 1 DAY AND
                     e.timestamp > d.timestamp - {exclusive_lookback}
                 GROUP BY d.timestamp
                 ORDER BY d.timestamp
             """,
-                placeholders={
-                    **self.query_date_range.to_placeholders(),
-                    **self._interval_placeholders(),
-                    "cross_join_select_query": cross_join_select_query,
-                },
-            ),
+            placeholders={
+                **self.query_date_range.to_placeholders(),
+                **self._interval_placeholders(),
+                "cross_join_select_query": cross_join_select_query,
+            },
         )
+        assert isinstance(query, ast.SelectQuery)
+        assert isinstance(query.group_by, list)
 
         if self.is_total_value:
             query.select = [ast.Field(chain=["d", "timestamp"]), ast.Field(chain=["actor_id"])]
@@ -385,6 +432,8 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                     ),
                 },
             )
+            assert isinstance(query, ast.SelectQuery)
+            assert isinstance(query.group_by, list)
 
             if not self.is_total_value:
                 query.select.append(day_start)
@@ -465,7 +514,6 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         events_where_clause: ast.Expr,
         sample_value: ast.RatioExpr,
         event_name_filter: ast.Expr | None = None,
-        is_first_matching_event: bool = False,
     ):
         date_placeholders = self.query_date_range.to_placeholders()
         date_from = parse_expr(
@@ -479,6 +527,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
         events_query = ast.SelectQuery(select=[])
         parent_select = self._first_time_parent_query(events_query)
+        is_first_matching_event = self.is_first_matching_event()
 
         class QueryOrchestrator:
             events_query_builder: FirstTimeForUserEventsQueryAlternator

@@ -11,12 +11,9 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import {
-    deduplicateSnapshots,
-    parseEncodedSnapshots,
-    sessionRecordingDataLogic,
-} from '../player/sessionRecordingDataLogic'
+import { parseEncodedSnapshots, sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
 import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
+import { deduplicateSnapshots } from '../player/snapshot-processing/deduplicate-snapshots'
 import type { sessionRecordingFilePlaybackSceneLogicType } from './sessionRecordingFilePlaybackSceneLogicType'
 import { ExportedSessionRecordingFileV1, ExportedSessionRecordingFileV2 } from './types'
 
@@ -85,10 +82,10 @@ const waitForDataLogic = async (playerKey: string): Promise<BuiltLogic<sessionRe
 
 export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePlaybackSceneLogicType>([
     path(['scenes', 'session-recordings', 'detail', 'sessionRecordingFilePlaybackSceneLogic']),
-    connect({
+    connect(() => ({
         actions: [eventUsageLogic, ['reportRecordingLoadedFromFile']],
         values: [featureFlagLogic, ['featureFlags']],
-    }),
+    })),
 
     loaders(({ actions }) => ({
         sessionRecording: {
@@ -154,6 +151,7 @@ export const sessionRecordingFilePlaybackSceneLogic = kea<sessionRecordingFilePl
             dataLogic.actions.loadRecordingMetaSuccess({
                 id: values.sessionRecording.id,
                 viewed: false,
+                viewers: [],
                 recording_duration: snapshots[snapshots.length - 1].timestamp - snapshots[0].timestamp,
                 person: values.sessionRecording.person || undefined,
                 start_time: dayjs(snapshots[0].timestamp).toISOString(),

@@ -78,7 +78,7 @@ export const UnsubscribeSurveyModal = ({
         <div className="flex flex-col gap-4">
             <div className="text-center">
                 <h3 className="text-lg mb-2">How about now? Was that enough hedgehogs?</h3>
-                <p className="text-muted mb-4">Look at all these adorable hedgehogs dancing just for you! 🦔✨</p>
+                <p className="text-secondary mb-4">Look at all these adorable hedgehogs dancing just for you! 🦔✨</p>
                 <div className="flex justify-center items-center">
                     <HeartHog width="100" height="100" />
                 </div>
@@ -89,7 +89,7 @@ export const UnsubscribeSurveyModal = ({
                 </Link>
             </div>
             <LemonDivider />
-            <div className="space-y-2 flex flex-col items-center justify-center">
+            <div className="deprecated-space-y-2 flex flex-col items-center justify-center">
                 <LemonButton
                     type="primary"
                     loading={billingLoading}
@@ -193,7 +193,7 @@ export const UnsubscribeSurveyModal = ({
                             {billing?.subscription_level === 'paid'
                                 ? `Why are you ${actionVerb}?`
                                 : `Why are you ${actionVerb} from ${product.name}?`}{' '}
-                            <i className="text-muted">(you can select multiple)</i>
+                            <i className="text-secondary">(you can select multiple)</i>
                             <Tooltip title="Required">
                                 <span className="text-danger">*</span>
                             </Tooltip>

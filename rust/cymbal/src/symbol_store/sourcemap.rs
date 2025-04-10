@@ -1,6 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use axum::async_trait;
+use base64::Engine;
+use posthog_symbol_data::{read_symbol_data, write_symbol_data, SourceAndMap};
 use reqwest::Url;
 use symbolic::sourcemapcache::{SourceMapCache, SourceMapCacheWriter};
 use tracing::{info, warn};
@@ -8,7 +10,6 @@ use tracing::{info, warn};
 use crate::{
     config::Config,
     error::{Error, JsResolveErr},
-    hack::js_data::JsData,
     metric_consts::{
         SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND, SOURCEMAP_FETCH, SOURCEMAP_HEADER_FOUND,
         SOURCEMAP_NOT_FOUND, SOURCEMAP_PARSE,
@@ -38,11 +39,10 @@ impl OwnedSourceMapCache {
     }
 
     pub fn from_source_and_map(
-        source: &str,
-        sourcemap: &str,
+        sam: SourceAndMap,
     ) -> Result<Self, symbolic::sourcemapcache::SourceMapCacheWriterError> {
-        let mut data = Vec::with_capacity(source.len() + sourcemap.len() + 128);
-        let smcw = SourceMapCacheWriter::new(source, sourcemap)?;
+        let mut data = Vec::with_capacity(sam.minified_source.len() + sam.sourcemap.len() + 16);
+        let smcw = SourceMapCacheWriter::new(&sam.minified_source, &sam.sourcemap)?;
         smcw.serialize(&mut data).unwrap();
         Ok(Self { data })
     }
@@ -70,23 +70,48 @@ impl SourcemapProvider {
     }
 }
 
+#[derive(Debug, Clone)]
+enum SourceMappingUrl {
+    Url(Url),
+    Data(String),
+}
+
+impl From<Url> for SourceMappingUrl {
+    fn from(url: Url) -> Self {
+        Self::Url(url)
+    }
+}
+
 #[async_trait]
 impl Fetcher for SourcemapProvider {
     type Ref = Url;
     type Fetched = Vec<u8>;
-    async fn fetch(&self, _: i32, r: Url) -> Result<Vec<u8>, Error> {
+    type Err = Error;
+    async fn fetch(&self, _: i32, r: Url) -> Result<Vec<u8>, Self::Err> {
         let start = common_metrics::timing_guard(SOURCEMAP_FETCH, &[]);
-        let (sourcemap_url, minified_source) = find_sourcemap_url(&self.client, r).await?;
+        let (smu, minified_source) = find_sourcemap_url(&self.client, r).await?;
 
         let start = start.label("found_url", "true");
 
-        let sourcemap = fetch_source_map(&self.client, sourcemap_url.clone()).await?;
+        let sourcemap = match smu {
+            SourceMappingUrl::Url(sourcemap_url) => {
+                fetch_source_map(&self.client, sourcemap_url.clone()).await?
+            }
+            SourceMappingUrl::Data(data) => data,
+        };
 
-        let data = JsData::from_source_and_map(minified_source, sourcemap);
+        // This isn't needed for correctness, but it gives nicer errors to users
+        assert_is_sourcemap(&sourcemap)?;
+
+        let sam = SourceAndMap {
+            minified_source,
+            sourcemap,
+        };
+        let data = write_symbol_data(sam).map_err(JsResolveErr::JSDataError)?;
 
         start.label("found_data", "true").fin();
 
-        Ok(data.to_bytes())
+        Ok(data)
     }
 }
 
@@ -94,17 +119,22 @@ impl Fetcher for SourcemapProvider {
 impl Parser for SourcemapProvider {
     type Source = Vec<u8>;
     type Set = OwnedSourceMapCache;
-    async fn parse(&self, data: Vec<u8>) -> Result<Self::Set, Error> {
+    type Err = Error;
+    async fn parse(&self, data: Vec<u8>) -> Result<Self::Set, Self::Err> {
         let start = common_metrics::timing_guard(SOURCEMAP_PARSE, &[]);
-        let smc = JsData::from_bytes(data)
-            .and_then(JsData::to_smc)
-            .map_err(JsResolveErr::from)?;
+        let sam: SourceAndMap = read_symbol_data(data).map_err(JsResolveErr::JSDataError)?;
+        let smc = OwnedSourceMapCache::from_source_and_map(sam)
+            .map_err(|_| JsResolveErr::InvalidSourceAndMap)?;
+
         start.label("success", "true").fin();
         Ok(smc)
     }
 }
 
-async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<(Url, String), Error> {
+async fn find_sourcemap_url(
+    client: &reqwest::Client,
+    start: Url,
+) -> Result<(SourceMappingUrl, String), Error> {
     info!("Fetching script source from {}", start);
 
     // If this request fails, we cannot resolve the frame, and hand this error to the frames
@@ -149,7 +179,7 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<(Url
             final_url.set_path(url);
             final_url
         };
-        return Ok((url, body));
+        return Ok((url.into(), body));
     }
 
     // If we didn't find a header, we have to check the body
@@ -159,16 +189,37 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<(Url
         if line.starts_with("//# sourceMappingURL=") {
             metrics::counter!(SOURCEMAP_BODY_REF_FOUND).increment(1);
             let found = line.trim_start_matches("//# sourceMappingURL=");
-            // These URLs can be relative, so we have to check if they are, and if they are, append the base URLs domain to them
+
+            // If we can parse this as a data URL, we can just use that
+            if let Some(data) = maybe_as_data_url(final_url.as_ref(), found, data_url_to_json_str)?
+            {
+                return Ok((SourceMappingUrl::Data(data), body));
+            }
+
+            // If the found url has a scheme, we can just parse it
             let url = if found.starts_with("http") {
                 found
                     .parse()
                     .map_err(|_| JsResolveErr::InvalidSourceMapUrl(found.to_string()))?
+            } else if !found.contains('/') {
+                // If it doesn't contain a slash, assume it only replaces the final part of the path
+                let Some(segments) = final_url.path_segments() else {
+                    // We should never hit this - path_segments() should always return Some for a URL
+                    // that "can be base" - basically a url with a domain name and scheme - and we know
+                    // final_url has that because it's the url we got the body we just parsed from.
+                    return Err(JsResolveErr::InvalidSourceMapUrl(found.to_string()).into());
+                };
+
+                let mut segments = segments.collect::<Vec<_>>();
+                segments.pop();
+                segments.push(found);
+                final_url.set_path(&segments.join("/"));
+                final_url
             } else {
                 final_url.set_path(found);
                 final_url
             };
-            return Ok((url, body));
+            return Ok((url.into(), body));
         }
     }
 
@@ -180,7 +231,7 @@ async fn find_sourcemap_url(client: &reqwest::Client, start: Url) -> Result<(Url
     test_url.set_path(&(test_url.path().to_owned() + ".map"));
     if let Ok(res) = client.head(test_url.clone()).send().await {
         if res.status().is_success() {
-            return Ok((res.url().clone(), body));
+            return Ok((res.url().clone().into(), body));
         }
     }
 
@@ -196,6 +247,123 @@ async fn fetch_source_map(client: &reqwest::Client, url: Url) -> Result<String, 
     res.error_for_status_ref().map_err(JsResolveErr::from)?;
     let sourcemap = res.text().await.map_err(JsResolveErr::from)?;
     Ok(sourcemap)
+}
+
+// Below as per https://developer.mozilla.org/en-US/docs/Web/URI/Reference/Schemes/data
+const DATA_SCHEME: &str = "data:";
+
+struct DataUrlContent {
+    data: Vec<u8>,
+    mime_type: String,
+}
+
+// Returns none if this isn't a data URL, but Err if it is and we can't parse it
+fn maybe_as_data_url<T>(
+    source_url: &str,
+    data: &str,
+    parse_fn: impl FnOnce(DataUrlContent) -> Result<T, Error>,
+) -> Result<Option<T>, Error> {
+    if !data.starts_with(DATA_SCHEME) {
+        return Ok(None);
+    }
+
+    let data = data.trim_start_matches(DATA_SCHEME);
+
+    let (header, data) = data.split_once(',').ok_or(JsResolveErr::InvalidDataUrl(
+        source_url.into(),
+        "Could split into header and data segment, no comma".into(),
+    ))?;
+
+    let mut chunks = header.split(";");
+
+    let mime_type = chunks.next().expect("split always returns 1");
+    let mut b64 = "";
+    match (chunks.next(), chunks.next(), chunks.next()) {
+        (None, None, None) => {}
+        (Some(v), None, None) => {
+            b64 = v;
+        }
+        (Some(charset), Some(encoding), None) => {
+            if charset != "charset=utf-8" {
+                return Err(JsResolveErr::InvalidDataUrl(
+                    source_url.into(),
+                    "Only utf-8 charset is supported".into(),
+                )
+                .into());
+            }
+            if encoding != "base64" {
+                return Err(JsResolveErr::InvalidDataUrl(
+                    source_url.into(),
+                    "Only base64 encoding is supported".into(),
+                )
+                .into());
+            }
+            b64 = encoding;
+        }
+        (_, _, _) => {
+            return Err(JsResolveErr::InvalidDataUrl(
+                source_url.into(),
+                "Too many parts in data URL header".into(),
+            )
+            .into());
+        }
+    }
+
+    // This must be either plaintext or b64 encoded data
+    if !b64.is_empty() && b64 != "base64" {
+        return Err(JsResolveErr::InvalidDataUrl(
+            source_url.into(),
+            "Only base64 data URLs are supported".into(),
+        )
+        .into());
+    }
+
+    let data = if b64.is_empty() {
+        data.as_bytes().to_vec()
+    } else {
+        match base64::engine::general_purpose::STANDARD.decode(data) {
+            Ok(d) => d,
+            Err(e) => {
+                return Err(JsResolveErr::InvalidDataUrl(
+                    source_url.into(),
+                    format!("Failed to decode base64 data: {:?}", e),
+                )
+                .into())
+            }
+        }
+    };
+
+    let mime_type = mime_type.to_string();
+
+    let content = DataUrlContent { data, mime_type };
+
+    Ok(Some(parse_fn(content)?))
+}
+
+fn data_url_to_json_str(content: DataUrlContent) -> Result<String, Error> {
+    if !content.mime_type.starts_with("application/json") {
+        return Err(JsResolveErr::InvalidDataUrl(
+            "data".into(),
+            "Data URL was not a JSON mime type".into(),
+        )
+        .into());
+    }
+
+    let data = std::str::from_utf8(&content.data).map_err(|e| {
+        JsResolveErr::InvalidDataUrl(
+            "data".into(),
+            format!("Data URL was not valid UTF-8: {:?}", e),
+        )
+    })?;
+
+    Ok(data.to_string())
+}
+
+fn assert_is_sourcemap(data: &str) -> Result<(), Error> {
+    if let Err(e) = sourcemap::decode_slice(data.as_bytes()) {
+        return Err(JsResolveErr::InvalidSourceMap(e.to_string()).into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -221,6 +389,10 @@ mod test {
         let client = reqwest::Client::new();
         let url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
         let (res, _) = find_sourcemap_url(&client, url).await.unwrap();
+
+        let SourceMappingUrl::Url(res) = res else {
+            panic!("Expected URL, got {:?}", res);
+        };
 
         // We're doing relative-URL resolution here, so we have to account for that
         let expected = server.url("/static/chunk-PGUQKT6S.js.map").parse().unwrap();
@@ -290,5 +462,33 @@ mod test {
         second_mock.assert_hits(1);
     }
 
-    // TODO - tests for the non-relative //sourcemap case, for the SourceMap header, and for the X-SourceMap header
+    #[tokio::test]
+    pub async fn data_url_test() {
+        let data_url_example: &str = include_str!("../../tests/static/inline_sourcemap_example.js");
+
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method("GET")
+                .path("/static/inline_sourcemap_example.js");
+            then.status(200).body(data_url_example);
+        });
+
+        let client = reqwest::Client::new();
+        let url = server
+            .url("/static/inline_sourcemap_example.js")
+            .parse()
+            .unwrap();
+        let (res, _) = find_sourcemap_url(&client, url).await.unwrap();
+
+        let SourceMappingUrl::Data(res) = res else {
+            panic!("Expected Data, got {:?}", res);
+        };
+
+        let expected = include_str!("../../tests/static/inline_sourcemap_example.js.map");
+
+        assert_eq!(res.trim(), expected.trim());
+
+        mock.assert_hits(1);
+    }
 }

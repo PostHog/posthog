@@ -7,8 +7,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { hogFunctionNewUrl } from 'scenes/pipeline/hogfunctions/urls'
 import { pipelineAccessLogic } from 'scenes/pipeline/pipelineAccessLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { HogFunctionSubTemplateIdType, HogFunctionTemplateType, HogFunctionTypeType } from '~/types'
+import { HogFunctionSubTemplateIdType, HogFunctionTemplateType, HogFunctionTypeType, UserType } from '~/types'
 
 import type { hogFunctionTemplateListLogicType } from './hogFunctionTemplateListLogicType'
 
@@ -28,6 +29,31 @@ export type HogFunctionTemplateListLogicProps = {
     syncFiltersWithUrl?: boolean
 }
 
+export const shouldShowHogFunctionTemplate = (
+    hogFunctionTemplate: HogFunctionTemplateType,
+    user?: UserType | null
+): boolean => {
+    if (!user) {
+        return false
+    }
+    if (hogFunctionTemplate.status === 'alpha' && !user.is_staff) {
+        return false
+    }
+    return true
+}
+
+const getFunctionFilters = (
+    filters: HogFunctionTemplateListFilters,
+    template: HogFunctionTemplateType['id']
+): Record<string, any> | undefined => {
+    if (template.includes('error-tracking-issue-created')) {
+        return { events: [{ id: '$error_tracking_issue_created', type: 'events' }] }
+    } else if (template.includes('error-tracking-issue-reopened')) {
+        return { events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] }
+    }
+    return filters.filters
+}
+
 export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType>([
     props({} as HogFunctionTemplateListLogicProps),
     key(
@@ -37,9 +63,16 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             }`
     ),
     path((id) => ['scenes', 'pipeline', 'destinationsLogic', id]),
-    connect({
-        values: [pipelineAccessLogic, ['canEnableNewDestinations'], featureFlagLogic, ['featureFlags']],
-    }),
+    connect(() => ({
+        values: [
+            pipelineAccessLogic,
+            ['canEnableNewDestinations'],
+            featureFlagLogic,
+            ['featureFlags'],
+            userLogic,
+            ['user'],
+        ],
+    })),
     actions({
         setFilters: (filters: Partial<HogFunctionTemplateListFilters>) => ({ filters }),
         resetFilters: true,
@@ -87,11 +120,12 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
         ],
 
         filteredTemplates: [
-            (s) => [s.filters, s.templates, s.templatesFuse],
-            (filters, templates, templatesFuse): HogFunctionTemplateType[] => {
+            (s) => [s.filters, s.templates, s.templatesFuse, s.user],
+            (filters, templates, templatesFuse, user): HogFunctionTemplateType[] => {
                 const { search } = filters
-
-                return search ? templatesFuse.search(search).map((x) => x.item) : templates
+                return (search ? templatesFuse.search(search).map((x) => x.item) : templates).filter((x) =>
+                    shouldShowHogFunctionTemplate(x, user)
+                )
             },
         ],
 
@@ -99,7 +133,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             (s) => [s.canEnableNewDestinations],
             (canEnableNewDestinations): ((template: HogFunctionTemplateType) => boolean) => {
                 return (template: HogFunctionTemplateType) => {
-                    return template?.status === 'free' || canEnableNewDestinations
+                    return template?.free || canEnableNewDestinations
                 }
             },
         ],
@@ -114,7 +148,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                         {},
                         {
                             configuration: {
-                                filters: filters.filters,
+                                filters: getFunctionFilters(filters, template.id),
                             },
                         }
                     ).url

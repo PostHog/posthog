@@ -1,4 +1,4 @@
-import { customEvent, EventType, eventWithTime, fullSnapshotEvent, pluginEvent } from '@rrweb/types'
+import { customEvent, EventType, eventWithTime, fullSnapshotEvent, pluginEvent } from '@posthog/rrweb-types'
 import FuseClass from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -6,7 +6,6 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getCoreFilterDefinition } from 'lib/taxonomy'
 import { eventToDescription, humanizeBytes, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
@@ -23,7 +22,8 @@ import {
     MatchingEventsMatchType,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
-import { RecordingsQuery } from '~/queries/schema'
+import { RecordingsQuery } from '~/queries/schema/schema-general'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     FilterableInspectorListItemTypes,
     MatchedRecordingEvent,
@@ -735,9 +735,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 items.sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))
 
                 // ensure that item with type 'inspector-summary' is always at the top
-                const summary = items.find((item) => item.type === 'inspector-summary')
+                const summary: InspectorListItemSummary | undefined = items.find(
+                    (item) => item.type === 'inspector-summary'
+                ) as InspectorListItemSummary | undefined
                 if (summary) {
-                    ;(summary as InspectorListItemSummary).errorCount = errorCount
+                    summary.errorCount = errorCount
                     items.splice(items.indexOf(summary), 1)
                     items.unshift(summary)
                 }
@@ -751,13 +753,21 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         filteredItems: [
-            (s) => [s.allItems, s.miniFiltersByKey, s.showOnlyMatching, s.allowMatchingEventsFilter, s.trackedWindow],
+            (s) => [
+                s.allItems,
+                s.miniFiltersByKey,
+                s.showOnlyMatching,
+                s.allowMatchingEventsFilter,
+                s.trackedWindow,
+                s.hasEventsToDisplay,
+            ],
             (
                 allItems,
                 miniFiltersByKey,
                 showOnlyMatching,
                 allowMatchingEventsFilter,
-                trackedWindow
+                trackedWindow,
+                hasEventsToDisplay
             ): InspectorListItem[] => {
                 const filteredItems = filterInspectorListItems({
                     allItems,
@@ -765,7 +775,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     allowMatchingEventsFilter,
                     showOnlyMatching,
                     trackedWindow,
+                    hasEventsToDisplay,
                 })
+
                 // need to collapse adjacent inactivity items
                 // they look werong next to each other
                 return filteredItems.reduce((acc, item, index) => {
@@ -789,13 +801,15 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.showOnlyMatching,
                 s.allowMatchingEventsFilter,
                 s.trackedWindow,
+                s.hasEventsToDisplay,
             ],
             (
                 allItems,
                 miniFiltersForTypeByKey,
                 showOnlyMatching,
                 allowMatchingEventsFilter,
-                trackedWindow
+                trackedWindow,
+                hasEventsToDisplay
             ): (InspectorListItemEvent | InspectorListItemComment)[] => {
                 const eventFilteredItems = filterInspectorListItems({
                     allItems,
@@ -803,6 +817,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     allowMatchingEventsFilter,
                     showOnlyMatching,
                     trackedWindow,
+                    hasEventsToDisplay,
                 })
 
                 let items: (InspectorListItemEvent | InspectorListItemComment)[] = eventFilteredItems.filter(

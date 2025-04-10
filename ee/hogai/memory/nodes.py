@@ -27,6 +27,7 @@ from ee.hogai.memory.prompts import (
     INITIALIZE_CORE_MEMORY_WITH_URL_PROMPT,
     INITIALIZE_CORE_MEMORY_WITH_URL_USER_PROMPT,
     MEMORY_COLLECTOR_PROMPT,
+    MEMORY_COLLECTOR_WITH_VISUALIZATION_PROMPT,
     SCRAPING_CONFIRMATION_MESSAGE,
     SCRAPING_INITIAL_MESSAGE,
     SCRAPING_MEMORY_SAVED_MESSAGE,
@@ -35,7 +36,7 @@ from ee.hogai.memory.prompts import (
     SCRAPING_VERIFICATION_MESSAGE,
     TOOL_CALL_ERROR_PROMPT,
 )
-from ee.hogai.utils.helpers import filter_messages, find_last_message_of_type
+from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_of_type
 from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.nodes import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -51,6 +52,7 @@ from posthog.schema import (
     CachedEventTaxonomyQueryResponse,
     EventTaxonomyQuery,
     HumanMessage,
+    VisualizationMessage,
 )
 
 
@@ -76,7 +78,16 @@ class MemoryInitializerContextMixin:
         return response.results
 
 
-class MemoryOnboardingNode(MemoryInitializerContextMixin, AssistantNode):
+class MemoryOnboardingShouldRunMixin(AssistantNode):
+    def should_run(self, _: AssistantState) -> bool:
+        """
+        If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
+        """
+        core_memory = self.core_memory
+        return not core_memory or (not core_memory.is_scraping_pending and not core_memory.is_scraping_finished)
+
+
+class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShouldRunMixin):
     def run(self, state: AssistantState, config: RunnableConfig) -> Optional[PartialAssistantState]:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
 
@@ -101,13 +112,6 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, AssistantNode):
                 )
             ]
         )
-
-    def should_run(self, _: AssistantState) -> bool:
-        """
-        If another user has already started the onboarding process, or it has already been completed, do not trigger it again.
-        """
-        core_memory = self.core_memory
-        return not core_memory or (not core_memory.is_scraping_pending and not core_memory.is_scraping_finished)
 
     def router(self, state: AssistantState) -> Literal["initialize_memory", "continue"]:
         last_message = state.messages[-1]
@@ -180,7 +184,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
         return re.sub(r"\[\d+\]", "", message)
 
     def _model(self):
-        return ChatPerplexity(model="llama-3.1-sonar-large-128k-online", temperature=0, streaming=True)
+        return ChatPerplexity(model="sonar-pro", temperature=0, streaming=True)
 
 
 class MemoryInitializerInterruptNode(AssistantNode):
@@ -190,7 +194,7 @@ class MemoryInitializerInterruptNode(AssistantNode):
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
-        if not state.resumed:
+        if state.graph_status != "resumed":
             raise NodeInterrupt(
                 AssistantMessage(
                     content=SCRAPING_VERIFICATION_MESSAGE,
@@ -255,7 +259,7 @@ class MemoryInitializerInterruptNode(AssistantNode):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o-mini", temperature=0, disable_streaming=True)
+        return ChatOpenAI(model="gpt-4o-mini", temperature=0, disable_streaming=True, stop_sequences=["[Done]"])
 
     def _format_memory(self, memory: str) -> str:
         """
@@ -286,12 +290,15 @@ class core_memory_replace(BaseModel):
 memory_collector_tools = [core_memory_append, core_memory_replace]
 
 
-class MemoryCollectorNode(AssistantNode):
+class MemoryCollectorNode(MemoryOnboardingShouldRunMixin, AssistantNode):
     """
     The Memory Collector manages the core memory of the agent. Core memory is a text containing facts about a user's company and product. It helps the agent save and remember facts that could be useful for insight generation or other agentic functions requiring deeper context about the product.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+        if self.should_run(state):
+            return None
+
         node_messages = state.memory_collection_messages or []
 
         prompt = ChatPromptTemplate.from_messages(
@@ -323,7 +330,9 @@ class MemoryCollectorNode(AssistantNode):
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         node_messages = state.memory_collection_messages or []
 
-        filtered_messages = filter_messages(state.messages, entity_filter=(HumanMessage, AssistantMessage))
+        filtered_messages = filter_and_merge_messages(
+            state.messages, entity_filter=(HumanMessage, AssistantMessage, VisualizationMessage)
+        )
         conversation: list[BaseMessage] = []
 
         for message in filtered_messages:
@@ -331,8 +340,19 @@ class MemoryCollectorNode(AssistantNode):
                 conversation.append(LangchainHumanMessage(content=message.content, id=message.id))
             elif isinstance(message, AssistantMessage):
                 conversation.append(LangchainAIMessage(content=message.content, id=message.id))
+            elif isinstance(message, VisualizationMessage) and message.answer:
+                conversation += ChatPromptTemplate.from_messages(
+                    [
+                        ("assistant", MEMORY_COLLECTOR_WITH_VISUALIZATION_PROMPT),
+                    ],
+                    template_format="mustache",
+                ).format_messages(
+                    schema=message.answer.model_dump_json(exclude_unset=True, exclude_none=True),
+                )
 
-        return [*conversation, *node_messages]
+        # Trim messages to keep only last 10 messages.
+        messages = [*conversation[-10:], *node_messages]
+        return messages
 
 
 class MemoryCollectorToolsNode(AssistantNode):

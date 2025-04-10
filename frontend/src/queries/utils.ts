@@ -1,14 +1,12 @@
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { teamLogic } from 'scenes/teamLogic'
 
 import {
     ActionsNode,
     ActorsQuery,
     BreakdownFilter,
     CompareFilter,
-    CoreWebVitalsQuery,
     DatabaseSchemaQuery,
     DataTableNode,
     DataVisualizationNode,
@@ -19,6 +17,8 @@ import {
     EventsQuery,
     FunnelsQuery,
     GoalLine,
+    GroupsQuery,
+    HogQLASTQuery,
     HogQLMetadata,
     HogQLQuery,
     HogQuery,
@@ -29,6 +29,7 @@ import {
     InsightQueryNode,
     InsightVizNode,
     LifecycleQuery,
+    MathType,
     Node,
     NodeKind,
     PathsQuery,
@@ -37,16 +38,21 @@ import {
     QueryStatusResponse,
     ResultCustomizationBy,
     RetentionQuery,
+    RevenueExampleDataWarehouseTablesQuery,
+    RevenueExampleEventsQuery,
     SavedInsightNode,
     SessionAttributionExplorerQuery,
     StickinessQuery,
     TracesQuery,
+    TrendsFormulaNode,
     TrendsQuery,
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
+    WebVitalsPathBreakdownQuery,
+    WebVitalsQuery,
 } from '~/queries/schema/schema-general'
-import { ChartDisplayType, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, IntervalType } from '~/types'
 
 export function isDataNode(node?: Record<string, any> | null): node is EventsQuery | PersonsNode {
     return (
@@ -56,6 +62,7 @@ export function isDataNode(node?: Record<string, any> | null): node is EventsQue
         isEventsQuery(node) ||
         isActorsQuery(node) ||
         isHogQLQuery(node) ||
+        isHogQLASTQuery(node) ||
         isHogQLMetadata(node)
     )
 }
@@ -101,6 +108,13 @@ export function isDataTableNode(node?: Record<string, any> | null): node is Data
     return node?.kind === NodeKind.DataTableNode
 }
 
+/** Previously SQL queries by default were `DataTableNode`s. However now new SQL queries are `DataVisualizationNode`s */
+export function isDataTableNodeWithHogQLQuery(node?: Record<string, any> | null): node is DataTableNode & {
+    source: HogQLQuery
+} {
+    return isDataTableNode(node) && isHogQLQuery(node.source)
+}
+
 export function isDataVisualizationNode(node?: Record<string, any> | null): node is DataVisualizationNode {
     return node?.kind === NodeKind.DataVisualizationNode
 }
@@ -119,6 +133,10 @@ export function isHogQuery(node?: Record<string, any> | null): node is HogQuery 
 
 export function isHogQLQuery(node?: Record<string, any> | null): node is HogQLQuery {
     return node?.kind === NodeKind.HogQLQuery
+}
+
+export function isHogQLASTQuery(node?: Record<string, any> | null): node is HogQLASTQuery {
+    return node?.kind === NodeKind.HogQLASTQuery
 }
 
 export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQLMetadata {
@@ -145,14 +163,28 @@ export function isTracesQuery(node?: Record<string, any> | null): node is Traces
     return node?.kind === NodeKind.TracesQuery
 }
 
-export function isCoreWebVitalsQuery(node?: Record<string, any> | null): node is CoreWebVitalsQuery {
-    return node?.kind === NodeKind.CoreWebVitalsQuery
+export function isWebVitalsQuery(node?: Record<string, any> | null): node is WebVitalsQuery {
+    return node?.kind === NodeKind.WebVitalsQuery
+}
+
+export function isWebVitalsPathBreakdownQuery(node?: Record<string, any> | null): node is WebVitalsPathBreakdownQuery {
+    return node?.kind === NodeKind.WebVitalsPathBreakdownQuery
 }
 
 export function isSessionAttributionExplorerQuery(
     node?: Record<string, any> | null
 ): node is SessionAttributionExplorerQuery {
     return node?.kind === NodeKind.SessionAttributionExplorerQuery
+}
+
+export function isRevenueExampleEventsQuery(node?: Record<string, any> | null): node is RevenueExampleEventsQuery {
+    return node?.kind === NodeKind.RevenueExampleEventsQuery
+}
+
+export function isRevenueExampleDataWarehouseTablesQuery(
+    node?: Record<string, any> | null
+): node is RevenueExampleDataWarehouseTablesQuery {
+    return node?.kind === NodeKind.RevenueExampleDataWarehouseTablesQuery
 }
 
 export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
@@ -199,7 +231,7 @@ export function isInsightQueryWithDisplay(node?: Record<string, any> | null): no
 }
 
 export function isInsightQueryWithBreakdown(node?: Record<string, any> | null): node is TrendsQuery | FunnelsQuery {
-    return isTrendsQuery(node) || isFunnelsQuery(node)
+    return isTrendsQuery(node) || isFunnelsQuery(node) || isRetentionQuery(node)
 }
 
 export function isInsightQueryWithCompare(node?: Record<string, any> | null): node is TrendsQuery | StickinessQuery {
@@ -221,6 +253,15 @@ export function isQueryForGroup(query: PersonsNode | ActorsQuery): boolean {
 
 export function isAsyncResponse(response: NonNullable<QuerySchema['response']>): response is QueryStatusResponse {
     return 'query_status' in response && response.query_status
+}
+
+export function shouldQueryBeAsync(query: Node): boolean {
+    return (
+        isInsightQueryNode(query) ||
+        isHogQLQuery(query) ||
+        (isDataTableNode(query) && isInsightQueryNode(query.source)) ||
+        (isDataVisualizationNode(query) && isInsightQueryNode(query.source))
+    )
 }
 
 export function isInsightQueryWithSeries(
@@ -274,9 +315,23 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
     return undefined
 }
 
-export const getFormula = (query: InsightQueryNode): string | undefined => {
+export const getFormula = (query: InsightQueryNode | null): string | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.formula
+        return query.trendsFilter?.formulas?.[0] || query.trendsFilter?.formula
+    }
+    return undefined
+}
+
+export const getFormulas = (query: InsightQueryNode | null): string[] | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.formulas || (query.trendsFilter?.formula ? [query.trendsFilter.formula] : undefined)
+    }
+    return undefined
+}
+
+export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNode[] | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.formulaNodes
     }
     return undefined
 }
@@ -341,6 +396,15 @@ export const getShowValuesOnSeries = (query: InsightQueryNode): boolean | undefi
 export const getYAxisScaleType = (query: InsightQueryNode): string | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.yAxisScaleType
+    }
+    return undefined
+}
+
+export const getShowMultipleYAxes = (query: InsightQueryNode): boolean | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.showMultipleYAxes
+    } else if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.showMultipleYAxes
     }
     return undefined
 }
@@ -441,6 +505,19 @@ export function taxonomicPersonFilterToHogQL(
     return null
 }
 
+export function taxonomicGroupFilterToHogQL(
+    groupType: TaxonomicFilterGroupType,
+    value: TaxonomicFilterValue
+): string | null {
+    if (groupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix)) {
+        return `properties.${escapePropertyAsHogQlIdentifier(String(value))}`
+    }
+    if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
+        return String(value)
+    }
+    return null
+}
+
 export function isHogQlAggregation(hogQl: string): boolean {
     return (
         hogQl.includes('count(') ||
@@ -469,6 +546,9 @@ function isHogQlIdentifier(value: any): value is HogQLIdentifier {
 }
 
 function formatHogQlValue(value: any): string {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { teamLogic } = require('scenes/teamLogic')
+
     if (Array.isArray(value)) {
         return `[${value.map(formatHogQlValue).join(', ')}]`
     } else if (dayjs.isDayjs(value)) {
@@ -481,7 +561,7 @@ function formatHogQlValue(value: any): string {
         return String(value)
     } else if (value === null) {
         throw new Error(
-            `null cannot be interpolated for HogQL. if a null check is needed, make 'IS NULL' part of your query`
+            `null cannot be interpolated for SQL. if a null check is needed, make 'IS NULL' part of your query`
         )
     } else {
         throw new Error(`Unsupported interpolated value type: ${typeof value}`)
@@ -506,4 +586,42 @@ export function isValidBreakdown(breakdownFilter?: BreakdownFilter | null): brea
         ((breakdownFilter.breakdown && breakdownFilter.breakdown_type) ||
             (breakdownFilter.breakdowns && breakdownFilter.breakdowns.length > 0))
     )
+}
+
+export function isValidQueryForExperiment(query: Node): boolean {
+    return isNodeWithSource(query) && isFunnelsQuery(query.source) && query.source.series.length >= 2
+}
+
+export function isGroupsQuery(node?: Record<string, any> | null): node is GroupsQuery {
+    return node?.kind === NodeKind.GroupsQuery
+}
+
+export const TRAILING_MATH_TYPES = new Set<MathType>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])
+
+/**
+ * Determines if a math type should display a warning based on the trends query interval and display category
+ */
+export function getMathTypeWarning(
+    key: MathType,
+    query: Record<string, any>,
+    isTotalValue: boolean
+): null | 'total' | 'monthly' | 'weekly' {
+    let warning: null | 'total' | 'monthly' | 'weekly' = null
+
+    if (isInsightVizNode(query) && isTrendsQuery(query.source) && TRAILING_MATH_TYPES.has(key)) {
+        const trendsQuery = query.source
+        const interval = trendsQuery?.interval || 'day'
+        const isWeekOrLongerInterval = interval === 'week' || interval === 'month'
+        const isMonthOrLongerInterval = interval === 'month'
+
+        if (key === BaseMathType.MonthlyActiveUsers && isMonthOrLongerInterval) {
+            warning = 'monthly'
+        } else if (key === BaseMathType.WeeklyActiveUsers && isWeekOrLongerInterval) {
+            warning = 'weekly'
+        } else if (isTotalValue) {
+            warning = 'total'
+        }
+    }
+
+    return warning
 }

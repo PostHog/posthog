@@ -33,12 +33,13 @@ from posthog.models.utils import (
     UUIDClassicModel,
     generate_random_token_project,
     sane_repr,
+    validate_rate_limit,
 )
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
 from ...hogql.modifiers import set_default_modifier_values
-from ...schema import HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
+from ...schema import RevenueTrackingConfig, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
 from .team_caching import get_team_in_cache, set_team_in_cache
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
@@ -194,11 +195,11 @@ class CookielessServerHashMode(models.IntegerChoices):
 
 
 class Team(UUIDClassicModel):
-    """Team means "environment" (historically it meant "project", but now we have the Project model for that)."""
+    """Team means "environment" (historically it meant "project", but now we have the parent Project model for that)."""
 
     class Meta:
-        verbose_name = "team (soon to be environment)"
-        verbose_name_plural = "teams (soon to be environments)"
+        verbose_name = "environment (aka team)"
+        verbose_name_plural = "environments (aka teams)"
         constraints = [
             models.CheckConstraint(
                 name="project_id_is_not_null",
@@ -215,6 +216,15 @@ class Team(UUIDClassicModel):
         related_name="teams",
         related_query_name="team",
     )
+    # NOTE: The deletion is not cascade due to us wanting to first of all solve deletion properly before allowing cascading deletes
+    parent_team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.SET_NULL,
+        related_name="child_teams",
+        related_query_name="child_team",
+        null=True,
+    )
+    # NOTE: To be removed in favour of parent_team
     project = models.ForeignKey(
         "posthog.Project", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
     )
@@ -236,6 +246,7 @@ class Team(UUIDClassicModel):
     anonymize_ips = models.BooleanField(default=False)
     completed_snippet_onboarding = models.BooleanField(default=False)
     has_completed_onboarding_for = models.JSONField(null=True, blank=True)
+    onboarding_tasks = models.JSONField(null=True, blank=True)
     ingested_event = models.BooleanField(default=False)
     autocapture_opt_out = models.BooleanField(null=True, blank=True)
     autocapture_web_vitals_opt_in = models.BooleanField(null=True, blank=True)
@@ -259,6 +270,7 @@ class Team(UUIDClassicModel):
     )
     session_recording_linked_flag = models.JSONField(null=True, blank=True)
     session_recording_network_payload_capture_config = models.JSONField(null=True, blank=True)
+    session_recording_masking_config = models.JSONField(null=True, blank=True)
     session_recording_url_trigger_config = ArrayField(
         models.JSONField(null=True, blank=True), default=list, blank=True, null=True
     )
@@ -297,6 +309,19 @@ class Team(UUIDClassicModel):
     cookieless_server_hash_mode = models.SmallIntegerField(
         default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode.choices, null=True
     )
+
+    # Don't use directly in Django, use the `revenue_config` property instead
+    # That way we can validate the schema when setting the value and return reasonable defaults
+    revenue_tracking_config = models.JSONField(null=True, blank=True)
+
+    @property
+    def revenue_config(self) -> RevenueTrackingConfig:
+        try:
+            if self.revenue_tracking_config is None:
+                return RevenueTrackingConfig()
+            return RevenueTrackingConfig.model_validate(self.revenue_tracking_config)
+        except pydantic.ValidationError:
+            return RevenueTrackingConfig()
 
     primary_dashboard = models.ForeignKey(
         "posthog.Dashboard",
@@ -344,6 +369,14 @@ class Team(UUIDClassicModel):
     event_properties_numerical = models.JSONField(default=list, blank=True)
     external_data_workspace_id = models.CharField(max_length=400, null=True, blank=True)
     external_data_workspace_last_synced_at = models.DateTimeField(null=True, blank=True)
+
+    api_query_rate_limit = models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        help_text="Custom rate limit for HogQL API queries in #requests/{sec,min,hour,day}",
+        validators=[validate_rate_limit],
+    )
 
     objects: TeamManager = TeamManager()
 
@@ -432,7 +465,7 @@ class Team(UUIDClassicModel):
 
     @cached_property
     def persons_seen_so_far(self) -> int:
-        from posthog.client import sync_execute
+        from posthog.clickhouse.client import sync_execute
         from posthog.queries.person_query import PersonQuery
 
         filter = Filter(data={"full": "true"})
@@ -449,7 +482,7 @@ class Team(UUIDClassicModel):
 
     @lru_cache(maxsize=5)
     def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
-        from posthog.client import sync_execute
+        from posthog.clickhouse.client import sync_execute
 
         return sync_execute(
             f"""

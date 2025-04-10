@@ -55,6 +55,7 @@ class License(models.Model):
     SCALE_FEATURES = [
         AvailableFeature.ZAPIER,
         AvailableFeature.ORGANIZATIONS_PROJECTS,
+        AvailableFeature.ENVIRONMENTS,
         AvailableFeature.SOCIAL_SSO,
         AvailableFeature.INGESTION_TAXONOMY,
         AvailableFeature.PATHS_ADVANCED,
@@ -74,7 +75,6 @@ class License(models.Model):
     ENTERPRISE_FEATURES = [
         *SCALE_FEATURES,
         AvailableFeature.ADVANCED_PERMISSIONS,
-        AvailableFeature.PROJECT_BASED_PERMISSIONING,
         AvailableFeature.SAML,
         AvailableFeature.SSO_ENFORCEMENT,
         AvailableFeature.ROLE_BASED_ACCESS,

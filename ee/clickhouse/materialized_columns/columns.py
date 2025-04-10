@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Callable, Iterable, Iterator
-from copy import copy
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, Literal, TypeVar, cast
@@ -12,16 +11,15 @@ from clickhouse_driver import Client
 from django.utils.timezone import now
 
 from posthog.cache_utils import cache_for
-from posthog.clickhouse.client.connection import default_client
-from posthog.clickhouse.cluster import ClickhouseCluster, ConnectionInfo, FuturesMap, HostInfo
+from posthog.clickhouse.cluster import ClickhouseCluster, FuturesMap, HostInfo, get_cluster
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.utils import generate_random_short_suffix
-from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_PER_TEAM_SETTINGS, TEST
+from posthog.settings import CLICKHOUSE_DATABASE, TEST
 
 
 logger = logging.getLogger(__name__)
@@ -146,14 +144,6 @@ def get_enabled_materialized_columns(
     table: TablesWithMaterializedColumns,
 ) -> dict[tuple[PropertyName, TableColumn], MaterializedColumn]:
     return {k: column for k, column in get_materialized_columns(table).items() if not column.details.is_disabled}
-
-
-def get_cluster() -> ClickhouseCluster:
-    extra_hosts = []
-    for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
-        extra_hosts.append(ConnectionInfo(host_config.pop("host")))
-        assert len(host_config) == 0, f"unexpected values: {host_config!r}"
-    return ClickhouseCluster(default_client(), extra_hosts=extra_hosts)
 
 
 @dataclass

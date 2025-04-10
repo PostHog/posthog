@@ -3,7 +3,7 @@ from posthog.async_migrations.definition import (
     AsyncMigrationOperation,
     AsyncMigrationOperationSQL,
 )
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import AnalyticsDBMS
 from posthog.models.person.sql import (
     KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL,

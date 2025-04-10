@@ -7,6 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { OrganizationInviteType } from '~/types'
 
 import type { inviteLogicType } from './inviteLogicType'
@@ -29,10 +30,10 @@ const EMPTY_INVITE: InviteRowState = {
 
 export const inviteLogic = kea<inviteLogicType>([
     path(['scenes', 'organization', 'Settings', 'inviteLogic']),
-    connect({
+    connect(() => ({
         values: [preflightLogic, ['preflight']],
         actions: [router, ['locationChanged']],
-    }),
+    })),
     actions({
         showInviteModal: true,
         hideInviteModal: true,
@@ -158,6 +159,13 @@ export const inviteLogic = kea<inviteLogicType>([
 
             if (values.preflight?.email_service_available) {
                 actions.hideInviteModal()
+            }
+
+            if (inviteCount > 0) {
+                // We want to avoid this updating the team before the onboarding is finished
+                setTimeout(() => {
+                    activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
+                }, 1000)
             }
         },
     })),

@@ -57,7 +57,9 @@ function TableRowRaw<T extends Record<string, any>>({
                 className={clsx(
                     rowClassNameDetermined,
                     rowStatusDetermined && `LemonTable__row--status-${rowStatusDetermined}`,
-                    extraProps?.onClick ? 'hover:underline cursor-pointer hover:bg-primary-highlight' : undefined,
+                    extraProps?.onClick
+                        ? 'hover:underline cursor-pointer hover:bg-accent-highlight-secondary'
+                        : undefined,
                     className
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
@@ -85,38 +87,42 @@ function TableRowRaw<T extends Record<string, any>>({
                     </td>
                 )}
                 {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
-                    columnGroup.children.map((column, columnIndex) => {
-                        const columnKeyRaw = column.key || column.dataIndex
-                        const columnKeyOrIndex = columnKeyRaw ? String(columnKeyRaw) : columnIndex
-                        // != is intentional to catch undefined too
-                        const value = column.dataIndex != null ? record[column.dataIndex] : undefined
-                        const contents = column.render ? column.render(value as T[keyof T], record, recordIndex) : value
-                        const isSticky = firstColumnSticky && columnGroupIndex === 0 && columnIndex === 0
-                        const extraCellProps =
-                            isTableCellRepresentation(contents) && contents.props ? contents.props : {}
-                        return (
-                            <td
-                                key={`col-${columnGroupIndex}-${columnKeyOrIndex}`}
-                                className={clsx(
-                                    columnIndex === 0 && 'LemonTable__boundary',
-                                    isSticky && 'LemonTable__cell--sticky',
-                                    column.align && `text-${column.align}`,
-                                    typeof column.className === 'function'
-                                        ? column.className(value as T[keyof T], record, recordIndex)
-                                        : column.className
-                                )}
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={
-                                    typeof column.style === 'function'
-                                        ? column.style(value as T[keyof T], record, recordIndex)
-                                        : column.style
-                                }
-                                {...extraCellProps}
-                            >
-                                {isTableCellRepresentation(contents) ? contents.children : contents}
-                            </td>
-                        )
-                    })
+                    columnGroup.children
+                        .filter((column) => !column.isHidden)
+                        .map((column, columnIndex) => {
+                            const columnKeyRaw = column.key || column.dataIndex
+                            const columnKeyOrIndex = columnKeyRaw ? String(columnKeyRaw) : columnIndex
+                            // != is intentional to catch undefined too
+                            const value = column.dataIndex != null ? record[column.dataIndex] : undefined
+                            const contents = column.render
+                                ? column.render(value as T[keyof T], record, recordIndex)
+                                : value
+                            const isSticky = firstColumnSticky && columnGroupIndex === 0 && columnIndex === 0
+                            const extraCellProps =
+                                isTableCellRepresentation(contents) && contents.props ? contents.props : {}
+                            return (
+                                <td
+                                    key={`col-${columnGroupIndex}-${columnKeyOrIndex}`}
+                                    className={clsx(
+                                        columnIndex === 0 && 'LemonTable__boundary',
+                                        isSticky && 'LemonTable__cell--sticky',
+                                        column.align && `text-${column.align}`,
+                                        typeof column.className === 'function'
+                                            ? column.className(value as T[keyof T], record, recordIndex)
+                                            : column.className
+                                    )}
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={
+                                        typeof column.style === 'function'
+                                            ? column.style(value as T[keyof T], record, recordIndex)
+                                            : column.style
+                                    }
+                                    {...extraCellProps}
+                                >
+                                    {isTableCellRepresentation(contents) ? contents.children : contents}
+                                </td>
+                            )
+                        })
                 )}
             </tr>
 

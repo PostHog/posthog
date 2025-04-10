@@ -11,7 +11,7 @@ from django.http import HttpRequest
 from django.shortcuts import redirect
 from django.urls.base import reverse
 from rest_framework import exceptions, generics, permissions, response, serializers
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
@@ -444,7 +444,7 @@ def process_social_domain_jit_provisioning_signup(
     domain = email.split("@")[-1]
     try:
         logger.info(f"process_social_domain_jit_provisioning_signup", domain=domain)
-        domain_instance = OrganizationDomain.objects.get(domain=domain)
+        domain_instance = OrganizationDomain.objects.get(domain__iexact=domain)
     except OrganizationDomain.DoesNotExist:
         logger.info(
             f"process_social_domain_jit_provisioning_signup_domain_does_not_exist",

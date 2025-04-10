@@ -5,8 +5,7 @@ import pathlib
 import random
 import string
 from collections import Counter
-from datetime import UTC
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Any, Union, cast
 from unittest import mock
 from unittest.mock import ANY, MagicMock, call
@@ -201,6 +200,7 @@ def make_processed_recording_event(
             # as well as at the top-level
             "distinct_id": distinct_id,
             "$snapshot_source": "web",
+            "$lib": "web",
         },
         "timestamp": timestamp,
         "distinct_id": distinct_id,
@@ -371,7 +371,10 @@ class TestCapture(BaseTest):
                 topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
                 data=ANY,
                 key=None if expect_random_partitioning else ANY,
-                headers=None,
+                headers=[
+                    ("token", self.team.api_token),
+                    ("distinct_id", distinct_id),
+                ],
             )
 
             if not expect_random_partitioning:
@@ -399,7 +402,7 @@ class TestCapture(BaseTest):
             capacity=1,
             storage=MemoryStorage(),
         )
-        start = datetime.now(timezone.utc)
+        start = datetime.now(UTC)
 
         with patch("posthog.api.capture.LIMITER", new=limiter):
             with freeze_time(start):
@@ -521,7 +524,7 @@ class TestCapture(BaseTest):
                             "error_message": "MESSAGE_SIZE_TOO_LARGE",
                             "kafka_size": None,  # none here because we're not really throwing MessageSizeTooLargeError
                             "lib_version": "1.2.3",
-                            "posthog_calculation": 425,
+                            "posthog_calculation": 440,
                             "size_difference": "unknown",
                         },
                     },
@@ -1824,6 +1827,7 @@ class TestCapture(BaseTest):
                         "data": {"data": event_data, "source": snapshot_source},
                     }
                 ],
+                "$lib": "web",
                 "$snapshot_source": "web",
                 "$session_id": session_id,
                 "$window_id": window_id,
@@ -1916,10 +1920,11 @@ class TestCapture(BaseTest):
         with self.settings(
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
         ):
-            self._send_august_2023_version_session_recording_event()
+            self._send_august_2023_version_session_recording_event(distinct_id="distinct_id123")
 
             assert kafka_produce.mock_calls[0].kwargs["headers"] == [
                 ("token", "token123"),
+                ("distinct_id", "distinct_id123"),
                 (
                     # without setting a version in the URL the default is unknown
                     "lib_version",
@@ -1932,10 +1937,13 @@ class TestCapture(BaseTest):
         with self.settings(
             SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES=20480,
         ):
-            self._send_august_2023_version_session_recording_event(query_params="ver=1.123.4")
+            self._send_august_2023_version_session_recording_event(
+                query_params="ver=1.123.4", distinct_id="distinct_id123"
+            )
 
             assert kafka_produce.mock_calls[0].kwargs["headers"] == [
                 ("token", "token123"),
+                ("distinct_id", "distinct_id123"),
                 (
                     # without setting a version in the URL the default is unknown
                     "lib_version",
@@ -2059,12 +2067,17 @@ class TestCapture(BaseTest):
 
         replace_limited_team_tokens(
             QuotaResource.RECORDINGS,
-            {self.team.api_token: timezone.now().timestamp() + 10000},
+            {self.team.api_token: int(timezone.now().timestamp() + 10000)},
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
         )
         replace_limited_team_tokens(
             QuotaResource.EVENTS,
-            {self.team.api_token: timezone.now().timestamp() + 10000},
+            {self.team.api_token: int(timezone.now().timestamp() + 10000)},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+        replace_limited_team_tokens(
+            QuotaResource.EXCEPTIONS,
+            {self.team.api_token: int(timezone.now().timestamp() + 10000)},
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
         )
         self._send_august_2023_version_session_recording_event()
@@ -2105,6 +2118,23 @@ class TestCapture(BaseTest):
                     "api_key": self.team.api_token,
                 },
             )
+            self.client.post(
+                "/e/",
+                data={
+                    "data": json.dumps(
+                        [
+                            {
+                                "event": "$exception",
+                                "properties": {
+                                    "distinct_id": "eeee",
+                                    "token": self.team.api_token,
+                                },
+                            },
+                        ]
+                    ),
+                    "api_key": self.team.api_token,
+                },
+            )
 
         with self.settings(QUOTA_LIMITING_ENABLED=True):
             _produce_events()
@@ -2114,12 +2144,18 @@ class TestCapture(BaseTest):
                     "session_recording_snapshot_item_events_test",
                     "events_plugin_ingestion_test",
                     "events_plugin_ingestion_test",
+                    "exceptions_ingestion_test",
                 ],
             )
 
             replace_limited_team_tokens(
                 QuotaResource.EVENTS,
-                {self.team.api_token: timezone.now().timestamp() + 10000},
+                {self.team.api_token: int(timezone.now().timestamp() + 10000)},
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+            )
+            replace_limited_team_tokens(
+                QuotaResource.EXCEPTIONS,
+                {self.team.api_token: int(timezone.now().timestamp() + 10000)},
                 QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )
 
@@ -2128,7 +2164,7 @@ class TestCapture(BaseTest):
 
             replace_limited_team_tokens(
                 QuotaResource.RECORDINGS,
-                {self.team.api_token: timezone.now().timestamp() + 10000},
+                {self.team.api_token: int(timezone.now().timestamp() + 10000)},
                 QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )
             _produce_events()
@@ -2136,17 +2172,22 @@ class TestCapture(BaseTest):
 
             replace_limited_team_tokens(
                 QuotaResource.RECORDINGS,
-                {self.team.api_token: timezone.now().timestamp() - 10000},
+                {self.team.api_token: int(timezone.now().timestamp() - 10000)},
                 QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )
             replace_limited_team_tokens(
                 QuotaResource.EVENTS,
-                {self.team.api_token: timezone.now().timestamp() - 10000},
+                {self.team.api_token: int(timezone.now().timestamp() - 10000)},
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+            )
+            replace_limited_team_tokens(
+                QuotaResource.EXCEPTIONS,
+                {self.team.api_token: int(timezone.now().timestamp() - 10000)},
                 QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             )
 
             _produce_events()
-            self.assertEqual(kafka_produce.call_count, 3)  # All events as limit-until timestamp is in the past
+            self.assertEqual(kafka_produce.call_count, 4)  # All events as limit-until timestamp is in the past
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_historical_analytics_events(self, kafka_produce) -> None:
@@ -2234,6 +2275,35 @@ class TestCapture(BaseTest):
             kafka_produce.call_args_list[0][1]["topic"],
             KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
         )
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    @patch("posthog.api.capture.get_tokens_to_drop")
+    def test_capture_drops_events_for_dropped_tokens(
+        self, get_tokens_to_drop: MagicMock, kafka_produce: MagicMock
+    ) -> None:
+        get_tokens_to_drop.return_value = {"token1:id1", "token2:id2"}
+
+        options = [
+            ("token1", "id1", 0),
+            ("token2", "id2", 0),
+            ("token3", "id3", 1),
+            ("token1", "id2", 1),
+        ]
+        for token, distinct_id, expected_result in options:
+            kafka_produce.reset_mock()
+            response = self.client.post(
+                "/e/",
+                data={
+                    "api_key": token,
+                    "type": "capture",
+                    "event": "test",
+                    "distinct_id": distinct_id,
+                },
+                content_type="application/json",
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(kafka_produce.call_count, expected_result)
 
     def test_capture_replay_to_bucket_when_random_number_is_less_than_sample_rate(self):
         sample_rate = 0.001

@@ -1,5 +1,4 @@
 import ClickHouse from '@posthog/clickhouse'
-import { makeWorkerUtils, WorkerUtils } from 'graphile-worker'
 import Redis from 'ioredis'
 import parsePrometheusTextFormat from 'parse-prometheus-text-format'
 import { PoolClient } from 'pg'
@@ -17,7 +16,8 @@ import {
 } from '../src/types'
 import { PostgresRouter, PostgresUse } from '../src/utils/db/postgres'
 import { parseRawClickHouseEvent } from '../src/utils/event'
-import { createPostgresPool, UUIDT } from '../src/utils/utils'
+import { parseJSON } from '../src/utils/json-parse'
+import { UUIDT } from '../src/utils/utils'
 import { RawAppMetric } from '../src/worker/ingestion/app-metrics'
 import { insertRow } from '../tests/helpers/sql'
 import { waitForExpect } from './expectations'
@@ -26,14 +26,10 @@ import { produce } from './kafka'
 let clickHouseClient: ClickHouse
 export let postgres: PostgresRouter
 export let redis: Redis.Redis
-let graphileWorker: WorkerUtils
 
-beforeAll(async () => {
+beforeAll(() => {
     // Setup connections to kafka, clickhouse, and postgres
     postgres = new PostgresRouter({ ...defaultConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }, null)
-    graphileWorker = await makeWorkerUtils({
-        pgPool: createPostgresPool(defaultConfig.DATABASE_URL!, 1, 'functional_tests'),
-    })
     clickHouseClient = new ClickHouse({
         host: defaultConfig.CLICKHOUSE_HOST,
         port: 8123,
@@ -107,7 +103,6 @@ export const capture = async ({
             })
         ),
         key: teamId ? teamId.toString() : '',
-        waitForAck: true,
     })
 }
 
@@ -236,34 +231,6 @@ export const enablePluginConfig = async (teamId: number, pluginConfigId: number)
     )
 }
 
-export const schedulePluginJob = async ({
-    teamId,
-    pluginConfigId,
-    type,
-    taskType,
-    payload,
-}: {
-    teamId: number
-    pluginConfigId: number
-    type: string
-    taskType: string
-    payload: any
-}) => {
-    return await graphileWorker.addJob(taskType, { teamId, pluginConfigId, type, payload })
-}
-
-export const getScheduledPluginJob = async (jobId: string) => {
-    const result = await postgres.query(
-        PostgresUse.COMMON_WRITE,
-        `SELECT *
-         FROM graphile_worker.jobs
-         WHERE id = $1`,
-        [jobId],
-        'getScheduledPluginJob'
-    )
-    return result.rows[0]
-}
-
 export const reloadAction = async (teamId: number, actionId: number) => {
     await redis.publish('reload-action', JSON.stringify({ teamId, actionId }))
 }
@@ -275,7 +242,7 @@ export const fetchIngestionWarnings = async (teamId: number) => {
         WHERE team_id = ${teamId}
         ORDER BY timestamp ASC
     `)) as unknown as ClickHouse.ObjectQueryResult<any>
-    return queryResult.data.map((warning) => ({ ...warning, details: JSON.parse(warning.details) }))
+    return queryResult.data.map((warning) => ({ ...warning, details: parseJSON(warning.details) }))
 }
 
 export const fetchEvents = async (teamId: number, uuid?: string) => {
@@ -301,14 +268,14 @@ export const fetchPersons = async (teamId: number) => {
     const queryResult = (await clickHouseClient.querying(
         `SELECT * FROM person WHERE team_id = ${teamId} ORDER BY created_at ASC`
     )) as unknown as ClickHouse.ObjectQueryResult<any>
-    return queryResult.data.map((person) => ({ ...person, properties: JSON.parse(person.properties) }))
+    return queryResult.data.map((person) => ({ ...person, properties: parseJSON(person.properties) }))
 }
 
 export const fetchGroups = async (teamId: number) => {
     const queryResult = (await clickHouseClient.querying(
         `SELECT * FROM groups WHERE team_id = ${teamId} ORDER BY created_at ASC`
     )) as unknown as ClickHouse.ObjectQueryResult<any>
-    return queryResult.data.map((group) => ({ ...group, group_properties: JSON.parse(group.group_properties) }))
+    return queryResult.data.map((group) => ({ ...group, group_properties: parseJSON(group.group_properties) }))
 }
 
 export const createGroupType = async (teamId: number, projectId: number, index: number, groupType: string) => {
@@ -379,7 +346,7 @@ export const fetchPluginConsoleLogEntries = async (pluginConfigId: number) => {
         SELECT * FROM plugin_log_entries
         WHERE plugin_config_id = ${pluginConfigId} AND source = 'CONSOLE'
     `)) as unknown as ClickHouse.ObjectQueryResult<PluginLogEntry>
-    return logEntries.map((entry) => ({ ...entry, message: JSON.parse(entry.message) }))
+    return logEntries.map((entry) => ({ ...entry, message: parseJSON(entry.message) }))
 }
 
 export const fetchPluginLogEntries = async (pluginConfigId: number) => {

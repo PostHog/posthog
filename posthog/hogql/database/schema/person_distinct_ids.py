@@ -18,9 +18,9 @@ from posthog.hogql.database.schema.persons import join_with_persons_table
 from posthog.hogql.errors import ResolutionError
 
 PERSON_DISTINCT_IDS_FIELDS = {
-    "team_id": IntegerDatabaseField(name="team_id"),
-    "distinct_id": StringDatabaseField(name="distinct_id"),
-    "person_id": StringDatabaseField(name="person_id"),
+    "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+    "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
+    "person_id": StringDatabaseField(name="person_id", nullable=False),
     "person": LazyJoin(
         from_field=["person_id"],
         join_table="persons",
@@ -70,8 +70,8 @@ def join_with_person_distinct_ids_table(
 class RawPersonDistinctIdsTable(Table):
     fields: dict[str, FieldOrTable] = {
         **PERSON_DISTINCT_IDS_FIELDS,
-        "is_deleted": BooleanDatabaseField(name="is_deleted"),
-        "version": IntegerDatabaseField(name="version"),
+        "is_deleted": BooleanDatabaseField(name="is_deleted", nullable=False),
+        "version": IntegerDatabaseField(name="version", nullable=False),
     }
 
     def to_printed_clickhouse(self, context):

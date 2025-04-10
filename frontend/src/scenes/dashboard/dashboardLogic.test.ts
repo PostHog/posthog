@@ -13,7 +13,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
-import { DashboardFilter, InsightVizNode, TrendsQuery } from '~/queries/schema'
+import { DashboardFilter, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { DashboardTile, DashboardType, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
 
@@ -324,10 +324,13 @@ describe('dashboardLogic', () => {
                         layouts: {},
                     },
                 ],
+                breakdown_colors: [],
+                data_color_theme_id: null,
                 filters: {
                     date_from: null,
                     date_to: null,
                     properties: [],
+                    breakdown_filter: null,
                 },
                 variables: {},
             })
@@ -342,7 +345,9 @@ describe('dashboardLogic', () => {
             await expectLogic(logic)
                 .toFinishAllListeners()
                 .toNotHaveDispatchedActions(['setDates'])
-                .toMatchValues({ filters: { date_from: '-24h', date_to: null, properties: [] } })
+                .toMatchValues({
+                    filters: { date_from: '-24h', date_to: null, properties: [], breakdown_filter: null },
+                })
         })
     })
 

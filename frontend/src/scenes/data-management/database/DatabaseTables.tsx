@@ -8,7 +8,7 @@ import { defaultQuery } from 'scenes/data-warehouse/utils'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaTable } from '~/queries/schema'
+import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 
 import { DatabaseTable } from './DatabaseTable'
 
@@ -80,7 +80,7 @@ export function DatabaseTables<T extends DatabaseSchemaTable>({
                                       const query = defaultQuery(table as string, Object.values(obj.fields))
                                       return (
                                           <div className="flex">
-                                              <Link to={urls.insightNew(undefined, undefined, query)}>
+                                              <Link to={urls.sqlEditor(query.source.query)}>
                                                   <code>{table}</code>
                                               </Link>
                                           </div>

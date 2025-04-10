@@ -1,5 +1,6 @@
 .Spinner {
-    --spinner-color: var(--primary-3000);
+    --spinner-speed: 1s;
+    --spinner-color: var(--accent);
 
     display: inline-block; // Same as .LemonIcon
     flex-shrink: 0;
@@ -29,10 +30,10 @@
     }
 
     &:nth-child(2) {
-        animation: spin 1s infinite linear;
+        animation: spin var(--spinner-speed, 1s) infinite linear;
 
         > circle {
-            animation: Spinner__writhe 1.5s infinite ease both;
+            animation: Spinner__writhe calc(var(--spinner-speed, 1s) * 1.5) infinite ease both;
         }
     }
 }
@@ -70,7 +71,7 @@
         position: absolute;
         inset: 0;
         content: '';
-        background: var(--bg-light);
+        background: var(--bg-surface-primary);
         opacity: 0.5;
     }
 
@@ -79,6 +80,6 @@
     }
 
     &.SpinnerOverlay--scene-level::before {
-        background: var(--bg-3000);
+        background: var(--bg-primary);
     }
 }

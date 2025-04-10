@@ -35,7 +35,8 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.json()["detail"], "Metric query kind must be 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'"
+            response.json()["detail"],
+            "Metric query kind must be 'ExperimentMetric', 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'",
         )
 
         response = self.client.post(
@@ -50,7 +51,8 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.json()["detail"], "Metric query kind must be 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'"
+            response.json()["detail"],
+            "Metric query kind must be 'ExperimentMetric', 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'",
         )
 
         response = self.client.post(
@@ -64,7 +66,8 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
-            response.json()["detail"], "Metric query kind must be 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'"
+            response.json()["detail"],
+            "Metric query kind must be 'ExperimentMetric', 'ExperimentTrendsQuery' or 'ExperimentFunnelsQuery'",
         )
 
         response = self.client.post(
@@ -108,6 +111,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
                         "series": [{"kind": "EventsNode", "event": "$pageview"}],
                     },
                 },
+                "tags": ["tag1"],
             },
             format="json",
         )
@@ -124,7 +128,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
             },
         )
         self.assertEqual(response.json()["created_by"]["id"], self.user.pk)
-
+        self.assertEqual(response.json()["tags"], ["tag1"])
         # Generate experiment to have saved metric
         ff_key = "a-b-tests"
         response = self.client.post(
@@ -210,6 +214,51 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         # make sure experiment in question was updated as well
         self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 0)
         self.assertEqual(ExperimentToSavedMetric.objects.filter(experiment_id=exp_id).count(), 0)
+
+    def test_create_saved_metric_with_experiment_metric(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Test Experiment saved metric",
+                "description": "Test description",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {
+                        "kind": "EventsNode",
+                        "event": "$pageview",
+                    },
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment saved metric")
+        self.assertEqual(response.json()["description"], "Test description")
+        self.assertEqual(response.json()["query"]["kind"], "ExperimentMetric")
+        self.assertEqual(response.json()["query"]["metric_type"], "mean")
+
+    def test_create_saved_metric_with_experiment_metric_invalid_metric_type(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Test Experiment saved metric",
+                "description": "Test description",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "invalid",
+                    "source": {
+                        "kind": "EventsNode",
+                        "event": "$pageview",
+                    },
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("ExperimentMetric metric_type must be 'mean' or 'funnel'", response.json()["detail"])
 
     def test_invalid_create(self):
         response = self.client.post(

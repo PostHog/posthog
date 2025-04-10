@@ -9,7 +9,7 @@ import { LemonTagType } from './lemon-ui/LemonTag'
  */
 
 /** CSS variable names for the default posthog theme data colors. */
-const dataColorVars = [
+export const dataColorVars = [
     'data-color-1',
     'data-color-2',
     'data-color-3',
@@ -106,15 +106,17 @@ export function getBarColorFromStatus(status: LifecycleToggle, hover?: boolean):
     }
 }
 
-export function getGraphColors(isDarkModeOn: boolean): Record<string, string | null> {
+export function getGraphColors(): Record<string, string | null> {
     return {
-        axisLabel: isDarkModeOn ? '#fff' : '#2d2d2d', // --text-3000
-        axisLine: isDarkModeOn ? '#4b4d58' : '#ddd', // --funnel-grid
-        axis: isDarkModeOn ? '#4b4d58' : '#999',
-        crosshair: isDarkModeOn ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)',
-        tooltipBackground: '#1dc9b7',
-        tooltipTitle: '#fff',
-        tooltipBody: '#fff',
+        axisLabel: getColorVar('color-graph-axis-label'),
+        axisLine: getColorVar('color-graph-axis-line'),
+        axis: getColorVar('color-graph-axis'),
+        crosshair: getColorVar('color-graph-crosshair'),
+
+        // TODO: these are not used anywhere, but setting them to the correct values
+        tooltipBackground: getColorVar('bg-surface-tooltip'),
+        tooltipTitle: getColorVar('text-primary'),
+        tooltipBody: getColorVar('bg-surface-tooltip'),
     }
 }
 

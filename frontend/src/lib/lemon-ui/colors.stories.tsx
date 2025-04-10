@@ -29,157 +29,133 @@ const colorGroups = {
 }
 
 const preThousand = [
-    'primary-highlight',
-    'primary',
-    'danger-highlight',
-    'danger-lighter',
-    'danger-light',
-    'danger',
-    'danger-dark',
-    'warning-highlight',
-    'warning',
-    'warning-dark',
-    'success-highlight',
-    'success-light',
-    'success',
-    'success-dark',
-    'primary-alt-highlight',
-    'primary-alt',
-    'muted',
-    'muted-alt',
-    'mark',
-    'white',
-    'bg-light',
-    'side',
-    'mid',
-    'border',
-    'border-light',
-    'border-bold',
-    'transparent',
-    'brand-blue',
-    'brand-red',
-    'brand-yellow',
-    'brand-key',
+    'bg-primary',
+    'bg-danger-highlight',
+    'bg-danger-lighter',
+    'bg-danger-light',
+    'bg-danger',
+    'bg-danger-dark',
+    'bg-warning-highlight',
+    'bg-warning',
+    'bg-warning-dark',
+    'bg-success-highlight',
+    'bg-success-light',
+    'bg-success',
+    'bg-success-dark',
+    'bg-primary-alt-highlight',
+    'bg-primary-alt',
+    'bg-muted',
+    'bg-muted-alt',
+    'bg-mark',
+    'bg-white',
+    'bg-surface-primary',
+    'bg-side',
+    'bg-mid',
+    'bg-border',
+    'bg-border-light',
+    'bg-border-bold',
+    'bg-transparent',
+    'bg-brand-blue',
+    'bg-brand-red',
+    'bg-brand-yellow',
+    'bg-brand-key',
 ]
 
 const threeThousand = [
-    'primary',
-    'danger-highlight',
-    'danger-lighter',
-    'danger-light',
-    'danger',
-    'danger-dark',
-    'warning-highlight',
-    'warning',
-    'warning-dark',
-    'highlight',
-    'success-highlight',
-    'success-light',
-    'success',
-    'success-dark',
-    'muted',
-    'muted-alt',
-    'mark',
-    'white',
-    'bg-light',
-    'side',
-    'mid',
-    'border',
-    'border-light',
-    'border-bold',
-    'transparent',
-    'link',
+    ['bg-danger-highlight', 'bg-red-500'],
+    ['bg-danger-lighter', 'bg-red-500'],
+    ['bg-danger-light', 'bg-red-500'],
+    ['bg-danger', 'bg-red-500'],
+    ['bg-danger-dark', 'bg-red-500'],
+    ['bg-warning-highlight', 'bg-red-500'],
+    ['bg-warning', 'bg-red-500'],
+    ['bg-warning-dark', 'bg-red-500'],
+    ['bg-highlight', 'bg-red-500'],
+    ['bg-success-highlight', 'bg-red-500'],
+    ['bg-success-light', 'bg-red-500'],
+    ['bg-success', 'bg-red-500'],
+    ['bg-success-dark', 'bg-red-500'],
+    ['bg-muted', 'bg-red-500'],
+    ['bg-muted-alt', 'bg-red-500'],
+    ['bg-mark', 'bg-red-500'],
+    ['bg-white', 'bg-red-500'],
+    ['bg-side', 'bg-red-500'],
+    ['bg-mid', 'bg-red-500'],
+    ['bg-border', 'bg-red-500'],
+    ['bg-border-light', 'bg-red-500'],
+    ['bg-border-bold', 'bg-red-500'],
+    ['bg-transparent', 'bg-red-500'],
+    ['bg-link', 'bg-red-500'],
     // Colors of the PostHog logo
-    'brand-blue',
-    'brand-red',
-    'brand-yellow',
-    'brand-key',
+    ['bg-brand-blue', 'bg-red-500'],
+    ['bg-brand-red', 'bg-red-500'],
+    ['bg-brand-yellow', 'bg-red-500'],
+    ['bg-brand-key', 'bg-red-500'],
 
     // PostHog 3000
-    'text-3000-light',
-    'text-secondary-3000-light',
-    'muted-3000-light',
-    'trace-3000-light',
-    'primary-3000-light',
-    'primary-highlight-light',
-    'primary-3000-hover-light',
-    'primary-3000-active-light',
+    ['bg-text-3000-light', 'bg-red-500'],
+    ['bg-text-secondary-3000-light', 'bg-red-500'],
+    ['bg-muted-3000-light', 'bg-red-500'],
+    ['bg-trace-3000-light', 'bg-red-500'],
+    ['bg-primary-3000-light', 'bg-red-500'],
+    ['bg-primary-highlight-light', 'bg-red-500'],
+    ['bg-primary-3000-hover-light', 'bg-red-500'],
+    ['bg-primary-3000-active-light', 'bg-red-500'],
 
-    'secondary-3000-light',
-    'secondary-3000-hover-light',
-    'accent-3000-light',
-    'bg-3000-light',
-    'border-3000-light',
-    'border-bold-3000-light',
-    'glass-bg-3000-light',
-    'glass-border-3000-light',
+    ['bg-secondary-3000-light', 'bg-red-500'],
+    ['bg-secondary-3000-hover-light', 'bg-red-500'],
+    ['bg-primary-light', 'bg-red-500'],
+    ['bg-border-3000-light', 'bg-red-500'],
+    ['bg-border-bold-3000-light', 'bg-red-500'],
+    ['bg-glass-bg-3000-light', 'bg-red-500'],
+    ['bg-glass-border-3000-light', 'bg-red-500'],
 
-    'link-3000-light',
-    'primary-3000-frame-bg-light',
-    'primary-3000-button-bg-light',
-    'primary-3000-button-border-light',
-    'primary-3000-button-border-hover-light',
+    ['bg-link-3000-light', 'bg-red-500'],
+    ['bg-primary-3000-frame-bg-light', 'bg-red-500'],
+    ['bg-primary-3000-button-bg-light', 'bg-red-500'],
+    ['bg-primary-3000-button-border-light', 'bg-red-500'],
+    ['bg-primary-3000-button-border-hover-light', 'bg-red-500'],
 
-    'secondary-3000-frame-bg-light',
-    'secondary-3000-button-bg-light',
-    'secondary-3000-button-border-light',
-    'secondary-3000-button-border-hover-light',
+    ['bg-secondary-3000-frame-bg-light', 'bg-red-500'],
+    ['bg-secondary-3000-button-bg-light', 'bg-red-500'],
+    ['bg-secondary-3000-button-border-light', 'bg-red-500'],
+    ['bg-secondary-3000-button-border-hover-light', 'bg-red-500'],
 
-    'danger-3000-frame-bg-light',
-    'danger-3000-button-border-light',
-    'danger-3000-button-border-hover-light',
+    ['bg-danger-3000-frame-bg-light', 'bg-red-500'],
+    ['bg-danger-3000-button-border-light', 'bg-red-500'],
+    ['bg-danger-3000-button-border-hover-light', 'bg-red-500'],
 
-    'shadow-elevation-3000-light',
-    'shadow-elevation-3000-dark',
-    'text-3000-dark',
-    'text-secondary-3000-dark',
-    'muted-3000-dark',
-    'trace-3000-dark',
-    'primary-3000-dark',
-    'primary-highlight-dark',
-    'primary-3000-hover-dark',
-    'primary-3000-active-dark',
-    'primary-alt-highlight-light',
+    ['bg-text-3000-dark', 'bg-red-500'],
+    ['bg-text-secondary-3000-dark', 'bg-red-500'],
+    ['bg-muted-3000-dark', 'bg-red-500'],
+    ['bg-trace-3000-dark', 'bg-red-500'],
 
-    'secondary-3000-dark',
-    'secondary-3000-hover-dark',
-    'accent-3000-dark',
-    'bg-3000-dark',
-    'border-3000-dark',
-    'border-bold-3000-dark',
-    'glass-bg-3000-dark',
-    'glass-border-3000-dark',
-    'link-3000-dark',
+    ['bg-secondary-3000-dark', 'bg-red-500'],
+    ['bg-secondary-3000-hover-dark', 'bg-red-500'],
+    ['bg-border-3000-dark', 'bg-red-500'],
+    ['bg-border-bold-3000-dark', 'bg-red-500'],
+    ['bg-glass-bg-3000-dark', 'bg-red-500'],
+    ['bg-glass-border-3000-dark', 'bg-red-500'],
+    ['bg-link-3000-dark', 'bg-red-500'],
 
-    'primary-3000-frame-bg-dark',
-    'primary-3000-button-bg-dark',
-    'primary-3000-button-border-dark',
-    'primary-3000-button-border-hover-dark',
-    'primary-alt-highlight-dark',
+    ['bg-secondary-3000-frame-bg-dark', 'bg-red-500'],
+    ['bg-secondary-3000-button-bg-dark', 'bg-red-500'],
+    ['bg-secondary-3000-button-border-dark', 'bg-red-500'],
+    ['bg-secondary-3000-button-border-hover-dark', 'bg-red-500'],
 
-    'secondary-3000-frame-bg-dark',
-    'secondary-3000-button-bg-dark',
-    'secondary-3000-button-border-dark',
-    'secondary-3000-button-border-hover-dark',
-
-    'danger-3000-frame-bg-dark',
-    'danger-3000-button-border-dark',
-    'danger-3000-button-border-hover-dark',
+    ['bg-danger-3000-frame-bg-dark', 'bg-red-500'],
+    ['bg-danger-3000-button-border-dark', 'bg-red-500'],
+    ['bg-danger-3000-button-border-hover-dark', 'bg-red-500'],
 
     // The derived colors
     // `--default` is a pre-3000 alias for "default text color" (`--text-3000` now)
-    'default',
-    'text-3000',
-    'text-secondary-3000',
-    'muted-3000',
-    'primary-3000',
-    'secondary-3000',
-    'secondary-3000-hover',
-    'accent-3000',
-    'bg-3000',
-    'primary-highlight',
-    'primary-alt-highlight',
-    'primary-alt',
+    ['bg-default', 'bg-red-500'],
+    ['bg-text-3000', 'bg-red-500'],
+    ['bg-text-secondary-3000', 'bg-red-500'],
+    ['bg-muted-3000', 'bg-red-500'],
+    ['bg-primary-3000', 'bg-red-500'],
+    ['bg-secondary-3000', 'bg-red-500'],
+    ['bg-secondary-3000-hover', 'bg-red-500'],
 ]
 
 const dataColors = [
@@ -208,7 +184,7 @@ export function ColorPalette(): JSX.Element {
                 <div key={group} className="flex flex-col w-40 h-50">
                     <div className="font-bold text-ellipsis mb-2">{group}</div>
                     <div className="rounded-lg overflow-hidden flex flex-col flex-1">
-                        {colorGroups[group].map((color: string) => (
+                        {colorGroups[group as keyof typeof colorGroups].map((color: string) => (
                             <Popover
                                 key={color}
                                 visible={hover === color}
@@ -247,7 +223,12 @@ export function AllPreThousandColorOptions(): JSX.Element {
                     key: 'color',
                     dataIndex: 'color',
                     render: function RenderColor(color) {
-                        return <div className={`bg-${color as string} flex-1 border rounded h-8 w-8`} />
+                        return (
+                            <div className="relative h-8 w-8">
+                                <div className={`${color as string} absolute inset-0 border rounded z-20`} />
+                                <div className="absolute inset-0 flex items-center justify-center z-10">🦔</div>
+                            </div>
+                        )
                     },
                 },
             ]}
@@ -265,17 +246,23 @@ export function AllThreeThousandColorOptions(): JSX.Element {
                     key: 'name',
                     dataIndex: 'name',
                     render: function RenderName(name) {
-                        return name
+                        if (!name) {
+                            return ''
+                        }
+                        return `${name[0]}/${name[1]}`
                     },
                 },
                 {
                     title: 'Light mode',
                     key: 'light',
                     dataIndex: 'color',
-                    render: function RenderColor(color) {
+                    render: function RenderColor(colorOldNew) {
                         return (
-                            <div className="bg-bg-3000-light flex items-center justify-center border rounded h-16 w-16">
-                                <div className={`bg-${color as string} border rounded h-8 w-8`} />
+                            <div className="flex gap-2">
+                                {colorOldNew &&
+                                    colorOldNew.map((color) => (
+                                        <div key={color} className={`${color} border rounded h-8 w-8`} />
+                                    ))}
                             </div>
                         )
                     },
@@ -284,10 +271,13 @@ export function AllThreeThousandColorOptions(): JSX.Element {
                     title: 'Dark mode',
                     key: 'dark',
                     dataIndex: 'color',
-                    render: function RenderColor(color) {
+                    render: function RenderColor(colorOldNew) {
                         return (
-                            <div className="bg-bg-3000-dark flex items-center justify-center border rounded h-16 w-16">
-                                <div className={`bg-${color as string} border rounded h-8 w-8`} />
+                            <div className="bg-primary-dark flex items-center justify-center border rounded h-16 w-16">
+                                {colorOldNew &&
+                                    colorOldNew.map((color) => (
+                                        <div key={color} className={`${color} border rounded h-8 w-8`} />
+                                    ))}
                             </div>
                         )
                     },
@@ -316,7 +306,7 @@ export function DataColors(): JSX.Element {
                     dataIndex: 'color',
                     render: function RenderColor(color) {
                         return (
-                            <div className="bg-bg-3000-light flex items-center justify-center border rounded h-16 w-16">
+                            <div className="bg-primary-light flex items-center justify-center border rounded h-16 w-16">
                                 <div
                                     className="border rounded h-8 w-8"
                                     // eslint-disable-next-line react/forbid-dom-props
@@ -332,7 +322,7 @@ export function DataColors(): JSX.Element {
                     dataIndex: 'color',
                     render: function RenderColor(color) {
                         return (
-                            <div className="bg-bg-3000-dark flex items-center justify-center border rounded h-16 w-16">
+                            <div className="bg-primary-dark flex items-center justify-center border rounded h-16 w-16">
                                 <div
                                     className="border rounded h-8 w-8"
                                     // eslint-disable-next-line react/forbid-dom-props

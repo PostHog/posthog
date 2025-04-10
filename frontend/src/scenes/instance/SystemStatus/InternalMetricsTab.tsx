@@ -26,7 +26,7 @@ export function InternalMetricsTab(): JSX.Element {
         <>
             <LemonCollapse
                 activeKeys={openSections}
-                className="bg-bg-light"
+                className="bg-surface-primary"
                 onChange={(keys) => setOpenSections(keys)}
                 multiple
                 panels={[
@@ -35,7 +35,7 @@ export function InternalMetricsTab(): JSX.Element {
                         header: 'PostgreSQL - currently running queries',
                         content: (
                             <>
-                                <div className="flex mb-4 float-right space-x-2">
+                                <div className="flex mb-4 float-right deprecated-space-x-2">
                                     <LemonCheckbox
                                         checked={showIdle}
                                         onChange={setShowIdle}

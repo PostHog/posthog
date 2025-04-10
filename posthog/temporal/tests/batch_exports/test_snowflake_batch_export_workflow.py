@@ -1,16 +1,20 @@
 import asyncio
+import dataclasses
 import datetime as dt
 import gzip
+import io
 import json
 import operator
 import os
 import re
 import tempfile
+import typing as t
 import unittest.mock
 import uuid
 from collections import deque
 from uuid import uuid4
 
+import paramiko
 import pytest
 import pytest_asyncio
 import responses
@@ -25,22 +29,38 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
-from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
+from posthog.batch_exports.service import (
+    BackfillDetails,
+    BatchExportModel,
+    BatchExportSchema,
+)
 from posthog.temporal.batch_exports.batch_exports import (
     finish_batch_export_run,
-    iter_model_records,
     start_batch_export_run,
 )
 from posthog.temporal.batch_exports.snowflake_batch_export import (
+    InvalidPrivateKeyError,
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
     SnowflakeHeartbeatDetails,
     SnowflakeInsertInputs,
     insert_into_snowflake_activity,
+    load_private_key,
     snowflake_default_fields,
 )
+from posthog.temporal.batch_exports.spmc import (
+    Producer,
+    RecordBatchQueue,
+    RecordBatchTaskError,
+    SessionsRecordBatchModel,
+)
 from posthog.temporal.common.clickhouse import ClickHouseClient
-from posthog.temporal.tests.batch_exports.utils import mocked_start_batch_export_run
+from posthog.temporal.tests.batch_exports.utils import (
+    FlakyClickHouseClient,
+    get_record_batch_from_queue,
+    mocked_start_batch_export_run,
+    remove_duplicates_from_records,
+)
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
@@ -63,15 +83,19 @@ EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
     "person_distinct_id_version",
     "created_at",
     "_inserted_at",
+    "is_deleted",
 ]
+
+
+TEST_TIME = dt.datetime.now(dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 class FakeSnowflakeCursor:
     """A fake Snowflake cursor that can fail on PUT and COPY queries."""
 
     def __init__(self, *args, failure_mode: str | None = None, **kwargs):
-        self._execute_calls = []
-        self._execute_async_calls = []
+        self._execute_calls: list[dict[str, t.Any]] = []
+        self._execute_async_calls: list[dict[str, t.Any]] = []
         self._sfqid = 1
         self._fail = failure_mode
 
@@ -137,7 +161,7 @@ class FakeSnowflakeConnection:
         failure_mode: str | None = None,
         **kwargs,
     ):
-        self._cursors = []
+        self._cursors: list[FakeSnowflakeCursor] = []
         self._is_running = True
         self.failure_mode = failure_mode
 
@@ -196,7 +220,7 @@ def add_mock_snowflake_api(rsps: responses.RequestsMock, fail: bool | str = Fals
         sql_text = json.loads(gzip.decompress(request.body))["sqlText"]
         queries.append(sql_text)
 
-        rowset = [("test", "LOADED", 456, 192, "NONE", "GZIP", "UPLOADED", "")]
+        rowset: list[tuple[t.Any, ...]] = [("test", "LOADED", 456, 192, "NONE", "GZIP", "UPLOADED", "")]
 
         # If the query is something that looks like `PUT file:///tmp/tmp50nod7v9
         # @%"events"` we extract the /tmp/tmp50nod7v9 and store the file
@@ -356,14 +380,15 @@ def snowflake_config(database, schema) -> dict[str, str]:
     We set default configuration values to support tests against the Snowflake API
     and tests that mock it.
     """
-    password = os.getenv("SNOWFLAKE_PASSWORD", "password")
     warehouse = os.getenv("SNOWFLAKE_WAREHOUSE", "warehouse")
     account = os.getenv("SNOWFLAKE_ACCOUNT", "account")
-    username = os.getenv("SNOWFLAKE_USERNAME", "username")
     role = os.getenv("SNOWFLAKE_ROLE", "role")
+    username = os.getenv("SNOWFLAKE_USERNAME", "username")
+    password = os.getenv("SNOWFLAKE_PASSWORD", "password")
+    private_key = os.getenv("SNOWFLAKE_PRIVATE_KEY")
+    private_key_passphrase = os.getenv("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE")
 
     config = {
-        "password": password,
         "user": username,
         "warehouse": warehouse,
         "account": account,
@@ -371,6 +396,15 @@ def snowflake_config(database, schema) -> dict[str, str]:
         "schema": schema,
         "role": role,
     }
+    if private_key:
+        config["private_key"] = private_key
+        config["private_key_passphrase"] = private_key_passphrase
+        config["authentication_type"] = "keypair"
+    elif password:
+        config["password"] = password
+        config["authentication_type"] = "password"
+    else:
+        raise ValueError("Either password or private key must be set")
     return config
 
 
@@ -408,7 +442,7 @@ async def test_snowflake_export_workflow_exports_events(
     It should update the batch export run status to completed, as well as updating the record
     count.
     """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     data_interval_end_str = data_interval_end.strftime("%Y-%m-%d_%H-%M-%S")
     data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
 
@@ -500,7 +534,7 @@ async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_e
     inputs = SnowflakeBatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(snowflake_batch_export.id),
-        data_interval_end="2023-03-20 14:40:00.000000",
+        data_interval_end=dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0).isoformat(),
         interval=interval,
         **snowflake_batch_export.destination.config,
     )
@@ -565,7 +599,7 @@ async def test_snowflake_export_workflow_without_events(ateam, snowflake_batch_e
 async def test_snowflake_export_workflow_raises_error_on_put_fail(
     clickhouse_client, ateam, snowflake_batch_export, interval
 ):
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
 
     _ = await generate_test_events_in_clickhouse(
@@ -631,7 +665,7 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail(
 async def test_snowflake_export_workflow_raises_error_on_copy_fail(
     clickhouse_client, ateam, snowflake_batch_export, interval
 ):
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
 
     _ = await generate_test_events_in_clickhouse(
@@ -790,11 +824,12 @@ async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snow
 
     We mock the insert_into_snowflake_activity for this test.
     """
+    data_interval_end = dt.datetime.now(dt.UTC)
     workflow_id = str(uuid4())
     inputs = SnowflakeBatchExportInputs(
         team_id=ateam.pk,
         batch_export_id=str(snowflake_batch_export.id),
-        data_interval_end="2023-04-25 14:30:00.000000",
+        data_interval_end=data_interval_end.isoformat(),
         **snowflake_batch_export.destination.config,
     )
 
@@ -847,9 +882,11 @@ async def assert_clickhouse_records_in_snowflake(
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
     batch_export_model: BatchExportModel | BatchExportSchema | None = None,
-    is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
     sort_key: str = "event",
     expected_fields: list[str] | None = None,
+    expect_duplicates: bool = False,
+    primary_key: list[str] | None = None,
 ):
     """Assert ClickHouse records are written to Snowflake table.
 
@@ -864,13 +901,14 @@ async def assert_clickhouse_records_in_snowflake(
         include_events: Event names to be included in the export.
         batch_export_schema: Custom schema used in the batch export.
         expected_fields: List of fields expected to be in the destination table.
+        expect_duplicates: Whether duplicates are expected (e.g. when testing retrying logic).
     """
     snowflake_cursor.execute(f'SELECT * FROM "{table_name}"')
 
     rows = snowflake_cursor.fetchall()
 
     columns = {index: metadata.name for index, metadata in enumerate(snowflake_cursor.description)}
-    json_columns = ("properties", "person_properties", "people_set", "people_set_once")
+    json_columns = ("properties", "person_properties", "people_set", "people_set_once", "urls")
 
     # Rows are tuples, so we construct a dictionary using the metadata from cursor.description.
     # We rely on the order of the columns in each row matching the order set in cursor.description.
@@ -885,43 +923,66 @@ async def assert_clickhouse_records_in_snowflake(
         for row in rows
     ]
 
-    schema_column_names = (
-        expected_fields if expected_fields is not None else [field["alias"] for field in snowflake_default_fields()]
-    )
     if batch_export_model is not None:
         if isinstance(batch_export_model, BatchExportModel):
-            batch_export_schema = batch_export_model.schema
-        else:
-            batch_export_schema = batch_export_model
-
-        if batch_export_schema is not None:
-            schema_column_names = [field["alias"] for field in batch_export_schema["fields"]]
-        elif isinstance(batch_export_model, BatchExportModel) and batch_export_model.name == "persons":
-            schema_column_names = (
-                expected_fields if expected_fields is not None else EXPECTED_PERSONS_BATCH_EXPORT_FIELDS
+            model_name = batch_export_model.name
+            fields = batch_export_model.schema["fields"] if batch_export_model.schema is not None else None
+            filters = batch_export_model.filters
+            extra_query_parameters = (
+                batch_export_model.schema["values"] if batch_export_model.schema is not None else None
             )
+        else:
+            model_name = "custom"
+            fields = batch_export_model["fields"]
+            filters = None
+            extra_query_parameters = batch_export_model["values"]
+    else:
+        model_name = "events"
+        extra_query_parameters = None
+        fields = None
+        filters = None
 
     expected_records = []
-    async for record_batch in iter_model_records(
-        client=clickhouse_client,
-        model=batch_export_model,
+    queue = RecordBatchQueue()
+    if model_name == "sessions":
+        producer = Producer(model=SessionsRecordBatchModel(team_id))
+    else:
+        producer = Producer()
+
+    producer_task = await producer.start(
+        queue=queue,
+        model_name=model_name,
         team_id=team_id,
-        interval_start=data_interval_start.isoformat(),
-        interval_end=data_interval_end.isoformat(),
+        full_range=(data_interval_start, data_interval_end),
+        done_ranges=[],
+        fields=fields,
+        filters=filters,
+        destination_default_fields=snowflake_default_fields(),
         exclude_events=exclude_events,
         include_events=include_events,
-        destination_default_fields=snowflake_default_fields(),
-        is_backfill=is_backfill,
-        use_latest_schema=True,
-    ):
-        for record in record_batch.to_pylist():
+        is_backfill=backfill_details is not None,
+        backfill_details=backfill_details,
+        extra_query_parameters=extra_query_parameters,
+    )
+    while True:
+        record_batch = await get_record_batch_from_queue(queue, producer_task)
+
+        if record_batch is None:
+            break
+
+        select = record_batch.column_names
+        if expected_fields:
+            select = expected_fields
+
+        for record in record_batch.select(select).to_pylist():
             expected_record = {}
+
             for k, v in record.items():
-                if k not in schema_column_names or k == "_inserted_at":
+                if k == "_inserted_at":
                     # _inserted_at is not exported, only used for tracking progress.
                     continue
 
-                if k in json_columns and v is not None:
+                if k in json_columns and isinstance(v, str):
                     expected_record[k] = json.loads(v)
                 elif isinstance(v, dt.datetime):
                     # By default, Snowflake's `TIMESTAMP` doesn't include a timezone component.
@@ -933,6 +994,9 @@ async def assert_clickhouse_records_in_snowflake(
                     expected_record[k] = v
 
             expected_records.append(expected_record)
+
+    if expect_duplicates:
+        inserted_records = remove_duplicates_from_records(inserted_records, primary_key)
 
     inserted_column_names = list(inserted_records[0].keys())
     expected_column_names = list(expected_records[0].keys())
@@ -947,17 +1011,26 @@ async def assert_clickhouse_records_in_snowflake(
     assert len(inserted_records) == len(expected_records)
     assert inserted_records[0] == expected_records[0]
     assert inserted_records == expected_records
+    assert len(inserted_column_names) > 0
 
 
 REQUIRED_ENV_VARS = (
     "SNOWFLAKE_WAREHOUSE",
-    "SNOWFLAKE_PASSWORD",
     "SNOWFLAKE_ACCOUNT",
     "SNOWFLAKE_USERNAME",
 )
 
+
+def snowflake_env_vars_are_set():
+    if not all(env_var in os.environ for env_var in REQUIRED_ENV_VARS):
+        return False
+    if "SNOWFLAKE_PASSWORD" not in os.environ and "SNOWFLAKE_PRIVATE_KEY" not in os.environ:
+        return False
+    return True
+
+
 SKIP_IF_MISSING_REQUIRED_ENV_VARS = pytest.mark.skipif(
-    any(env_var not in os.environ for env_var in REQUIRED_ENV_VARS),
+    not snowflake_env_vars_are_set(),
     reason="Snowflake required env vars are not set",
 )
 
@@ -965,21 +1038,33 @@ SKIP_IF_MISSING_REQUIRED_ENV_VARS = pytest.mark.skipif(
 @pytest.fixture
 def snowflake_cursor(snowflake_config):
     """Manage a snowflake cursor that cleans up after we are done."""
+    password = None
+    private_key = None
+    if snowflake_config["authentication_type"] == "keypair":
+        if snowflake_config.get("private_key") is None:
+            raise ValueError("Private key is required for keypair authentication")
+
+        private_key = load_private_key(snowflake_config["private_key"], snowflake_config["private_key_passphrase"])
+    else:
+        password = snowflake_config["password"]
+
     with snowflake.connector.connect(
         user=snowflake_config["user"],
-        password=snowflake_config["password"],
+        password=password,
         role=snowflake_config["role"],
         account=snowflake_config["account"],
         warehouse=snowflake_config["warehouse"],
+        private_key=private_key,
     ) as connection:
+        connection.telemetry_enabled = False
         cursor = connection.cursor()
-        cursor.execute(f"CREATE DATABASE \"{snowflake_config['database']}\"")
-        cursor.execute(f"CREATE SCHEMA \"{snowflake_config['database']}\".\"{snowflake_config['schema']}\"")
-        cursor.execute(f"USE SCHEMA \"{snowflake_config['database']}\".\"{snowflake_config['schema']}\"")
+        cursor.execute(f'CREATE DATABASE "{snowflake_config["database"]}"')
+        cursor.execute(f'CREATE SCHEMA "{snowflake_config["database"]}"."{snowflake_config["schema"]}"')
+        cursor.execute(f'USE SCHEMA "{snowflake_config["database"]}"."{snowflake_config["schema"]}"')
 
         yield cursor
 
-        cursor.execute(f"DROP DATABASE IF EXISTS \"{snowflake_config['database']}\" CASCADE")
+        cursor.execute(f'DROP DATABASE IF EXISTS "{snowflake_config["database"]}" CASCADE')
 
 
 TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
@@ -997,6 +1082,7 @@ TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
     ),
     BatchExportModel(name="events", schema=None),
     BatchExportModel(name="persons", schema=None),
+    BatchExportModel(name="sessions", schema=None),
     {
         "fields": [
             {"expression": "event", "alias": "event"},
@@ -1063,6 +1149,13 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
 
     await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
 
+    sort_key = "event"
+    if batch_export_model is not None:
+        if batch_export_model.name == "persons":
+            sort_key = "person_id"
+        elif batch_export_model.name == "sessions":
+            sort_key = "session_id"
+
     await assert_clickhouse_records_in_snowflake(
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
@@ -1072,12 +1165,12 @@ async def test_insert_into_snowflake_activity_inserts_data_into_snowflake_table(
         data_interval_end=data_interval_end,
         exclude_events=exclude_events,
         batch_export_model=model,
-        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
+        sort_key=sort_key,
     )
 
 
 @SKIP_IF_MISSING_REQUIRED_ENV_VARS
-async def test_insert_into_snowflake_activity_merges_data_in_follow_up_runs(
+async def test_insert_into_snowflake_activity_merges_persons_data_in_follow_up_runs(
     clickhouse_client,
     activity_environment,
     snowflake_cursor,
@@ -1087,7 +1180,7 @@ async def test_insert_into_snowflake_activity_merges_data_in_follow_up_runs(
     data_interval_end,
     ateam,
 ):
-    """Test that the `insert_into_snowflake_activity` merges new versions of rows.
+    """Test that the `insert_into_snowflake_activity` merges new versions of person rows.
 
     This unit tests looks at the mutability handling capabilities of the aforementioned activity.
     We will generate a new entry in the persons table for half of the persons exported in a first
@@ -1096,7 +1189,7 @@ async def test_insert_into_snowflake_activity_merges_data_in_follow_up_runs(
     """
     model = BatchExportModel(name="persons", schema=None)
 
-    table_name = f"test_insert_activity_table_mutable_{ateam.pk}"
+    table_name = f"test_insert_activity_table_mutable_persons_{ateam.pk}"
     insert_inputs = SnowflakeInsertInputs(
         team_id=ateam.pk,
         table_name=table_name,
@@ -1154,6 +1247,98 @@ async def test_insert_into_snowflake_activity_merges_data_in_follow_up_runs(
         batch_export_model=model,
         sort_key="person_id",
     )
+
+
+@SKIP_IF_MISSING_REQUIRED_ENV_VARS
+async def test_insert_into_snowflake_activity_merges_sessions_data_in_follow_up_runs(
+    clickhouse_client,
+    activity_environment,
+    snowflake_cursor,
+    snowflake_config,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Test that the `insert_into_snowflake_activity` merges new versions of sessions rows.
+
+    This unit tests looks at the mutability handling capabilities of the aforementioned activity.
+    We will generate a new entry in the raw_sessions table for the one session exported in the first
+    run of the activity. We expect the new entries to have replaced the old ones in Snowflake after
+    the second run with the same time range.
+    """
+    model = BatchExportModel(name="sessions", schema=None)
+
+    table_name = f"test_insert_activity_table_mutable_sessions_{ateam.pk}"
+    insert_inputs = SnowflakeInsertInputs(
+        team_id=ateam.pk,
+        table_name=table_name,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        batch_export_model=model,
+        **snowflake_config,
+    )
+
+    await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_snowflake(
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        table_name=table_name,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        sort_key="session_id",
+    )
+
+    events_to_export_created, _ = generate_test_data
+    event = events_to_export_created[0]
+
+    new_data_interval_start, new_data_interval_end = (
+        data_interval_start + dt.timedelta(hours=1),
+        data_interval_end + dt.timedelta(hours=1),
+    )
+
+    new_events, _, _ = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=new_data_interval_start,
+        end_time=new_data_interval_end,
+        count=1,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=False,
+        properties=event["properties"],
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
+        event_name=event["event"],
+        table="sharded_events",
+        insert_sessions=True,
+    )
+
+    insert_inputs.data_interval_start = new_data_interval_start.isoformat()
+    insert_inputs.data_interval_end = new_data_interval_end.isoformat()
+
+    await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_snowflake(
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        table_name=table_name,
+        team_id=ateam.pk,
+        data_interval_start=new_data_interval_start,
+        data_interval_end=new_data_interval_end,
+        batch_export_model=model,
+        sort_key="session_id",
+    )
+
+    snowflake_cursor.execute(f'SELECT "session_id", "end_timestamp" FROM "{table_name}"')
+    rows = list(snowflake_cursor.fetchall())
+    new_event = new_events[0]
+    new_event_properties = new_event["properties"] or {}
+    assert len(rows) == 1
+    assert rows[0][0] == new_event_properties["$session_id"]
+    assert rows[0][1] == dt.datetime.fromisoformat(new_event["timestamp"])
 
 
 @pytest.fixture
@@ -1323,6 +1508,13 @@ async def test_snowflake_export_workflow(
     run = runs[0]
     assert run.status == "Completed"
 
+    sort_key = "event"
+    if batch_export_model is not None:
+        if batch_export_model.name == "persons":
+            sort_key = "person_id"
+        elif batch_export_model.name == "sessions":
+            sort_key = "session_id"
+
     await assert_clickhouse_records_in_snowflake(
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
@@ -1332,7 +1524,7 @@ async def test_snowflake_export_workflow(
         data_interval_end=data_interval_end,
         exclude_events=exclude_events,
         batch_export_model=model,
-        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
+        sort_key=sort_key,
     )
 
 
@@ -1408,6 +1600,13 @@ async def test_snowflake_export_workflow_with_many_files(
     run = runs[0]
     assert run.status == "Completed"
 
+    sort_key = "event"
+    if batch_export_model is not None:
+        if batch_export_model.name == "persons":
+            sort_key = "person_id"
+        elif batch_export_model.name == "sessions":
+            sort_key = "session_id"
+
     await assert_clickhouse_records_in_snowflake(
         snowflake_cursor=snowflake_cursor,
         clickhouse_client=clickhouse_client,
@@ -1417,16 +1616,16 @@ async def test_snowflake_export_workflow_with_many_files(
         data_interval_end=data_interval_end,
         exclude_events=exclude_events,
         batch_export_model=model,
-        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
+        sort_key=sort_key,
     )
 
 
 @SKIP_IF_MISSING_REQUIRED_ENV_VARS
 @pytest.mark.parametrize(
     "data_interval_start",
-    # This is hardcoded relative to the `data_interval_end` used in all or most tests, since that's also
-    # passed to `generate_test_data` to determine the timestamp for the generated data.
-    [dt.datetime(2023, 4, 24, 15, 0, 0, tzinfo=dt.UTC)],
+    # This is set to 24 hours before the `data_interval_end` to ensure that the data created is outside the batch
+    # interval.
+    [TEST_TIME - dt.timedelta(hours=24)],
     indirect=True,
 )
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
@@ -1454,8 +1653,12 @@ async def test_snowflake_export_workflow_backfill_earliest_persons(
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_model=model,
-        is_backfill=True,
-        is_earliest_backfill=True,
+        backfill_details=BackfillDetails(
+            backfill_id=None,
+            is_earliest_backfill=True,
+            start_at=None,
+            end_at=data_interval_end.isoformat(),
+        ),
         **snowflake_batch_export.destination.config,
     )
     _, persons = generate_test_data
@@ -1511,7 +1714,7 @@ async def test_snowflake_export_workflow_handles_cancellation(
     clickhouse_client, ateam, snowflake_batch_export, interval, snowflake_cursor
 ):
     """Test that Snowflake Export Workflow can gracefully handle cancellations when inserting Snowflake data."""
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(dt.UTC)
     data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
 
     await generate_test_events_in_clickhouse(
@@ -1586,7 +1789,7 @@ async def test_insert_into_snowflake_activity_heartbeats(
 
     We use a function that runs on_heartbeat to check and track the heartbeat contents.
     """
-    data_interval_end = dt.datetime.fromisoformat("2023-04-20T14:30:00.000000+00:00")
+    data_interval_end = dt.datetime.now(dt.UTC)
     data_interval_start = data_interval_end - snowflake_batch_export.interval_time_delta
 
     n_expected_files = 3
@@ -1760,4 +1963,166 @@ async def test_insert_into_snowflake_activity_handles_person_schema_changes(
         batch_export_model=model,
         sort_key="person_id",
         expected_fields=expected_fields,
+    )
+
+
+def test_load_private_key_raises_error_if_key_is_invalid():
+    with pytest.raises(InvalidPrivateKeyError):
+        load_private_key("invalid_key", None)
+
+
+def test_load_private_key_raises_error_if_incorrect_passphrase():
+    """Test we raise the right error when passing an incorrect passphrase."""
+    key = paramiko.RSAKey.generate(2048)
+    buffer = io.StringIO()
+    key.write_private_key(buffer, password="a-passphrase")
+    _ = buffer.seek(0)
+
+    with pytest.raises(InvalidPrivateKeyError) as exc_info:
+        _ = load_private_key(buffer.read(), "another-passphrase")
+
+    assert "incorrect passphrase" in str(exc_info.value)
+
+
+def test_load_private_key_raises_error_if_passphrase_not_empty():
+    """Test we raise the right error when passing a passphrase to a key without one."""
+    key = paramiko.RSAKey.generate(2048)
+    buffer = io.StringIO()
+    key.write_private_key(buffer)
+    _ = buffer.seek(0)
+
+    with pytest.raises(InvalidPrivateKeyError) as exc_info:
+        _ = load_private_key(buffer.read(), "a-passphrase")
+
+    assert "passphrase was given but private key is not encrypted" in str(exc_info.value)
+
+
+def test_load_private_key_raises_error_if_passphrase_missing():
+    """Test we raise the right error when missing a passphrase to an encrypted key."""
+    key = paramiko.RSAKey.generate(2048)
+    buffer = io.StringIO()
+    key.write_private_key(buffer, password="a-passphrase")
+    _ = buffer.seek(0)
+
+    with pytest.raises(InvalidPrivateKeyError) as exc_info:
+        _ = load_private_key(buffer.read(), None)
+
+    assert "passphrase was not given but private key is encrypted" in str(exc_info.value)
+
+
+def test_load_private_key_passes_with_empty_passphrase_and_no_encryption():
+    """Test we succeed in loading a passphrase without encryption and an empty passphrase."""
+    key = paramiko.RSAKey.generate(2048)
+    buffer = io.StringIO()
+    key.write_private_key(buffer, password=None)
+    _ = buffer.seek(0)
+
+    loaded = load_private_key(buffer.read(), "")
+
+    assert loaded
+
+
+@pytest.mark.parametrize("passphrase", ["a-passphrase", None, ""])
+def test_load_private_key(passphrase: str | None):
+    """Test we can load a private key.
+
+    We treat `None` and empty string the same (no passphrase) because paramiko does
+    not support passphrases smaller than 1 byte.
+    """
+    key = paramiko.RSAKey.generate(2048)
+    buffer = io.StringIO()
+    key.write_private_key(buffer, password=None if passphrase is None or passphrase == "" else passphrase)
+    _ = buffer.seek(0)
+    private_key = buffer.read()
+
+    # Just checking this doesn't fail.
+    loaded = load_private_key(private_key, passphrase)
+    assert loaded
+
+
+@SKIP_IF_MISSING_REQUIRED_ENV_VARS
+@pytest.mark.parametrize(
+    "model", [BatchExportModel(name="events", schema=None), BatchExportModel(name="persons", schema=None)]
+)
+async def test_insert_into_snowflake_activity_completes_range_when_there_is_a_failure(
+    clickhouse_client,
+    activity_environment,
+    snowflake_cursor,
+    snowflake_config,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+    model,
+):
+    """Test that the insert_into_snowflake_activity can resume from a failure using heartbeat details."""
+    table_name = f"test_insert_activity_table_{ateam.pk}"
+
+    events_to_create, persons_to_create = generate_test_data
+    total_records = len(persons_to_create) if model.name == "persons" else len(events_to_create)
+    # fail halfway through
+    fail_after_records = total_records // 2
+
+    heartbeat_details: list[SnowflakeHeartbeatDetails] = []
+
+    def track_hearbeat_details(*details):
+        """Record heartbeat details received."""
+        nonlocal heartbeat_details
+        snowflake_details = SnowflakeHeartbeatDetails.from_activity_details(details)
+        heartbeat_details.append(snowflake_details)
+
+    activity_environment.on_heartbeat = track_hearbeat_details
+
+    insert_inputs = SnowflakeInsertInputs(
+        team_id=ateam.pk,
+        table_name=table_name,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        batch_export_model=model,
+        **snowflake_config,
+    )
+
+    with unittest.mock.patch(
+        "posthog.temporal.common.clickhouse.ClickHouseClient",
+        lambda *args, **kwargs: FlakyClickHouseClient(*args, **kwargs, fail_after_records=fail_after_records),
+    ):
+        # We expect this to raise an exception
+        with pytest.raises(RecordBatchTaskError):
+            await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+
+    assert len(heartbeat_details) > 0
+    detail = heartbeat_details[-1]
+    assert len(detail.done_ranges) > 0
+    assert detail.records_completed == fail_after_records
+
+    # Now we resume from the heartbeat
+    previous_info = dataclasses.asdict(activity_environment.info)
+    previous_info["heartbeat_details"] = detail.serialize_details()
+    new_info = activity.Info(
+        **previous_info,
+    )
+
+    activity_environment.info = new_info
+
+    await activity_environment.run(insert_into_snowflake_activity, insert_inputs)
+
+    assert len(heartbeat_details) > 0
+    detail = heartbeat_details[-1]
+    assert len(detail.done_ranges) == 1
+    assert detail.done_ranges[0] == (data_interval_start, data_interval_end)
+
+    sort_key = "event" if model.name == "events" else "person_id"
+
+    # Verify all the data for the whole range was exported correctly
+    await assert_clickhouse_records_in_snowflake(
+        snowflake_cursor=snowflake_cursor,
+        clickhouse_client=clickhouse_client,
+        table_name=table_name,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        sort_key=sort_key,
+        batch_export_model=model,
+        expect_duplicates=True,
+        primary_key=["uuid"] if model.name == "events" else ["distinct_id", "person_id"],
     )

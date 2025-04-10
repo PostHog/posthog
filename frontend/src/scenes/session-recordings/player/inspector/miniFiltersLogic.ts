@@ -122,12 +122,13 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
     actions({
         setShowOnlyMatching: (showOnlyMatching: boolean) => ({ showOnlyMatching }),
         setMiniFilter: (key: MiniFilterKey, enabled: boolean) => ({ key, enabled }),
+        setMiniFilters: (keys: MiniFilterKey[], enabled: boolean) => ({ keys, enabled }),
         setSearchQuery: (search: string) => ({ search }),
         resetMiniFilters: true,
     }),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam']],
-    }),
+    })),
     reducers(() => ({
         showOnlyMatching: [
             false,
@@ -150,6 +151,13 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
                     }
                     // ensure it's not in the array
                     return stateWithoutKey
+                },
+                setMiniFilters: (state, { keys, enabled }) => {
+                    const stateWithoutKeys = state.filter((x) => !keys.includes(x))
+                    if (enabled) {
+                        return stateWithoutKeys.concat(...keys)
+                    }
+                    return stateWithoutKeys
                 },
                 resetMiniFilters: () => defaulMinifilters,
             },

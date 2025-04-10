@@ -1,5 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { AlertsButton } from 'lib/components/Alerts/AlertsButton'
@@ -37,9 +38,10 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
 import {
+    AccessControlResourceType,
     ExporterFormat,
     InsightLogicProps,
     InsightShortId,
@@ -80,11 +82,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
-    const { tags } = useValues(tagsModel)
+    const { tags: allExistingTags } = useValues(tagsModel)
     const { user } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { push } = useActions(router)
+    const [tags, setTags] = useState(insight.tags)
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
 
@@ -136,6 +139,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 loadAlerts()
                                 push(urls.insightAlerts(insight.short_id as InsightShortId))
                             }}
+                            insightLogicProps={insightLogicProps}
                         />
                     )}
                     <NewDashboardModal />
@@ -144,196 +148,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
             <PageHeader
                 buttons={
                     <div className="flex justify-between items-center gap-2">
-                        <More
-                            overlay={
-                                <>
-                                    {hasDashboardItemId && (
-                                        <>
-                                            <LemonButton
-                                                onClick={() =>
-                                                    duplicateInsight(insight as QueryBasedInsightModel, true)
-                                                }
-                                                fullWidth
-                                                data-attr="duplicate-insight-from-insight-view"
-                                            >
-                                                Duplicate
-                                            </LemonButton>
-                                            <LemonButton
-                                                onClick={() =>
-                                                    setInsightMetadata({
-                                                        favorited: !insight.favorited,
-                                                    })
-                                                }
-                                                fullWidth
-                                            >
-                                                {insight.favorited ? 'Remove from favorites' : 'Add to favorites'}
-                                            </LemonButton>
-                                            <LemonButton
-                                                onClick={() => setAddToDashboardModalOpenModal(true)}
-                                                fullWidth
-                                            >
-                                                Add to dashboard
-                                            </LemonButton>
-                                            <LemonDivider />
-
-                                            <LemonButton
-                                                onClick={() =>
-                                                    insight.short_id
-                                                        ? push(urls.insightSharing(insight.short_id))
-                                                        : null
-                                                }
-                                                fullWidth
-                                            >
-                                                Share or embed
-                                            </LemonButton>
-                                            <SubscribeButton insightShortId={insight.short_id} />
-                                            {exportContext ? (
-                                                <ExportButton
-                                                    fullWidth
-                                                    items={[
-                                                        {
-                                                            export_format: ExporterFormat.PNG,
-                                                            insight: insight.id,
-                                                        },
-                                                        {
-                                                            export_format: ExporterFormat.CSV,
-                                                            export_context: exportContext,
-                                                        },
-                                                        {
-                                                            export_format: ExporterFormat.XLSX,
-                                                            export_context: exportContext,
-                                                        },
-                                                    ]}
-                                                />
-                                            ) : null}
-                                            <LemonDivider />
-                                        </>
-                                    )}
-                                    <LemonSwitch
-                                        data-attr={`${showQueryEditor ? 'hide' : 'show'}-insight-source`}
-                                        className="px-2 py-1"
-                                        checked={showQueryEditor}
-                                        onChange={() => {
-                                            // for an existing insight in view mode
-                                            if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
-                                                // enter edit mode
-                                                setInsightMode(ItemMode.Edit, null)
-
-                                                // exit early if query editor doesn't need to be toggled
-                                                if (showQueryEditor) {
-                                                    return
-                                                }
-                                            }
-                                            toggleQueryEditorPanel()
-                                        }}
-                                        fullWidth
-                                        label="View source"
-                                    />
-                                    {hasDashboardItemId &&
-                                    (user?.is_staff || user?.is_impersonated || !preflight?.cloud) ? (
-                                        <LemonSwitch
-                                            data-attr="toggle-debug-panel"
-                                            className="px-2 py-1"
-                                            checked={showDebugPanel}
-                                            onChange={() => {
-                                                toggleDebugPanel()
-                                            }}
-                                            fullWidth
-                                            label="Debug panel"
-                                        />
-                                    ) : null}
-                                    {hogQL && (
-                                        <>
-                                            <LemonDivider />
-                                            <LemonButton
-                                                data-attr="edit-insight-sql"
-                                                onClick={() => {
-                                                    router.actions.push(
-                                                        urls.insightNew(undefined, undefined, {
-                                                            kind: NodeKind.DataTableNode,
-                                                            source: {
-                                                                kind: NodeKind.HogQLQuery,
-                                                                query: hogQL,
-                                                            },
-                                                            full: true,
-                                                        } as DataTableNode)
-                                                    )
-                                                }}
-                                                fullWidth
-                                            >
-                                                Edit SQL directly
-                                            </LemonButton>
-                                            {showCohortButton && (
-                                                <LemonButton
-                                                    data-attr="edit-insight-sql"
-                                                    onClick={() => {
-                                                        LemonDialog.openForm({
-                                                            title: 'Save as static cohort',
-                                                            description: (
-                                                                <div className="mt-2">
-                                                                    Your query must export a <code>person_id</code>,{' '}
-                                                                    <code>actor_id</code> or <code>id</code> column,
-                                                                    which must match the <code>id</code> of the{' '}
-                                                                    <code>persons</code> table
-                                                                </div>
-                                                            ),
-                                                            initialValues: {
-                                                                name: '',
-                                                            },
-                                                            content: (
-                                                                <LemonField name="name">
-                                                                    <LemonInput
-                                                                        data-attr="insight-name"
-                                                                        placeholder="Name of the new cohort"
-                                                                        autoFocus
-                                                                    />
-                                                                </LemonField>
-                                                            ),
-                                                            errors: {
-                                                                name: (name) =>
-                                                                    !name ? 'You must enter a name' : undefined,
-                                                            },
-                                                            onSubmit: async ({ name }) => {
-                                                                createStaticCohort(name, {
-                                                                    kind: NodeKind.HogQLQuery,
-                                                                    query: hogQL,
-                                                                })
-                                                            },
-                                                        })
-                                                    }}
-                                                    fullWidth
-                                                >
-                                                    Save as static cohort
-                                                </LemonButton>
-                                            )}
-                                        </>
-                                    )}
-                                    {hasDashboardItemId && (
-                                        <>
-                                            <LemonDivider />
-                                            <LemonButton
-                                                status="danger"
-                                                onClick={() =>
-                                                    void deleteInsightWithUndo({
-                                                        object: insight as QueryBasedInsightModel,
-                                                        endpoint: `projects/${currentProjectId}/insights`,
-                                                        callback: () => {
-                                                            loadInsights()
-                                                            push(urls.savedInsights())
-                                                        },
-                                                    })
-                                                }
-                                                fullWidth
-                                            >
-                                                Delete insight
-                                            </LemonButton>
-                                        </>
-                                    )}
-                                </>
-                            }
-                        />
-                        <LemonDivider vertical />
-
                         {insightMode === ItemMode.Edit && hasDashboardItemId && (
                             <LemonButton
                                 type="secondary"
@@ -343,6 +157,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 Cancel
                             </LemonButton>
                         )}
+
                         {insightMode !== ItemMode.Edit && hasDashboardItemId && (
                             <>
                                 <AlertsButton
@@ -366,16 +181,24 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 <AddToDashboard insight={insight} setOpenModal={setAddToDashboardModalOpenModal} />
                             </>
                         )}
-
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (
-                                <LemonButton
+                                <AccessControlledLemonButton
+                                    userAccessLevel={insight.user_access_level}
+                                    minAccessLevel="editor"
+                                    resourceType={AccessControlResourceType.Insight}
                                     type="primary"
-                                    onClick={() => setInsightMode(ItemMode.Edit, null)}
+                                    onClick={() => {
+                                        if (isDataVisualizationNode(query) && insight.short_id) {
+                                            router.actions.push(urls.sqlEditor(undefined, undefined, insight.short_id))
+                                        } else {
+                                            setInsightMode(ItemMode.Edit, null)
+                                        }
+                                    }}
                                     data-attr="insight-edit-button"
                                 >
                                     Edit
-                                </LemonButton>
+                                </AccessControlledLemonButton>
                             )
                         ) : (
                             <InsightSaveButton
@@ -387,6 +210,197 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 insightChanged={insightChanged || queryChanged}
                             />
                         )}
+
+                        <More
+                            overlay={
+                                <>
+                                    {hasDashboardItemId && (
+                                        <>
+                                            <LemonButton
+                                                onClick={() =>
+                                                    duplicateInsight(insight as QueryBasedInsightModel, true)
+                                                }
+                                                fullWidth
+                                                data-attr="duplicate-insight-from-insight-view"
+                                            >
+                                                Duplicate
+                                            </LemonButton>
+
+                                            <LemonButton
+                                                onClick={() =>
+                                                    setInsightMetadata({
+                                                        favorited: !insight.favorited,
+                                                    })
+                                                }
+                                                fullWidth
+                                            >
+                                                {insight.favorited ? 'Remove from favorites' : 'Add to favorites'}
+                                            </LemonButton>
+
+                                            <LemonButton
+                                                onClick={() => setAddToDashboardModalOpenModal(true)}
+                                                fullWidth
+                                            >
+                                                Add to dashboard
+                                            </LemonButton>
+
+                                            <LemonDivider />
+
+                                            <LemonButton
+                                                onClick={() =>
+                                                    insight.short_id
+                                                        ? push(urls.insightSharing(insight.short_id))
+                                                        : null
+                                                }
+                                                fullWidth
+                                            >
+                                                Share or embed
+                                            </LemonButton>
+
+                                            <SubscribeButton insightShortId={insight.short_id} />
+
+                                            {exportContext ? (
+                                                <ExportButton
+                                                    fullWidth
+                                                    items={[
+                                                        {
+                                                            export_format: ExporterFormat.PNG,
+                                                            insight: insight.id,
+                                                        },
+                                                        {
+                                                            export_format: ExporterFormat.CSV,
+                                                            export_context: exportContext,
+                                                        },
+                                                        {
+                                                            export_format: ExporterFormat.XLSX,
+                                                            export_context: exportContext,
+                                                        },
+                                                    ]}
+                                                />
+                                            ) : null}
+
+                                            <LemonDivider />
+                                        </>
+                                    )}
+
+                                    <LemonSwitch
+                                        data-attr={`${showQueryEditor ? 'hide' : 'show'}-insight-source`}
+                                        className="px-2 py-1"
+                                        checked={showQueryEditor}
+                                        onChange={() => {
+                                            // for an existing insight in view mode
+                                            if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
+                                                // enter edit mode
+                                                setInsightMode(ItemMode.Edit, null)
+
+                                                // exit early if query editor doesn't need to be toggled
+                                                if (showQueryEditor) {
+                                                    return
+                                                }
+                                            }
+                                            toggleQueryEditorPanel()
+                                        }}
+                                        fullWidth
+                                        label="View source"
+                                    />
+
+                                    {hasDashboardItemId &&
+                                    (user?.is_staff || user?.is_impersonated || !preflight?.cloud) ? (
+                                        <LemonSwitch
+                                            data-attr="toggle-debug-panel"
+                                            className="px-2 py-1"
+                                            checked={showDebugPanel}
+                                            onChange={() => {
+                                                toggleDebugPanel()
+                                            }}
+                                            fullWidth
+                                            label="Debug panel"
+                                        />
+                                    ) : null}
+
+                                    {(hogQL || showCohortButton) && <LemonDivider />}
+                                    {hogQL &&
+                                        !isHogQLQuery(query) &&
+                                        !(isDataVisualizationNode(query) && isHogQLQuery(query.source)) && (
+                                            <LemonButton
+                                                data-attr="edit-insight-sql"
+                                                onClick={() => {
+                                                    router.actions.push(urls.sqlEditor(hogQL))
+                                                }}
+                                                fullWidth
+                                            >
+                                                Edit SQL directly
+                                            </LemonButton>
+                                        )}
+                                    {hogQL && showCohortButton && (
+                                        <LemonButton
+                                            data-attr="edit-insight-sql"
+                                            onClick={() => {
+                                                LemonDialog.openForm({
+                                                    title: 'Save as static cohort',
+                                                    description: (
+                                                        <div className="mt-2">
+                                                            Your query must export a <code>person_id</code>,{' '}
+                                                            <code>actor_id</code> or <code>id</code> column, which must
+                                                            match the <code>id</code> of the <code>persons</code> table
+                                                        </div>
+                                                    ),
+                                                    initialValues: {
+                                                        name: '',
+                                                    },
+                                                    content: (
+                                                        <LemonField name="name">
+                                                            <LemonInput
+                                                                data-attr="insight-name"
+                                                                placeholder="Name of the new cohort"
+                                                                autoFocus
+                                                            />
+                                                        </LemonField>
+                                                    ),
+                                                    errors: {
+                                                        name: (name) => (!name ? 'You must enter a name' : undefined),
+                                                    },
+                                                    onSubmit: async ({ name }) => {
+                                                        createStaticCohort(name, {
+                                                            kind: NodeKind.HogQLQuery,
+                                                            query: hogQL,
+                                                        })
+                                                    },
+                                                })
+                                            }}
+                                            fullWidth
+                                        >
+                                            Save as static cohort
+                                        </LemonButton>
+                                    )}
+
+                                    {hasDashboardItemId && (
+                                        <>
+                                            <LemonDivider />
+                                            <AccessControlledLemonButton
+                                                userAccessLevel={insight.user_access_level}
+                                                minAccessLevel="editor"
+                                                resourceType={AccessControlResourceType.Insight}
+                                                status="danger"
+                                                onClick={() =>
+                                                    void deleteInsightWithUndo({
+                                                        object: insight as QueryBasedInsightModel,
+                                                        endpoint: `projects/${currentProjectId}/insights`,
+                                                        callback: () => {
+                                                            loadInsights()
+                                                            push(urls.savedInsights())
+                                                        },
+                                                    })
+                                                }
+                                                fullWidth
+                                            >
+                                                Delete insight
+                                            </AccessControlledLemonButton>
+                                        </>
+                                    )}
+                                </>
+                            }
+                        />
                     </div>
                 }
                 caption={
@@ -408,16 +422,21 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         )}
                         {canEditInsight ? (
                             <ObjectTags
-                                tags={insight.tags ?? []}
+                                tags={tags ?? []}
                                 saving={insightSaving}
-                                onChange={(tags) => setInsightMetadata({ tags: tags ?? [] })}
-                                tagsAvailable={tags}
+                                onChange={(tags) => setTags(tags)}
+                                onBlur={() => {
+                                    if (tags !== insight.tags) {
+                                        setInsightMetadata({ tags: tags ?? [] })
+                                    }
+                                }}
+                                tagsAvailable={allExistingTags}
                                 className="mt-2"
                                 data-attr="insight-tags"
                             />
-                        ) : insight.tags?.length ? (
+                        ) : tags?.length ? (
                             <ObjectTags
-                                tags={insight.tags}
+                                tags={tags}
                                 saving={insightSaving}
                                 className="mt-2"
                                 data-attr="insight-tags"

@@ -1,10 +1,11 @@
+import { EventType, IncrementalSource, mutationData, NodeType } from '@posthog/rrweb-types'
 import { expectLogic } from 'kea-test-utils'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import posthog from 'posthog-js'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import {
-    deduplicateSnapshots,
     parseEncodedSnapshots,
     sessionRecordingDataLogic,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
@@ -18,8 +19,13 @@ import { initKeaTests } from '~/test/init'
 import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import recordingEventsJson from '../__mocks__/recording_events_query'
-import recordingMetaJson from '../__mocks__/recording_meta.json'
+import { recordingMetaJson } from '../__mocks__/recording_meta'
 import { snapshotsAsJSONLines, sortedRecordingSnapshots } from '../__mocks__/recording_snapshots'
+import { chunkMutationSnapshot } from './snapshot-processing/chunk-large-mutations'
+import { MUTATION_CHUNK_SIZE } from './snapshot-processing/chunk-large-mutations'
+import { deduplicateSnapshots } from './snapshot-processing/deduplicate-snapshots'
+import { patchMetaEventIntoWebData, ViewportResolution } from './snapshot-processing/patch-meta-event'
+import { clearThrottle } from './snapshot-processing/throttle-capturing'
 
 const sortedRecordingSnapshotsJson = sortedRecordingSnapshots()
 
@@ -207,7 +213,7 @@ describe('sessionRecordingDataLogic', () => {
             api.create.mockClear()
         })
 
-        it('load events after metadata with 1min buffer', async () => {
+        it('load events after metadata with 1 day buffer', async () => {
             api.create
                 .mockImplementationOnce(async () => {
                     return recordingEventsJson
@@ -228,22 +234,19 @@ describe('sessionRecordingDataLogic', () => {
                 {
                     client_query_id: undefined,
                     query: {
-                        after: '2023-05-01T14:45:20+00:00',
-                        before: '2023-05-01T14:47:32+00:00',
-                        kind: 'EventsQuery',
-                        limit: 1000000,
-                        orderBy: ['timestamp ASC'],
-                        personId: undefined,
-                        properties: [{ key: '$session_id', operator: 'exact', type: 'event', value: ['2'] }],
-                        select: [
-                            'uuid',
-                            'event',
-                            'timestamp',
-                            'elements_chain',
-                            'properties.$window_id',
-                            'properties.$current_url',
-                            'properties.$event_type',
-                        ],
+                        kind: 'HogQLQuery',
+                        query: `
+                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+                            FROM events
+                            WHERE timestamp > '2023-04-30 14:46:20'
+                              AND timestamp < '2023-05-02 14:46:32'
+                              AND (empty($session_id) OR isNull($session_id)) AND properties.$lib != 'web'
+                        
+                            AND person_id = '0187d7c7-61b7-0000-d6a1-59b207080ac0'
+                        
+                        ORDER BY timestamp ASC
+                        LIMIT 1000000
+                    `,
                     },
                 },
                 expect.anything()
@@ -434,5 +437,199 @@ describe('sessionRecordingDataLogic', () => {
 
             expect(parsed).toMatchSnapshot()
         })
+    })
+
+    describe('mutation chunking', () => {
+        const createMutationSnapshot = (addsCount: number): RecordingSnapshot =>
+            ({
+                type: EventType.IncrementalSnapshot,
+                timestamp: 1000,
+                data: {
+                    source: IncrementalSource.Mutation,
+                    adds: Array(addsCount).fill({ parentId: 1, nextId: null, node: { type: 1, tagName: 'div' } }),
+                    removes: [{ parentId: 1, id: 2 }],
+                    texts: [{ id: 3, value: 'text' }],
+                    attributes: [{ id: 4, attributes: { class: 'test' } }],
+                },
+                windowId: '1',
+            } as RecordingSnapshot)
+
+        it('does not chunk snapshots with adds below chunk size', () => {
+            const snapshot = createMutationSnapshot(100)
+            const chunks = chunkMutationSnapshot(snapshot)
+            expect(chunks).toEqual([snapshot])
+        })
+
+        it('chunks large mutation snapshots correctly', () => {
+            const addsCount = MUTATION_CHUNK_SIZE * 2 + 500 // Will create 3 chunks
+            const snapshot = createMutationSnapshot(addsCount)
+            const chunks = chunkMutationSnapshot(snapshot)
+
+            expect(chunks.length).toBe(3)
+
+            // First chunk
+            expect(chunks[0]).toMatchObject({
+                timestamp: 1000,
+                data: {
+                    adds: expect.arrayContaining([expect.any(Object)]),
+                    removes: (snapshot.data as mutationData).removes,
+                    texts: [],
+                    attributes: [],
+                },
+            })
+            expect((chunks[0].data as mutationData).adds.length).toBe(MUTATION_CHUNK_SIZE)
+
+            // Middle chunk
+            expect(chunks[1]).toMatchObject({
+                timestamp: 1000,
+                data: {
+                    adds: expect.arrayContaining([expect.any(Object)]),
+                    removes: [],
+                    texts: [],
+                    attributes: [],
+                },
+            })
+            expect((chunks[1].data as mutationData).adds.length).toBe(MUTATION_CHUNK_SIZE)
+
+            // Last chunk
+            expect(chunks[2]).toMatchObject({
+                timestamp: 1000,
+                data: {
+                    adds: expect.arrayContaining([expect.any(Object)]),
+                    removes: [],
+                    texts: (snapshot.data as mutationData).texts,
+                    attributes: (snapshot.data as mutationData).attributes,
+                },
+            })
+            expect((chunks[2].data as mutationData).adds.length).toBe(500)
+        })
+
+        it('handles delay correctly when chunking', () => {
+            const snapshot = createMutationSnapshot(MUTATION_CHUNK_SIZE * 2)
+            snapshot.delay = 100
+
+            const chunks = chunkMutationSnapshot(snapshot)
+
+            expect(chunks.length).toBe(2)
+            expect(chunks[0].delay).toBe(100)
+            expect(chunks[1].delay).toBe(100)
+        })
+
+        it('does not chunk non-mutation snapshots', () => {
+            const snapshot: RecordingSnapshot = {
+                type: EventType.FullSnapshot,
+                timestamp: 1000,
+                data: {
+                    node: { type: NodeType.Document, id: 1, childNodes: [] },
+                    initialOffset: { top: 0, left: 0 },
+                },
+                windowId: '1',
+            }
+            const chunks = chunkMutationSnapshot(snapshot)
+            expect(chunks).toEqual([snapshot])
+        })
+    })
+})
+
+describe('patchMetaEventIntoWebData', () => {
+    const mockViewportForTimestamp = (): ViewportResolution => ({
+        width: '1024',
+        height: '768',
+        href: 'https://blah.io',
+    })
+
+    function createFullSnapshot(): RecordingSnapshot {
+        return {
+            type: EventType.FullSnapshot,
+            timestamp: 1000,
+            windowId: 'window1',
+            data: {} as any,
+        }
+    }
+
+    function createMeta(width: number, height: number, href: string = 'https://blah.io'): RecordingSnapshot {
+        return {
+            type: EventType.Meta,
+            timestamp: 1000,
+            windowId: 'window1',
+            data: {
+                width: width,
+                height: height,
+                href: href,
+            },
+        }
+    }
+
+    it('adds meta event before full snapshot when none exists', () => {
+        const snapshots: RecordingSnapshot[] = [createFullSnapshot()]
+
+        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp, '12345')
+
+        expect(result).toEqual([createMeta(1024, 768), createFullSnapshot()])
+    })
+
+    it('does not add meta event if one already exists before full snapshot', () => {
+        const snapshots: RecordingSnapshot[] = [createMeta(800, 600, 'http://test'), createFullSnapshot()]
+
+        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp, '12345')
+
+        expect(result).toHaveLength(2)
+        expect(result[0]).toBe(snapshots[0])
+        expect(result[1]).toBe(snapshots[1])
+    })
+
+    it('handles multiple full snapshots correctly', () => {
+        const snapshots: RecordingSnapshot[] = [
+            createFullSnapshot(),
+            {
+                type: EventType.IncrementalSnapshot,
+                timestamp: 1500,
+                windowId: 'window1',
+                data: {},
+            } as RecordingSnapshot,
+            createFullSnapshot(),
+        ]
+
+        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestamp, '12345')
+
+        expect(result).toHaveLength(5)
+        expect(result[0].type).toBe(EventType.Meta)
+        expect(result[1].type).toBe(EventType.FullSnapshot)
+        expect(result[2].type).toBe(EventType.IncrementalSnapshot)
+        expect(result[3].type).toBe(EventType.Meta)
+        expect(result[4].type).toBe(EventType.FullSnapshot)
+    })
+
+    it('logs error when viewport dimensions are not available', () => {
+        const mockViewportForTimestampNoData = (): ViewportResolution | undefined => undefined
+        const snapshots: RecordingSnapshot[] = [createFullSnapshot()]
+
+        jest.spyOn(posthog, 'captureException')
+
+        const result = patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData, '12345')
+
+        expect(posthog.captureException).toHaveBeenCalledWith(
+            new Error('No event viewport or meta snapshot found for full snapshot'),
+            expect.any(Object)
+        )
+        expect(result).toHaveLength(1)
+        expect(result[0]).toBe(snapshots[0])
+    })
+
+    it('does not logs error twice for the same session', () => {
+        clearThrottle()
+
+        const mockViewportForTimestampNoData = (): ViewportResolution | undefined => undefined
+        const snapshots: RecordingSnapshot[] = [createFullSnapshot()]
+
+        jest.spyOn(posthog, 'captureException')
+
+        expect(posthog.captureException).toHaveBeenCalledTimes(0)
+        patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData, '12345')
+        expect(posthog.captureException).toHaveBeenCalledTimes(1)
+        patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData, '12345')
+        expect(posthog.captureException).toHaveBeenCalledTimes(1)
+        patchMetaEventIntoWebData(snapshots, mockViewportForTimestampNoData, '54321')
+        expect(posthog.captureException).toHaveBeenCalledTimes(2)
     })
 })

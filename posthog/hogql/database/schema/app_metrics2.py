@@ -7,14 +7,14 @@ from posthog.hogql.database.models import (
 )
 
 APP_METRICS2_FIELDS: dict[str, FieldOrTable] = {
-    "team_id": IntegerDatabaseField(name="team_id"),
-    "app_source": StringDatabaseField(name="app_source"),
-    "app_source_id": StringDatabaseField(name="app_source_id"),
-    "instance_id": StringDatabaseField(name="instance_id"),
-    "timestamp": DateTimeDatabaseField(name="timestamp"),
-    "metric_name": StringDatabaseField(name="metric_name"),
-    "metric_kind": StringDatabaseField(name="metric_kind"),
-    "count": IntegerDatabaseField(name="count"),
+    "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+    "app_source": StringDatabaseField(name="app_source", nullable=False),
+    "app_source_id": StringDatabaseField(name="app_source_id", nullable=False),
+    "instance_id": StringDatabaseField(name="instance_id", nullable=False),
+    "timestamp": DateTimeDatabaseField(name="timestamp", nullable=False),
+    "metric_name": StringDatabaseField(name="metric_name", nullable=False),
+    "metric_kind": StringDatabaseField(name="metric_kind", nullable=False),
+    "count": IntegerDatabaseField(name="count", nullable=False),
 }
 
 

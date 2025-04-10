@@ -1,4 +1,3 @@
-import { captureException } from '@sentry/node'
 import crypto from 'crypto'
 import { Redis } from 'ioredis'
 import { mkdirSync, rmSync } from 'node:fs'
@@ -11,16 +10,16 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from '../../../config/kafka-topics'
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
-import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../../kafka/config'
-import { createKafkaProducer } from '../../../kafka/producer'
+import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
+import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PluginServerService, PluginsServerConfig, RedisPool, TeamId, ValueMatcher } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
-import { KafkaProducerWrapper } from '../../../utils/db/kafka-producer-wrapper'
 import { PostgresRouter } from '../../../utils/db/postgres'
 import { createRedisPool } from '../../../utils/db/redis'
-import { status } from '../../../utils/status'
+import { logger } from '../../../utils/logger'
+import { ObjectStorage } from '../../../utils/object_storage'
+import { captureException } from '../../../utils/posthog'
 import { fetchTeamTokensWithRecordings } from '../../../worker/ingestion/team-manager'
-import { ObjectStorage } from '../../services/object_storage'
 import { runInstrumentedFunction } from '../../utils'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { eventDroppedCounter } from '../metrics'
@@ -213,10 +212,10 @@ export class SessionRecordingIngester {
 
         this.teamsRefresher = new BackgroundRefresher(async () => {
             try {
-                status.info('🔁', 'blob_ingester_consumer - refreshing teams in the background')
+                logger.info('🔁', 'blob_ingester_consumer - refreshing teams in the background')
                 return await fetchTeamTokensWithRecordings(this.postgres)
             } catch (e) {
-                status.error('🔥', 'blob_ingester_consumer - failed to refresh teams in the background', e)
+                logger.error('🔥', 'blob_ingester_consumer - failed to refresh teams in the background', e)
                 captureException(e)
                 throw e
             }
@@ -285,12 +284,13 @@ export class SessionRecordingIngester {
         gaugeSessionsRevoked.reset()
 
         const { team_id, session_id } = event
+
         const key = `${team_id}-${session_id}`
 
         const { partition, highOffset } = event.metadata
         const isDebug = this.isDebugLoggingEnabled(partition)
         if (isDebug) {
-            status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', {
+            logger.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', {
                 ...event.metadata,
                 team_id,
                 session_id,
@@ -305,7 +305,7 @@ export class SessionRecordingIngester {
                 })
                 .inc()
             if (isDebug) {
-                status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - dropping event', {
+                logger.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - dropping event', {
                     ...event.metadata,
                     dropCause,
                 })
@@ -353,7 +353,7 @@ export class SessionRecordingIngester {
         heartbeat()
 
         if (messages.length !== 0) {
-            status.info('🔁', `blob_ingester_consumer - handling batch`, {
+            logger.info('🔁', `blob_ingester_consumer - handling batch`, {
                 size: messages.length,
                 partitionsInBatch: [...new Set(messages.map((x) => x.partition))],
                 assignedPartitions: this.assignedPartitions,
@@ -448,7 +448,7 @@ export class SessionRecordingIngester {
     }
 
     public async start(): Promise<void> {
-        status.info('🔁', 'blob_ingester_consumer - starting session recordings blob consumer', {
+        logger.info('🔁', 'blob_ingester_consumer - starting session recordings blob consumer', {
             librdKafkaVersion: librdkafkaVersion,
             kafkaCapabilities: features,
         })
@@ -463,7 +463,7 @@ export class SessionRecordingIngester {
                 recursive: true,
             })
         } catch (e) {
-            status.error('🔥', 'Failed to recreate local buffer directory', e)
+            logger.error('🔥', 'Failed to recreate local buffer directory', e)
             captureException(e)
             throw e
         }
@@ -472,24 +472,19 @@ export class SessionRecordingIngester {
         await this.teamsRefresher.refresh()
 
         // NOTE: We use the standard config as we connect to the analytics kafka for producing
-        const globalConnectionConfig = createRdConnectionConfigFromEnvVars(this.config)
-        const globalProducerConfig = createRdProducerConfigFromEnvVars(this.config)
-
-        this.sharedClusterProducerWrapper = new KafkaProducerWrapper(
-            await createKafkaProducer(globalConnectionConfig, globalProducerConfig)
-        )
+        this.sharedClusterProducerWrapper = await KafkaProducerWrapper.create(this.config)
         this.sharedClusterProducerWrapper.producer.connect()
 
         if (this.config.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED) {
             this.consoleLogsIngester = new ConsoleLogsIngester(
-                this.sharedClusterProducerWrapper.producer,
+                this.sharedClusterProducerWrapper,
                 this.persistentHighWaterMarker
             )
         }
 
         if (this.config.SESSION_RECORDING_REPLAY_EVENTS_INGESTION_ENABLED) {
             this.replayEventsIngester = new ReplayEventsIngester(
-                this.sharedClusterProducerWrapper.producer,
+                this.sharedClusterProducerWrapper,
                 this.persistentHighWaterMarker
             )
         }
@@ -497,7 +492,11 @@ export class SessionRecordingIngester {
         // Create a node-rdkafka consumer that fetches batches of messages, runs
         // eachBatchWithContext, then commits offsets for the batch.
         // the batch consumer reads from the session replay kafka cluster
-        const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(this.sessionRecordingKafkaConfig())
+        const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(
+            // TODO: Replace this with the new ENV vars for producer specific config when ready.
+            this.sessionRecordingKafkaConfig(),
+            'consumer'
+        )
 
         this.batchConsumer = await startBatchConsumer({
             connectionConfig: replayClusterConnectionConfig,
@@ -540,7 +539,7 @@ export class SessionRecordingIngester {
         addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('rebalance', async (err, topicPartitions) => {
-            status.info('🔁', 'blob_ingester_consumer - rebalancing', { err, topicPartitions })
+            logger.info('🔁', 'blob_ingester_consumer - rebalancing', { err, topicPartitions })
             /**
              * see https://github.com/Blizzard/node-rdkafka#rebalancing
              *
@@ -559,7 +558,7 @@ export class SessionRecordingIngester {
             }
 
             // We had a "real" error
-            status.error('🔥', 'blob_ingester_consumer - rebalancing error', { err })
+            logger.error('🔥', 'blob_ingester_consumer - rebalancing error', { err })
             captureException(err)
             // TODO: immediately die? or just keep going?
         })
@@ -567,18 +566,18 @@ export class SessionRecordingIngester {
         this.batchConsumer.consumer.on('disconnected', async (err) => {
             // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
             // we need to listen to disconnect and make sure we're stopped
-            status.info('🔁', 'blob_ingester_consumer batch consumer disconnected, cleaning up', { err })
+            logger.info('🔁', 'blob_ingester_consumer batch consumer disconnected, cleaning up', { err })
             await this.stop()
         })
 
         // nothing happens here unless we configure SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS
         this.batchConsumer.consumer.on('event.stats', (stats) => {
-            status.info('🪵', 'blob_ingester_consumer - kafka stats', { stats })
+            logger.info('🪵', 'blob_ingester_consumer - kafka stats', { stats })
         })
     }
 
     public async stop(): Promise<PromiseSettledResult<any>[]> {
-        status.info('🔁', 'blob_ingester_consumer - stopping')
+        logger.info('🔁', 'blob_ingester_consumer - stopping')
         this.isStopping = true
 
         // NOTE: We have to get the partitions before we stop the consumer as it throws if disconnected
@@ -601,7 +600,7 @@ export class SessionRecordingIngester {
         await this.redisPool.drain()
         await this.redisPool.clear()
 
-        status.info('👍', 'blob_ingester_consumer - stopped!')
+        logger.info('👍', 'blob_ingester_consumer - stopped!')
 
         return promiseResults
     }
@@ -693,7 +692,7 @@ export class SessionRecordingIngester {
             func: async () => {
                 if (this.config.SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION) {
                     // Extend our claim on these partitions to give us time to flush
-                    status.info(
+                    logger.info(
                         '🔁',
                         `blob_ingester_consumer - flushing ${sessionsToDrop.length} sessions on revoke...`
                     )
@@ -725,7 +724,7 @@ export class SessionRecordingIngester {
         const sessions = Object.entries(this.sessions)
 
         // NOTE: We want to avoid flushing too many sessions at once as it can cause a lot of disk backpressure stalling the consumer
-        await allSettledWithConcurrency(
+        const results = await allSettledWithConcurrency(
             this.config.SESSION_RECORDING_MAX_PARALLEL_FLUSHES,
             sessions,
             async ([key, sessionManager], ctx) => {
@@ -744,7 +743,7 @@ export class SessionRecordingIngester {
                 // in practice, we will always have a values for latestKafkaMessageTimestamp,
                 const { lastMessageTimestamp, offsetLag } = this.partitionMetrics[sessionManager.partition] || {}
                 if (!lastMessageTimestamp) {
-                    status.warn('🤔', 'blob_ingester_consumer - no referenceTime for partition', {
+                    logger.warn('🤔', 'blob_ingester_consumer - no referenceTime for partition', {
                         partition: sessionManager.partition,
                     })
                     return
@@ -753,7 +752,7 @@ export class SessionRecordingIngester {
                 await sessionManager
                     .flushIfSessionBufferIsOld(lastMessageTimestamp, offsetLag)
                     .catch((err) => {
-                        status.error(
+                        logger.error(
                             '🚽',
                             'session-replay-ingestion - failed trying to flush on idle session: ' +
                                 sessionManager.sessionId,
@@ -763,8 +762,9 @@ export class SessionRecordingIngester {
                             }
                         )
                         captureException(err, {
-                            tags: { session_id: sessionManager.sessionId },
+                            tags: { session_id: sessionManager.sessionId, error_context: 'failed-on-flush' },
                         })
+                        throw err
                     })
                     .then(async () => {
                         // If the SessionManager is done (flushed and with no more queued events) then we remove it to free up memory
@@ -774,6 +774,13 @@ export class SessionRecordingIngester {
                     })
             }
         )
+        const errors = results.filter((r) => !!r.error).map((r) => r.error)
+        if (errors.length) {
+            logger.error('🌶️', 'blob_ingester_consumer - failed to flush sessions', { errors })
+            throw new Error(
+                'Failed to flush sessions. With ' + errors.length + ' errors out of ' + results.length + ' sessions.'
+            )
+        }
 
         gaugeSessionsHandled.set(Object.keys(this.sessions).length)
         gaugeRealtimeSessions.set(
@@ -800,11 +807,6 @@ export class SessionRecordingIngester {
                     partition,
                 }
 
-                // status.info('🔁', `blob_ingester_consumer - committing offset for partition`, {
-                //     ...tp,
-                //     partitionBlockingSessions,
-                // })
-
                 let potentiallyBlockingSession: SessionManager | undefined
 
                 let activeSessionsOnThisPartition = 0
@@ -828,8 +830,8 @@ export class SessionRecordingIngester {
 
                 if (!highestOffsetToCommit) {
                     const partitionDebug = this.isDebugLoggingEnabled(partition)
-                    const logMethod = partitionDebug ? status.info : status.debug
-                    logMethod(
+
+                    const logArgs = [
                         '🤔',
                         `[blob_ingester_consumer]${
                             partitionDebug ? ' - [PARTITION DEBUG] - ' : ' - '
@@ -841,8 +843,9 @@ export class SessionRecordingIngester {
                             // committedHighOffset,
                             lastMessageOffset: metrics.lastMessageOffset,
                             highestOffsetToCommit,
-                        }
-                    )
+                        },
+                    ]
+                    partitionDebug ? logger.info(...logArgs) : logger.debug(...logArgs)
                     counterCommitSkippedDueToPotentiallyBlockingSession.inc()
                     histogramActiveSessionsWhenCommitIsBlocked.observe(activeSessionsOnThisPartition)
                     return
@@ -855,7 +858,7 @@ export class SessionRecordingIngester {
                     },
                 ])
 
-                status.info('🔁', `blob_ingester_consumer - storing offset for partition`, {
+                logger.info('🔁', `blob_ingester_consumer - storing offset for partition`, {
                     ...tp,
                     highestOffsetToCommit,
                     result,

@@ -34,6 +34,7 @@ import {
     Node,
     NodeKind,
     TrendsFilter,
+    TrendsFormulaNode,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import {
@@ -43,6 +44,8 @@ import {
     getCompareFilter,
     getDisplay,
     getFormula,
+    getFormulaNodes,
+    getFormulas,
     getGoalLines,
     getInterval,
     getResultCustomizationBy,
@@ -50,6 +53,7 @@ import {
     getShowAlertThresholdLines,
     getShowLabelsOnSeries,
     getShowLegend,
+    getShowMultipleYAxes,
     getShowPercentStackView,
     getShowValuesOnSeries,
     getYAxisScaleType,
@@ -68,7 +72,7 @@ import {
     nodeKindToFilterProperty,
     supportsPercentStackView,
 } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, FilterType, InsightLogicProps } from '~/types'
+import { BaseMathType, ChartDisplayType, FilterType, InsightLogicProps, SlowQueryPossibilities } from '~/types'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
 
@@ -106,6 +110,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateHiddenLegendIndexes: (hiddenLegendIndexes: number[] | undefined) => ({ hiddenLegendIndexes }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
         setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => ({ isIntervalManuallySet }),
+        toggleFormulaMode: true,
     }),
 
     reducers({
@@ -116,15 +121,19 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             },
         ],
 
-        // Whether the interval has been manually set by the user. If true, prevents auto-adjusting the interval when date range changes. Reference: https://github.com/PostHog/posthog/issues/22785
         isIntervalManuallySet: [
             false,
             {
                 updateQuerySource: (state, { querySource }) => {
-                    // If interval is explicitly included in the update, mark it as manually set
                     return 'interval' in querySource ? true : state
                 },
                 setIsIntervalManuallySet: (_, { isIntervalManuallySet }) => isIntervalManuallySet,
+            },
+        ],
+        isFormulaModeOpenedExplicitly: [
+            false,
+            {
+                toggleFormulaMode: (state) => !state,
             },
         ],
     }),
@@ -177,7 +186,26 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         breakdownFilter: [(s) => [s.querySource], (q) => (q ? getBreakdown(q) : null)],
         compareFilter: [(s) => [s.querySource], (q) => (q ? getCompareFilter(q) : null)],
         display: [(s) => [s.querySource], (q) => (q ? getDisplay(q) : null)],
-        formula: [(s) => [s.querySource], (q) => (q ? getFormula(q) : null)],
+        formula: [
+            (s) => [s.querySource],
+            (querySource: InsightQueryNode | null) => (querySource ? getFormula(querySource) : null),
+        ],
+        formulas: [
+            (s) => [s.querySource],
+            (querySource: InsightQueryNode | null) => (querySource ? getFormulas(querySource) : null),
+        ],
+        formulaNodes: [
+            (s) => [s.querySource],
+            (querySource: InsightQueryNode | null) => {
+                const formula = getFormula(querySource)
+                const formulas = getFormulas(querySource)
+
+                return querySource
+                    ? getFormulaNodes(querySource) ||
+                          (formulas ? formulas.map((f) => ({ formula: f })) : formula ? [{ formula }] : [])
+                    : []
+            },
+        ],
         series: [(s) => [s.querySource], (q) => (q ? getSeries(q) : null)],
         interval: [(s) => [s.querySource], (q) => (q ? getInterval(q) : null)],
         properties: [(s) => [s.querySource], (q) => (q ? q.properties : null)],
@@ -188,6 +216,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],
         showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
         yAxisScaleType: [(s) => [s.querySource], (q) => (q ? getYAxisScaleType(q) : null)],
+        showMultipleYAxes: [(s) => [s.querySource], (q) => (q ? getShowMultipleYAxes(q) : null)],
         resultCustomizationBy: [(s) => [s.querySource], (q) => (q ? getResultCustomizationBy(q) : null)],
         goalLines: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? getGoalLines(q) : null)],
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
@@ -208,7 +237,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     breakdownFilter?.breakdowns?.find((breakdown) => breakdown.type === 'session')
                 const using_session_math = series?.some((entity) => entity.math === 'unique_session')
                 const using_session_property_math = series?.some((entity) => {
-                    // Should be made more generic is we ever add more session properties
                     return entity.math_property === '$session_duration'
                 })
                 const using_entity_session_property_filter = series?.some((entity) => {
@@ -237,9 +265,18 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         isSingleSeries: [
-            (s) => [s.isTrends, s.formula, s.series, s.breakdownFilter],
-            (isTrends, formula, series, breakdownFilter): boolean => {
-                return ((isTrends && !!formula) || (series || []).length <= 1) && !breakdownFilter?.breakdown
+            (s) => [s.isTrends, s.formula, s.formulas, s.series, s.breakdownFilter],
+            (
+                isTrends: boolean,
+                formula: string | undefined,
+                formulas: string[] | undefined,
+                series: any[],
+                breakdownFilter: BreakdownFilter | null
+            ): boolean => {
+                return (
+                    ((isTrends && (!!formula || (formulas && formulas.length > 0))) || (series || []).length <= 1) &&
+                    !breakdownFilter?.breakdown
+                )
             },
         ],
         isBreakdownSeries: [
@@ -284,7 +321,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return !!(
                     ((isTrends || isStickiness || isLifecycle) &&
                         (insightFilter as TrendsFilter)?.showValuesOnSeries) ||
-                    // pie charts have value checked by default
                     (isTrends &&
                         (insightFilter as TrendsFilter)?.display === ChartDisplayType.ActionsPie &&
                         (insightFilter as TrendsFilter)?.showValuesOnSeries === undefined)
@@ -300,11 +336,20 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         hasDetailedResultsTable: [
-            (s) => [s.isTrends, s.display],
-            (isTrends, display) => isTrends && !(display && DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS.includes(display)),
+            (s) => [s.isTrends, s.isStickiness, s.display],
+            (isTrends: boolean, isStickiness: boolean, display: ChartDisplayType | undefined) =>
+                (isTrends || isStickiness) && !(display && DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS.includes(display)),
         ],
 
-        hasFormula: [(s) => [s.formula], (formula) => formula !== undefined],
+        hasFormula: [
+            (s) => [s.formulaNodes, s.isFormulaModeOpenedExplicitly],
+            (formulaNodes: TrendsFormulaNode[], isFormulaModeOpenedExplicitly: boolean): boolean => {
+                if (isFormulaModeOpenedExplicitly) {
+                    return true
+                }
+                return formulaNodes.length > 0
+            },
+        ],
 
         activeUsersMath: [
             (s) => [s.series],
@@ -317,14 +362,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 const enabledIntervals: Intervals = { ...intervals }
 
                 if (activeUsersMath) {
-                    // Disallow grouping by hour for WAUs/MAUs as it's an expensive query that produces a view that's not useful for users
                     enabledIntervals.hour = {
                         ...enabledIntervals.hour,
                         disabledReason:
                             'Grouping by hour is not supported on insights with weekly or monthly active users series.',
                     }
 
-                    // Disallow grouping by month for WAUs as the resulting view is misleading to users
                     if (activeUsersMath === BaseMathType.WeeklyActiveUsers) {
                         enabledIntervals.month = {
                             ...enabledIntervals.month,
@@ -401,6 +444,52 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         theme: [(s) => [s.getTheme, s.querySource], (getTheme, querySource) => getTheme(querySource?.dataColorTheme)],
+
+        isAllEventsQuery: [
+            (s) => [s.querySource],
+            (querySource) => {
+                return (
+                    (querySource?.kind === NodeKind.TrendsQuery || querySource?.kind === NodeKind.FunnelsQuery) &&
+                    querySource?.series?.some((s) => s.name === 'All events')
+                )
+            },
+        ],
+        isFirstTimeForUserQuery: [
+            (s) => [s.querySource],
+            (querySource) => {
+                return (
+                    querySource?.kind === NodeKind.TrendsQuery &&
+                    querySource?.series?.some((s) =>
+                        ['first_matching_event_for_user', 'first_time_for_user'].includes(s.math || '')
+                    )
+                )
+            },
+        ],
+        isStrictFunnelQuery: [
+            (s) => [s.querySource],
+            (querySource) => {
+                return (
+                    querySource?.kind === NodeKind.FunnelsQuery &&
+                    querySource?.funnelsFilter?.funnelOrderType === 'strict'
+                )
+            },
+        ],
+        slowQueryPossibilities: [
+            (s) => [s.isAllEventsQuery, s.isFirstTimeForUserQuery, s.isStrictFunnelQuery],
+            (isAllEventsQuery, isFirstTimeForUserQuery, isStrictFunnelQuery): SlowQueryPossibilities[] => {
+                const possibilities: SlowQueryPossibilities[] = []
+                if (isAllEventsQuery) {
+                    possibilities.push('all_events')
+                }
+                if (isFirstTimeForUserQuery) {
+                    possibilities.push('first_time_for_user')
+                }
+                if (isStrictFunnelQuery) {
+                    possibilities.push('strict_funnel')
+                }
+                return possibilities
+            },
+        ],
     }),
 
     listeners(({ actions, values, props }) => ({
@@ -496,6 +585,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
         loadDataFailure: () => {
             actions.setTimedOutQueryId(null)
+        },
+        toggleFormulaMode: () => {
+            // Only if formula mode is already open should we trigger a query.
+            if (values.hasFormula) {
+                actions.updateInsightFilter({ formula: undefined, formulas: undefined, formulaNodes: [] })
+            }
         },
     })),
 ])

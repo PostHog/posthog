@@ -4,7 +4,7 @@ import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 
 import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, DataVisualizationNode, EventsQuery } from '~/queries/schema'
+import { DataTableNode, DataVisualizationNode, EventsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { isDataTableNode, isHogQLQuery, trimQuotes } from '~/queries/utils'
 

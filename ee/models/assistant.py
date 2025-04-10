@@ -11,8 +11,18 @@ from posthog.models.utils import UUIDModel
 
 
 class Conversation(UUIDModel):
+    class Status(models.TextChoices):
+        IDLE = "idle", "Idle"
+        IN_PROGRESS = "in_progress", "In progress"
+        CANCELING = "canceling", "Canceling"
+
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.IDLE)
+
+    @property
+    def is_locked(self) -> bool:
+        return self.status in (self.Status.IN_PROGRESS, self.Status.CANCELING)
 
 
 class ConversationCheckpoint(UUIDModel):

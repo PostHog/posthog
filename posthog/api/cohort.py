@@ -1,5 +1,6 @@
 import csv
 
+from collections import defaultdict
 from django.db import DatabaseError
 from loginas.utils import is_impersonated_session
 from sentry_sdk import start_span
@@ -30,14 +31,14 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
-from sentry_sdk.api import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.person import get_funnel_actor_class
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_target_entity
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import (
     INSIGHT_FUNNELS,
     INSIGHT_LIFECYCLE,
@@ -75,7 +76,7 @@ from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
     insert_cohort_from_feature_flag,
     insert_cohort_from_insight_filter,
-    update_cohort,
+    increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_query,
 )
 from posthog.utils import format_query_params_absolute_url
@@ -160,7 +161,7 @@ class CohortSerializer(serializers.ModelSerializer):
         elif cohort.query is not None:
             raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
-            update_cohort(cohort, initiating_user=request.user)
+            increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
 
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
@@ -248,7 +249,7 @@ class CohortSerializer(serializers.ModelSerializer):
                             team_id=team_id,
                             # Only appending `team_id` if it's not the same as the cohort's `team_id``, so that
                             # the migration to environments does not accidentally cause duplicate `AsyncDeletion`s
-                            key=f"{cohort.pk}_{cohort.version}{('_'+team_id) if team_id != cohort.team_id else ''}",
+                            key=f"{cohort.pk}_{cohort.version}{('_' + str(team_id)) if team_id != cohort.team_id else ''}",
                         )
                         for team_id in relevant_team_ids
                     ],
@@ -273,9 +274,9 @@ class CohortSerializer(serializers.ModelSerializer):
                 if request.FILES.get("csv"):
                     self._calculate_static_by_csv(request.FILES["csv"], cohort)
                 else:
-                    update_cohort(cohort, initiating_user=request.user)
+                    increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
             else:
-                update_cohort(cohort, initiating_user=request.user)
+                increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
 
         report_user_action(
             request.user,
@@ -309,7 +310,73 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             if search_query:
                 queryset = queryset.filter(name__icontains=search_query)
 
+            # TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
+            # used in the feature flag property filter UI
+            if self.request.query_params.get("hide_behavioral_cohorts", "false").lower() == "true":
+                all_cohorts = {cohort.id: cohort for cohort in queryset.all()}
+                behavioral_cohort_ids = self._find_behavioral_cohorts(all_cohorts)
+                queryset = queryset.exclude(id__in=behavioral_cohort_ids)
+
         return queryset.prefetch_related("experiment_set", "created_by", "team").order_by("-created_at")
+
+    def _find_behavioral_cohorts(self, all_cohorts: dict[int, Cohort]) -> set[int]:
+        """
+        Find all cohorts that have behavioral filters or reference cohorts with behavioral filters
+        using a graph-based approach.
+        """
+        graph, behavioral_cohorts = self._build_cohort_dependency_graph(all_cohorts)
+        affected_cohorts = set(behavioral_cohorts)
+
+        def find_affected_cohorts() -> None:
+            changed = True
+            while changed:
+                changed = False
+                for source_id in list(graph.keys()):
+                    if source_id not in affected_cohorts:
+                        # NB: If this cohort points to any affected cohort, it's also affected
+                        if any(target_id in affected_cohorts for target_id in graph[source_id]):
+                            affected_cohorts.add(source_id)
+                            changed = True
+
+        find_affected_cohorts()
+        return affected_cohorts
+
+    def _build_cohort_dependency_graph(self, all_cohorts: dict[int, Cohort]) -> tuple[dict[int, set[int]], set[int]]:
+        """
+        Builds a directed graph of cohort dependencies and identifies behavioral cohorts.
+        Returns (adjacency_list, behavioral_cohort_ids).
+        """
+        graph = defaultdict(set)
+        behavioral_cohorts = set()
+
+        def check_property_values(values: Any, source_id: int) -> None:
+            """Process property values to build graph edges and identify behavioral cohorts."""
+            if not isinstance(values, list):
+                return
+
+            for value in values:
+                if not isinstance(value, dict):
+                    continue
+
+                if value.get("type") == "behavioral":
+                    behavioral_cohorts.add(source_id)
+                elif value.get("type") == "cohort":
+                    try:
+                        target_id = int(value.get("value", "0"))
+                        if target_id in all_cohorts:
+                            graph[source_id].add(target_id)
+                    except ValueError:
+                        continue
+                elif value.get("type") in ("AND", "OR") and value.get("values"):
+                    check_property_values(value["values"], source_id)
+
+        for cohort_id, cohort in all_cohorts.items():
+            if cohort.filters:
+                properties = cohort.filters.get("properties", {})
+                if isinstance(properties, dict):
+                    check_property_values(properties.get("values", []), cohort_id)
+
+        return graph, behavioral_cohorts
 
     @action(
         methods=["GET"],
@@ -620,7 +687,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
         return []
 
     cohort = Cohort.objects.get(pk=cohort_id, team__project_id=project_id)
-    matcher_cache = FlagsMatcherCache(team_id=team_id)
+    matcher_cache = FlagsMatcherCache(project_id=project_id)
     uuids_to_add_to_cohort = []
     cohorts_cache: dict[int, CohortOrEmpty] = {}
 
@@ -694,6 +761,8 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
 
                     try:
                         match = FeatureFlagMatcher(
+                            team_id,
+                            project_id,
                             [feature_flag],
                             distinct_id,
                             groups={},

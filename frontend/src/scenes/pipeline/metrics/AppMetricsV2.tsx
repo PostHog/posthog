@@ -1,5 +1,14 @@
 import { IconCalendar } from '@posthog/icons'
-import { LemonSelect, LemonSkeleton, Popover, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDropdown,
+    LemonSelect,
+    LemonSkeleton,
+    Popover,
+    SpinnerOverlay,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
@@ -8,7 +17,8 @@ import { humanFriendlyNumber, inStorybookTestRunner } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 
-import { appMetricsV2Logic, AppMetricsV2LogicProps } from './appMetricsV2Logic'
+import { hogFunctionConfigurationLogic } from '../hogfunctions/hogFunctionConfigurationLogic'
+import { ALL_METRIC_TYPES, appMetricsV2Logic, AppMetricsV2LogicProps } from './appMetricsV2Logic'
 
 const METRICS_INFO = {
     succeeded: 'Total number of events processed successfully',
@@ -24,6 +34,7 @@ export function AppMetricsV2({ id }: AppMetricsV2LogicProps): JSX.Element {
     const logic = appMetricsV2Logic({ id })
 
     const { filters } = useValues(logic)
+    const { type } = useValues(hogFunctionConfigurationLogic({ id }))
     const { setFilters, loadMetrics, loadMetricsTotals } = useActions(logic)
 
     useEffect(() => {
@@ -33,12 +44,57 @@ export function AppMetricsV2({ id }: AppMetricsV2LogicProps): JSX.Element {
 
     return (
         <BindLogic logic={appMetricsV2Logic} props={{ id }}>
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
                 <AppMetricsTotals />
 
                 <div className="flex items-center gap-2">
                     <h2 className="mb-0">Delivery trends</h2>
                     <div className="flex-1" />
+                    <LemonDropdown
+                        closeOnClickInside={false}
+                        matchWidth={false}
+                        placement="right-end"
+                        overlay={
+                            <div className="deprecated-space-y-2 overflow-hidden max-w-100">
+                                {ALL_METRIC_TYPES.filter(
+                                    ({ value }) => value !== 'fetch' || type !== 'transformation'
+                                ).map(({ label, value }) => {
+                                    return (
+                                        <LemonButton
+                                            key={value}
+                                            fullWidth
+                                            icon={
+                                                <LemonCheckbox
+                                                    checked={filters?.name?.split(',').includes(value)}
+                                                    className="pointer-events-none"
+                                                />
+                                            }
+                                            onClick={() => {
+                                                setFilters({
+                                                    name: filters?.name?.split(',').includes(value)
+                                                        ? filters.name
+                                                              .split(',')
+                                                              .filter((t) => t != value)
+                                                              .join(',')
+                                                        : filters.name + ',' + value,
+                                                })
+                                            }}
+                                        >
+                                            {label}
+                                        </LemonButton>
+                                    )
+                                })}
+                            </div>
+                        }
+                    >
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            tooltip="Filtering for any log groups containing any of the selected levels"
+                        >
+                            Filters
+                        </LemonButton>
+                    </LemonDropdown>
                     <LemonSelect
                         options={[
                             { label: 'Hourly', value: 'hour' },
@@ -79,7 +135,7 @@ function AppMetricBigNumber({
 }): JSX.Element {
     return (
         <Tooltip title={tooltip}>
-            <div className="border p-2 rounded bg-bg-light flex-1 flex flex-col gap-2 items-center">
+            <div className="border p-2 rounded bg-surface-primary flex-1 flex flex-col gap-2 items-center">
                 <div className="uppercase font-bold text-xs">{label.replace(/_/g, ' ')}</div>
                 <div className="text-2xl flex-1 mb-2 flex items-center">{humanFriendlyNumber(value ?? 0)}</div>
             </div>
@@ -91,7 +147,7 @@ function AppMetricsTotals(): JSX.Element {
     const { appMetricsTotals, appMetricsTotalsLoading } = useValues(appMetricsV2Logic)
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <div className="flex items-center gap-2 flex-wrap">
                 {Object.entries(METRICS_INFO).map(([key, value]) => (
                     <div key={key} className="flex flex-col h-30 min-w-30 flex-1 max-w-100">
@@ -196,7 +252,7 @@ function AppMetricsGraph(): JSX.Element {
     }, [appMetrics])
 
     return (
-        <div className="relative border rounded p-6 bg-bg-light h-[50vh]">
+        <div className="relative border rounded p-6 bg-surface-primary h-[50vh]">
             {appMetricsLoading && <SpinnerOverlay />}
             {!!appMetrics && <canvas ref={canvasRef} />}
             <Popover

@@ -1,7 +1,7 @@
 import { Link } from '@posthog/lemon-ui'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Sparkline } from 'lib/components/Sparkline'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton'
+import ViewRecordingButton, { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
@@ -26,7 +26,7 @@ export function renderHogQLX(value: any): JSX.Element {
 
     if (typeof object === 'object') {
         if (Array.isArray(object)) {
-            return <JSONViewer src={object} name={null} collapsed={object.length > 10 ? 0 : 1} />
+            return <>{object.map((obj) => renderHogQLX(obj))}</>
         }
 
         const { __hx_tag: tag, ...rest } = object
@@ -40,7 +40,7 @@ export function renderHogQLX(value: any): JSX.Element {
                 </ErrorBoundary>
             )
         } else if (tag === 'RecordingButton') {
-            const { sessionId, ...props } = rest
+            const { sessionId, recordingStatus } = rest
             return (
                 <ErrorBoundary>
                     <ViewRecordingButton
@@ -50,32 +50,33 @@ export function renderHogQLX(value: any): JSX.Element {
                         size="xsmall"
                         data-attr="hog-ql-view-recording-button"
                         className="inline-block"
-                        {...props}
-                        disabledReason={sessionId ? undefined : 'No session id associated with this event'}
+                        disabledReason={
+                            mightHaveRecording({ $session_id: sessionId, $recording_status: recordingStatus })
+                                ? undefined
+                                : 'Replay was not active when capturing this event'
+                        }
                     />
                 </ErrorBoundary>
             )
         } else if (tag === 'a') {
-            const { href, source, target } = rest
+            const { href, children, source, target } = rest
             return (
                 <ErrorBoundary>
-                    <Link to={href} target={target ?? '_self'}>
-                        {source ? renderHogQLX(source) : href}
+                    <Link to={href} target={target ?? undefined}>
+                        {children ?? source ? renderHogQLX(children ?? source) : href}
                     </Link>
                 </ErrorBoundary>
             )
         } else if (tag === 'strong') {
-            const { source } = rest
             return (
                 <ErrorBoundary>
-                    <strong>{renderHogQLX(source)}</strong>
+                    <strong>{renderHogQLX(rest.children ?? rest.source)}</strong>
                 </ErrorBoundary>
             )
         } else if (tag === 'em') {
-            const { source } = rest
             return (
                 <ErrorBoundary>
-                    <em>{renderHogQLX(source)}</em>
+                    <em>{renderHogQLX(rest.children ?? rest.source)}</em>
                 </ErrorBoundary>
             )
         }

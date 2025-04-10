@@ -175,6 +175,26 @@ export function IconPython(props: LemonIconProps): JSX.Element {
     )
 }
 
+export function IconCSharp(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 128 128" {...props}>
+            <path
+                fill="currentColor"
+                fillOpacity="0.7"
+                d="M115.4 30.7L67.1 2.9c-.8-.5-1.9-.7-3.1-.7-1.2 0-2.3.3-3.1.7l-48 27.9c-1.7 1-2.9 3.5-2.9 5.4v55.7c0 1.1.2 2.4 1 3.5l106.8-62c-.6-1.2-1.5-2.1-2.4-2.7z"
+            />
+            <path
+                fill="currentColor"
+                d="M10.7 95.3c.5.8 1.2 1.5 1.9 1.9l48.2 27.9c.8.5 1.9.7 3.1.7 1.2 0 2.3-.3 3.1-.7l48-27.9c1.7-1 2.9-3.5 2.9-5.4V36.1c0-.9-.1-1.9-.6-2.8l-106.6 62z"
+            />
+            <path
+                fill="#fff"
+                d="M85.3 76.1C81.1 83.5 73.1 88.5 64 88.5c-13.5 0-24.5-11-24.5-24.5s11-24.5 24.5-24.5c9.1 0 17.1 5 21.3 12.5l13-7.5c-6.8-11.9-19.6-20-34.3-20-21.8 0-39.5 17.7-39.5 39.5s17.7 39.5 39.5 39.5c14.6 0 27.4-8 34.2-19.8l-12.9-7.6zM97 66.2l.9-4.3h-4.2v-4.7h5.1L100 51h4.9l-1.2 6.1h3.8l1.2-6.1h4.8l-1.2 6.1h2.4v4.7h-3.3l-.9 4.3h4.2v4.7h-5.1l-1.2 6h-4.9l1.2-6h-3.8l-1.2 6h-4.8l1.2-6h-2.4v-4.7H97zm4.8 0h3.8l.9-4.3h-3.8l-.9 4.3z"
+            />
+        </LemonIconBase>
+    )
+}
+
 export function IconHandClick(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase viewBox="0 0 18 18" {...props}>
@@ -970,6 +990,94 @@ export function IconInternetExplorer(props: LemonIconProps): JSX.Element {
     )
 }
 
+export function IconBlackberry(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            <path
+                fill="currentColor"
+                d="M18.13 11.8c-1.11 0-2.31 0-2.31 0l.63-2.92s1.62 0 2.22 0c1.44 0 1.78.71 1.78 1.27 0 .8-.51 1.65-2.32 1.65zm1.46 2.51c0 .8-.51 1.65-2.32 1.65-1.11 0-2.31 0-2.31 0l.63-2.92s1.62 0 2.22 0c1.44 0 1.78.71 1.78 1.27zM12.76 9.18c-1.11 0-2.31 0-2.31 0l.63-2.92s1.62 0 2.21 0c1.44 0 1.78.71 1.78 1.27 0 .8-.51 1.65-2.31 1.65zm1.52 2.75c0 .8-.51 1.65-2.32 1.65-1.11 0-2.31 0-2.31 0l.63-2.92s1.62 0 2.22 0c1.44 0 1.78.71 1.78 1.27zm-.86 4.58c0 .8-.51 1.65-2.31 1.65-1.11 0-2.31 0-2.31 0l.63-2.92s1.62 0 2.22 0c1.44 0 1.78.71 1.78 1.27zM6.59 9.18c-1.11 0-2.31 0-2.31 0l.63-2.92s1.62 0 2.22 0c1.44 0 1.78.71 1.78 1.27 0 .8-.52 1.65-2.32 1.65zm1.52 2.75c0 .8-.52 1.65-2.32 1.65-1.11 0-2.31 0-2.31 0l.63-2.92s1.63 0 2.22 0c1.44 0 1.78.71 1.78 1.27z"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconUCBrowser(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            <circle
+                cx="9.79"
+                cy="17.63"
+                r="3.62"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+            <path
+                d="M14.69 19.29s2.99-.55 2.99 1.96H8.27c-3.09 0-5.6-2.51-5.6-5.6 0-1.45.55-2.77 1.46-3.77 1.75-1.92 2.55-2.6 2.55-4.19s-1.98-2.56-4.01-1.32c1.74-3.03 3.12-3.62 5.95-3.62s4.15 2.36 4.15 4.42c0 4.09-6.6 4.45-6.6 10.46"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+            <path
+                d="M14.69 19.29c.39-.67.61-1.45.61-2.28 0-2.52-2.04-4.57-4.57-4.57-1.61 0-3.02.83-3.83 2.08M9.07 12.76c2.64-1.85 6.29-1.12 8.61 1.09 2.68-.47 3.65 1.18 3.65 1.18-1.14-.09-2.52.33-3.43.67-.59.22-1.25.07-1.67-.39-1.8-1.98-4.57-3.79-7.17-2.55z"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+            <path
+                d="M11.49 11.79s1.39-1.43 4.49-3.09c-.12-1.5-.04-2.07.71-2.53 1.33.34 1.59 1.91 1.59 1.91 2.44.82 3.42 4.15 2.5 4.62s-3.87.13-5.68-.49"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+            <circle
+                cx="9.79"
+                cy="17.63"
+                r="1.31"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconSamsungInternet(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            <path
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.5"
+                d="M8 18.93c3.83 2.21 8.72.9 10.93-2.93 2.21-3.83.9-8.72-2.93-10.93-3.83-2.21-8.72-.9-10.93 2.93-2.21 3.83-.9 8.72 2.93 10.93z"
+            />
+            <path
+                fill="currentColor"
+                fillRule="evenodd"
+                d="M7.83 5.48c-2.72-.62-4.85-.36-5.57.9-1.24 2.15 2.11 6.41 7.49 9.52 5.38 3.11 10.75 3.88 12 1.73.71-1.24-.1-3.17-1.93-5.18l-.54 1.68.02.03c.61.77.96 1.44 1.12 1.94.15.51.07.72.03.78-.04.07-.18.24-.69.37-.52.12-1.27.15-2.24 0-1.94-.27-4.45-1.16-7.01-2.65-2.57-1.48-4.6-3.2-5.8-4.74-.61-.78-.97-1.44-1.12-1.95-.15-.5-.07-.71-.03-.78.04-.06.18-.24.69-.36.49-.12 1.2-.15 2.11-.03l-2.53-1.26z"
+                clipRule="evenodd"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconFacebook(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            <path
+                fill="currentColor"
+                d="M17 3.5a.5.5 0 00-.5-.5H14a4.77 4.77 0 00-5 4.5v2.7H6.5a.5.5 0 00-.5.5v2.6a.5.5 0 00.5.5H9v6.7a.5.5 0 00.5.5h3a.5.5 0 00.5-.5v-6.7h2.62a.5.5 0 00.49-.37l.72-2.6a.5.5 0 00-.48-.63H13V7.5a1 1 0 011-.9h2.5a.5.5 0 00.5-.5V3.5z"
+            />
+        </LemonIconBase>
+    )
+}
+
 /** Material Web icon. */
 export function IconWeb(props: LemonIconProps): JSX.Element {
     return (
@@ -1380,6 +1488,20 @@ export function IconFlutter(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase viewBox="0 0 24 24" {...props}>
             <path fill="currentColor" d="M3.5 12.5L6.5 15.5 19 3 13 3zM19 12L13 12 8 17 13 22 19 22 14 17z" />
+        </LemonIconBase>
+    )
+}
+
+export function IconFingerprint(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="1 1 23 23" {...props}>
+            <path
+                d="M13.1427 20.9999C10.8077 19.5438 9.25254 16.9522 9.25254 13.9968C9.25254 12.4783 10.4833 11.2476 12.0008 11.2476C13.5184 11.2476 14.7491 12.4783 14.7491 13.9968C14.7491 15.5153 15.9798 16.746 17.4974 16.746C19.0149 16.746 20.2457 15.5153 20.2457 13.9968C20.2457 9.44139 16.5544 5.74922 12.0017 5.74922C7.44907 5.74922 3.75781 9.44139 3.75781 13.9968C3.75781 15.0122 3.87145 16.001 4.08038 16.954M8.49027 20.2989C7.23938 18.5138 6.50351 16.3419 6.50351 13.9968C6.50351 10.9599 8.96405 8.49844 11.9992 8.49844C15.0343 8.49844 17.4948 10.9599 17.4948 13.9968M17.7927 19.4806C17.6937 19.4861 17.5966 19.4953 17.4967 19.4953C14.4616 19.4953 12.0011 17.0338 12.0011 13.9969M19.6734 6.47682C17.7993 4.34802 15.0593 3 12.0004 3C8.94141 3 6.20138 4.34802 4.32734 6.47682"
+                stroke="currentColor"
+                strokeWidth="1"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
         </LemonIconBase>
     )
 }

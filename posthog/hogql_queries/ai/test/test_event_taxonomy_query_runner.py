@@ -5,6 +5,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
+from posthog.models import Action
 from posthog.schema import CachedEventTaxonomyQueryResponse, EventTaxonomyQuery
 from posthog.test.base import (
     APIBaseTest,
@@ -411,3 +412,101 @@ class TestEventTaxonomyQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results[1].property, "$host")
         self.assertEqual(response.results[1].sample_values, ["us.posthog.com"])
         self.assertEqual(response.results[1].sample_count, 1)
+
+    def test_query_count(self):
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person1",
+            properties={"prop": "1"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person2",
+            properties={"prop": "2"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person2",
+            properties={"prop": "3"},
+            team=self.team,
+        )
+
+        response = EventTaxonomyQueryRunner(
+            team=self.team, query=EventTaxonomyQuery(event="event1", properties=["prop"], maxPropertyValues=1)
+        ).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].property, "prop")
+        self.assertEqual(response.results[0].sample_count, 3)
+        self.assertEqual(len(response.results[0].sample_values), 1)
+
+    def test_feature_flags_properties_are_omitted(self):
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person1",
+            properties={"$feature/ai": "1"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person2",
+            properties={"prop": "2"},
+            team=self.team,
+        )
+        _create_event(
+            event="event1",
+            distinct_id="person2",
+            properties={"prop": "3", "$feature/dashboard": "0"},
+            team=self.team,
+        )
+
+        response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(event="event1")).calculate()
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0].property, "prop")
+        self.assertEqual(response.results[0].sample_count, 2)
+
+    @snapshot_clickhouse_queries
+    def test_retrieves_action_properties(self):
+        action = Action.objects.create(
+            team=self.team,
+            name="action1",
+            steps_json=[{"event": "$pageview"}],
+        )
+        _create_person(
+            distinct_ids=["person1"],
+            properties={"email": "person1@example.com"},
+            team=self.team,
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            properties={"ai": "true"},
+            team=self.team,
+        )
+        _create_event(
+            event="$pageview",
+            distinct_id="person1",
+            properties={"dashboard": "true"},
+            team=self.team,
+        )
+        _create_event(
+            event="event",
+            distinct_id="person1",
+            properties={"prop": "3", "$feature/dashboard": "0"},
+            team=self.team,
+        )
+
+        response = EventTaxonomyQueryRunner(team=self.team, query=EventTaxonomyQuery(actionId=action.id)).calculate()
+        self.assertEqual(len(response.results), 2)
+        self.assertListEqual([item.property for item in response.results], ["ai", "dashboard"])

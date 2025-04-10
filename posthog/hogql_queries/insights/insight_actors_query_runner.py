@@ -22,6 +22,7 @@ from posthog.schema import (
     TrendsQuery,
     FunnelsQuery,
     LifecycleQuery,
+    StickinessActorsQuery,
 )
 from posthog.types import InsightActorsQueryNode
 
@@ -56,14 +57,20 @@ class InsightActorsQueryRunner(QueryRunner):
         elif isinstance(self.source_runner, RetentionQueryRunner):
             query = cast(InsightActorsQuery, self.query)
             retention_runner = cast(RetentionQueryRunner, self.source_runner)
-            return retention_runner.to_actors_query(interval=query.interval)
+            return retention_runner.to_actors_query(
+                interval=query.interval,
+                breakdown_values=query.breakdown,
+            )
         elif isinstance(self.source_runner, PathsQueryRunner):
             paths_runner = cast(PathsQueryRunner, self.source_runner)
             return paths_runner.to_actors_query()
         elif isinstance(self.source_runner, StickinessQueryRunner):
             stickiness_runner = cast(StickinessQueryRunner, self.source_runner)
-            query = cast(InsightActorsQuery, self.query)
-            return stickiness_runner.to_actors_query(interval_num=int(query.day) if query.day is not None else None)
+            stickiness_actors_query = cast(StickinessActorsQuery, self.query)
+            return stickiness_runner.to_actors_query(
+                interval_num=int(stickiness_actors_query.day) if stickiness_actors_query.day is not None else None,
+                operator=getattr(stickiness_actors_query, "operator", None),
+            )
         elif isinstance(self.source_runner, LifecycleQueryRunner):
             lifecycle_runner = cast(LifecycleQueryRunner, self.source_runner)
             query = cast(InsightActorsQuery, self.query)
@@ -75,6 +82,31 @@ class InsightActorsQueryRunner(QueryRunner):
 
     def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self.to_query()
+
+    def to_events_query(self) -> ast.SelectQuery:
+        if isinstance(self.source_runner, TrendsQueryRunner):
+            trends_runner = cast(TrendsQueryRunner, self.source_runner)
+            query = cast(InsightActorsQuery, self.query)
+            return trends_runner.to_events_query(
+                time_frame=cast(Optional[str], query.day),  # Other runner accept day as int, but not this one
+                series_index=query.series or 0,
+                breakdown_value=query.breakdown,
+                compare_value=query.compare,
+                include_recordings=query.includeRecordings,
+            )
+
+        if isinstance(self.source_runner, RetentionQueryRunner):
+            retention_runner = cast(RetentionQueryRunner, self.source_runner)
+            query = cast(InsightActorsQuery, self.query)
+            if query.interval is None:
+                raise ValueError("Interval is required for insight retention events query")
+
+            return retention_runner.to_events_query(
+                interval=query.interval,
+                breakdown_value=query.breakdown,
+            )
+
+        raise ValueError(f"Cannot convert source query of type {self.query.source.kind} to events query")
 
     @property
     def group_type_index(self) -> int | None:

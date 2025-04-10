@@ -2,18 +2,24 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api, { ApiConfig } from 'lib/api'
+import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUserLoggedIn } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AvailableFeature, OrganizationType } from '~/types'
 
 import type { organizationLogicType } from './organizationLogicType'
+import { urls } from './urls'
 import { userLogic } from './userLogic'
 
 export type OrganizationUpdatePayload = Partial<
-    Pick<OrganizationType, 'name' | 'logo_media_id' | 'is_member_join_email_enabled' | 'enforce_2fa'>
+    Pick<
+        OrganizationType,
+        'name' | 'logo_media_id' | 'is_member_join_email_enabled' | 'enforce_2fa' | 'is_ai_data_processing_approved'
+    >
 >
 
 export const organizationLogic = kea<organizationLogicType>([
@@ -31,6 +37,14 @@ export const organizationLogic = kea<organizationLogicType>([
                 deleteOrganization: (_, { organization }) => organization,
                 deleteOrganizationSuccess: () => null,
                 deleteOrganizationFailure: () => null,
+            },
+        ],
+        migrateAccessControlVersionLoading: [
+            false,
+            {
+                migrateAccessControlVersion: () => true,
+                migrateAccessControlVersionSuccess: () => false,
+                migrateAccessControlVersionFailure: () => false,
             },
         ],
     }),
@@ -54,6 +68,8 @@ export const organizationLogic = kea<organizationLogicType>([
                     if (!values.currentOrganization) {
                         throw new Error('Current organization has not been loaded yet.')
                     }
+                    // Check if re-authentication is required, if so, await its completion (or failure)
+                    await timeSensitiveAuthenticationLogic.findMounted()?.asyncActions.checkReauthentication()
                     const updatedOrganization = await api.update(
                         `api/organizations/${values.currentOrganization.id}`,
                         payload
@@ -62,6 +78,11 @@ export const organizationLogic = kea<organizationLogicType>([
                     return updatedOrganization
                 },
                 completeOnboarding: async () => await api.create('api/organizations/@current/onboarding/', {}),
+                migrateAccessControlVersion: async () => {
+                    await api.create(`api/organizations/${values.currentOrganization?.id}/migrate_access_control/`, {})
+                    window.location.reload()
+                    return values.currentOrganization // Return current organization state since the page will reload anyway
+                },
             },
         ],
     })),
@@ -101,10 +122,11 @@ export const organizationLogic = kea<organizationLogicType>([
             }
         },
         createOrganizationSuccess: () => {
-            window.location.href = '/organization/members'
+            sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
+            window.location.href = urls.products()
         },
         updateOrganizationSuccess: () => {
-            lemonToast.success('Your configuration has been saved')
+            lemonToast.success('Organization updated successfully!')
         },
         deleteOrganization: async ({ organization }) => {
             try {

@@ -30,9 +30,9 @@
     font-weight: 600;
     line-height: 1rem;
     pointer-events: auto;
-    background: var(--glass-bg-3000);
+    background: var(--bg-surface-secondary);
     backdrop-filter: blur(8px);
-    border-bottom: 1px solid var(--glass-border-3000);
+    border-bottom: 1px solid var(--border-primary);
 }
 
 .TopBar3000__hamburger {
@@ -89,7 +89,7 @@
     flex-shrink: 0;
     align-items: center;
     overflow: hidden;
-    color: var(--muted);
+    color: var(--text-secondary);
     white-space: pre;
     cursor: default;
 
@@ -105,8 +105,8 @@
     .LemonTag--default {
         font-weight: 600; // Aligning with breadcrumb font-weightq
         text-transform: uppercase; // Increase readability at tiny size
-        border-color: var(--muted); // The default is --border, which is invisible on the top bar's background
-        opacity: 0.5;
+        border-color: var(--text-secondary); // The default is --border, which is invisible on the top bar's background
+        opacity: var(--opacity-disabled);
     }
 
     &.TopBar3000__breadcrumb--here {

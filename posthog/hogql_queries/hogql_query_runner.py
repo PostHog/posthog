@@ -6,12 +6,13 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
+from posthog.hogql.utils import deserialize_hx_ast
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     CachedHogQLQueryResponse,
     HogQLQuery,
+    HogQLASTQuery,
     HogQLQueryResponse,
     DashboardFilter,
     HogQLFilters,
@@ -20,18 +21,19 @@ from posthog.schema import (
 
 
 class HogQLQueryRunner(QueryRunner):
-    query: HogQLQuery
+    query: HogQLQuery | HogQLASTQuery
     response: HogQLQueryResponse
     cached_response: CachedHogQLQueryResponse
 
-    def to_query(self) -> ast.SelectQuery:
-        if self.timings is None:
-            self.timings = HogQLTimings()
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         values: Optional[dict[str, ast.Expr]] = (
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )
         with self.timings.measure("parse_select"):
-            parsed_select = parse_select(str(self.query.query), timings=self.timings, placeholders=values)
+            if isinstance(self.query, HogQLQuery):
+                parsed_select = parse_select(self.query.query, timings=self.timings, placeholders=values)
+            elif isinstance(self.query, HogQLASTQuery):
+                parsed_select = cast(ast.SelectQuery, deserialize_hx_ast(self.query.query))
 
         if self.query.filters:
             with self.timings.measure("filters"):
@@ -40,7 +42,7 @@ class HogQLQueryRunner(QueryRunner):
                     parsed_select = replace_filters(parsed_select, self.query.filters, self.team)
         return parsed_select
 
-    def to_actors_query(self) -> ast.SelectQuery:
+    def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return self.to_query()
 
     def calculate(self) -> HogQLQueryResponse:
@@ -52,6 +54,7 @@ class HogQLQueryRunner(QueryRunner):
             Callable[..., HogQLQueryResponse],
             execute_hogql_query if paginator is None else paginator.execute_hogql_query,
         )
+
         response = func(
             query_type="HogQLQuery",
             query=query,

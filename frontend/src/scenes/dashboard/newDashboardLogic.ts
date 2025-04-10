@@ -102,7 +102,10 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
     props({} as NewDashboardLogicProps),
     key(({ featureFlagId }) => featureFlagId ?? 'new'),
     path(['scenes', 'dashboard', 'newDashboardLogic']),
-    connect({ logic: [dashboardsModel], values: [featureFlagLogic, ['featureFlags']] }),
+    connect(() => ({
+        logic: [dashboardsModel],
+        values: [featureFlagLogic, ['featureFlags']],
+    })),
     actions({
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         showNewDashboardModal: true,
@@ -233,6 +236,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/create_from_template_json`,
                     { template: dashboardJSON, creation_context: creationContext }
                 )
+
                 actions.hideNewDashboardModal()
                 actions.resetNewDashboard()
                 const queryBasedDashboard = getQueryBasedDashboard(result)

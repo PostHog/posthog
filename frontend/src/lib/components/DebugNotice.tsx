@@ -38,7 +38,7 @@ export function DebugNotice(): JSX.Element | null {
         return (
             <NavbarButton
                 identifier="debug-notice"
-                icon={<IconBranch className="text-primary" />}
+                icon={<IconBranch className="text-accent" />}
                 title={
                     <div className="font-mono">
                         <div>
@@ -58,7 +58,7 @@ export function DebugNotice(): JSX.Element | null {
         )
     }
     return (
-        <div className="border rounded bg-bg-3000 overflow-hidden mb-1.5 w-full font-mono max-w-60 text-[13px]">
+        <div className="border rounded bg-primary overflow-hidden mb-1.5 w-full font-mono max-w-60 text-[13px]">
             <div className="flex items-center gap-2 px-2 h-8 border-l-4 border-brand-blue justify-between">
                 <b>DEBUG mode</b>
                 <LemonButton
@@ -71,15 +71,15 @@ export function DebugNotice(): JSX.Element | null {
                 />
             </div>
             <Tooltip title="Branch" placement="right">
-                <div className="flex items-center gap-2 w-fit px-2 h-8 border-l-4 border-brand-red">
+                <div className="flex items-center gap-2 w-fit px-2 h-8 border-l-4 border-brand-red truncate max-w-full">
                     <IconBranch className="text-lg" />
-                    <b className="min-w-0 flex-1 truncate">{debugInfo.branch}</b>
+                    <span className="min-w-0 flex-1 truncate font-bold">{debugInfo.branch}</span>
                 </div>
             </Tooltip>
             <Tooltip title="Revision" placement="right">
                 <div className="flex items-center gap-2 w-fit px-2 h-8 border-l-4 border-brand-yellow">
                     <IconCode className="text-lg" />
-                    <b className="min-w-0 flex-1 truncate">{debugInfo.revision}</b>
+                    <span className="min-w-0 flex-1 truncate font-bold">{debugInfo.revision}</span>
                 </div>
             </Tooltip>
             {window.location.port !== '8010' && (

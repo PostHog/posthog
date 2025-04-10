@@ -25,7 +25,7 @@
         z-index: 2;
         height: var(--bar-height);
         cursor: pointer;
-        background-color: var(--border-light);
+        background-color: var(--border-primary);
         border-radius: var(--bar-height);
         transition: height 150ms ease-in-out, top 150ms ease-in-out;
 
@@ -41,13 +41,13 @@
 
         .PlayerSeekbar__bufferbar {
             z-index: 2;
-            background-color: var(--border);
+            background-color: var(--border-primary);
             border-radius: var(--bar-height);
         }
 
         .PlayerSeekbar__currentbar {
             z-index: 3;
-            background-color: var(--primary-3000);
+            background-color: var(--accent);
             border-radius: var(--bar-height) 0 0 var(--bar-height);
         }
 
@@ -60,7 +60,7 @@
             .PlayerSeekbar__segments__item {
                 float: left;
                 height: 100%;
-                background-color: var(--bg-light);
+                background-color: var(--bg-surface-primary);
                 opacity: 0.5;
 
                 &--active {
@@ -76,8 +76,8 @@
             width: var(--thumb-size);
             height: var(--thumb-size);
             margin-top: calc(var(--thumb-size) / 2 * -1);
-            background-color: var(--primary-3000);
-            border: 2px solid var(--bg-light);
+            background-color: var(--accent);
+            border: 2px solid var(--bg-surface-primary);
             border-radius: 50%;
             transition: top 150ms ease-in-out;
             backface-visibility: hidden;
@@ -99,7 +99,7 @@
             .PlayerSeekBarPreview__tooltip__content {
                 display: inline-block;
                 padding: 0.1rem;
-                margin-bottom: 0.5rem;
+                margin-bottom: 3.5rem;
                 font-size: 0.8rem;
                 font-weight: 600;
                 color: #fff;
@@ -118,7 +118,7 @@
     height: 0.75rem;
 
     .PlayerSeekbarTick {
-        --tick-color: var(--muted-alt);
+        --tick-color: var(--text-secondary);
         --tick-width: 3px;
 
         position: absolute;
@@ -136,7 +136,7 @@
         }
 
         &--primary {
-            --tick-color: var(--primary-3000);
+            --tick-color: var(--accent);
         }
 
         .PlayerSeekbarTick__line {

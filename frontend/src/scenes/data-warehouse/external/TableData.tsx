@@ -6,7 +6,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { Dispatch, SetStateAction } from 'react'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 
-import { DatabaseSchemaTable } from '~/queries/schema'
+import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 
 import { dataWarehouseSceneLogic } from '../settings/dataWarehouseSceneLogic'
 
@@ -24,7 +24,7 @@ export function TableData(): JSX.Element {
     const isManuallyLinkedTable = isExternalTable && !table.source
 
     return (
-        <div className="border rounded p-3 bg-bg-light">
+        <div className="border rounded p-3 bg-surface-primary">
             {table ? (
                 <>
                     <div className="flex flex-row justify-between items-center gap-2">

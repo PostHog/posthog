@@ -1,4 +1,7 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use envconfig::Envconfig;
@@ -11,17 +14,28 @@ pub struct Config {
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 
-    #[envconfig(from = "BIND_PORT", default = "3301")]
+    #[envconfig(from = "BIND_PORT", default = "3305")]
     pub port: u16,
+
+    pub posthog_api_key: Option<String>,
+
+    #[envconfig(default = "https://us.i.posthog.com/capture")]
+    pub posthog_endpoint: String,
 
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
+
+    #[envconfig(default = "cdp_internal_events")]
+    pub internal_events_topic: String,
 
     #[envconfig(default = "clickhouse_events_json")]
     pub events_topic: String,
 
     #[envconfig(default = "clickhouse_error_tracking_issue_fingerprint")]
     pub issue_overrides_topic: String,
+
+    #[envconfig(default = "clickhouse_ingestion_warnings")]
+    pub ingestion_warnings_topic: String,
 
     #[envconfig(nested = true)]
     pub consumer: ConsumerConfig,
@@ -32,13 +46,6 @@ pub struct Config {
     // Rust service connect directly to postgres, not via pgbouncer, so we keep this low
     #[envconfig(default = "4")]
     pub max_pg_connections: u32,
-
-    // These are unused for now, but useful while iterating in prod
-    #[envconfig(default = "true")]
-    pub skip_writes: bool,
-
-    #[envconfig(default = "true")]
-    pub skip_reads: bool,
 
     // cymbal makes HTTP get requests to auto-resolve sourcemaps - and follows redirects. To protect against SSRF, we only allow requests to public URLs by default
     #[envconfig(default = "false")]
@@ -91,11 +98,42 @@ pub struct Config {
 
     #[envconfig(default = "10")]
     pub max_event_batch_wait_seconds: u64,
+
+    #[envconfig(default = "300")]
+    pub team_cache_ttl_secs: u64,
+
+    #[envconfig(default = "10000")]
+    pub max_team_cache_size: u64,
+
+    #[envconfig(from = "MAXMIND_DB_PATH")]
+    pub maxmind_db_path: PathBuf,
+
+    #[envconfig(default = "redis://localhost:6379/")]
+    pub redis_url: String,
+
+    #[envconfig(default = "")]
+    pub filtered_teams: String, // Comma seperated list of teams to either filter in (process) or filter out (ignore)
+
+    #[envconfig(default = "out")]
+    pub filter_mode: String, // in/out - in means drop all teams not in the list, out means drop all teams in the list
 }
 
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
-        ConsumerConfig::set_defaults("error-tracking-rs", "exception_symbolification_events");
+        // Our consumer is used in a transaction, so we disable offset commits.
+        ConsumerConfig::set_defaults(
+            "error-tracking-rs",
+            "exception_symbolification_events",
+            false,
+        );
+
+        if std::env::var("MAXMIND_DB_PATH").is_err() {
+            std::env::set_var(
+                "MAXMIND_DB_PATH",
+                default_maxmind_db_path().to_string_lossy().to_string(),
+            );
+        }
+
         let res = Self::init_from_env()?;
         init_global_state(&res);
         Ok(res)
@@ -104,4 +142,14 @@ impl Config {
 
 pub fn init_global_state(config: &Config) {
     FRAME_CONTEXT_LINES.store(config.context_line_count, Ordering::Relaxed);
+}
+
+fn default_maxmind_db_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("share")
+        .join("GeoLite2-City.mmdb")
 }

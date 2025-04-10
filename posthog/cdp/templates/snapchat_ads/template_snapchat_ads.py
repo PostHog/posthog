@@ -69,10 +69,20 @@ common_inputs = [
         "secret": False,
         "required": True,
     },
+    {
+        "key": "testEventMode",
+        "type": "boolean",
+        "label": "Test Event Mode",
+        "description": "Use this field to specify that events should be test events rather than actual traffic. You'll want to disable this field when sending real traffic through this integration.",
+        "default": False,
+        "secret": False,
+        "required": False,
+    },
 ]
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+    status="beta",
+    free=False,
     type="destination",
     id="template-snapchat-ads",
     name="Snapchat Ads Conversions",
@@ -105,7 +115,11 @@ for (let key, value in inputs.customData) {
     }
 }
 
-let res := fetch(f'https://tr.snapchat.com/v3/{inputs.pixelId}/events?access_token={inputs.oauth.access_token}', {
+if (not (not empty(body.data.1.user_data.em) or not empty(body.data.1.user_data.ph) or ( not empty(body.data.1.user_data.client_ip_address) and not empty(body.data.1.user_data.client_user_agent) ))) {
+    return
+}
+
+let res := fetch(f'https://tr.snapchat.com/v3/{inputs.pixelId}/events{inputs.testEventMode ? '/validate' : ''}?access_token={inputs.oauth.access_token}', {
     'method': 'POST',
     'headers': {
         'Content-Type': 'application/json',
@@ -140,9 +154,14 @@ if (res.status >= 400) {
             "label": "User data",
             "description": "A map that contains customer information data. See this page for options: https://developers.snap.com/api/marketing-api/Conversions-API/Parameters#user-data-parameters",
             "default": {
-                "em": "{sha256Hex(person.properties.email)}",
+                "em": "{sha256Hex(lower(person.properties.email))}",
                 "ph": "{sha256Hex(person.properties.phone)}",
                 "sc_click_id": "{person.properties.sccid ?? person.properties.$initial_sccid}",
+                "client_user_agent": "{event.properties.$raw_user_agent}",
+                "fn": "{sha256Hex(lower(person.properties.first_name))}",
+                "ln": "{sha256Hex(lower(person.properties.last_name))}",
+                "client_ip_address": "{event.properties.$ip}",
+                "external_id": "{sha256Hex(person.id)}",
             },
             "secret": False,
             "required": True,

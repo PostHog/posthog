@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
-import { FunnelsFilter } from '~/queries/schema'
+import { FunnelsFilter } from '~/queries/schema/schema-general'
 import { EditorFilterProps, FunnelVizType as VizType } from '~/types'
 
 type LabelProps = {
@@ -26,7 +26,7 @@ const LabelInMenu = ({ icon, title, description }: LabelInMenuProps): JSX.Elemen
         <div className="flex items-center text-sm font-medium gap-1">
             {icon} {title}
         </div>
-        <div className="text-muted text-xs mt-1">{description}</div>
+        <div className="text-secondary text-xs mt-1">{description}</div>
     </div>
 )
 
@@ -40,10 +40,10 @@ export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insight
     const options = [
         {
             value: VizType.Steps,
-            label: <Label icon={<IconFilter className="text-muted" />} title="Conversion steps" />,
+            label: <Label icon={<IconFilter className="text-secondary" />} title="Conversion steps" />,
             labelInMenu: (
                 <LabelInMenu
-                    icon={<IconFilter className="text-muted" />}
+                    icon={<IconFilter className="text-secondary" />}
                     title="Conversion steps"
                     description={`Track ${aggregationTargetLabel.plural} progress between steps of the funnel`}
                 />
@@ -51,10 +51,10 @@ export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insight
         },
         {
             value: VizType.TimeToConvert,
-            label: <Label icon={<IconClock className="text-muted" />} title="Time to convert" />,
+            label: <Label icon={<IconClock className="text-secondary" />} title="Time to convert" />,
             labelInMenu: (
                 <LabelInMenu
-                    icon={<IconClock className="text-muted" />}
+                    icon={<IconClock className="text-secondary" />}
                     title="Time to convert"
                     description={`Track how long it takes for ${aggregationTargetLabel.plural} to convert`}
                 />
@@ -62,10 +62,10 @@ export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insight
         },
         {
             value: VizType.Trends,
-            label: <Label icon={<IconTrending className="text-muted" />} title="Historical trends" />,
+            label: <Label icon={<IconTrending className="text-secondary" />} title="Historical trends" />,
             labelInMenu: (
                 <LabelInMenu
-                    icon={<IconTrending className="text-muted" />}
+                    icon={<IconTrending className="text-secondary" />}
                     title="Historical trends"
                     description="Track how this funnel's conversion rate is trending over time"
                 />

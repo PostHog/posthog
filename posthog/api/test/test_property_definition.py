@@ -5,12 +5,12 @@ from unittest.mock import ANY, patch
 from rest_framework import status
 
 from posthog.models import (
+    ActivityLog,
     EventDefinition,
     EventProperty,
     Organization,
     PropertyDefinition,
     Team,
-    ActivityLog,
 )
 from posthog.taxonomy.property_definition_api import PropertyDefinitionQuerySerializer
 from posthog.test.base import APIBaseTest, BaseTest
@@ -74,6 +74,25 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 {},
             )
             self.assertEqual(response_item["is_numerical"], item["is_numerical"])
+
+    def test_list_property_definitions_with_excluded_properties(self):
+        response = self.client.get(
+            f'/api/projects/{self.team.pk}/property_definitions/?excluded_properties=["first_visit"]'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], len(self.EXPECTED_PROPERTY_DEFINITIONS) - 1)
+
+        self.assertEqual(len(response.json()["results"]), len(self.EXPECTED_PROPERTY_DEFINITIONS) - 1)
+
+    def test_list_property_definitions_with_excluded_core_properties(self):
+        # core property that doesn't start with $
+        PropertyDefinition.objects.get_or_create(team=self.team, name="utm_medium")
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?exclude_core_properties=true")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 6)
+        self.assertEqual(len(response.json()["results"]), 6)
 
     def test_list_numerical_property_definitions(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?is_numerical=true")
@@ -450,6 +469,61 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"custom_event": False, "$pageview": False}
+
+    def test_property_definition_project_id_coalesce(self):
+        # Create legacy property with only team_id (old style)
+        PropertyDefinition.objects.create(team=self.team, name="legacy_team_prop", property_type="String")
+        # Create property with explicit project_id set (new style)
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.pk,  # Explicitly set project_id
+            name="newer_prop",
+            property_type="String",
+        )
+        # Create property for another team to verify isolation
+        other_team = Team.objects.create(organization=self.organization)
+        PropertyDefinition.objects.create(team=other_team, name="other_team_prop", property_type="String")
+
+        response = self.client.get(f"/api/projects/{self.project.id}/property_definitions/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Should return properties with either project_id or team_id matching
+        property_names = {p["name"] for p in response.json()["results"]}
+        self.assertIn("legacy_team_prop", property_names)  # Found via team_id
+        self.assertIn("newer_prop", property_names)  # Found via project_id
+        self.assertNotIn("other_team_prop", property_names)  # Different team, should not be found
+
+    def test_property_definition_project_id_coalesce_detail(self):
+        # Create legacy property with only team_id (old style)
+        legacy_prop = PropertyDefinition.objects.create(team=self.team, name="legacy_team_prop", property_type="String")
+
+        # Create property with explicit project_id set (new style)
+        newer_prop = PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.pk,  # Explicitly set project_id
+            name="newer_prop",
+            property_type="String",
+        )
+
+        # Create property for another team to verify isolation
+        other_team = Team.objects.create(organization=self.organization)
+        other_team_prop = PropertyDefinition.objects.create(
+            team=other_team, name="other_team_prop", property_type="String"
+        )
+
+        # Test retrieving legacy property
+        response = self.client.get(f"/api/projects/{self.project.id}/property_definitions/{legacy_prop.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "legacy_team_prop")
+
+        # Test retrieving newer property
+        response = self.client.get(f"/api/projects/{self.project.id}/property_definitions/{newer_prop.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "newer_prop")
+
+        # Test retrieving other team's property should fail
+        response = self.client.get(f"/api/projects/{self.project.id}/property_definitions/{other_team_prop.id}")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class TestPropertyDefinitionQuerySerializer(BaseTest):

@@ -11,6 +11,7 @@ from posthog.clickhouse.kafka_engine import (
     trim_quotes_expr,
 )
 from posthog.clickhouse.property_groups import property_groups
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import (
     Distributed,
     ReplacingMergeTree,
@@ -18,23 +19,39 @@ from posthog.clickhouse.table_engines import (
 )
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
-EVENTS_DATA_TABLE = lambda: "sharded_events"
-WRITABLE_EVENTS_DATA_TABLE = lambda: "writable_events"
-EVENTS_RECENT_DATA_TABLE = lambda: "events_recent"
-TRUNCATE_EVENTS_TABLE_SQL = (
-    lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
-)
+
+def EVENTS_DATA_TABLE():
+    return "sharded_events"
+
+
+def WRITABLE_EVENTS_DATA_TABLE():
+    return "writable_events"
+
+
+def EVENTS_RECENT_DATA_TABLE():
+    return "events_recent"
+
+
+def TRUNCATE_EVENTS_TABLE_SQL():
+    return f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+
+
 TRUNCATE_EVENTS_RECENT_TABLE_SQL = (
-    lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_RECENT_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+    lambda: f"TRUNCATE TABLE IF EXISTS {EVENTS_RECENT_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
 )
-DROP_EVENTS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS {EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
-DROP_DISTRIBUTED_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS events ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+
+
+def DROP_EVENTS_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS {EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+
+
+DROP_DISTRIBUTED_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS events {ON_CLUSTER_CLAUSE()}"
 
 INSERTED_AT_COLUMN = ", inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()"
 INSERTED_AT_NOT_NULLABLE_COLUMN = ", inserted_at DateTime64(6, 'UTC') DEFAULT NOW64()"
 
 EVENTS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     uuid UUID,
     event VARCHAR,
@@ -72,6 +89,7 @@ EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
     , $group_4 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_4')")} COMMENT 'column_materializer::$group_4'
     , $window_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$window_id')")} COMMENT 'column_materializer::$window_id'
     , $session_id VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$session_id')")} COMMENT 'column_materializer::$session_id'
+    , $session_id_uuid Nullable(UInt128) MATERIALIZED toUInt128(JSONExtract(properties, '$session_id', 'Nullable(UUID)'))
     , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|\")href="(.*?)"')
     , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"'))
     , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id="(.*?)"'))
@@ -94,6 +112,7 @@ EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = f"""
     , $group_4 VARCHAR COMMENT 'column_materializer::$group_4'
     , $window_id VARCHAR COMMENT 'column_materializer::$window_id'
     , $session_id VARCHAR COMMENT 'column_materializer::$session_id'
+    , $session_id_uuid Nullable(UInt128)
     , elements_chain_href String COMMENT 'column_materializer::elements_chain::href'
     , elements_chain_texts Array(String) COMMENT 'column_materializer::elements_chain::texts'
     , elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids'
@@ -101,28 +120,32 @@ EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = f"""
     , {", ".join(property_groups.get_create_table_pieces("events"))}
 """
 
-EVENTS_DATA_TABLE_ENGINE = lambda: ReplacingMergeTree(
-    "events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
-)
-EVENTS_TABLE_SQL = lambda: (
-    EVENTS_TABLE_BASE_SQL
-    + """PARTITION BY toYYYYMM(timestamp)
+
+def EVENTS_DATA_TABLE_ENGINE():
+    return ReplacingMergeTree("events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED)
+
+
+def EVENTS_TABLE_SQL():
+    return (
+        EVENTS_TABLE_BASE_SQL
+        + """PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
 {sample_by}
 {storage_policy}
 """
-).format(
-    table_name=EVENTS_DATA_TABLE(),
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=EVENTS_DATA_TABLE_ENGINE(),
-    extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
-    materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
-    indexes=f"""
+    ).format(
+        table_name=EVENTS_DATA_TABLE(),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(),
+        engine=EVENTS_DATA_TABLE_ENGINE(),
+        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
+        materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
+        indexes=f"""
     , {index_by_kafka_timestamp(EVENTS_DATA_TABLE())}
     """,
-    sample_by="SAMPLE BY cityHash64(distinct_id)",
-    storage_policy=STORAGE_POLICY(),
-)
+        sample_by="SAMPLE BY cityHash64(distinct_id)",
+        storage_policy=STORAGE_POLICY(),
+    )
+
 
 EVENTS_TABLE_INSERTED_AT_INDEX_SQL = """
 ALTER TABLE {table_name} ON CLUSTER {cluster}
@@ -140,19 +163,23 @@ MATERIALIZE INDEX `minmax_inserted_at`
 # kafka_skip_broken_messages is an int, not a boolean, so we explicitly set
 # the max block size to consume from kafka such that we skip _all_ broken messages
 # this is an added safety mechanism given we control payloads to this topic
-KAFKA_EVENTS_TABLE_JSON_SQL = lambda: (
-    EVENTS_TABLE_BASE_SQL
-    + """
+
+
+def KAFKA_EVENTS_TABLE_JSON_SQL():
+    return (
+        EVENTS_TABLE_BASE_SQL
+        + """
     SETTINGS kafka_skip_broken_messages = 100
 """
-).format(
-    table_name="kafka_events_json",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
-    extra_fields="",
-    materialized_columns="",
-    indexes="",
-)
+    ).format(
+        table_name="kafka_events_json",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(),
+        engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
+        extra_fields="",
+        materialized_columns="",
+        indexes="",
+    )
+
 
 EVENTS_TABLE_JSON_MV_SQL = (
     lambda: """
@@ -192,19 +219,21 @@ FROM {database}.kafka_events_json
 )
 
 
-KAFKA_EVENTS_RECENT_TABLE_JSON_SQL = lambda: (
-    EVENTS_TABLE_BASE_SQL
-    + """
+def KAFKA_EVENTS_RECENT_TABLE_JSON_SQL():
+    return (
+        EVENTS_TABLE_BASE_SQL
+        + """
     SETTINGS kafka_skip_broken_messages = 100
 """
-).format(
-    table_name="kafka_events_recent_json",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group="group1_recent"),
-    extra_fields="",
-    materialized_columns="",
-    indexes="",
-)
+    ).format(
+        table_name="kafka_events_recent_json",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(),
+        engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group="group1_recent"),
+        extra_fields="",
+        materialized_columns="",
+        indexes="",
+    )
+
 
 EVENTS_RECENT_TABLE_JSON_MV_SQL = (
     lambda: """
@@ -245,57 +274,70 @@ FROM {database}.kafka_events_recent_json
     )
 )
 
-EVENTS_RECENT_TABLE_SQL = lambda: (
-    EVENTS_TABLE_BASE_SQL
-    + """PARTITION BY toStartOfHour(inserted_at)
+
+def EVENTS_RECENT_TABLE_SQL(on_cluster=True):
+    return (
+        EVENTS_TABLE_BASE_SQL
+        + """PARTITION BY toStartOfHour(inserted_at)
 ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
 TTL toDateTime(inserted_at) + INTERVAL 7 DAY
 {storage_policy}
 """
-).format(
-    table_name=EVENTS_RECENT_DATA_TABLE(),
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=ReplacingMergeTree(EVENTS_RECENT_DATA_TABLE(), ver="_timestamp"),
-    extra_fields=KAFKA_COLUMNS_WITH_PARTITION + INSERTED_AT_NOT_NULLABLE_COLUMN + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
-    materialized_columns="",
-    indexes="",
-    storage_policy=STORAGE_POLICY(),
-)
+    ).format(
+        table_name=EVENTS_RECENT_DATA_TABLE(),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=ReplacingMergeTree(EVENTS_RECENT_DATA_TABLE(), ver="_timestamp"),
+        extra_fields=KAFKA_COLUMNS_WITH_PARTITION + INSERTED_AT_NOT_NULLABLE_COLUMN + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
+        materialized_columns="",
+        indexes="",
+        storage_policy=STORAGE_POLICY(),
+    )
 
-DISTRIBUTED_EVENTS_RECENT_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
-    table_name="distributed_events_recent",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=Distributed(
-        data_table=EVENTS_RECENT_DATA_TABLE(),
-        sharding_key="sipHash64(distinct_id)",
-        cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER,
-    ),
-    extra_fields=KAFKA_COLUMNS_WITH_PARTITION + INSERTED_AT_COLUMN + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
-    materialized_columns="",
-    indexes="",
-)
+
+def DISTRIBUTED_EVENTS_RECENT_TABLE_SQL(on_cluster=True):
+    return EVENTS_TABLE_BASE_SQL.format(
+        table_name="distributed_events_recent",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=Distributed(
+            data_table=EVENTS_RECENT_DATA_TABLE(),
+            sharding_key="sipHash64(distinct_id)",
+            cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER,
+        ),
+        extra_fields=KAFKA_COLUMNS_WITH_PARTITION + INSERTED_AT_COLUMN + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
+        materialized_columns="",
+        indexes="",
+    )
+
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 
 # This table is responsible for writing to sharded_events based on a sharding key.
-WRITABLE_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
-    table_name="writable_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
-    extra_fields=KAFKA_COLUMNS,
-    materialized_columns="",
-    indexes="",
-)
+
+
+def WRITABLE_EVENTS_TABLE_SQL():
+    return EVENTS_TABLE_BASE_SQL.format(
+        table_name="writable_events",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(),
+        engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
+        extra_fields=KAFKA_COLUMNS,
+        materialized_columns="",
+        indexes="",
+    )
+
 
 # This table is responsible for reading from events on a cluster setting
-DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
-    table_name="events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
-    extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
-    materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,
-    indexes="",
-)
+
+
+def DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=True):
+    return EVENTS_TABLE_BASE_SQL.format(
+        table_name="events",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
+        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
+        materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,
+        indexes="",
+    )
+
 
 INSERT_EVENT_SQL = (
     lambda: f"""

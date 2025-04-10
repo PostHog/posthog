@@ -33,13 +33,29 @@ export interface ExtraDatabaseRows {
     pluginAttachments?: Omit<PluginAttachmentDB, 'id'>[]
 }
 
+// Reset the tables with some truncated first if we have issues regarding foreign keys
 export const POSTGRES_DELETE_TABLES_QUERY = `
-DO $$ DECLARE
-  r RECORD;
+DO $$ 
+DECLARE
+    r RECORD;
 BEGIN
-  FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema()) LOOP
-    EXECUTE 'DELETE FROM ' || quote_ident(r.tablename);
-  END LOOP;
+    -- Delete from tables in order of dependencies
+    DELETE FROM posthog_featureflaghashkeyoverride CASCADE;
+    DELETE FROM posthog_cohortpeople CASCADE;
+    DELETE FROM posthog_cohort CASCADE;
+    DELETE FROM posthog_featureflag CASCADE;
+    DELETE FROM posthog_persondistinctid CASCADE;
+    DELETE FROM posthog_person CASCADE;
+    
+    -- Then handle remaining tables
+    FOR r IN (
+        SELECT tablename 
+        FROM pg_tables 
+        WHERE schemaname = current_schema()
+        AND tablename NOT IN ('posthog_persondistinctid', 'posthog_person')
+    ) LOOP
+        EXECUTE 'DELETE FROM ' || quote_ident(r.tablename) || ' CASCADE';
+    END LOOP;
 END $$;
 `
 
@@ -50,8 +66,11 @@ export async function resetTestDatabase(
     { withExtendedTestData = true }: { withExtendedTestData?: boolean } = {}
 ): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }
-    const db = new PostgresRouter(config, undefined)
-    await db.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, undefined, 'delete-tables')
+    const db = new PostgresRouter(config)
+    await db.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, undefined, 'delete-tables').catch((e) => {
+        console.error('Error deleting tables', e)
+        throw e
+    })
 
     const mocks = makePluginObjects(code)
     const teamIds = mocks.pluginConfigRows.map((c) => c.team_id)
@@ -71,8 +90,6 @@ export async function resetTestDatabase(
             is_calculating: false,
             updated_at: new Date().toISOString(),
             last_calculated_at: new Date().toISOString(),
-            bytecode_error: null,
-            bytecode: null,
             steps_json: [
                 {
                     tag_name: null,
@@ -271,7 +288,7 @@ export async function getTeams(hub: Hub): Promise<Team[]> {
         'fetchAllTeams'
     )
     for (const row of selectResult.rows) {
-        row.project_id = parseInt(row.project_id as unknown as string)
+        row.project_id = parseInt(row.project_id as unknown as string) as ProjectId
     }
     return selectResult.rows
 }

@@ -4,7 +4,7 @@ import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } fr
 
 import { PluginsServerConfig } from '../../types'
 import { instrumentQuery } from '../../utils/metrics'
-import { status } from '../status'
+import { logger } from '../logger'
 import { createPostgresPool } from '../utils'
 import { POSTGRES_UNAVAILABLE_ERROR_MESSAGES } from './db'
 import { DependencyUnavailableError } from './error'
@@ -31,13 +31,13 @@ export class PostgresRouter {
 
     constructor(serverConfig: PluginsServerConfig) {
         const app_name = serverConfig.PLUGIN_SERVER_MODE ?? 'unknown'
-        status.info('🤔', `Connecting to common Postgresql...`)
+        logger.info('🤔', `Connecting to common Postgresql...`)
         const commonClient = createPostgresPool(
             serverConfig.DATABASE_URL,
             serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
             app_name
         )
-        status.info('👍', `Common Postgresql ready`)
+        logger.info('👍', `Common Postgresql ready`)
         // We fill the pools maps with the default client by default as a safe fallback for hobby,
         // the rest of the constructor overrides entries if more database URLs are passed.
         this.pools = new Map([
@@ -47,7 +47,7 @@ export class PostgresRouter {
         ])
 
         if (serverConfig.DATABASE_READONLY_URL) {
-            status.info('🤔', `Connecting to read-only common Postgresql...`)
+            logger.info('🤔', `Connecting to read-only common Postgresql...`)
             this.pools.set(
                 PostgresUse.COMMON_READ,
                 createPostgresPool(
@@ -56,10 +56,10 @@ export class PostgresRouter {
                     app_name
                 )
             )
-            status.info('👍', `Read-only common Postgresql ready`)
+            logger.info('👍', `Read-only common Postgresql ready`)
         }
         if (serverConfig.PLUGIN_STORAGE_DATABASE_URL) {
-            status.info('🤔', `Connecting to plugin-storage Postgresql...`)
+            logger.info('🤔', `Connecting to plugin-storage Postgresql...`)
             this.pools.set(
                 PostgresUse.PLUGIN_STORAGE_RW,
                 createPostgresPool(
@@ -68,7 +68,7 @@ export class PostgresRouter {
                     app_name
                 )
             )
-            status.info('👍', `Plugin-storage Postgresql ready`)
+            logger.info('👍', `Plugin-storage Postgresql ready`)
         }
     }
 
@@ -85,28 +85,6 @@ export class PostgresRouter {
             const wrappedTag = `${PostgresUse[target]}<${tag}>`
             return postgresQuery(this.pools.get(target)!, queryString, values, wrappedTag)
         }
-    }
-
-    public async bulkInsert<T extends Array<any>>(
-        usage: PostgresUse | TransactionClient,
-        // Should have {VALUES} as a placeholder
-        queryWithPlaceholder: string,
-        values: Array<T>,
-        tag: string
-    ): Promise<void> {
-        if (values.length === 0) {
-            return
-        }
-
-        const valuesWithPlaceholders = values
-            .map((array, index) => {
-                const len = array.length
-                const valuesWithIndexes = array.map((_, subIndex) => `$${index * len + subIndex + 1}`)
-                return `(${valuesWithIndexes.join(', ')})`
-            })
-            .join(', ')
-
-        await this.query(usage, queryWithPlaceholder.replace('{VALUES}', valuesWithPlaceholders), values.flat(), tag)
     }
 
     public async transaction<ReturnType>(
@@ -175,6 +153,12 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
             ) {
                 throw new DependencyUnavailableError(error.message, 'Postgres', error)
             }
+
+            logger.error('🔴', 'Postgres query error', {
+                query: queryConfig.text,
+                error,
+                stack: error.stack,
+            })
             throw error
         }
     })

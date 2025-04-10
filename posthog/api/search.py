@@ -25,7 +25,7 @@ ENTITY_MAP: dict[str, EntityConfig] = {
     "insight": {
         "klass": Insight,
         "search_fields": {"name": "A", "description": "C"},
-        "extra_fields": ["name", "description", "filters", "query"],
+        "extra_fields": ["name", "description", "query"],
     },
     "dashboard": {
         "klass": Dashboard,
@@ -148,6 +148,10 @@ def class_queryset(
         qs = qs.annotate(result_id=F("short_id"))
     else:
         qs = qs.annotate(result_id=Cast("pk", CharField()))
+
+    # Exclude generated dashboards
+    if entity_type == "dashboard":
+        qs = qs.exclude(creation_mode="template")
 
     # extra fields
     if extra_fields:

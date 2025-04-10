@@ -1,4 +1,5 @@
 import datetime
+import re
 import secrets
 import string
 import uuid
@@ -7,6 +8,8 @@ from contextlib import contextmanager
 from time import time, time_ns
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
 from collections.abc import Callable, Iterator
+
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connections, models, transaction
 from django.db.backends.utils import CursorWrapper
 from django.db.backends.ddl_references import Statement
@@ -344,3 +347,57 @@ def execute_with_timeout(timeout: int, database: str = "default") -> Iterator[Cu
         with connections[database].cursor() as cursor:
             cursor.execute("SET LOCAL statement_timeout = %s", [timeout])
             yield cursor
+
+
+def validate_rate_limit(value):
+    # pattern must match throttling::SimpleRateThrottle::parse_rate
+    if value is not None and value != "" and not re.match("^[0-9]+/(s|sec|m|min|h|hour|d|day)$", value):
+        raise ValidationError(
+            "%(value)s is not a valid rate limit format. Use formats like '5/s', '10/min', '2/hour', '1/day'.",
+            params={"value": value},
+        )
+
+
+class RootTeamQuerySet(models.QuerySet):
+    def filter(self, *args, **kwargs):
+        from posthog.models.team import Team
+        from django.db.models import Q, Subquery
+
+        # TODO: Handle team as a an object as well
+
+        if "team_id" in kwargs:
+            team_id = kwargs.pop("team_id")
+            parent_team_subquery = Team.objects.filter(id=team_id).values("parent_team_id")[:1]
+            team_filter = Q(team_id=Subquery(parent_team_subquery)) | Q(
+                team_id=team_id, team__parent_team_id__isnull=True
+            )
+            return super().filter(team_filter, *args, **kwargs)
+        return super().filter(*args, **kwargs)
+
+
+class RootTeamManager(models.Manager):
+    def get_queryset(self):
+        return RootTeamQuerySet(self.model, using=self._db)
+
+    def filter(self, *args, **kwargs):
+        return self.get_queryset().filter(*args, **kwargs)
+
+
+class RootTeamMixin(models.Model):
+    """
+    This ensures that when the related team has a parent team, the model will use the parent team instead.
+    This should apply to all models that should be "Project" scoped instead of "Environment" scoped.
+    """
+
+    # Set the default manager - any models that inherit from this mixin and set a custom
+    # manager (e.g. `objects = CustomManager()`) will override this, so that custom manager
+    # should inherit from RootTeamManager.
+    objects = RootTeamManager()
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if hasattr(self, "team") and self.team and hasattr(self.team, "parent_team") and self.team.parent_team:  # type: ignore
+            self.team = self.team.parent_team  # type: ignore
+        super().save(*args, **kwargs)

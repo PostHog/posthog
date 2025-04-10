@@ -16,8 +16,8 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     CachedTracesQueryResponse,
     IntervalType,
-    LLMGeneration,
     LLMTrace,
+    LLMTraceEvent,
     LLMTracePerson,
     NodeKind,
     TracesQuery,
@@ -64,13 +64,21 @@ class TracesQueryRunner(QueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         query = self._get_event_query()
-        query.where = self._get_where_clause()
+        if self.query.properties:
+            query.having = ast.CompareOperation(
+                left=ast.Field(chain=["filter_match"]), op=ast.CompareOperationOp.Eq, right=ast.Constant(value=1)
+            )
         return query
 
     def calculate(self):
         with self.timings.measure("traces_query_hogql_execute"):
             query_result = self.paginator.execute_hogql_query(
                 query=self.to_query(),
+                placeholders={
+                    "common_conditions": self._get_where_clause(),
+                    "filter_conditions": self._get_properties_filter(),
+                    "return_full_trace": ast.Constant(value=1 if self.query.traceId is not None else 0),
+                },
                 team=self.team,
                 query_type=NodeKind.TRACES_QUERY,
                 timings=self.timings,
@@ -90,6 +98,13 @@ class TracesQueryRunner(QueryRunner):
             **self.paginator.response_params(),
         )
 
+    def get_cache_payload(self):
+        return {
+            **super().get_cache_payload(),
+            # When the response schema changes, increment this version to invalidate the cache.
+            "schema_version": 2,
+        }
+
     @cached_property
     def _date_range(self):
         # Minute-level precision for 10m capture range
@@ -101,7 +116,7 @@ class TracesQueryRunner(QueryRunner):
 
         for result in mapped_results:
             # Exclude traces that are outside of the capture range.
-            timestamp_dt = cast(datetime, result["trace_timestamp"])
+            timestamp_dt = cast(datetime, result["first_timestamp"])
             if (
                 timestamp_dt < self._date_range.date_from_for_filtering()
                 or timestamp_dt > self._date_range.date_to_for_filtering()
@@ -118,17 +133,20 @@ class TracesQueryRunner(QueryRunner):
             "created_at": "createdAt",
             "person": "person",
             "total_latency": "totalLatency",
+            "input_state_parsed": "inputState",
+            "output_state_parsed": "outputState",
             "input_tokens": "inputTokens",
             "output_tokens": "outputTokens",
             "input_cost": "inputCost",
             "output_cost": "outputCost",
             "total_cost": "totalCost",
             "events": "events",
+            "trace_name": "traceName",
         }
 
         generations = []
-        for uuid, timestamp, properties in result["events"]:
-            generations.append(self._map_generation(uuid, timestamp, properties))
+        for uuid, event_name, timestamp, properties in result["events"]:
+            generations.append(self._map_event(uuid, event_name, timestamp, properties))
 
         trace_dict = {
             **result,
@@ -136,48 +154,30 @@ class TracesQueryRunner(QueryRunner):
             "person": self._map_person(result["first_person"]),
             "events": generations,
         }
+        try:
+            trace_dict["input_state_parsed"] = orjson.loads(trace_dict["input_state"])
+        except (TypeError, orjson.JSONDecodeError):
+            pass
+        try:
+            trace_dict["output_state_parsed"] = orjson.loads(trace_dict["output_state"])
+        except (TypeError, orjson.JSONDecodeError):
+            pass
         # Remap keys from snake case to camel case
         trace = LLMTrace.model_validate(
             {TRACE_FIELDS_MAPPING[key]: value for key, value in trace_dict.items() if key in TRACE_FIELDS_MAPPING}
         )
         return trace
 
-    def _map_generation(self, event_uuid: UUID, event_timestamp: datetime, event_properties: str) -> LLMGeneration:
-        properties: dict = orjson.loads(event_properties)
-
-        GENERATION_MAPPING = {
-            "$ai_input": "input",
-            "$ai_latency": "latency",
-            "$ai_output": "output",
-            "$ai_provider": "provider",
-            "$ai_model": "model",
-            "$ai_input_tokens": "inputTokens",
-            "$ai_output_tokens": "outputTokens",
-            "$ai_input_cost_usd": "inputCost",
-            "$ai_output_cost_usd": "outputCost",
-            "$ai_total_cost_usd": "totalCost",
-            "$ai_http_status": "httpStatus",
-            "$ai_base_url": "baseUrl",
-        }
-        GENERATION_JSON_FIELDS = {"$ai_input", "$ai_output"}
-
+    def _map_event(
+        self, event_uuid: UUID, event_name: str, event_timestamp: datetime, event_properties: str
+    ) -> LLMTraceEvent:
         generation: dict[str, Any] = {
             "id": str(event_uuid),
+            "event": event_name,
             "createdAt": event_timestamp.isoformat(),
+            "properties": orjson.loads(event_properties),
         }
-
-        for event_prop, model_prop in GENERATION_MAPPING.items():
-            if event_prop in properties:
-                if event_prop in GENERATION_JSON_FIELDS:
-                    try:
-                        generation[model_prop] = orjson.loads(properties[event_prop])
-                    except orjson.JSONDecodeError:
-                        if event_prop == "$ai_input":
-                            generation[model_prop] = []
-                else:
-                    generation[model_prop] = properties[event_prop]
-
-        return LLMGeneration.model_validate(generation)
+        return LLMTraceEvent.model_validate(generation)
 
     def _map_person(self, person: tuple[UUID, UUID, datetime, str]) -> LLMTracePerson:
         uuid, distinct_id, created_at, properties = person
@@ -191,51 +191,89 @@ class TracesQueryRunner(QueryRunner):
     def _get_event_query(self) -> ast.SelectQuery:
         query = parse_select(
             """
+            SELECT
+                generations.id AS id,
+                generations.first_timestamp AS first_timestamp,
+                generations.first_person AS first_person,
+                generations.total_latency AS total_latency,
+                generations.input_tokens AS input_tokens,
+                generations.output_tokens AS output_tokens,
+                generations.input_cost AS input_cost,
+                generations.output_cost AS output_cost,
+                generations.total_cost AS total_cost,
+                if({return_full_trace}, generations.events, arrayFilter(x -> x.2 IN ('$ai_metric', '$ai_feedback'), generations.events)) as events,
+                traces.input_state AS input_state,
+                traces.output_state AS output_state,
+                ifNull(traces.trace_name, generations.span_name) AS trace_name,
+                generations.filter_match OR traces.filter_match AS filter_match
+            FROM (
                 SELECT
                     properties.$ai_trace_id as id,
-                    min(timestamp) as trace_timestamp,
-                    tuple(max(person.id), max(distinct_id), max(person.created_at), max(person.properties)) as first_person,
-                    round(toFloat(sum(properties.$ai_latency)), 2) as total_latency,
-                    sum(properties.$ai_input_tokens) as input_tokens,
-                    sum(properties.$ai_output_tokens) as output_tokens,
-                    round(toFloat(sum(properties.$ai_input_cost_usd)), 4) as input_cost,
-                    round(toFloat(sum(properties.$ai_output_cost_usd)), 4) as output_cost,
-                    round(toFloat(sum(properties.$ai_total_cost_usd)), 4) as total_cost,
-                    arraySort(x -> x.2, groupArray(tuple(uuid, timestamp, properties))) as events
-                FROM
-                    events
-                GROUP BY
-                    id
-                ORDER BY
-                    trace_timestamp DESC
-            """
+                    min(timestamp) as first_timestamp,
+                    tuple(
+                        argMin(person.id, timestamp), argMin(distinct_id, timestamp),
+                        argMin(person.created_at, timestamp), argMin(person.properties, timestamp)
+                    ) as first_person,
+                    round(toFloat(sum(if(
+                        properties.$ai_parent_id IS NULL OR
+                        properties.$ai_parent_id = properties.$ai_trace_id,
+                        properties.$ai_latency,
+                        0
+                    ))), 2) as total_latency,
+                    argMin(properties.$ai_span_name, timestamp) as span_name,
+                    sum(toFloat(properties.$ai_input_tokens)) as input_tokens,
+                    sum(toFloat(properties.$ai_output_tokens)) as output_tokens,
+                    round(sum(toFloat(properties.$ai_input_cost_usd)), 4) as input_cost,
+                    round(sum(toFloat(properties.$ai_output_cost_usd)), 4) as output_cost,
+                    round(sum(toFloat(properties.$ai_total_cost_usd)), 4) as total_cost,
+                    arraySort(x -> x.3, groupArray(tuple(uuid, event, timestamp, properties))) as events,
+                    {filter_conditions}
+                FROM events
+                WHERE event IN ('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback')
+                    AND properties.$ai_trace_id IS NOT NULL
+                    AND {common_conditions}
+                GROUP BY id
+            ) AS generations
+            LEFT JOIN (
+                SELECT
+                    properties.$ai_trace_id as id,
+                    argMin(properties.$ai_input_state, timestamp) as input_state,
+                    argMin(properties.$ai_output_state, timestamp) as output_state,
+                    argMin(ifNull(properties.$ai_span_name, properties.$ai_trace_name), timestamp) as trace_name,
+                    {filter_conditions}
+                FROM events
+                WHERE event = '$ai_trace'
+                    AND properties.$ai_trace_id IS NOT NULL
+                    AND {common_conditions}
+                GROUP BY id
+            ) AS traces
+            ON traces.id = generations.id
+            ORDER BY first_timestamp DESC
+            """,
         )
         return cast(ast.SelectQuery, query)
 
-    def _get_where_clause(self):
-        timestamp_field = ast.Field(chain=["events", "timestamp"])
+    def _get_properties_filter(self):
+        expr: ast.Expr = ast.Constant(value=1)
+        if self.query.properties:
+            with self.timings.measure("property_filters"):
+                filter = ast.And(exprs=[property_to_expr(property, self.team) for property in self.query.properties])
+                expr = ast.Call(name="max", args=[filter])
+        return ast.Alias(alias="filter_match", expr=expr)
 
+    def _get_where_clause(self):
         where_exprs: list[ast.Expr] = [
             ast.CompareOperation(
-                left=ast.Field(chain=["event"]),
-                op=ast.CompareOperationOp.Eq,
-                right=ast.Constant(value="$ai_generation"),
-            ),
-            ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
-                left=timestamp_field,
+                left=ast.Field(chain=["events", "timestamp"]),
                 right=self._date_range.date_from_as_hogql(),
             ),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.LtEq,
-                left=timestamp_field,
+                left=ast.Field(chain=["events", "timestamp"]),
                 right=self._date_range.date_to_as_hogql(),
             ),
         ]
-
-        if self.query.properties:
-            with self.timings.measure("property_filters"):
-                where_exprs.extend(property_to_expr(property, self.team) for property in self.query.properties)
 
         if self.query.filterTestAccounts:
             with self.timings.measure("test_account_filters"):

@@ -1,6 +1,6 @@
 from inline_snapshot import snapshot
 import pytest
-from hogvm.python.utils import UncaughtHogVMException
+from common.hogvm.python.utils import UncaughtHogVMException
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.customerio.template_customerio import (
     TemplateCustomerioMigrator,
@@ -17,7 +17,8 @@ def create_inputs(**kwargs):
         "host": "track.customer.io",
         "action": "automatic",
         "include_all_properties": False,
-        "identifiers": {"email": "example@posthog.com"},
+        "identifier_key": "email",
+        "identifier_value": "example@posthog.com",
         "attributes": {"name": "example"},
     }
     inputs.update(kwargs)
@@ -112,12 +113,10 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
             assert self.get_mock_fetch_calls()[0][1]["body"]["name"] == event_name
 
     def test_function_requires_identifier(self):
-        self.run_function(inputs=create_inputs(identifiers={"email": None, "id": ""}))
+        self.run_function(inputs=create_inputs(identifier_key="email", identifier_value=""))
 
         assert not self.get_mock_fetch_calls()
-        assert self.get_mock_print_calls() == snapshot(
-            [("No identifier set. Skipping as at least 1 identifier is needed.",)]
-        )
+        assert self.get_mock_print_calls() == snapshot([("No identifier set. Skipping as identifier is required.",)])
 
     def test_function_errors_on_bad_status(self):
         self.mock_fetch_response = lambda *args: {"status": 400, "body": {"error": "error"}}  # type: ignore
@@ -149,23 +148,13 @@ class TestTemplateMigration(BaseTest):
                 "site_id": {"value": "SITE_ID"},
                 "token": {"value": "TOKEN"},
                 "host": {"value": "track.customer.io"},
-                "identifiers": {"value": {"id": "{event.distinct_id}"}},
+                "identifier_key": {"value": "id"},
+                "identifier_value": {"value": "{event.distinct_id}"},
                 "include_all_properties": {"value": True},
                 "attributes": {"value": {}},
             }
         )
         assert template["filters"] == snapshot({})
-        assert template["inputs"] == snapshot(
-            {
-                "action": {"value": "automatic"},
-                "site_id": {"value": "SITE_ID"},
-                "token": {"value": "TOKEN"},
-                "host": {"value": "track.customer.io"},
-                "identifiers": {"value": {"id": "{event.distinct_id}"}},
-                "include_all_properties": {"value": True},
-                "attributes": {"value": {}},
-            }
-        )
 
     def test_anon_config_send_all(self):
         obj = self.get_plugin_config(
@@ -204,7 +193,8 @@ class TestTemplateMigration(BaseTest):
     def test_identify_by_email(self):
         obj = self.get_plugin_config({"identifyByEmail": "Yes"})
         template = TemplateCustomerioMigrator.migrate(obj)
-        assert template["inputs"]["identifiers"] == snapshot({"value": {"email": "{person.properties.email}"}})
+        assert template["inputs"]["identifier_key"] == {"value": "email"}
+        assert template["inputs"]["identifier_value"] == {"value": "{person.properties.email}"}
 
     def test_events_filters(self):
         obj = self.get_plugin_config({"eventsToSend": "event1,event2, $pageview"})

@@ -88,7 +88,7 @@ export function PayGateMini({
                 isGrandfathered={isGrandfathered}
                 handleCtaClick={handleCtaClick}
             >
-                <div className="flex items-center justify-center space-x-3">
+                <div className="flex items-center justify-center deprecated-space-x-3">
                     <PayGateButton feature={feature} currentUsage={currentUsage} onClick={handleCtaClick} />
                     {docsLink && isCloudOrDev && (
                         <LemonButton
@@ -154,7 +154,7 @@ function PayGateContent({
         <div
             className={clsx(
                 className,
-                background && 'bg-bg-3000 border border-border',
+                background && 'bg-primary border border-primary',
                 'PayGateMini rounded flex flex-col items-center p-4 text-center'
             )}
         >
@@ -195,12 +195,12 @@ const renderUsageLimitMessage = (
                     <Tooltip title={featureInfo.description}>
                         <span>
                             <b>{featureInfo.name}</b>
-                            <IconInfo className="ml-0.5 text-muted" />
+                            <IconInfo className="ml-0.5 text-secondary" />
                         </span>
                     </Tooltip>
                     .
                 </p>
-                <p className="p-4 border rounded border-border bg-bg-3000">
+                <p className="p-4 border rounded border-primary bg-primary">
                     <b>Your current plan limit:</b>{' '}
                     <span>
                         {featureAvailableOnOrg.limit} {featureAvailableOnOrg.unit}
@@ -214,7 +214,7 @@ const renderUsageLimitMessage = (
                                 <b>{featureInfoOnNextPlan?.limit} projects</b>.
                             </p>
                         )}
-                        <p className="mb-4 text-xs italic text-muted">
+                        <p className="mb-4 text-xs italic text-secondary">
                             Need unlimited projects? Check out the{' '}
                             <Link to="/organization/billing?products=platform_and_support" onClick={handleCtaClick}>
                                 Teams addon
@@ -260,9 +260,9 @@ const renderGateVariantMessage = (
 
 const GrandfatheredMessage = (): JSX.Element => {
     return (
-        <div className="flex mb-4 text-left rounded gap-x-2 bg-bg-3000">
-            <IconInfo className="text-2xl text-muted" />
-            <p className="mb-0 text-muted">
+        <div className="flex mb-4 text-left rounded gap-x-2 bg-primary">
+            <IconInfo className="text-2xl text-secondary" />
+            <p className="mb-0 text-secondary">
                 Your plan does not include this feature, but previously set settings may remain. Please upgrade your
                 plan to regain access.
             </p>

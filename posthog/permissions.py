@@ -236,10 +236,7 @@ class PremiumFeaturePermission(BasePermission):
         if not request.user or not request.user.organization:  # type: ignore
             return True
 
-        if view.premium_feature not in [
-            feature["key"]
-            for feature in request.user.organization.available_product_features  # type: ignore
-        ]:
+        if not request.user.organization.is_feature_available(view.premium_feature):  # type: ignore
             raise EnterpriseFeatureException()
 
         return True
@@ -331,6 +328,13 @@ class ScopeBasePermission(BasePermission):
         # Otherwise use the scope_object and derive the required scope from the action
         if getattr(view, "required_scopes", None):
             return view.required_scopes
+
+        # If the view has a dangerously_get_required_scopes method then use that
+        # If it returns None then we will use the default behavior
+        if hasattr(view, "dangerously_get_required_scopes"):
+            required_scopes = view.dangerously_get_required_scopes(request, view)
+            if required_scopes:
+                return required_scopes
 
         scope_object = self._get_scope_object(request, view)
 

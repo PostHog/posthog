@@ -38,7 +38,7 @@
 
         &::before,
         &::after {
-            border-top: 1px solid var(--border);
+            border-top: 1px solid var(--border-primary);
         }
 
         &::before {
@@ -54,7 +54,7 @@
         flex: 1;
         height: 1px;
         margin: 0 0.5rem;
-        background-color: var(--border);
+        background-color: var(--border-primary);
     }
 
     .CohortCriteriaRow__Criteria__arrow {
@@ -65,7 +65,7 @@
         padding-left: 6px;
         font-size: 18px;
         font-weight: bold;
-        color: var(--muted);
+        color: var(--text-secondary);
         user-select: none;
     }
 }

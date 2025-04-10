@@ -75,7 +75,7 @@ export function FunnelAggregationSelect({
         label: `Unique sessions`,
     })
     optionSections[0].options.push({
-        label: 'Custom HogQL expression',
+        label: 'Custom SQL expression',
         options: [
             {
                 // This is a bit of a hack so that the HogQL option is only highlighted as active when the user has
@@ -90,7 +90,7 @@ export function FunnelAggregationSelect({
                                 onChange={onSelect}
                                 value={value}
                                 placeholder={
-                                    "Enter HogQL expression, such as:\n- distinct_id\n- properties.$session_id\n- concat(distinct_id, ' ', properties.$session_id)\n- if(1 < 2, 'one', 'two')"
+                                    "Enter SQL expression, such as:\n- distinct_id\n- properties.$session_id\n- concat(distinct_id, ' ', properties.$session_id)\n- if(1 < 2, 'one', 'two')"
                                 }
                             />
                         </div>
@@ -189,7 +189,7 @@ export function FunnelAttributionSelect({
                 <Tooltip
                     closeDelayMs={200}
                     title={
-                        <div className="space-y-2">
+                        <div className="deprecated-space-y-2">
                             <div>
                                 When breaking down funnels, it's possible that the same properties don't exist on every
                                 event. For example, if you want to break down by browser on a funnel that contains both
@@ -217,7 +217,7 @@ export function FunnelAttributionSelect({
                         </div>
                     }
                 >
-                    <IconInfo className="text-xl text-muted-alt shrink-0 ml-1" />
+                    <IconInfo className="text-xl text-secondary shrink-0 ml-1" />
                 </Tooltip>
             </div>
             <LemonSelect

@@ -6,9 +6,12 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.services.query import process_query_dict
-from posthog.hogql.query import LimitContext
+
+
+from posthog.models.insight_variable import InsightVariable
 from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.models.utils import UUIDT
+from posthog.hogql.constants import LimitContext
 from posthog.schema import (
     CachedEventsQueryResponse,
     DataWarehouseNode,
@@ -176,7 +179,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 event="sign out",
                 distinct_id="4",
-                properties={"key": "test_val3"},
+                properties={"key": "test_val3", "path": "a/b/c"},
             )
         flush_persons_and_events()
 
@@ -352,7 +355,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 {
                     "type": "validation_error",
                     "code": "illegal_type_of_argument",
-                    "detail": f"Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: In scope SELECT toTimeZone(events.timestamp, 'UTC') + 'string' FROM events WHERE (events.team_id = {self.team.id}) AND (toTimeZone(events.timestamp, 'UTC') < toDateTime64('2024-10-16 22:10:34.691212', 6, 'UTC')) AND (toTimeZone(events.timestamp, 'UTC') > toDateTime64('2024-10-15 22:10:29.691212', 6, 'UTC')) ORDER BY toTimeZone(events.timestamp, 'UTC') + 'string' ASC LIMIT 0, 101 SETTINGS readonly = 2, max_execution_time = 60, allow_experimental_object_type = 1, format_csv_allow_double_quotes = 0, max_ast_elements = 4000000, max_expanded_ast_elements = 4000000, max_bytes_before_external_group_by = 0.",
+                    "detail": f"Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: In scope SELECT toTimeZone(events.timestamp, 'UTC') + 'string' FROM events WHERE (events.team_id = {self.team.id}) AND (toTimeZone(events.timestamp, 'UTC') < toDateTime64('2024-10-16 22:10:34.691212', 6, 'UTC')) AND (toTimeZone(events.timestamp, 'UTC') > toDateTime64('2024-10-15 22:10:29.691212', 6, 'UTC')) ORDER BY toTimeZone(events.timestamp, 'UTC') + 'string' ASC LIMIT 0, 101 SETTINGS readonly = 2, max_execution_time = 60, allow_experimental_object_type = 1, format_csv_allow_double_quotes = 0, max_ast_elements = 4000000, max_expanded_ast_elements = 4000000, max_bytes_before_external_group_by = 0, transform_null_in = 1, optimize_min_equality_disjunction_chain_length = 4294967295.",
                     "attr": None,
                 },
             )
@@ -1008,6 +1011,74 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response_with_dashboard_filters, CachedHogQLQueryResponse)
         self.assertEqual(response_with_dashboard_filters.results, [(1,)])
 
+    def test_dashboard_variables_overrides(self):
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Test", code_name="test", default_value="some_default_value", type="String"
+        )
+        variable_id = str(variable.pk)
+        variable_override_value = "helloooooo"
+
+        api_response = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select {variables.test}",
+                    "explain": True,
+                    "filters": {"dateRange": {"date_from": "-7d"}},
+                    "variables": {
+                        variable_id: {
+                            "variableId": variable_id,
+                            "code_name": variable.code_name,
+                            "value": variable_override_value,
+                        }
+                    },
+                },
+                "client_query_id": "5d92fb51-5088-45e8-91b2-843aef3d69bd",
+                "filters_override": None,
+                "variables_override": {
+                    variable_id: {
+                        "code_name": variable.code_name,
+                        "variableId": variable_id,
+                        "value": variable_override_value,
+                    }
+                },
+            },
+        ).json()
+
+        response = CachedHogQLQueryResponse.model_validate(api_response)
+        assert response.results[0][0] == variable_override_value
+
+
+class TestQueryAwaited(ClickhouseTestMixin, APIBaseTest):
+    def test_async_query_invalid_json(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/query_awaited/", data="invalid json", content_type="application/json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response["Content-Type"], "text/event-stream")
+
+        content = b"".join(response.streaming_content)  # type: ignore[attr-defined]
+        error_data_str = content.decode().strip()
+        error_data = json.loads(error_data_str.split("data: ")[1])
+        assert isinstance(error_data, dict)  # Type guard for mypy
+        self.assertEqual(error_data.get("type"), "invalid_request", error_data)
+        self.assertEqual(error_data.get("code"), "parse_error")
+
+    def test_async_auth(self):
+        self.client.logout()
+        query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query_awaited/",
+            data=json.dumps({"query": query.dict()}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_get_returns_405(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/query_awaited/")
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
 
 class TestQueryRetrieve(APIBaseTest):
     def setUp(self):
@@ -1102,7 +1173,7 @@ class TestQueryRetrieve(APIBaseTest):
             }
         ).encode()
         response = self.client.delete(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
-        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(self.redis_client_mock.delete.call_count, 2)
 
 

@@ -23,7 +23,7 @@ const meta: Meta = {
                     can_create_org: true,
                     available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
                 },
-                '/api/projects/@current/': () => [
+                '/api/environments/@current/': () => [
                     403,
                     {
                         code: 'project_unavailable',

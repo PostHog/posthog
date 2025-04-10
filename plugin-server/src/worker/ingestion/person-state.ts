@@ -1,17 +1,17 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
-import { ProducerRecord } from 'kafkajs'
 import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { ONE_HOUR } from '../../config/constants'
-import { InternalPerson, Person, PropertyUpdateOperation } from '../../types'
+import { TopicMessage } from '../../kafka/producer'
+import { InternalPerson, Person, PropertyUpdateOperation, Team } from '../../types'
 import { DB } from '../../utils/db/db'
 import { PostgresUse, TransactionClient } from '../../utils/db/postgres'
 import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from '../../utils/db/utils'
+import { logger } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
 import { promiseRetry } from '../../utils/retries'
-import { status } from '../../utils/status'
 import { uuidFromDistinctId } from './person-uuid'
 import { captureIngestionWarning } from './utils'
 
@@ -105,7 +105,7 @@ export class PersonState {
 
     constructor(
         private event: PluginEvent,
-        private teamId: number,
+        private team: Team,
         private distinctId: string,
         private timestamp: DateTime,
         private processPerson: boolean, // $process_person_profile flag from the event
@@ -120,7 +120,7 @@ export class PersonState {
 
     async update(): Promise<[Person, Promise<void>]> {
         if (!this.processPerson) {
-            let existingPerson = await this.db.fetchPerson(this.teamId, this.distinctId, { useReadReplica: true })
+            let existingPerson = await this.db.fetchPerson(this.team.id, this.distinctId, { useReadReplica: true })
 
             if (!existingPerson) {
                 // See the comment in `mergeDistinctIds`. We are inserting a row into `posthog_personlessdistinctid`
@@ -128,9 +128,9 @@ export class PersonState {
                 // so that later, during a merge, we can decide whether we need to write out an override
                 // or not.
 
-                const personlessDistinctIdCacheKey = `${this.teamId}|${this.distinctId}`
+                const personlessDistinctIdCacheKey = `${this.team.id}|${this.distinctId}`
                 if (!PERSONLESS_DISTINCT_ID_INSERTED_CACHE.get(personlessDistinctIdCacheKey)) {
-                    const personIsMerged = await this.db.addPersonlessDistinctId(this.teamId, this.distinctId)
+                    const personIsMerged = await this.db.addPersonlessDistinctId(this.team.id, this.distinctId)
 
                     // We know the row is in PG now, and so future events for this Distinct ID can
                     // skip the PG I/O.
@@ -141,7 +141,7 @@ export class PersonState {
                         // has been updated by a merge (either since we called `fetchPerson` above, plus
                         // replication lag). We need to check `fetchPerson` again (this time using the leader)
                         // so that we properly associate this event with the Person we got merged into.
-                        existingPerson = await this.db.fetchPerson(this.teamId, this.distinctId, {
+                        existingPerson = await this.db.fetchPerson(this.team.id, this.distinctId, {
                             useReadReplica: false,
                         })
                     }
@@ -154,7 +154,10 @@ export class PersonState {
                 // Ensure person properties don't propagate elsewhere, such as onto the event itself.
                 person.properties = {}
 
-                if (this.timestamp > person.created_at.plus({ minutes: 1 })) {
+                // If the team has opted out then we never force the upgrade.
+                const teamHasNotOptedOut = !this.team.person_processing_opt_out
+
+                if (teamHasNotOptedOut && this.timestamp > person.created_at.plus({ minutes: 1 })) {
                     // See documentation on the field.
                     //
                     // Note that we account for timestamp vs person creation time (with a little
@@ -174,9 +177,9 @@ export class PersonState {
             const createdAt = DateTime.utc(1970, 1, 1, 0, 0, 5)
 
             const fakePerson: Person = {
-                team_id: this.teamId,
+                team_id: this.team.id,
                 properties: {},
-                uuid: uuidFromDistinctId(this.teamId, this.distinctId),
+                uuid: uuidFromDistinctId(this.team.id, this.distinctId),
                 created_at: createdAt,
             }
             return [fakePerson, Promise.resolve()]
@@ -192,7 +195,7 @@ export class PersonState {
                 return [updatedPerson, Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined)]
             } catch (error) {
                 // shortcut didn't work, swallow the error and try normal retry loop below
-                status.debug('🔁', `failed update after adding distinct IDs, retrying`, { error })
+                logger.debug('🔁', `failed update after adding distinct IDs, retrying`, { error })
             }
         }
 
@@ -220,7 +223,7 @@ export class PersonState {
      * @returns [Person, boolean that indicates if properties were already handled or not]
      */
     private async createOrGetPerson(): Promise<[InternalPerson, boolean]> {
-        let person = await this.db.fetchPerson(this.teamId, this.distinctId)
+        let person = await this.db.fetchPerson(this.team.id, this.distinctId)
         if (person) {
             return [person, false]
         }
@@ -236,7 +239,7 @@ export class PersonState {
             this.timestamp,
             properties || {},
             propertiesOnce || {},
-            this.teamId,
+            this.team.id,
             null,
             // :NOTE: This should never be set in this branch, but adding this for logical consistency
             this.updateIsIdentified,
@@ -301,7 +304,7 @@ export class PersonState {
 
         if (Object.keys(update).length > 0) {
             const [updatedPerson, kafkaMessages] = await this.db.updatePersonDeprecated(person, update)
-            const kafkaAck = this.db.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
+            const kafkaAck = this.db.kafkaProducer.queueMessages(kafkaMessages)
             return [updatedPerson, kafkaAck]
         }
 
@@ -381,6 +384,10 @@ export class PersonState {
         })
         unsetProperties.forEach((propertyKey) => {
             if (propertyKey in personProperties) {
+                if (typeof propertyKey !== 'string') {
+                    logger.warn('🔔', 'unset_property_key_not_string', { propertyKey, unsetProperties })
+                    return
+                }
                 updated = true
                 metricsKeys.add(this.getMetricKey(propertyKey))
                 delete personProperties[propertyKey]
@@ -410,20 +417,20 @@ export class PersonState {
                 return await this.merge(
                     String(this.eventProperties['alias']),
                     this.distinctId,
-                    this.teamId,
+                    this.team.id,
                     this.timestamp
                 )
             } else if (this.event.event === '$identify' && '$anon_distinct_id' in this.eventProperties) {
                 return await this.merge(
                     String(this.eventProperties['$anon_distinct_id']),
                     this.distinctId,
-                    this.teamId,
+                    this.team.id,
                     this.timestamp
                 )
             }
         } catch (e) {
-            Sentry.captureException(e, {
-                tags: { team_id: this.teamId, pipeline_step: 'processPersonsStep' },
+            captureException(e, {
+                tags: { team_id: this.team.id, pipeline_step: 'processPersonsStep' },
                 extra: {
                     location: 'handleIdentifyOrAlias',
                     distinctId: this.distinctId,
@@ -535,7 +542,7 @@ export class PersonState {
                 async (tx) => {
                     // See comment above about `distinctIdVersion`
                     const insertedDistinctId = await this.db.addPersonlessDistinctIdForMerge(
-                        this.teamId,
+                        this.team.id,
                         distinctIdToAdd,
                         tx
                     )
@@ -571,14 +578,14 @@ export class PersonState {
                 async (tx) => {
                     // See comment above about `distinctIdVersion`
                     const insertedDistinctId1 = await this.db.addPersonlessDistinctIdForMerge(
-                        this.teamId,
+                        this.team.id,
                         distinctId1,
                         tx
                     )
 
                     // See comment above about `distinctIdVersion`
                     const insertedDistinctId2 = await this.db.addPersonlessDistinctIdForMerge(
-                        this.teamId,
+                        this.team.id,
                         distinctId2,
                         tx
                     )
@@ -652,7 +659,7 @@ export class PersonState {
         if (!mergeAllowed) {
             await captureIngestionWarning(
                 this.db.kafkaProducer,
-                this.teamId,
+                this.team.id,
                 'cannot_merge_already_identified',
                 {
                     sourcePersonDistinctId: otherPersonDistinctId,
@@ -661,7 +668,7 @@ export class PersonState {
                 },
                 { alwaysSend: true }
             )
-            status.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call')
+            logger.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call')
             return [mergeInto, Promise.resolve()] // We're returning the original person tied to distinct_id used for the event
         }
 
@@ -682,14 +689,14 @@ export class PersonState {
         const properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
         this.applyEventPropertyUpdates(properties)
 
-        const [mergedPerson, kafkaMessages] = await this.handleMergeTransaction(
+        const [mergedPerson, kafkaAcks] = await this.handleMergeTransaction(
             mergeInto,
             otherPerson,
             olderCreatedAt, // Keep the oldest created_at (i.e. the first time we've seen either person)
             properties
         )
 
-        return [mergedPerson, kafkaMessages]
+        return [mergedPerson, kafkaAcks]
     }
 
     private isMergeAllowed(mergeFrom: InternalPerson): boolean {
@@ -712,7 +719,7 @@ export class PersonState {
             })
             .inc()
 
-        const [mergedPerson, kafkaMessages]: [InternalPerson, ProducerRecord[]] = await this.db.postgres.transaction(
+        const [mergedPerson, kafkaMessages]: [InternalPerson, TopicMessage[]] = await this.db.postgres.transaction(
             PostgresUse.COMMON_WRITE,
             'mergePeople',
             async (tx) => {
@@ -768,7 +775,7 @@ export class PersonState {
             })
             .inc()
 
-        const kafkaAck = this.db.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
+        const kafkaAck = this.db.kafkaProducer.queueMessages(kafkaMessages)
 
         return [mergedPerson, kafkaAck]
     }

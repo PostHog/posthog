@@ -1,11 +1,10 @@
-import { TZLabel } from '@posthog/apps-common'
 import { IconCalendar } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSwitch, LemonTable, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
+import { TZLabel } from 'lib/components/TZLabel'
 import { IconCancel, IconRefresh } from 'lib/lemon-ui/icons'
 
 import { BatchExportConfiguration, BatchExportRun, GroupedBatchExportRuns } from '~/types'
@@ -19,7 +18,7 @@ export function BatchExportRuns({ id }: BatchExportRunsLogicProps): JSX.Element 
     const logic = batchExportRunsLogic({ id })
 
     const { batchExportConfig, groupedRuns, loading, hasMoreRunsToLoad, usingLatestRuns } = useValues(logic)
-    const { loadOlderRuns, retryRun, openBackfillModal } = useActions(logic)
+    const { loadOlderRuns, retryRun } = useActions(logic)
 
     if (!batchExportConfig) {
         return <NotFound object="batch export" />
@@ -27,14 +26,7 @@ export function BatchExportRuns({ id }: BatchExportRunsLogicProps): JSX.Element 
 
     return (
         <>
-            <PageHeader
-                buttons={
-                    <LemonButton type="primary" onClick={() => openBackfillModal()}>
-                        Backfill batch export
-                    </LemonButton>
-                }
-            />
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <BatchExportRunsFilters id={id} />
                 {usingLatestRuns ? (
                     <BatchExportLatestRuns id={id} />
@@ -178,13 +170,13 @@ function BatchExportLatestRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
                     },
                 ]}
                 emptyState={
-                    <div className="space-y-2">
+                    <div className="deprecated-space-y-2">
                         <div>
                             No runs in this time range. Your exporter runs every <b>{batchExportConfig.interval}</b>.
                         </div>
                         {canEnableNewDestinations && (
                             <LemonButton type="primary" onClick={() => openBackfillModal()}>
-                                Backfill batch export
+                                Start backfill
                             </LemonButton>
                         )}
                     </div>
@@ -319,13 +311,13 @@ export function BatchExportRunsGrouped({
                     },
                 ]}
                 emptyState={
-                    <div className="space-y-2">
+                    <div className="deprecated-space-y-2">
                         <div>
                             No runs in this time range. Your exporter runs every <b>{interval}</b>.
                         </div>
                         {canEnableNewDestinations && (
                             <LemonButton type="primary" onClick={() => openBackfillModal()}>
-                                Backfill batch export
+                                Start backfill
                             </LemonButton>
                         )}
                     </div>

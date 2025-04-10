@@ -214,6 +214,9 @@ describe('filtersToQueryNode', () => {
             const query: InsightQueryNode = {
                 kind: NodeKind.RetentionQuery,
                 filterTestAccounts: true,
+                retentionFilter: {
+                    meanRetentionCalculation: 'simple',
+                },
             } as InsightQueryNode
             expect(result).toEqual(query)
         })
@@ -259,6 +262,9 @@ describe('filtersToQueryNode', () => {
                         },
                     ],
                 },
+                retentionFilter: {
+                    meanRetentionCalculation: 'simple',
+                },
             } as InsightQueryNode
             expect(result).toEqual(query)
         })
@@ -299,6 +305,9 @@ describe('filtersToQueryNode', () => {
                         },
                     ],
                 },
+                retentionFilter: {
+                    meanRetentionCalculation: 'simple',
+                },
             } as InsightQueryNode
             expect(result).toEqual(query)
         })
@@ -317,6 +326,9 @@ describe('filtersToQueryNode', () => {
                 dateRange: {
                     date_to: '2021-12-08',
                     date_from: '2021-12-08',
+                },
+                retentionFilter: {
+                    meanRetentionCalculation: 'simple',
                 },
             } as InsightQueryNode
             expect(result).toEqual(query)
@@ -338,6 +350,9 @@ describe('filtersToQueryNode', () => {
                     date_to: '2021-12-08',
                     date_from: '2021-12-08',
                     explicitDate: true,
+                },
+                retentionFilter: {
+                    meanRetentionCalculation: 'simple',
                 },
             } as InsightQueryNode
             expect(result).toEqual(query)
@@ -683,7 +698,7 @@ describe('filtersToQueryNode', () => {
                     returningEntity: { id: '1' },
                     targetEntity: { id: '1' },
                     period: RetentionPeriod.Day,
-                    showMean: true,
+                    meanRetentionCalculation: 'simple',
                 },
             }
             expect(result).toEqual(query)
@@ -970,6 +985,7 @@ describe('filtersToQueryNode', () => {
                     date_from: '-7d',
                 },
                 retentionFilter: {
+                    meanRetentionCalculation: 'simple',
                     period: RetentionPeriod.Week,
                     targetEntity: {
                         id: 'signed_up',

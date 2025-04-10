@@ -13,7 +13,7 @@ import {
     PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS,
     propertyDefinitionsModel,
 } from '~/models/propertyDefinitionsModel'
-import { PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
+import { GroupTypeIndex, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
 export interface PropertyValueProps {
     propertyKey: string
@@ -27,6 +27,9 @@ export interface PropertyValueProps {
     eventNames?: string[]
     addRelativeDateTimeOptions?: boolean
     forceSingleSelect?: boolean
+    inputClassName?: string
+    additionalPropertiesFilter?: { key: string; values: string | string[] }[]
+    groupTypeIndex?: GroupTypeIndex
 }
 
 export function PropertyValue({
@@ -41,6 +44,9 @@ export function PropertyValue({
     eventNames = [],
     addRelativeDateTimeOptions = false,
     forceSingleSelect = false,
+    inputClassName = undefined,
+    additionalPropertiesFilter = [],
+    groupTypeIndex = undefined,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -59,14 +65,17 @@ export function PropertyValue({
             newInput,
             propertyKey,
             eventNames,
+            properties: additionalPropertiesFilter,
         })
     }
 
     const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
 
     useEffect(() => {
-        load('')
-    }, [propertyKey])
+        if (!isDateTimeProperty) {
+            load('')
+        }
+    }, [propertyKey, isDateTimeProperty])
 
     const displayOptions = options[propertyKey]?.values || []
 
@@ -125,11 +134,12 @@ export function PropertyValue({
     }
 
     const formattedValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
-        (label) => String(formatPropertyValueForDisplay(propertyKey, label))
+        (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
     )
 
     return (
         <LemonInputSelect
+            className={inputClassName}
             data-attr="prop-val"
             loading={options[propertyKey]?.status === 'loading'}
             value={formattedValues}
@@ -153,7 +163,11 @@ export function PropertyValue({
                     label: name,
                     labelComponent: (
                         <span key={name} data-attr={'prop-val-' + index} className="ph-no-capture" title={name}>
-                            {name === '' ? <i>(empty string)</i> : formatPropertyValueForDisplay(propertyKey, name)}
+                            {name === '' ? (
+                                <i>(empty string)</i>
+                            ) : (
+                                formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)
+                            )}
                         </span>
                     ),
                 }

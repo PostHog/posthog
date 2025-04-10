@@ -1,4 +1,5 @@
 import { LemonDivider } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 
@@ -14,9 +15,12 @@ export function ItemConsoleLog({ item }: ItemConsoleLogProps): JSX.Element {
             <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1">{item.data.content}</div>
             {(item.data.count || 1) > 1 ? (
                 <span
-                    className={`${
-                        item.highlightColor ? 'bg-' + item.highlightColor : 'bg-primary-alt'
-                    } rounded-lg px-1 mx-2 text-white text-xs font-semibold`}
+                    className={clsx(
+                        'rounded-lg px-1 mx-2 text-white text-xs font-semibold',
+                        item.highlightColor === 'danger' && `bg-fill-error-highlight`,
+                        item.highlightColor === 'warning' && `bg-fill-warning-highlight`,
+                        item.highlightColor === 'primary' && `bg-fill-accent-highlight-secondary`
+                    )}
                 >
                     {item.data.count}
                 </span>

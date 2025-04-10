@@ -1,5 +1,6 @@
 from django.conf import settings
 
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.models.raw_sessions.sql import RAW_SESSIONS_DATA_TABLE, TABLE_BASE_NAME
 
 # perf
@@ -55,3 +56,36 @@ DISTRIBUTED_RAW_SESSIONS_ADD_VITALS_LCP_COLUMN_SQL = lambda: ADD_VITALS_LCP_COLU
     table_name=RAW_SESSIONS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
 )
+
+# irclid and _kx
+ADD_IRCLID_KX_COLUMNS_SQL = """
+ALTER TABLE {table_name} {on_cluster_clause}
+ADD COLUMN IF NOT EXISTS
+initial__kx
+AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+ADD COLUMN IF NOT EXISTS
+initial_irclid
+AggregateFunction(argMin, String, DateTime64(6, 'UTC'))
+AFTER initial_ttclid
+"""
+
+
+def BASE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(on_cluster=True):
+    return ADD_IRCLID_KX_COLUMNS_SQL.format(
+        table_name=TABLE_BASE_NAME,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+    )
+
+
+def WRITABLE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(on_cluster=True):
+    return ADD_IRCLID_KX_COLUMNS_SQL.format(
+        table_name="writable_raw_sessions",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+    )
+
+
+def DISTRIBUTED_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(on_cluster=True):
+    return ADD_IRCLID_KX_COLUMNS_SQL.format(
+        table_name=RAW_SESSIONS_DATA_TABLE(),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+    )

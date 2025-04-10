@@ -84,7 +84,7 @@ export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boole
                 showNestedArrow={true}
                 {...actionFilterProps}
             />
-            <div className="mt-4 space-y-4">
+            <div className="mt-4 deprecated-space-y-4">
                 <FunnelAggregationSelect
                     value={getHogQLValue(
                         currentMetric.funnels_query.aggregation_group_type_index ?? undefined,

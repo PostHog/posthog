@@ -226,6 +226,73 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["results"]), 0)
 
+    @freeze_time("2020-01-10")
+    def test_event_column_values(self):
+        person1 = _create_person(
+            properties={"email": "joe@posthog.com"},
+            team=self.team,
+            distinct_ids=["bla"],
+        )
+        person2 = _create_person(
+            properties={"email": "bob@posthog.com"},
+            team=self.team,
+            distinct_ids=["blu"],
+        )
+        person3 = _create_person(
+            properties={"email": "bill@posthog.com"},
+            team=self.team,
+            distinct_ids=["ble"],
+        )
+        _create_event(
+            distinct_id="bla",
+            event="random event 1",
+            team=self.team,
+        )
+        _create_event(
+            distinct_id="blu",
+            event="random event 2",
+            team=self.team,
+            properties={"random_prop": "asdf"},
+        )
+        _create_event(
+            distinct_id="ble",
+            event="another random event",
+            team=self.team,
+            properties={"random_prop": "qwerty"},
+        )
+
+        team2 = Organization.objects.bootstrap(None)[2]
+        _create_event(
+            distinct_id="bla",
+            event="random event",
+            team=team2,
+            properties={"random_prop": "abcd"},
+        )
+
+        flush_persons_and_events()
+
+        # distinct_id
+        response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=distinct_id&is_column=true").json()
+        self.assertEqual(sorted(x["name"] for x in response), sorted(["bla", "ble", "blu"]))
+
+        # event
+        response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=event&is_column=true").json()
+        self.assertEqual(
+            sorted(x["name"] for x in response), sorted(["another random event", "random event 1", "random event 2"])
+        )
+
+        # person_id
+        response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=person_id&is_column=true").json()
+        self.assertEqual(
+            sorted(x["name"] for x in response), sorted([str(person3.uuid), str(person2.uuid), str(person1.uuid)])
+        )
+
+        # Search
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/events/values/?key=event&is_column=true&value=another"
+        ).json()
+        self.assertEqual(response, [{"name": "another random event"}])
+
     def test_custom_event_values(self):
         events = ["test", "new event", "another event"]
         for event in events:
@@ -367,6 +434,107 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             ).json()
             self.assertEqual(response, [])
 
+    def test_property_values_with_property_filters(self):
+        with freeze_time("2020-01-20 20:00:00"):
+            _create_event(
+                distinct_id="bla",
+                event="random event",
+                team=self.team,
+                properties={"random_prop": "asdf", "filter_prop": "value1"},
+            )
+            _create_event(
+                distinct_id="bla",
+                event="random event",
+                team=self.team,
+                properties={"random_prop": "qwerty", "filter_prop": "value1"},
+            )
+            _create_event(
+                distinct_id="bla",
+                event="random event",
+                team=self.team,
+                properties={"random_prop": "no match", "filter_prop": "value2"},
+            )
+
+            # Test single property filter
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/values/?key=random_prop&properties_filter_prop=value1"
+            ).json()
+            self.assertEqual(len(response), 2)
+            self.assertCountEqual([r["name"] for r in response], ["asdf", "qwerty"])
+
+            # Test array property filter
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/values/?key=random_prop&properties_filter_prop={json.dumps(['value1', 'value2'])}"
+            ).json()
+            self.assertEqual(len(response), 3)
+            self.assertCountEqual([r["name"] for r in response], ["asdf", "qwerty", "no match"])
+
+            # Test multiple property filters
+            _create_event(
+                distinct_id="bla",
+                event="random event",
+                team=self.team,
+                properties={"random_prop": "both filters", "filter_prop": "value1", "another_filter": "other1"},
+            )
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/values/?key=random_prop&properties_filter_prop=value1&properties_another_filter=other1"
+            ).json()
+            self.assertEqual(len(response), 1)
+            self.assertEqual(response[0]["name"], "both filters")
+
+    def test_property_values_with_property_filters_error_handling(self):
+        with freeze_time("2020-01-20 20:00:00"):
+            _create_event(
+                distinct_id="bla",
+                event="random event",
+                team=self.team,
+                properties={"random_prop": "asdf", "filter_prop": "value1"},
+            )
+            _create_event(
+                distinct_id="bla",
+                event="random event",
+                team=self.team,
+                properties={"random_prop": "qwerty", "filter_prop": "value1"},
+            )
+
+            # Invalid JSON array - should be treated as a single value
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/values/?key=random_prop&properties_filter_prop=[value1,value2"
+            ).json()
+            self.assertEqual(len(response), 0)  # No matches because "[value1,value2" is treated as a literal string
+
+            # Empty value
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/values/?key=random_prop&properties_filter_prop="
+            ).json()
+            self.assertEqual(len(response), 0)
+
+            # Invalid JSON object - should be treated as a single value
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/values/?key=random_prop&properties_filter_prop={{invalid:json}}"
+            ).json()
+            self.assertEqual(len(response), 0)
+
+            # Array with mixed types - should convert all values to strings for comparison
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/values/?key=random_prop&properties_filter_prop={json.dumps(['123', 'true', 'value1'])}"
+            ).json()
+            self.assertEqual(len(response), 2)  # Should match both values since filter_prop="value1" exists
+            self.assertCountEqual([r["name"] for r in response], ["asdf", "qwerty"])
+
+            # Test with non-string property values
+            _create_event(
+                distinct_id="bla",
+                event="random event",
+                team=self.team,
+                properties={"random_prop": "123", "filter_prop": True},
+            )
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/values/?key=random_prop&properties_filter_prop={json.dumps(['TRUE'])}"
+            ).json()
+            self.assertEqual(len(response), 1)  # Should match because "TRUE".lower() == "true"
+            self.assertEqual(response[0]["name"], "123")  # The value should be preserved as a string
+
     def test_before_and_after(self):
         user = self._create_user("tim")
         self.client.force_login(user)
@@ -443,7 +611,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
             page2 = self.client.get(response["next"]).json()
 
-            from posthog.client import sync_execute
+            from posthog.clickhouse.client import sync_execute
 
             self.assertEqual(
                 sync_execute(
@@ -493,7 +661,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
             page2 = self.client.get(response["next"]).json()
 
-            from posthog.client import sync_execute
+            from posthog.clickhouse.client import sync_execute
 
             self.assertEqual(
                 sync_execute(
@@ -728,7 +896,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.models.event.query_event_list.insight_query_with_columns")
     def test_optimize_query(self, patch_query_with_columns):
-        #  For ClickHouse we normally only query the last day,
+        # For ClickHouse we normally only query the last day,
         # but if a user doesn't have many events we still want to return events that are older
         patch_query_with_columns.return_value = [
             {
@@ -762,7 +930,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.models.event.query_event_list.insight_query_with_columns", wraps=insight_query_with_columns)
     def test_optimize_query_with_bounded_dates(self, patch_query_with_columns):
-        #  For ClickHouse we normally only query the last day,
+        # For ClickHouse we normally only query the last day,
         # but if a user doesn't have many events we still want to return events that are older
 
         _create_event(

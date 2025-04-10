@@ -1,6 +1,7 @@
 import { IconGear, IconPlusSmall, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
+    LemonColorGlyph,
     LemonInput,
     LemonLabel,
     LemonSegmentedButton,
@@ -10,14 +11,13 @@ import {
     LemonTag,
     Popover,
 } from '@posthog/lemon-ui'
+import { LemonColorPicker } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { getSeriesColor, getSeriesColorPalette } from 'lib/colors'
-import { ColorGlyph } from 'lib/components/SeriesGlyph'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { AxisSeries, dataVisualizationLogic } from '../dataVisualizationLogic'
-import { ColorPickerButton } from './ColorPickerButton'
 import { AxisBreakdownSeries, seriesBreakdownLogic } from './seriesBreakdownLogic'
 import { ySeriesLogic, YSeriesLogicProps, YSeriesSettingsTab } from './ySeriesLogic'
 
@@ -131,7 +131,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
         value: name,
         label: (
             <div className="items-center flex flex-1">
-                {showSeriesColor && <ColorGlyph className="mr-2" color={seriesColor} />}
+                {showSeriesColor && <LemonColorGlyph className="mr-2" color={seriesColor} />}
                 {series.settings?.display?.label && series.column.name === name ? series.settings.display.label : name}
                 <LemonTag className="ml-2" type="default">
                     {type.name}
@@ -200,7 +200,7 @@ const YSeries = ({ series, index }: { series: AxisSeries<number>; index: number 
 
 const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLogicProps }): JSX.Element => {
     return (
-        <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="formatting" className="space-y-4">
+        <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="formatting" className="deprecated-space-y-4">
             {ySeriesLogicProps.series.column.type.isNumerical && (
                 <LemonField name="style" label="Style" className="gap-1">
                     <LemonSelect
@@ -235,16 +235,19 @@ const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YSeriesLo
     const showLabelInput = showTableSettings || !selectedSeriesBreakdownColumn
 
     return (
-        <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="display" className="space-y-4">
+        <Form logic={ySeriesLogic} props={ySeriesLogicProps} formKey="display" className="deprecated-space-y-4">
             {(showColorPicker || showLabelInput) && (
                 <div className="flex gap-3">
                     {showColorPicker && (
                         <LemonField name="color" label="Color">
                             {({ value, onChange }) => (
-                                <ColorPickerButton
-                                    color={value}
-                                    onColorSelect={onChange}
-                                    colorChoices={getSeriesColorPalette()}
+                                <LemonColorPicker
+                                    selectedColor={value}
+                                    onSelectColor={onChange}
+                                    colors={getSeriesColorPalette()}
+                                    showCustomColor
+                                    hideDropdown
+                                    preventPopoverClose
                                 />
                             )}
                         </LemonField>
@@ -387,7 +390,7 @@ const BreakdownSeries = ({ series, index }: { series: AxisBreakdownSeries<number
     return (
         <div className="flex gap-1 mb-2">
             <div className="flex gap-2">
-                <ColorGlyph color={seriesColor} className="mr-2" />
+                <LemonColorGlyph color={seriesColor} className="mr-2" />
                 <span>{series.name ? series.name : '[No value]'}</span>
             </div>
             {/* For now let's keep things simple and not allow too much configuration */}

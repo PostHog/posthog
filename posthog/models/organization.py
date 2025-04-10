@@ -41,8 +41,11 @@ class OrganizationUsageResource(TypedDict):
 # as well as for enforcing limits.
 class OrganizationUsageInfo(TypedDict):
     events: Optional[OrganizationUsageResource]
+    exceptions: Optional[OrganizationUsageResource]
     recordings: Optional[OrganizationUsageResource]
     rows_synced: Optional[OrganizationUsageResource]
+    feature_flag_requests: Optional[OrganizationUsageResource]
+    api_queries_read_bytes: Optional[OrganizationUsageResource]
     period: Optional[list[str]]
 
 
@@ -131,17 +134,22 @@ class Organization(UUIDModel):
     )
     for_internal_metrics = models.BooleanField(default=False)
     is_member_join_email_enabled = models.BooleanField(default=True)
+    is_ai_data_processing_approved = models.BooleanField(null=True, blank=True)
     enforce_2fa = models.BooleanField(null=True, blank=True)
 
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
 
     ## Managed by Billing
     customer_id = models.CharField(max_length=200, null=True, blank=True)
+
+    # looking for feature? check: is_feature_available, get_available_feature
     available_product_features = ArrayField(models.JSONField(blank=False), null=True, blank=True)
     # Managed by Billing, cached here for usage controls
     # Like {
     #   'events': { 'usage': 10000, 'limit': 20000, 'todays_usage': 1000 },
     #   'recordings': { 'usage': 10000, 'limit': 20000, 'todays_usage': 1000 }
+    #   'feature_flags_requests': { 'usage': 10000, 'limit': 20000, 'todays_usage': 1000 }
+    #   'api_queries_read_bytes': { 'usage': 123456789, 'limit': 1000000000000, 'todays_usage': 1234 }
     #   'period': ['2021-01-01', '2021-01-31']
     # }
     # Also currently indicates if the organization is on billing V2 or not
@@ -216,9 +224,15 @@ class Organization(UUIDModel):
 
         return self.available_product_features
 
+    def get_available_feature(self, feature: Union[AvailableFeature, str]) -> Optional[dict]:
+        vals: list[dict[str, Any]] = self.available_product_features or []
+        return next(
+            filter(lambda f: f and f.get("key") == feature, vals),
+            None,
+        )
+
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
-        available_product_feature_keys = [feature["key"] for feature in self.available_product_features or []]
-        return feature in available_product_feature_keys
+        return bool(self.get_available_feature(feature))
 
     @property
     def active_invites(self) -> QuerySet:

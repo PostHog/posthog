@@ -140,7 +140,7 @@ function SizeDescription({ sizeInfo }: { sizeInfo: PerformanceEventSizeInfo }): 
             {sizeInfo.isFromLocalCache ? (
                 <>
                     {' '}
-                    <span className="text-muted">(from local cache)</span>
+                    <span className="text-secondary">(from local cache)</span>
                 </>
             ) : null}
             {sizeInfo.formattedCompressionPercentage &&
@@ -187,7 +187,7 @@ export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEv
         <div data-attr="item-performance-event" className="font-light w-full">
             <div className="flex-1 overflow-hidden">
                 <div
-                    className="absolute bg-primary rounded-sm opacity-75 h-1 bottom-0.5"
+                    className="absolute bg-accent rounded-xs opacity-75 h-1 bottom-0.5"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         left: `${(startTime / contextLengthMs) * 100}%`,
@@ -472,7 +472,7 @@ export function StatusTag({ item, detailed }: { item: PerformanceEvent; detailed
             {detailed ? <div className="font-semibold">Status code</div> : null}
             <div>
                 <LemonTag type={statusType}>{statusDescription}</LemonTag>
-                {detailed && fromDiskCache ? <span className="text-muted"> (from cache)</span> : null}
+                {detailed && fromDiskCache ? <span className="text-secondary"> (from cache)</span> : null}
             </div>
         </div>
     )
@@ -504,7 +504,7 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
 
     return methodRow || statusRow ? (
         <p>
-            <div className="text-xs space-y-1 max-w-full">
+            <div className="text-xs deprecated-space-y-1 max-w-full">
                 {methodRow}
                 {statusRow}
             </div>

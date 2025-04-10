@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { featureFlagsLogic, type FeatureFlagsResult } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -36,7 +37,7 @@ export function getExperimentStatusColor(status: ProgressStatus): LemonTagType {
 
 export const experimentsLogic = kea<experimentsLogicType>([
     path(['scenes', 'experiments', 'experimentsLogic']),
-    connect({
+    connect(() => ({
         values: [
             projectLogic,
             ['currentProjectId'],
@@ -44,10 +45,12 @@ export const experimentsLogic = kea<experimentsLogicType>([
             ['user', 'hasAvailableFeature'],
             featureFlagLogic,
             ['featureFlags'],
+            featureFlagsLogic,
+            ['featureFlags'],
             router,
             ['location'],
         ],
-    }),
+    })),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setSearchStatus: (status: ProgressStatus | 'all') => ({ status }),
@@ -161,10 +164,15 @@ export const experimentsLogic = kea<experimentsLogicType>([
             () => [featureFlagLogic.selectors.featureFlags],
             (featureFlags: FeatureFlagsSet) => featureFlags[FEATURE_FLAGS.WEB_EXPERIMENTS],
         ],
-        // This only checks the first page, which is very large so it's not a big deal
-        takenKeys: [
-            (s) => [s.experiments],
-            (experiments: Experiment[]) => experiments.map((experiment) => experiment.feature_flag_key),
+        // TRICKY: we do not load all feature flags here, just the latest ones.
+        unavailableFeatureFlagKeys: [
+            (s) => [featureFlagsLogic.selectors.featureFlags, s.experiments],
+            (featureFlags: FeatureFlagsResult, experiments: Experiment[]) => {
+                return new Set([
+                    ...featureFlags.results.map((flag) => flag.key),
+                    ...experiments.map((experiment) => experiment.feature_flag_key),
+                ])
+            },
         ],
     })),
     events(({ actions }) => ({

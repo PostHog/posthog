@@ -5,26 +5,24 @@ from typing import Any
 import structlog
 import temporalio
 from dateutil import parser
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from psycopg2 import OperationalError
 from rest_framework import filters, serializers, status, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from sentry_sdk import capture_exception
 from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.cloud_utils import is_cloud
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql.database.database import create_hogql_database
+from posthog.models.user import User
 from posthog.temporal.data_imports.pipelines.bigquery import (
     filter_incremental_fields as filter_bigquery_incremental_fields,
-)
-from posthog.temporal.data_imports.pipelines.bigquery import (
     get_schemas as get_bigquery_schemas,
-)
-from posthog.temporal.data_imports.pipelines.bigquery import (
     validate_credentials as validate_bigquery_credentials,
 )
 from posthog.temporal.data_imports.pipelines.chargebee import (
@@ -40,6 +38,7 @@ from posthog.temporal.data_imports.pipelines.schemas import (
 )
 from posthog.temporal.data_imports.pipelines.stripe import (
     validate_credentials as validate_stripe_credentials,
+    StripePermissionError,
 )
 from posthog.temporal.data_imports.pipelines.vitally import (
     validate_credentials as validate_vitally_credentials,
@@ -70,6 +69,7 @@ from posthog.warehouse.models.external_data_schema import (
     filter_mysql_incremental_fields,
     filter_postgres_incremental_fields,
     filter_snowflake_incremental_fields,
+    get_postgres_row_count,
     get_snowflake_schemas,
     get_sql_schemas_for_source_type,
 )
@@ -154,6 +154,8 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
+    created_by = serializers.SerializerMethodField(read_only=True)
+    latest_error = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     schemas = serializers.SerializerMethodField(read_only=True)
 
@@ -167,6 +169,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "client_secret",
             "account_id",
             "source_type",
+            "latest_error",
             "prefix",
             "last_run_at",
             "schemas",
@@ -178,18 +181,86 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "created_at",
             "status",
             "source_type",
+            "latest_error",
             "last_run_at",
             "schemas",
             "prefix",
         ]
-        extra_kwargs = {
-            "job_inputs": {"write_only": True},
+
+    """
+    This method is used to remove sensitive fields from the response.
+    IMPORTANT: This method should be updated when a new source type is added to allow for editing of the new source.
+    """
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+
+        # non-sensitive fields
+        whitelisted_keys = {
+            # stripe
+            "stripe_account_id",
+            # sql
+            "database",
+            "host",
+            "port",
+            "user",
+            "schema",
+            "ssh-tunnel",
+            "using_ssl",
+            # vitally
+            "payload",
+            "prefix",
+            "regionsubdomain",
+            "source_type",
+            # chargebee
+            "site_name",
+            # zendesk
+            "subdomain",
+            "email_address",
+            # hubspot
+            "redirect_uri",
+            # snowflake
+            "account_id",
+            "warehouse",
+            "role",
+            # bigquery
+            "dataset_id",
+            "project_id",
+            "client_email",
+            "token_uri",
         }
+        job_inputs = representation.get("job_inputs", {})
+        if isinstance(job_inputs, dict):
+            # Reconstruct ssh-tunnel (if needed) structure for UI handling
+            if "ssh_tunnel_enabled" in job_inputs:
+                ssh_tunnel = {
+                    "enabled": job_inputs.pop("ssh_tunnel_enabled", False),
+                    "host": job_inputs.pop("ssh_tunnel_host", None),
+                    "port": job_inputs.pop("ssh_tunnel_port", None),
+                    "auth_type": {
+                        "selection": job_inputs.pop("ssh_tunnel_auth_type", None),
+                        "username": job_inputs.pop("ssh_tunnel_auth_type_username", None),
+                        "password": job_inputs.pop("ssh_tunnel_auth_type_password", None),
+                        "passphrase": job_inputs.pop("ssh_tunnel_auth_type_passphrase", None),
+                        "private_key": job_inputs.pop("ssh_tunnel_auth_type_private_key", None),
+                    },
+                }
+                job_inputs["ssh-tunnel"] = ssh_tunnel
+
+            # Remove sensitive fields
+            for key in list(job_inputs.keys()):  # Use list() to avoid modifying dict during iteration
+                if key not in whitelisted_keys:
+                    job_inputs.pop(key, None)
+
+        return representation
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str:
         latest_completed_run = instance.ordered_jobs[0] if instance.ordered_jobs else None  # type: ignore
 
         return latest_completed_run.created_at if latest_completed_run else None
+
+    def get_created_by(self, instance: ExternalDataSource) -> str | None:
+        return instance.created_by.email if instance.created_by else None
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
@@ -213,13 +284,47 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             # Fallback during migration phase of going from source -> schema as the source of truth for syncs
             return instance.status
 
+    def get_latest_error(self, instance: ExternalDataSource):
+        schema_with_error = instance.schemas.filter(latest_error__isnull=False).first()
+        return schema_with_error.latest_error if schema_with_error else None
+
     def get_schemas(self, instance: ExternalDataSource):
         return ExternalDataSchemaSerializer(instance.schemas, many=True, read_only=True, context=self.context).data
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
+        """Update source ensuring we merge with existing job inputs to allow partial updates."""
+        existing_job_inputs = instance.job_inputs
+
+        new_job_inputs = validated_data.get("job_inputs", {})
+        self._normalize_ssh_tunnel_structure(new_job_inputs)
+
+        if instance.source_type == ExternalDataSource.Type.SNOWFLAKE:
+            new_job_inputs = parse_snowflake_job_inputs(new_job_inputs)
+
+        if existing_job_inputs:
+            validated_data["job_inputs"] = {**existing_job_inputs, **new_job_inputs}
+
         updated_source: ExternalDataSource = super().update(instance, validated_data)
 
         return updated_source
+
+    def _normalize_ssh_tunnel_structure(self, job_inputs: dict) -> dict:
+        """Convert nested SSH tunnel structure to flat keys."""
+        if "ssh-tunnel" in job_inputs:
+            ssh_tunnel = job_inputs.pop("ssh-tunnel", {})  # Remove the nested structure after extracting
+            if ssh_tunnel:
+                job_inputs["ssh_tunnel_enabled"] = ssh_tunnel.get("enabled")
+                job_inputs["ssh_tunnel_host"] = ssh_tunnel.get("host")
+                job_inputs["ssh_tunnel_port"] = ssh_tunnel.get("port")
+
+                auth_type = ssh_tunnel.get("auth_type", {})
+                if auth_type:
+                    job_inputs["ssh_tunnel_auth_type"] = auth_type.get("selection")
+                    job_inputs["ssh_tunnel_auth_type_username"] = auth_type.get("username")
+                    job_inputs["ssh_tunnel_auth_type_password"] = auth_type.get("password")
+                    job_inputs["ssh_tunnel_auth_type_passphrase"] = auth_type.get("passphrase")
+                    job_inputs["ssh_tunnel_auth_type_private_key"] = auth_type.get("private_key")
+        return job_inputs
 
 
 class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
@@ -260,19 +365,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "created_by",
                 Prefetch(
                     "jobs",
-                    queryset=ExternalDataJob.objects.filter(status="Completed").order_by("-created_at"),
+                    queryset=ExternalDataJob.objects.filter(status="Completed", team_id=self.team_id).order_by(
+                        "-created_at"
+                    )[:1],
                     to_attr="ordered_jobs",
                 ),
                 Prefetch(
                     "schemas",
-                    queryset=ExternalDataSchema.objects.exclude(deleted=True)
+                    queryset=ExternalDataSchema.objects.filter(team_id=self.team_id)
+                    .exclude(deleted=True)
                     .select_related("table__credential", "table__external_data_source")
                     .order_by("name"),
                 ),
                 Prefetch(
                     "schemas",
-                    queryset=ExternalDataSchema.objects.exclude(deleted=True)
-                    .filter(should_sync=True)
+                    queryset=ExternalDataSchema.objects.filter(team_id=self.team_id)
+                    .exclude(deleted=True)
+                    .filter(
+                        Q(should_sync=True) | Q(latest_error__isnull=False)
+                    )  # OR to include schemas with errors or marked for sync
                     .select_related("source", "table__credential", "table__external_data_source"),
                     to_attr="active_schemas",
                 ),
@@ -376,6 +487,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             is_incremental = sync_type == "incremental"
             incremental_field = schema.get("incremental_field")
             incremental_field_type = schema.get("incremental_field_type")
+            sync_time_of_day = schema.get("sync_time_of_day")
 
             if is_incremental and incremental_field is None:
                 new_source_model.delete()
@@ -397,12 +509,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 source=new_source_model,
                 should_sync=schema.get("should_sync"),
                 sync_type=sync_type,
-                sync_type_config={
-                    "incremental_field": incremental_field,
-                    "incremental_field_type": incremental_field_type,
-                }
-                if is_incremental
-                else {},
+                sync_time_of_day=sync_time_of_day,
+                sync_type_config=(
+                    {
+                        "incremental_field": incremental_field,
+                        "incremental_field_type": incremental_field_type,
+                    }
+                    if is_incremental
+                    else {}
+                ),
             )
 
             if schema.get("should_sync"):
@@ -419,16 +534,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _handle_stripe_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
-        client_secret = payload.get("client_secret")
-        account_id = payload.get("account_id", None)
+        client_secret = payload.get("stripe_secret_key")
+        account_id = payload.get("stripe_account_id", None)
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
-
         # TODO: remove dummy vars
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
+            created_by=request.user if isinstance(request.user, User) else None,
             team=self.team,
             status="Running",
             source_type=source_type,
@@ -451,6 +566,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
+            created_by=request.user if isinstance(request.user, User) else None,
             team=self.team,
             status="Running",
             source_type=source_type,
@@ -472,6 +588,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
             job_inputs={"api_key": api_key, "site_name": site_name},
@@ -494,6 +611,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
             job_inputs={
@@ -511,17 +629,18 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         payload = request.data["payload"]
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
-        integration_id = payload.get("integration_id")
+        salesforce_integration_id = payload.get("salesforce_integration_id")
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
             job_inputs={
-                "salesforce_integration_id": integration_id,
+                "salesforce_integration_id": salesforce_integration_id,
             },
             prefix=prefix,
         )
@@ -543,6 +662,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
             job_inputs={
@@ -561,7 +681,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         host = payload.get("host")
         port = payload.get("port")
-        database = payload.get("dbname")
+        database = payload.get("database")
 
         user = payload.get("user")
         password = payload.get("password")
@@ -578,7 +698,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
         ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
 
-        using_ssl_str = payload.get("use_ssl", "1")
+        using_ssl_str = payload.get("using_ssl", "1")
         using_ssl = str_to_bool(using_ssl_str)
 
         if not self._validate_database_host(host, self.team_id, using_ssh_tunnel):
@@ -589,6 +709,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
             job_inputs={
@@ -643,52 +764,31 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
-        account_id = payload.get("account_id")
-        database = payload.get("database")
-        warehouse = payload.get("warehouse")
-        role = payload.get("role")
-        schema = payload.get("schema")
-
-        auth_type_obj = payload.get("auth_type", {})
-        auth_type = auth_type_obj.get("selection", None)
-        auth_type_username = auth_type_obj.get("username", None)
-        auth_type_password = auth_type_obj.get("password", None)
-        auth_type_passphrase = auth_type_obj.get("passphrase", None)
-        auth_type_private_key = auth_type_obj.get("private_key", None)
+        job_inputs = parse_snowflake_job_inputs(payload)
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
-            job_inputs={
-                "account_id": account_id,
-                "database": database,
-                "warehouse": warehouse,
-                "role": role,
-                "schema": schema,
-                "auth_type": auth_type,
-                "user": auth_type_username,
-                "password": auth_type_password,
-                "passphrase": auth_type_passphrase,
-                "private_key": auth_type_private_key,
-            },
+            job_inputs=job_inputs,
             prefix=prefix,
         )
 
         schemas = get_snowflake_schemas(
-            account_id=account_id,
-            database=database,
-            warehouse=warehouse,
-            user=auth_type_username,
-            password=auth_type_password,
-            schema=schema,
-            role=role,
-            passphrase=auth_type_passphrase,
-            private_key=auth_type_private_key,
-            auth_type=auth_type,
+            account_id=job_inputs["account_id"],
+            database=job_inputs["database"],
+            warehouse=job_inputs["warehouse"],
+            user=job_inputs["user"],
+            password=job_inputs["password"],
+            schema=job_inputs["schema"],
+            role=job_inputs["role"],
+            passphrase=job_inputs["passphrase"],
+            private_key=job_inputs["private_key"],
+            auth_type=job_inputs["auth_type"],
         )
 
         return new_source_model, list(schemas.keys())
@@ -700,9 +800,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
-        dataset_id = payload.get("dataset_id")
         key_file = payload.get("key_file", {})
         project_id = key_file.get("project_id")
+
+        dataset_id = payload.get("dataset_id")
+        # Very common to include the project_id as a prefix of the dataset_id.
+        # We remove it if it's there.
+        if dataset_id:
+            dataset_id = dataset_id.removeprefix(f"{project_id}.")
+
         private_key = key_file.get("private_key")
         private_key_id = key_file.get("private_key_id")
         client_email = key_file.get("client_email")
@@ -712,23 +818,34 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         using_temporary_dataset = temporary_dataset.get("enabled", False)
         temporary_dataset_id = temporary_dataset.get("temporary_dataset_id", None)
 
+        job_inputs = {
+            "dataset_id": dataset_id,
+            "project_id": project_id,
+            "private_key": private_key,
+            "private_key_id": private_key_id,
+            "client_email": client_email,
+            "token_uri": token_uri,
+            "using_temporary_dataset": using_temporary_dataset,
+            "temporary_dataset_id": temporary_dataset_id,
+        }
+
+        required_inputs = {"private_key", "private_key_id", "client_email", "dataset_id", "project_id", "token_uri"}
+        have_all_required = all(job_inputs.get(input_name, None) is not None for input_name in required_inputs)
+
+        if not have_all_required:
+            included_inputs = {k for k, v in job_inputs.items() if v is not None}
+            missing = ", ".join(f"'{job_input}'" for job_input in required_inputs - included_inputs)
+            raise ValidationError(f"Missing required BigQuery inputs: {missing}")
+
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
             team=self.team,
+            created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
-            job_inputs={
-                "dataset_id": dataset_id,
-                "project_id": project_id,
-                "private_key": private_key,
-                "private_key_id": private_key_id,
-                "client_email": client_email,
-                "token_uri": token_uri,
-                "using_temporary_dataset": using_temporary_dataset,
-                "temporary_dataset_id": temporary_dataset_id,
-            },
+            job_inputs=job_inputs,
             prefix=prefix,
         )
 
@@ -829,8 +946,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Validate sourced credentials
         if source_type == ExternalDataSource.Type.STRIPE:
-            key = request.data.get("client_secret", "")
-            if not validate_stripe_credentials(api_key=key):
+            key = request.data.get("stripe_secret_key", "")
+            try:
+                validate_stripe_credentials(api_key=key)
+            except StripePermissionError as e:
+                missing_resources = ", ".join(e.missing_permissions.keys())
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Invalid credentials: Stripe API key lacks permissions for {missing_resources}"},
+                )
+            except Exception:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Invalid credentials: Stripe secret is incorrect"},
@@ -858,7 +983,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             subdomain = request.data.get("subdomain", "")
 
             subdomain_regex = re.compile("^[a-zA-Z-]+$")
-            if not subdomain_regex.match(subdomain):
+            if region == "US" and not subdomain_regex.match(subdomain):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Invalid credentials: Vitally subdomain is incorrect"},
@@ -891,6 +1016,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 private_key_id=private_key_id,
                 client_email=client_email,
                 token_uri=token_uri,
+                logger=logger,
             )
 
             filtered_results = [
@@ -942,7 +1068,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             host = request.data.get("host", None)
             port = request.data.get("port", None)
-            database = request.data.get("dbname", None)
+            database = request.data.get("database", None)
 
             user = request.data.get("user", None)
             password = request.data.get("password", None)
@@ -959,7 +1085,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
             ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
 
-            using_ssl_str = request.data.get("use_ssl", "1")
+            using_ssl_str = request.data.get("using_ssl", "1")
             using_ssl = str_to_bool(using_ssl_str)
 
             ssh_tunnel = SSHTunnel(
@@ -985,9 +1111,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
                         data={
-                            "message": auth_error_message
-                            if len(auth_error_message) > 0
-                            else "Invalid SSH tunnel auth settings"
+                            "message": (
+                                auth_error_message
+                                if len(auth_error_message) > 0
+                                else "Invalid SSH tunnel auth settings"
+                            )
                         },
                     )
 
@@ -996,9 +1124,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
                         data={
-                            "message": port_error_message
-                            if len(port_error_message) > 0
-                            else "Invalid SSH tunnel auth settings"
+                            "message": (
+                                port_error_message
+                                if len(port_error_message) > 0
+                                else "Invalid SSH tunnel auth settings"
+                            )
                         },
                     )
 
@@ -1061,10 +1191,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data={"message": get_generic_sql_error(source_type)},
                 )
 
+            rows = {}
             if source_type == ExternalDataSource.Type.POSTGRES:
                 filtered_results = [
                     (table_name, filter_postgres_incremental_fields(columns)) for table_name, columns in result.items()
                 ]
+                try:
+                    rows = get_postgres_row_count(host, port, database, user, password, schema, ssh_tunnel)
+                except:
+                    pass
+
             elif source_type == ExternalDataSource.Type.MYSQL:
                 filtered_results = [
                     (table_name, filter_mysql_incremental_fields(columns)) for table_name, columns in result.items()
@@ -1078,6 +1214,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {
                     "table": table_name,
                     "should_sync": False,
+                    "rows": rows.get(table_name, None),
                     "incremental_fields": [
                         {"label": column_name, "type": column_type, "field": column_name, "field_type": column_type}
                         for column_name, column_type in columns
@@ -1205,9 +1342,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     for field in incremental_fields.get(row, [])
                 ],
                 "incremental_available": row in incremental_schemas,
-                "incremental_field": incremental_fields.get(row, [])[0]["field"]
-                if row in incremental_schemas
-                else None,
+                "incremental_field": (
+                    incremental_fields.get(row, [])[0]["field"] if row in incremental_schemas else None
+                ),
                 "sync_type": None,
             }
             for row in schemas
@@ -1236,11 +1373,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         after = request.query_params.get("after", None)
         before = request.query_params.get("before", None)
 
-        jobs = (
-            instance.jobs.exclude(pipeline_version=ExternalDataJob.PipelineVersion.V2)
-            .prefetch_related("schema")
-            .order_by("-created_at")
-        )
+        jobs = instance.jobs.filter(billable=True).prefetch_related("schema").order_by("-created_at")
 
         if after:
             after_date = parser.parse(after)
@@ -1297,3 +1430,31 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 class InternalPostgresError(Exception):
     pass
+
+
+def parse_snowflake_job_inputs(payload: dict[str, Any]) -> dict[str, Any]:
+    account_id = payload.get("account_id")
+    database = payload.get("database")
+    warehouse = payload.get("warehouse")
+    role = payload.get("role")
+    schema = payload.get("schema")
+
+    auth_type_obj = payload.get("auth_type", {})
+    auth_type = auth_type_obj.get("selection", None)
+    auth_type_username = auth_type_obj.get("username", None)
+    auth_type_password = auth_type_obj.get("password", None)
+    auth_type_passphrase = auth_type_obj.get("passphrase", None)
+    auth_type_private_key = auth_type_obj.get("private_key", None)
+
+    return {
+        "account_id": account_id,
+        "database": database,
+        "warehouse": warehouse,
+        "role": role,
+        "schema": schema,
+        "auth_type": auth_type,
+        "user": auth_type_username,
+        "password": auth_type_password,
+        "passphrase": auth_type_passphrase,
+        "private_key": auth_type_private_key,
+    }

@@ -1,5 +1,6 @@
 from posthog.settings import get_from_env, get_list
 from posthog.utils import str_to_bool
+from django.conf import settings
 
 # TRICKY: we saw unusual memory usage behavior in EU clickhouse cluster
 # when allowing use of denormalized properties in some session replay event queries
@@ -39,3 +40,15 @@ SESSION_REPLAY_RRWEB_SCRIPT = get_from_env("SESSION_REPLAY_RRWEB_SCRIPT", None, 
 # a list of teams that are allowed to use the SESSION_REPLAY_RRWEB_SCRIPT
 # can be a comma separated list of team ids or '*' to allow all teams
 SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS = get_list(get_from_env("SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS", ""))
+
+# a AI model to use for session recording filters
+SESSION_REPLAY_AI_DEFAULT_MODEL = get_from_env("SESSION_REPLAY_AI_DEFAULT_MODEL", "gpt-4o")
+SESSION_REPLAY_AI_REGEX_MODEL = get_from_env("SESSION_REPLAY_AI_REGEX_MODEL", "gpt-4o-mini")
+
+PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS = get_from_env(
+    "PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS", default=60 if settings.DEBUG else 3600, type_cast=int
+)
+
+PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS = get_from_env(
+    "PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS", 3600, type_cast=int
+)

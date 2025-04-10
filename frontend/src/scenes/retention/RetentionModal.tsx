@@ -27,12 +27,14 @@ export function RetentionModal(): JSX.Element | null {
     const { results } = useValues(retentionLogic(insightProps))
     const { people, peopleLoading, peopleLoadingMore } = useValues(retentionPeopleLogic(insightProps))
     const { loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
-    const { aggregationTargetLabel, selectedInterval, exploreUrl, actorsQuery } = useValues(
+    const { aggregationTargetLabel, selectedInterval, exploreUrl, insightEventsQueryUrl, actorsQuery } = useValues(
         retentionModalLogic(insightProps)
     )
+    const { theme } = useValues(retentionModalLogic(insightProps))
     const { closeModal } = useActions(retentionModalLogic(insightProps))
     const { startExport } = useActions(exportsLogic)
 
+    const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
     const dataTableNodeQuery: DataTableNode | undefined = actorsQuery
         ? {
               kind: NodeKind.DataTableNode,
@@ -45,7 +47,9 @@ export function RetentionModal(): JSX.Element | null {
     }
 
     const row = results[selectedInterval]
+    const rowLength = row.values.length
     const isEmpty = row.values[0]?.count === 0
+
     return (
         <LemonModal
             isOpen // always open, as we simply don't mount otherwise
@@ -80,18 +84,33 @@ export function RetentionModal(): JSX.Element | null {
                             </LemonButton>
                         )}
                     </div>
-                    {exploreUrl && (
-                        <LemonButton
-                            type="primary"
-                            to={exploreUrl}
-                            data-attr="person-modal-new-insight"
-                            onClick={() => {
-                                closeModal()
-                            }}
-                        >
-                            Explore
-                        </LemonButton>
-                    )}
+                    <div className="flex gap-2">
+                        {insightEventsQueryUrl && (
+                            <LemonButton
+                                type="primary"
+                                to={insightEventsQueryUrl}
+                                data-attr="person-modal-view-events"
+                                onClick={() => {
+                                    closeModal()
+                                }}
+                                targetBlank
+                            >
+                                View events
+                            </LemonButton>
+                        )}
+                        {exploreUrl && (
+                            <LemonButton
+                                type="primary"
+                                to={exploreUrl}
+                                data-attr="person-modal-new-insight"
+                                onClick={() => {
+                                    closeModal()
+                                }}
+                            >
+                                Explore
+                            </LemonButton>
+                        )}
+                    </div>
                 </div>
             }
             width={isEmpty ? undefined : '90%'}
@@ -107,24 +126,34 @@ export function RetentionModal(): JSX.Element | null {
                     <span>No {aggregationTargetLabel.plural} during this period.</span>
                 ) : (
                     <>
-                        <table className="RetentionTable RetentionTable--non-interactive">
+                        <table
+                            className="RetentionTable RetentionTable--non-interactive"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={
+                                {
+                                    '--retention-table-color': backgroundColor,
+                                } as React.CSSProperties
+                            }
+                        >
                             <tbody>
                                 <tr>
                                     <th>{capitalizeFirstLetter(aggregationTargetLabel.singular)}</th>
-                                    {row.values?.map((data: any, index: number) => (
-                                        <th key={index}>
-                                            <div>{results[index].label}</div>
-                                            <div>
-                                                {data.count}
-                                                &nbsp;
-                                                {data.count > 0 && (
-                                                    <span className="text-muted">
-                                                        ({percentage(data.count / row?.values[0]['count'])})
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </th>
-                                    ))}
+                                    {row.values?.map((data: any, index: number) => {
+                                        return (
+                                            <th key={index}>
+                                                <div>{results[index].label}</div>
+                                                <div>
+                                                    {data.count}
+                                                    &nbsp;
+                                                    {data.count > 0 && (
+                                                        <span className="text-secondary">
+                                                            ({percentage(data.count / row?.values[0]['count'])})
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            </th>
+                                        )
+                                    })}
                                 </tr>
                                 {people.result &&
                                     people.result.map((personAppearances: RetentionTableAppearanceType) => (
@@ -156,19 +185,23 @@ export function RetentionModal(): JSX.Element | null {
                                                     </LemonButton>
                                                 )}
                                             </td>
-                                            {personAppearances.appearances.map((appearance: number, index: number) => {
-                                                const hasAppearance = !!appearance
-                                                return (
-                                                    <td key={index}>
-                                                        <div
-                                                            className={clsx(
-                                                                'RetentionTable__Tab',
-                                                                hasAppearance ? 'opacity-100' : 'opacity-20'
-                                                            )}
-                                                        />
-                                                    </td>
-                                                )
-                                            })}
+
+                                            {personAppearances.appearances
+                                                // Only show the number of appearances as the lookahead we have (without going into future)
+                                                .slice(0, rowLength)
+                                                .map((appearance: number, index: number) => {
+                                                    const hasAppearance = !!appearance
+                                                    return (
+                                                        <td key={index}>
+                                                            <div
+                                                                className={clsx(
+                                                                    'RetentionTable__Tab',
+                                                                    hasAppearance ? 'opacity-100' : 'opacity-20'
+                                                                )}
+                                                            />
+                                                        </td>
+                                                    )
+                                                })}
                                         </tr>
                                     ))}
                             </tbody>

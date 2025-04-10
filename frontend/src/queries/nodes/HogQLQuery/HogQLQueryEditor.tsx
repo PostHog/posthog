@@ -1,5 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconMagicWand, IconPlus, IconX } from '@posthog/icons'
+import { IconMagicWand } from '@posthog/icons'
 import { LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -9,18 +9,13 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
-import {
-    activeModelStateKey,
-    codeEditorLogic,
-    CodeEditorLogicProps,
-    editorModelsStateKey,
-} from 'lib/monaco/codeEditorLogic'
-import type { editor as importedEditor, IDisposable, Uri } from 'monaco-editor'
+import { codeEditorLogic, CodeEditorLogicProps } from 'lib/monaco/codeEditorLogic'
+import type { editor as importedEditor, IDisposable } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { urls } from 'scenes/urls'
 
-import { HogQLQuery } from '~/queries/schema'
+import { HogQLQuery } from '~/queries/schema/schema-general'
 
 import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
 
@@ -29,7 +24,7 @@ export interface HogQLQueryEditorProps {
     setQuery?: (query: HogQLQuery) => void
     onChange?: (query: string) => void
     embedded?: boolean
-    editorFooter?: (hasErrors: boolean, errors: string | null, isValidView: boolean) => JSX.Element
+    editorFooter?: (hasErrors: boolean, errors: string | null) => JSX.Element
     queryResponse?: Record<string, any>
 }
 
@@ -41,11 +36,11 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const editorRef = useRef<HTMLDivElement | null>(null)
 
     const [key, setKey] = useState(() =>
-        router.values.location.pathname.includes(urls.dataWarehouse()) ? router.values.location.pathname : uniqueNode++
+        router.values.location.pathname.includes(urls.sqlEditor()) ? router.values.location.pathname : uniqueNode++
     )
 
     useEffect(() => {
-        if (router.values.location.pathname.includes(urls.dataWarehouse())) {
+        if (router.values.location.pathname.includes(urls.sqlEditor())) {
             setKey(router.values.location.pathname)
         }
     }, [router.values.location.pathname])
@@ -64,7 +59,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         queryResponse: props.queryResponse,
     }
     const logic = hogQLQueryEditorLogic(hogQLQueryEditorLogicProps)
-    const { queryInput, prompt, aiAvailable, promptError, promptLoading, multitab } = useValues(logic)
+    const { queryInput, prompt, aiAvailable, promptError, promptLoading } = useValues(logic)
     const { setQueryInput, saveQuery, setPrompt, draftFromPrompt, saveAsView, onUpdateView } = useActions(logic)
 
     const codeEditorKey = `hogQLQueryEditor/${key}`
@@ -75,15 +70,9 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         query: queryInput,
         language: 'hogQL',
         metadataFilters: props.query.filters,
-        multitab,
     }
-    const { hasErrors, error, isValidView, activeModelUri, allModels } = useValues(
-        codeEditorLogic(codeEditorLogicProps)
-    )
 
-    const { createModel, setModel, deleteModel, setModels, addModel, updateState } = useActions(
-        codeEditorLogic(codeEditorLogicProps)
-    )
+    const { hasErrors, error } = useValues(codeEditorLogic(codeEditorLogicProps))
 
     const { editingView } = useValues(
         dataWarehouseSceneLogic({
@@ -99,23 +88,12 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         }
     }, [])
 
-    useEffect(() => {
-        if (monaco && activeModelUri && multitab) {
-            const _model = monaco.editor.getModel(activeModelUri)
-            const val = _model?.getValue()
-            if (val) {
-                setQueryInput(val)
-                saveQuery()
-            }
-        }
-    }, [activeModelUri])
-
     return (
         <div className="flex items-start gap-2">
             <div
                 data-attr="hogql-query-editor"
                 className={clsx(
-                    'flex flex-col rounded space-y-2 w-full overflow-hidden',
+                    'flex flex-col rounded deprecated-space-y-2 w-full overflow-hidden',
                     !props.embedded && 'p-2 border'
                 )}
             >
@@ -154,25 +132,6 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                 </FlaggedFeature>
                 {promptError ? <LemonBanner type="warning">{promptError}</LemonBanner> : null}
                 <div className="relative flex-1 overflow-hidden flex-col">
-                    {multitab && (
-                        <div className="flex flex-row overflow-scroll hide-scrollbar">
-                            {allModels.map((model) => (
-                                <QueryTab
-                                    key={model.path}
-                                    active={model.path === activeModelUri?.path}
-                                    model={model}
-                                    onClick={setModel}
-                                    onClear={allModels.length > 1 ? deleteModel : undefined}
-                                />
-                            ))}
-                            <LemonButton
-                                onClick={() => {
-                                    createModel()
-                                }}
-                                icon={<IconPlus fontSize={14} />}
-                            />
-                        </div>
-                    )}
                     {/* eslint-disable-next-line react/forbid-dom-props */}
                     <div ref={editorRef} className="resize-y overflow-hidden" style={{ height: EDITOR_HEIGHT }}>
                         <CodeEditor
@@ -183,58 +142,10 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             value={queryInput}
                             onChange={(v) => {
                                 setQueryInput(v ?? '')
-                                updateState()
                             }}
                             height="100%"
                             onMount={(editor, monaco) => {
                                 setMonacoAndEditor([monaco, editor])
-
-                                const allModelQueries = localStorage.getItem(editorModelsStateKey(codeEditorKey))
-                                const activeModelUri = localStorage.getItem(activeModelStateKey(codeEditorKey))
-
-                                if (allModelQueries && multitab) {
-                                    // clear existing models
-                                    monaco.editor.getModels().forEach((model) => {
-                                        model.dispose()
-                                    })
-
-                                    const models = JSON.parse(allModelQueries || '[]')
-                                    const newModels: Uri[] = []
-
-                                    models.forEach((model: Record<string, any>) => {
-                                        if (monaco) {
-                                            const uri = monaco.Uri.parse(model.path)
-                                            const newModel = monaco.editor.createModel(model.query, 'hogQL', uri)
-                                            editor?.setModel(newModel)
-                                            newModels.push(uri)
-                                        }
-                                    })
-
-                                    setModels(newModels)
-
-                                    if (activeModelUri) {
-                                        const uri = monaco.Uri.parse(activeModelUri)
-                                        const activeModel = monaco.editor
-                                            .getModels()
-                                            .find((model) => model.uri.path === uri.path)
-                                        activeModel && editor?.setModel(activeModel)
-                                        const val = activeModel?.getValue()
-                                        if (val) {
-                                            setQueryInput(val)
-                                            saveQuery()
-                                        }
-                                        setModel(uri)
-                                    } else if (newModels.length) {
-                                        setModel(newModels[0])
-                                    }
-                                } else {
-                                    const model = editor.getModel()
-
-                                    if (model) {
-                                        addModel(model.uri)
-                                        setModel(model.uri)
-                                    }
-                                }
                             }}
                             onPressCmdEnter={(value, selectionType) => {
                                 if (value && selectionType === 'selection') {
@@ -261,7 +172,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                 </div>
                 <div className="flex flex-row px-px">
                     {props.editorFooter ? (
-                        props.editorFooter(hasErrors, error, isValidView)
+                        props.editorFooter(hasErrors, error)
                     ) : (
                         <>
                             <div className="flex-1">
@@ -288,13 +199,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     onClick={onUpdateView}
                                     type="primary"
                                     center
-                                    disabledReason={
-                                        hasErrors
-                                            ? error ?? 'Query has errors'
-                                            : !isValidView
-                                            ? 'Some fields may need an alias'
-                                            : ''
-                                    }
+                                    disabledReason={hasErrors ? error ?? 'Query has errors' : ''}
                                     data-attr="hogql-query-editor-update-view"
                                 >
                                     Update view
@@ -305,13 +210,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     onClick={saveAsView}
                                     type="primary"
                                     center
-                                    disabledReason={
-                                        hasErrors
-                                            ? error ?? 'Query has errors'
-                                            : !isValidView
-                                            ? 'Some fields may need an alias'
-                                            : ''
-                                    }
+                                    disabledReason={hasErrors ? error ?? 'Query has errors' : ''}
                                     data-attr="hogql-query-editor-save-as-view"
                                     tooltip={
                                         <div>
@@ -329,38 +228,5 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                 </div>
             </div>
         </div>
-    )
-}
-
-// one off component for query editor tabs
-interface QueryTabProps {
-    model: Uri
-    active?: boolean
-    onClick?: (model: Uri) => void
-    onClear?: (model: Uri) => void
-}
-
-function QueryTab({ model, active, onClear, onClick }: QueryTabProps): JSX.Element {
-    return (
-        <button
-            onClick={() => onClick?.(model)}
-            className={clsx(
-                'space-y-px rounded-t p-1 flex flex-row items-center gap-1 hover:bg-[var(--bg-light)] cursor-pointer',
-                active ? 'bg-[var(--bg-light)] border' : 'bg-bg-3000',
-                onClear ? 'pl-3 pr-2' : 'px-4'
-            )}
-        >
-            {'Query ' + model.path.split('/').pop()}
-            {onClear && (
-                <LemonButton
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        onClear(model)
-                    }}
-                    size="xsmall"
-                    icon={<IconX />}
-                />
-            )}
-        </button>
     )
 }

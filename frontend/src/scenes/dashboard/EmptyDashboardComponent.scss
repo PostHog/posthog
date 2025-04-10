@@ -11,7 +11,7 @@
         overflow: hidden;
 
         &::after {
-            --bg-light: var(--bg-3000); // Make the fade blend in with the 3000 background smoothly
+            --bg-light: var(--bg-primary); // Make the fade blend in with the 3000 background smoothly
 
             width: 100%;
             height: 150px;
@@ -28,7 +28,7 @@
         width: 360px;
         max-width: calc(100% - 32px);
         padding: 1.5rem;
-        background: var(--bg-light);
+        background: var(--bg-surface-primary);
         border-width: 1px;
         border-radius: var(--radius);
         box-shadow: var(--shadow-elevation-3000);

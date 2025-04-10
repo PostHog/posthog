@@ -217,14 +217,14 @@ export function WithUniquenessCheck(): JSX.Element {
     return <HTMLElementsDisplay elements={EXAMPLE_ELEMENTS} highlight={false} editable={true} checkUniqueness={true} />
 }
 
-export function SmallWithUniquenessCheck(): JSX.Element {
+export function ExtraSmallWithUniquenessCheck(): JSX.Element {
     return (
         <HTMLElementsDisplay
             elements={EXAMPLE_ELEMENTS}
             highlight={false}
             editable={true}
             checkUniqueness={true}
-            size="small"
+            size="xsmall"
         />
     )
 }

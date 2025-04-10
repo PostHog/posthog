@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 import { ConversionGoalWarning, ProductTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
@@ -33,14 +34,35 @@ export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
         return null
     }
 
-    // TODO: Add docs for Core Web Vitals once available
-    if (productTab === ProductTab.CORE_WEB_VITALS) {
+    if (!statusCheck.hasAuthorizedUrls) {
+        return (
+            <LemonBanner type="warning" className="mt-2">
+                <p>
+                    We couldn't find any authorized domains. Some of our Web analytics filters won't work correctly
+                    until you let us know what domains you are sending your events from.
+                </p>
+                <p>
+                    Please take some time to outline them for us in{' '}
+                    <Link to={urls.settings('environment', 'web-analytics-authorized-urls')}>the settings</Link>.
+                </p>
+            </LemonBanner>
+        )
+    }
+
+    if (productTab === ProductTab.WEB_VITALS) {
         if (!statusCheck.isSendingWebVitals) {
             return (
                 <LemonBanner type="warning" className="mt-2">
                     <p>
-                        No <code>$web_vitals</code> events have been received. Core Web Vitals won't work correctly
-                        (it'll be a little empty!)
+                        No <code>$web_vitals</code> events have been received. Web Vitals won't work correctly (it'll be
+                        a little empty!)
+                    </p>
+                    <p>
+                        Please see{' '}
+                        <Link to="https://posthog.com/docs/web-analytics/web-vitals">
+                            documentation for how to set up web vitals
+                        </Link>
+                        .
                     </p>
                 </LemonBanner>
             )

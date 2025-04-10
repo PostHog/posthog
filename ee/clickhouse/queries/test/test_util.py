@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from freezegun.api import freeze_time
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.hogql.hogql import HogQLContext
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort

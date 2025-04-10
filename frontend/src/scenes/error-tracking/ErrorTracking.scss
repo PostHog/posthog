@@ -3,21 +3,12 @@
     min-height: 25rem;
 }
 
-.PanelLayout.ErrorTrackingPanelLayout {
-    --error-tracking-panel-layout-height: calc(
-        100vh - var(--breadcrumbs-height-full) - var(--scene-padding) - var(--scene-padding-bottom)
-    );
-
-    height: var(--error-tracking-panel-layout-height);
-    min-height: var(--error-tracking-panel-layout-height);
-    max-height: var(--error-tracking-panel-layout-height);
-
-    & .PanelLayout__container--secondary {
-        min-width: 300px;
-        max-width: 300px;
-    }
-
+.ErrorTrackingIssue {
     & .SessionRecordingPlayer {
         height: 24rem;
+    }
+
+    & .LemonCollapsePanel > .LemonButton:hover:has(.LemonSegmentedButton:hover) {
+        background-color: inherit;
     }
 }

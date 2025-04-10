@@ -1,6 +1,9 @@
-import { ISOTimestamp, PreIngestionEvent } from '../../../../src/types'
+import { KafkaProducerWrapper, TopicMessage } from '../../../../src/kafka/producer'
+import { ISOTimestamp, PreIngestionEvent, ProjectId } from '../../../../src/types'
+import { parseJSON } from '../../../../src/utils/json-parse'
 import { cloneObject } from '../../../../src/utils/utils'
 import { extractHeatmapDataStep } from '../../../../src/worker/ingestion/event-pipeline/extractHeatmapDataStep'
+import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 
 jest.mock('../../../../src/worker/plugins/run')
 
@@ -120,22 +123,23 @@ const preIngestionEvent: PreIngestionEvent = {
     },
     timestamp: '2024-04-17T12:06:46.861Z' as ISOTimestamp,
     teamId: 1,
-    projectId: 1,
+    projectId: 1 as ProjectId,
 }
 
 describe('extractHeatmapDataStep()', () => {
-    let runner: any
+    let runner: EventPipelineRunner
     let event: PreIngestionEvent
+    const mockProducer: jest.Mocked<KafkaProducerWrapper> = {
+        queueMessages: jest.fn(() => Promise.resolve()) as any,
+    } as any
 
     beforeEach(() => {
         event = cloneObject(preIngestionEvent)
         runner = {
             hub: {
-                kafkaProducer: {
-                    produce: jest.fn((e) => Promise.resolve(e)),
-                    queueMessage: jest.fn((e) => Promise.resolve(e)),
-                },
+                kafkaProducer: mockProducer,
                 teamManager: {
+                    // @ts-expect-error this is a mock, this is all right
                     fetchTeam: jest.fn(() => Promise.resolve({ heatmaps_opt_in: true })),
                 },
             },
@@ -146,12 +150,11 @@ describe('extractHeatmapDataStep()', () => {
         const response = await extractHeatmapDataStep(runner, event)
         expect(response[0]).toEqual(event)
         expect(response[0].properties.$heatmap_data).toBeUndefined()
-        expect(response[1]).toHaveLength(16)
-        expect(runner.hub.kafkaProducer.produce).toBeCalledTimes(16)
-
-        const firstProduceCall = runner.hub.kafkaProducer.produce.mock.calls[0][0]
-
-        const parsed = JSON.parse(firstProduceCall.value.toString())
+        expect(response[1]).toHaveLength(1)
+        expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+        const messages = (mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages
+        expect(messages).toHaveLength(16)
+        const parsed = parseJSON(messages[0].value!.toString())
 
         expect(parsed).toMatchInlineSnapshot(`
             {
@@ -171,7 +174,7 @@ describe('extractHeatmapDataStep()', () => {
         `)
 
         // The rest we can just compare the buffers
-        expect(runner.hub.kafkaProducer.produce.mock.calls).toMatchSnapshot()
+        expect(mockProducer.queueMessages.mock.calls).toMatchSnapshot()
     })
 
     it('additionally parses ', async () => {
@@ -189,11 +192,11 @@ describe('extractHeatmapDataStep()', () => {
         // We don't delete scroll properties
         expect(response[0].properties.$prev_pageview_max_scroll).toEqual(225)
 
-        expect(response[1]).toHaveLength(17)
+        expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+        const messages = (mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages
+        expect(messages).toHaveLength(17)
 
-        const allParsedMessages = runner.hub.kafkaProducer.produce.mock.calls.map((call) =>
-            JSON.parse(call[0].value.toString())
-        )
+        const allParsedMessages = messages.map((call) => parseJSON(call.value!.toString()))
 
         expect(allParsedMessages.find((x) => x.type === 'scrolldepth')).toMatchInlineSnapshot(`
             {
@@ -214,12 +217,14 @@ describe('extractHeatmapDataStep()', () => {
     })
 
     it('drops if the associated team has explicit opt out', async () => {
+        // @ts-expect-error this is a mock, this is all right
         runner.hub.teamManager.fetchTeam = jest.fn(() => Promise.resolve({ heatmaps_opt_in: false }))
+
         const response = await extractHeatmapDataStep(runner, event)
         expect(response[0]).toEqual(event)
         expect(response[0].properties.$heatmap_data).toBeUndefined()
         expect(response[1]).toHaveLength(0)
-        expect(runner.hub.kafkaProducer.produce).toBeCalledTimes(0)
+        expect(mockProducer.queueMessages).toHaveBeenCalledTimes(0)
     })
 
     describe('validation', () => {

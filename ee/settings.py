@@ -44,6 +44,9 @@ elif DEMO:
     # This is because in the demo env social signups get is_staff=True to facilitate instance management
     SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS = ["posthog.com"]
 
+CUSTOMER_IO_API_KEY = get_from_env("CUSTOMER_IO_API_KEY", "", type_cast=str)
+CUSTOMER_IO_API_URL = get_from_env("CUSTOMER_IO_API_URL", "https://api-eu.customer.io", type_cast=str)
+
 # Schedule to run column materialization on. Follows crontab syntax.
 # Use empty string to prevent from materializing
 MATERIALIZE_COLUMNS_SCHEDULE_CRON = get_from_env("MATERIALIZE_COLUMNS_SCHEDULE_CRON", "0 5 * * SAT")
@@ -73,3 +76,15 @@ HOOK_HOG_FUNCTION_TEAMS = get_from_env("HOOK_HOG_FUNCTION_TEAMS", "", type_cast=
 LANGFUSE_PUBLIC_KEY = get_from_env("LANGFUSE_PUBLIC_KEY", "", type_cast=str)
 LANGFUSE_SECRET_KEY = get_from_env("LANGFUSE_SECRET_KEY", "", type_cast=str)
 LANGFUSE_HOST = get_from_env("LANGFUSE_HOST", "https://us.cloud.langfuse.com", type_cast=str)
+
+ANTHROPIC_API_KEY = get_from_env("ANTHROPIC_API_KEY", "")
+INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
+MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
+
+SQS_QUEUES = {
+    "usage_reports": {
+        "url": get_from_env("SQS_USAGE_REPORT_QUEUE_URL", optional=True),
+        "region": get_from_env("SQS_REGION", "us-east-1", optional=True),
+        "type": "usage_reports",
+    }
+}

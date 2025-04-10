@@ -9,9 +9,12 @@ from zoneinfo import ZoneInfo
 from django.core.files.uploadedfile import SimpleUploadedFile
 from freezegun import freeze_time
 from rest_framework import status
+from posthog.api.hog_function_template import HogFunctionTemplates
+from posthog.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from posthog.constants import FROZEN_POSTHOG_VERSION
 
 from posthog.models import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -42,6 +45,13 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         # We make sure the org has permissions for these tests
         cls.organization.plugins_access_level = Organization.PluginsAccessLevel.ROOT
         cls.organization.save()
+
+    def setUp(self):
+        super().setUp()
+        with patch("posthog.api.hog_function_template.get_hog_function_templates") as mock_get_templates:
+            mock_get_templates.return_value.status_code = 200
+            mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
+            HogFunctionTemplates._load_templates()  # Cache templates to simplify tests
 
     def _get_plugin_activity(self, expected_status: int = status.HTTP_200_OK):
         activity = self.client.get(f"/api/organizations/@current/plugins/activity")
@@ -1550,6 +1560,120 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 },
             ],
         )
+
+    def test_create_hog_function_from_plugin_config(self, mock_get, mock_reload):
+        mock_geoip_plugin = Plugin.objects.create(
+            organization=self.organization,
+            plugin_type="local",
+            name="GeoIP",
+            description="Get the GeoIP of the user",
+            url="https://github.com/PostHog/posthog-plugin-geoip",
+        )
+
+        with self.settings(CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG=True):
+            response = self.client.post(
+                "/api/plugin_config/",
+                {
+                    "plugin": mock_geoip_plugin.id,
+                    "enabled": True,
+                    "order": 1,
+                    "config": json.dumps({"bar": "very secret value"}),
+                },
+                format="multipart",
+            )
+
+            assert response.status_code == 201, response.json()
+
+            assert PluginConfig.objects.count() == 0
+            hog_function = HogFunction.objects.all()
+            assert hog_function.count() == 1
+            assert hog_function[0].template_id == "plugin-posthog-plugin-geoip"
+            assert hog_function[0].type == "transformation"
+            assert hog_function[0].name == "GeoIP"
+            assert hog_function[0].description == "Enrich events with GeoIP data"
+            assert hog_function[0].filters == {
+                "bytecode": ["_H", 1, 29]
+            }  # Assert the compiled bytecode for empty filter
+            assert hog_function[0].hog == "return event"
+            assert hog_function[0].enabled
+            assert hog_function[0].team == self.team
+            assert hog_function[0].created_by == self.user
+            assert hog_function[0].icon_url == "/static/transformations/geoip.png"
+            assert hog_function[0].inputs_schema == []
+            assert hog_function[0].execution_order == 1
+            assert hog_function[0].inputs == {}
+
+    def test_create_hog_function_from_plugin_config_with_inputs(self, mock_get, mock_reload):
+        mock_geoip_plugin = Plugin.objects.create(
+            organization=self.organization,
+            plugin_type="local",
+            name="Taxonomy",
+            description="",
+            url="https://github.com/PostHog/taxonomy-plugin",
+        )
+
+        with self.settings(CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG=True):
+            response = self.client.post(
+                "/api/plugin_config/",
+                {
+                    "plugin": mock_geoip_plugin.id,
+                    "enabled": True,
+                    "order": 0,
+                    "config": json.dumps({"defaultNamingConvention": "snake_case", "other": "to be removed"}),
+                },
+                format="multipart",
+            )
+
+            assert response.status_code == 201, response.json()
+
+            assert PluginConfig.objects.count() == 0
+            hog_function = HogFunction.objects.all()
+            assert hog_function.count() == 1
+            assert hog_function[0].template_id == "plugin-taxonomy-plugin"
+            assert hog_function[0].inputs == {
+                "defaultNamingConvention": {
+                    "order": 0,
+                    "value": "snake_case",
+                },
+            }
+
+    def test_create_plugin_config_when_hog_function_fails(self, mock_get, mock_reload):
+        mock_plugin = Plugin.objects.create(
+            organization=self.organization,
+            plugin_type="local",
+            name="Test Plugin",
+            description="Test plugin that should create plugin config even if hog function fails",
+            url="https://github.com/PostHog/test-plugin",
+        )
+
+        with self.settings(CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG=True):
+            # Mock the hog_function_from_plugin_config to raise an exception
+            with patch("posthog.cdp.legacy_plugins.hog_function_from_plugin_config") as mock_hog_function:
+                mock_hog_function.side_effect = Exception("Failed to create hog function")
+
+                response = self.client.post(
+                    "/api/plugin_config/",
+                    {
+                        "plugin": mock_plugin.id,
+                        "enabled": True,
+                        "order": 0,
+                        "config": json.dumps({"test": "value"}),
+                    },
+                    format="multipart",
+                )
+
+                assert response.status_code == 201, response.json()
+
+                # Verify plugin config was created despite hog function failure
+                assert PluginConfig.objects.count() == 1
+                plugin_config = PluginConfig.objects.get(plugin_id=mock_plugin.id)
+                self.assertEqual(plugin_config.plugin_id, mock_plugin.id)
+                self.assertEqual(plugin_config.enabled, True)
+                self.assertEqual(plugin_config.order, 0)
+                self.assertEqual(plugin_config.config, {"test": "value"})
+
+                # Verify no hog function was created
+                assert HogFunction.objects.count() == 0
 
     @patch("posthog.api.plugin.validate_plugin_job_payload")
     @patch("posthog.api.plugin.connections")

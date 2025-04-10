@@ -1,4 +1,7 @@
+import os
 from typing import TYPE_CHECKING, Optional
+import posthoganalytics
+from posthoganalytics.ai.openai import OpenAI
 import openai
 from posthog.event_usage import report_user_action
 from posthog.hogql.context import HogQLContext
@@ -11,6 +14,8 @@ from .query import create_default_modifiers_for_team
 
 if TYPE_CHECKING:
     from posthog.models import User, Team
+
+openai_client = OpenAI(posthog_client=posthoganalytics) if os.getenv("OPENAI_API_KEY") else None  # type: ignore
 
 UNCLEAR_PREFIX = "UNCLEAR:"
 
@@ -34,7 +39,8 @@ ORDER BY week_of DESC"""
 
 SCHEMA_MESSAGE = (
     "This project's schema is:\n\n{schema_description}\nPerson or event metadata unspecified above (emails, names, etc.) "
-    'is stored in `properties` fields, accessed like: `properties.foo.bar`. Note: "persons" means "users".\nSpecial events/properties such as pageview or screen start with `$`. Custom ones don\'t.'
+    'is stored in `properties` fields, accessed like: `properties.foo.bar`. Note: "persons" means "users".\nSpecial events/properties such as pageview or screen start with `$`. Custom ones don\'t.\n'
+    "virtual_table and lazy_table fields are connections to linked tables, e.g. the `person` table allows accessing person properties like so: `person.properties.foo`."
 )
 
 CURRENT_QUERY_MESSAGE = (
@@ -53,7 +59,7 @@ class PromptUnclear(Exception):
 
 
 def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, team: "Team", user: "User") -> str:
-    database = create_hogql_database(team.pk)
+    database = create_hogql_database(team=team)
     context = HogQLContext(
         team_id=team.pk,
         enable_select_queries=True,
@@ -146,7 +152,10 @@ def write_sql_from_prompt(prompt: str, *, current_query: Optional[str] = None, t
 
 
 def hit_openai(messages, user) -> tuple[str, int, int]:
-    result = openai.chat.completions.create(
+    if not openai_client:
+        raise ValueError("OPENAI_API_KEY environment variable not set")
+
+    result = openai_client.chat.completions.create(
         model="gpt-4o-mini",
         temperature=0,
         messages=messages,

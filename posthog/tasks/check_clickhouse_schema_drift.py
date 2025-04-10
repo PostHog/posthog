@@ -6,7 +6,7 @@ from clickhouse_driver.errors import Error as ClickhouseError
 from django.conf import settings
 from statshog.defaults.django import statsd
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 
 logger = structlog.get_logger(__name__)
 

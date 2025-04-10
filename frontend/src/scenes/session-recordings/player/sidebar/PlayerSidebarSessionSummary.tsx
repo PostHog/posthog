@@ -5,7 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
+import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 function SessionSummary(): JSX.Element {
@@ -71,7 +71,7 @@ export function PlayerSidebarSessionSummary(): JSX.Element | null {
     return (
         <>
             <FlaggedFeature flag={FEATURE_FLAGS.AI_SESSION_SUMMARY} match={true}>
-                <div className="rounded border bg-bg-light px-2 py-1">
+                <div className="rounded border bg-surface-primary px-2 py-1">
                     <h2>AI Session Summary</h2>
                     {sessionSummaryLoading ? (
                         <>

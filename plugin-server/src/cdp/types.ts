@@ -70,7 +70,7 @@ export type HogFunctionInvocationGlobals = {
         uuid: string
         event: string
         distinct_id: string
-        properties: Record<string, any>
+        properties: Record<string, unknown>
         elements_chain: string
         timestamp: string
 
@@ -212,7 +212,7 @@ export type HogFunctionInvocation = {
     teamId: Team['id']
     hogFunction: HogFunctionType
     priority: number
-    queue: 'hog' | 'fetch'
+    queue: 'hog' | 'fetch' | 'plugins'
     queueParameters?: HogFunctionInvocationQueueParameters
     // The current vmstate (set if the invocation is paused)
     vmState?: VMState
@@ -232,6 +232,7 @@ export type HogFunctionInvocationResult = {
     error?: any
     // asyncFunctionRequest?: HogFunctionAsyncFunctionRequest
     logs: LogEntry[]
+    metrics?: HogFunctionAppMetric[]
     capturedPostHogEvents?: HogFunctionCapturedEvent[]
     execResult?: unknown
 }
@@ -256,10 +257,6 @@ export type HogFunctionInvocationSerialized = Omit<HogFunctionInvocation, 'hogFu
     hogFunction?: HogFunctionType
 }
 
-export type HogFunctionInvocationSerializedCompressed = {
-    state: string // Serialized HogFunctionInvocation
-}
-
 // Mostly copied from frontend types
 export type HogFunctionInputSchemaType = {
     type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field' | 'email'
@@ -269,11 +266,14 @@ export type HogFunctionInputSchemaType = {
     required?: boolean
     default?: any
     secret?: boolean
+    hidden?: boolean
     description?: string
     integration?: string
     integration_key?: string
-    integration_field?: 'slack_channel'
+    requires_field?: string
+    integration_field?: string
     requiredScopes?: string
+    templating?: boolean
 }
 
 export type HogFunctionTypeType =
@@ -287,6 +287,8 @@ export type HogFunctionTypeType =
     | 'alert'
     | 'broadcast'
 
+export type HogFunctionKind = 'messaging_campaign' | null
+
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType> | null
@@ -296,18 +298,24 @@ export interface HogFunctionMappingType {
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
+    kind?: HogFunctionKind
     team_id: number
     name: string
     enabled: boolean
+    deleted: boolean
     hog: string
     bytecode: HogBytecode
     inputs_schema?: HogFunctionInputSchemaType[]
-    inputs?: Record<string, HogFunctionInputType>
+    inputs?: Record<string, HogFunctionInputType | null>
     encrypted_inputs?: Record<string, HogFunctionInputType>
     filters?: HogFunctionFilters | null
     mappings?: HogFunctionMappingType[] | null
     masking?: HogFunctionMasking | null
     depends_on_integration_ids?: Set<IntegrationType['id']>
+    template_id?: string
+    execution_order?: number
+    created_at: string
+    updated_at: string
 }
 
 export type HogFunctionInputType = {
@@ -336,11 +344,7 @@ export type HogFunctionAppMetric = Pick<
 
 export type HogFunctionMessageToProduce = {
     topic: string
-    value:
-        | HogFunctionLogEntrySerialized
-        | HogHooksFetchResponse
-        | AppMetric2Type
-        | HogFunctionInvocationSerializedCompressed
+    value: HogFunctionLogEntrySerialized | HogHooksFetchResponse | AppMetric2Type
     key: string
 }
 

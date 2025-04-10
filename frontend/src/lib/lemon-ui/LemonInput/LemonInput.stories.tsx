@@ -59,3 +59,6 @@ Numeric.args = { type: 'number', min: 0, step: 1, value: 3 }
 
 export const Small: Story = Template.bind({})
 Small.args = { allowClear: true, size: 'small' }
+
+export const Prefix: Story = Template.bind({})
+Prefix.args = { allowClear: true, size: 'small', prefix: <IconCalendar /> }

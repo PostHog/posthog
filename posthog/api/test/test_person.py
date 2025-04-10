@@ -7,7 +7,7 @@ from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models import Cohort, Organization, Person, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import PersonDistinctId

@@ -1,10 +1,10 @@
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{digest::Update, Sha512};
+use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use uuid::Uuid;
 
+use crate::fingerprinting::{Fingerprint, FingerprintComponent, FingerprintRecordPart};
 use crate::frames::{Frame, RawFrame};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -29,10 +29,13 @@ pub enum Stacktrace {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Exception {
+    #[serde(rename = "id", skip_serializing_if = "Option::is_none")]
+    pub exception_id: Option<String>,
     #[serde(rename = "type")]
     pub exception_type: String,
     #[serde(rename = "value")]
     pub exception_message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub mechanism: Option<Mechanism>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub module: Option<String>,
@@ -63,6 +66,7 @@ pub struct FingerprintedErrProps {
     pub exception_list: Vec<Exception>,
     pub fingerprint: String,
     pub proposed_fingerprint: String, // We suggest a fingerprint, based on hashes, but let users override client-side
+    pub fingerprint_record: Vec<FingerprintRecordPart>,
     pub other: HashMap<String, Value>,
 }
 
@@ -75,17 +79,45 @@ pub struct OutputErrProps {
     pub fingerprint: String,
     #[serde(rename = "$exception_proposed_fingerprint")]
     pub proposed_fingerprint: String,
+    #[serde(rename = "$exception_fingerprint_record")]
+    pub fingerprint_record: Vec<FingerprintRecordPart>,
     #[serde(rename = "$exception_issue_id")]
     pub issue_id: Uuid,
     #[serde(flatten)]
     pub other: HashMap<String, Value>,
+
+    // Search metadata
+    #[serde(rename = "$exception_types")]
+    pub types: Vec<String>,
+    #[serde(rename = "$exception_values")]
+    pub values: Vec<String>,
+    #[serde(rename = "$exception_sources")]
+    pub sources: Vec<String>,
+    #[serde(rename = "$exception_functions")]
+    pub functions: Vec<String>,
+}
+
+impl FingerprintComponent for Exception {
+    fn update(&self, fp: &mut Fingerprint) {
+        let mut pieces = vec![];
+        fp.update(self.exception_type.as_bytes());
+        pieces.push("Exception Type".to_string());
+        if !matches!(self.stack, Some(Stacktrace::Resolved { frames: _ })) {
+            fp.update(self.exception_message.as_bytes());
+            pieces.push("Exception Message".to_string());
+        };
+        fp.add_part(FingerprintRecordPart::Exception {
+            id: self.exception_id.clone(),
+            pieces,
+        });
+    }
 }
 
 impl Exception {
-    pub fn include_in_fingerprint(&self, h: &mut Sha512) {
-        h.update(self.exception_type.as_bytes());
+    pub fn include_in_fingerprint(&self, fp: &mut Fingerprint) {
+        self.update(fp);
+
         let Some(Stacktrace::Resolved { frames }) = &self.stack else {
-            h.update(self.exception_message.as_bytes());
             return;
         };
 
@@ -96,14 +128,14 @@ impl Exception {
             // TODO: we should try to be smarter about handling the case when
             // there are no in-app frames
             if let Some(f) = frames.first() {
-                f.include_in_fingerprint(h)
+                f.update(fp)
             }
             return;
         }
 
         for frame in frames {
             if (has_no_resolved || frame.resolved) && frame.in_app {
-                frame.include_in_fingerprint(h)
+                frame.update(fp)
             }
         }
     }
@@ -124,10 +156,17 @@ impl RawErrProps {
         );
     }
 
-    pub fn to_fingerprinted(self, fingerprint: String) -> FingerprintedErrProps {
+    pub fn to_fingerprinted(self, fingerprint: Fingerprint) -> FingerprintedErrProps {
+        let (fingerprint, mut record) = fingerprint.finalize();
+
+        if self.fingerprint.is_some() {
+            record.push(FingerprintRecordPart::Manual)
+        }
+
         FingerprintedErrProps {
             exception_list: self.exception_list,
             fingerprint: self.fingerprint.unwrap_or(fingerprint.clone()),
+            fingerprint_record: record,
             proposed_fingerprint: fingerprint,
             other: self.other,
         }
@@ -136,14 +175,49 @@ impl RawErrProps {
 
 impl FingerprintedErrProps {
     pub fn to_output(self, issue_id: Uuid) -> OutputErrProps {
+        let frames = self
+            .exception_list
+            .iter()
+            .filter_map(|e| e.stack.as_ref())
+            .flat_map(Stacktrace::get_frames);
+
+        let sources = unique_by(frames.clone(), |f| f.source.clone());
+        let functions = unique_by(frames, |f| f.resolved_name.clone());
+
+        let types = unique_by(self.exception_list.iter(), |e| {
+            Some(e.exception_type.clone())
+        });
+        let values = unique_by(self.exception_list.iter(), |e| {
+            Some(e.exception_message.clone())
+        });
+
         OutputErrProps {
             exception_list: self.exception_list,
             fingerprint: self.fingerprint,
             issue_id,
             proposed_fingerprint: self.proposed_fingerprint,
+            fingerprint_record: self.fingerprint_record,
             other: self.other,
+
+            types,
+            values,
+            sources,
+            functions,
         }
     }
+}
+
+fn unique_by<T, I, F, K>(items: I, key_extractor: F) -> Vec<K>
+where
+    I: Iterator<Item = T>,
+    F: Fn(T) -> Option<K>,
+    K: Eq + Hash + Clone,
+{
+    items
+        .filter_map(key_extractor)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 impl OutputErrProps {
@@ -167,6 +241,33 @@ impl OutputErrProps {
                 frames.iter_mut().for_each(|frame| frame.junk_drawer = None);
             }
         });
+    }
+}
+
+impl Stacktrace {
+    pub fn resolve(&self, lookup_table: &HashMap<String, Frame>) -> Option<Self> {
+        let Stacktrace::Raw { frames } = self else {
+            return Some(self.clone());
+        };
+
+        let mut resolved_frames = Vec::with_capacity(frames.len());
+        for frame in frames {
+            match lookup_table.get(&frame.frame_id()) {
+                Some(resolved_frame) => resolved_frames.push(resolved_frame.clone()),
+                None => return None,
+            }
+        }
+
+        Some(Stacktrace::Resolved {
+            frames: resolved_frames,
+        })
+    }
+
+    pub fn get_frames(&self) -> &[Frame] {
+        match self {
+            Stacktrace::Resolved { frames } => frames,
+            _ => &[],
+        }
     }
 }
 
@@ -207,7 +308,7 @@ mod test {
             panic!("Expected a Raw stacktrace")
         };
         assert_eq!(frames.len(), 2);
-        let RawFrame::JavaScript(frame) = &frames[0] else {
+        let RawFrame::JavaScriptWeb(frame) = &frames[0] else {
             panic!("Expected a JavaScript frame")
         };
 
@@ -220,7 +321,7 @@ mod test {
         assert_eq!(frame.location.as_ref().unwrap().line, 64);
         assert_eq!(frame.location.as_ref().unwrap().column, 25112);
 
-        let RawFrame::JavaScript(frame) = &frames[1] else {
+        let RawFrame::JavaScriptWeb(frame) = &frames[1] else {
             panic!("Expected a JavaScript frame")
         };
         assert_eq!(

@@ -22,12 +22,14 @@ from .utils import UUIDClassicModel, generate_random_token, sane_repr
 
 class Notifications(TypedDict, total=False):
     plugin_disabled: bool
+    error_tracking_issue_assigned: bool
     project_weekly_digest_disabled: dict[str, Any]  # Maps project ID to disabled status, str is the team_id as a string
     all_weekly_digest_disabled: bool
 
 
 NOTIFICATION_DEFAULTS: Notifications = {
     "plugin_disabled": True,  # Catch all for any Pipeline destination issue (plugins, hog functions, batch exports)
+    "error_tracking_issue_assigned": True,  # Error tracking issue assignment
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
 }
@@ -204,7 +206,7 @@ class User(AbstractUser, UUIDClassicModel):
         )
         if org_available_product_features and len(org_available_product_features) > 0:
             org_available_product_feature_keys = [feature["key"] for feature in org_available_product_features]
-            if AvailableFeature.PROJECT_BASED_PERMISSIONING in org_available_product_feature_keys:
+            if AvailableFeature.ADVANCED_PERMISSIONS in org_available_product_feature_keys:
                 try:
                     from ee.models import ExplicitTeamMembership
                 except ImportError:
@@ -253,11 +255,8 @@ class User(AbstractUser, UUIDClassicModel):
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
             self.current_organization = organization
-            available_product_feature_keys = [
-                feature["key"] for feature in organization.available_product_features or []
-            ]
             if (
-                AvailableFeature.PROJECT_BASED_PERMISSIONING not in available_product_feature_keys
+                not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
                 or level >= OrganizationMembership.Level.ADMIN
             ):
                 # If project access control is NOT applicable, simply prefer open projects just in case

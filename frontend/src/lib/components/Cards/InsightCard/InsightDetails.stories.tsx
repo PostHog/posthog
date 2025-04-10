@@ -14,7 +14,7 @@ export default meta
 const Template: StoryFn<{ insight: InsightModel }> = ({ insight: legacyInsight }) => {
     const insight = getQueryBasedInsightModel(legacyInsight)
     return (
-        <div className="bg-bg-light w-[24rem] p-4 rounded">
+        <div className="bg-surface-primary w-[24rem] p-4 rounded">
             <InsightDetailsComponent query={insight.query} footerInfo={insight} />
         </div>
     )
@@ -72,6 +72,11 @@ Lifecycle.args = {
 export const DataTableHogQLQuery = Template.bind({})
 DataTableHogQLQuery.args = {
     insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'),
+}
+
+export const DataVisualizationHogQLQuery = Template.bind({})
+DataVisualizationHogQLQuery.args = {
+    insight: require('../../../../mocks/fixtures/api/projects/team_id/insights/dataVisualizationHogQL.json'),
 }
 
 export const DataTableEventsQuery = Template.bind({})

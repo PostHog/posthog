@@ -4,11 +4,13 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { RevenueEventsSettings } from 'products/revenue_analytics/frontend/settings/RevenueEventsSettings'
 import React from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { Annotations } from 'scenes/annotations'
@@ -31,11 +33,17 @@ export enum DataManagementTab {
     Annotations = 'annotations',
     History = 'history',
     IngestionWarnings = 'warnings',
+    Revenue = 'revenue',
 }
-
 const tabs: Record<
     DataManagementTab,
-    { url: string; label: LemonTab<any>['label']; content: JSX.Element; buttons?: React.ReactNode }
+    {
+        url: string
+        label: LemonTab<any>['label']
+        content: JSX.Element
+        buttons?: React.ReactNode
+        flag?: FeatureFlagKey
+    }
 > = {
     [DataManagementTab.EventDefinitions]: {
         url: urls.eventDefinitions(),
@@ -89,18 +97,32 @@ const tabs: Record<
             />
         ),
     },
+    [DataManagementTab.Revenue]: {
+        url: urls.revenueSettings(),
+        label: (
+            <>
+                Revenue{' '}
+                <LemonTag type="warning" size="small" className="ml-2">
+                    BETA
+                </LemonTag>
+            </>
+        ),
+        content: <RevenueEventsSettings />,
+        flag: FEATURE_FLAGS.WEB_REVENUE_TRACKING,
+    },
     [DataManagementTab.IngestionWarnings]: {
         url: urls.ingestionWarnings(),
         label: 'Ingestion warnings',
         content: <IngestionWarningsView />,
+        flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
     },
 }
 
 const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
     path(['scenes', 'events', 'dataManagementSceneLogic']),
-    connect({
+    connect(() => ({
         values: [featureFlagLogic, ['featureFlags']],
-    }),
+    })),
     actions({
         setTab: (tab: DataManagementTab) => ({ tab }),
     }),
@@ -130,18 +152,15 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
                 ]
             },
         ],
-        showWarningsTab: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED],
-        ],
         enabledTabs: [
-            (s) => [s.showWarningsTab],
-            (showWarningsTab): DataManagementTab[] => {
-                const allTabs = Object.keys(tabs)
-
-                return allTabs.filter((x) => {
-                    return x === DataManagementTab.IngestionWarnings ? showWarningsTab : true
-                }) as DataManagementTab[]
+            (s) => [s.featureFlags],
+            (featureFlags): DataManagementTab[] => {
+                const allTabs = Object.entries(tabs)
+                return allTabs
+                    .filter(([_, tab]) => {
+                        return !tab.flag || !!featureFlags[tab.flag]
+                    })
+                    .map(([tabName, _]) => tabName) as DataManagementTab[]
             },
         ],
     }),

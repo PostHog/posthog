@@ -7,7 +7,7 @@ import sentry_sdk
 import structlog
 import time
 from collections.abc import Iterator
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from dateutil import parser
 from django.conf import settings
 from django.http import JsonResponse
@@ -18,8 +18,7 @@ from kafka.errors import KafkaError, MessageSizeTooLargeError, KafkaTimeoutError
 from kafka.producer.future import FutureRecordMetadata
 from prometheus_client import Counter, Gauge, Histogram
 from rest_framework import status
-from sentry_sdk import configure_scope
-from sentry_sdk.api import capture_exception, start_span
+from sentry_sdk import configure_scope, start_span
 from statshog.defaults.django import statsd
 from token_bucket import Limiter, MemoryStorage
 from typing import Any, Optional, Literal
@@ -28,6 +27,7 @@ from ee.billing.quota_limiting import QuotaLimitingCaches
 from posthog.api.utils import get_data, get_token, safe_clickhouse_string
 from posthog.cache_utils import cache_for
 from posthog.exceptions import generate_exception_response
+from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import KafkaProducer, session_recording_kafka_producer
 from posthog.kafka_client.topics import (
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
@@ -47,6 +47,7 @@ from posthog.session_recordings.session_recording_helpers import (
 from posthog.storage import object_storage
 from posthog.utils import get_ip_address
 from posthog.utils_cors import cors_response
+from posthog.kafka_client.topics import KAFKA_EXCEPTIONS_INGESTION
 
 logger = structlog.get_logger(__name__)
 
@@ -60,6 +61,7 @@ LOG_RATE_LIMITER = Limiter(
     capacity=1,
     storage=MemoryStorage(),
 )
+
 
 # These event names are reserved for internal use and refer to non-analytics
 # events that are ingested via a separate path than analytics events. They have
@@ -128,6 +130,10 @@ REPLAY_MESSAGE_PRODUCTION_TIMER = Histogram(
     "Time taken to produce a set of replay messages",
 )
 
+# This flag tells us to use the cookieless mode, and that we can't use distinct id as the partition key
+COOKIELESS_MODE_FLAG_PROPERTY = "$cookieless_mode"
+
+
 # This is a heuristic of ids we have seen used as anonymous. As they frequently
 # have significantly more traffic than non-anonymous distinct_ids, and likely
 # don't refer to the same underlying person we prefer to partition them randomly
@@ -155,6 +161,20 @@ LIKELY_ANONYMOUS_IDS = {
 }
 
 OVERFLOWING_REDIS_KEY = "@posthog/capture-overflow/"
+
+TOKEN_DISTINCT_ID_PAIRS_TO_DROP: Optional[set[str]] = None
+
+
+def get_tokens_to_drop() -> set[str]:
+    global TOKEN_DISTINCT_ID_PAIRS_TO_DROP
+
+    if TOKEN_DISTINCT_ID_PAIRS_TO_DROP is None:
+        TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set()
+        if settings.DROPPED_KEYS:
+            # DROPPED_KEYS is a semicolon separated list of <team_id:distinct_id> pairs
+            TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set(settings.DROPPED_KEYS.split(";"))
+
+    return TOKEN_DISTINCT_ID_PAIRS_TO_DROP
 
 
 class InputType(Enum):
@@ -197,6 +217,8 @@ def _kafka_topic(event_name: str, historical: bool = False, overflowing: bool = 
             if overflowing:
                 return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
             return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+        case "$exception":
+            return KAFKA_EXCEPTIONS_INGESTION
         case _:
             # If the token is in the TOKENS_HISTORICAL_DATA list, we push to the
             # historical data topic.
@@ -240,7 +262,7 @@ def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
         timestamp_number = int(timestamp)
         KLUDGES_COUNTER.labels(kludge="sent_at_seconds_timestamp").inc()
 
-    return datetime.fromtimestamp(timestamp_number, timezone.utc)
+    return datetime.fromtimestamp(timestamp_number, UTC)
 
 
 def _get_retry_count(request) -> int | None:
@@ -333,12 +355,13 @@ def drop_performance_events(events: list[Any]) -> list[Any]:
 class EventsOverQuotaResult:
     events: list[Any]
     events_were_limited: bool
+    exceptions_were_limited: bool
     recordings_were_limited: bool
 
 
 def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResult:
     if not settings.EE_AVAILABLE:
-        return EventsOverQuotaResult(events, False, False)
+        return EventsOverQuotaResult(events, False, False, False)
 
     from ee.billing.quota_limiting import QuotaResource, list_limited_team_attributes
 
@@ -346,11 +369,15 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
     limited_tokens_events = list_limited_team_attributes(
         QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )
+    limited_tokens_exceptions = list_limited_team_attributes(
+        QuotaResource.EXCEPTIONS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+    )
     limited_tokens_recordings = list_limited_team_attributes(
         QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )
 
     recordings_were_limited = False
+    exceptions_were_limited = False
     events_were_limited = False
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
@@ -359,6 +386,14 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
                 EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="recordings", token=token).inc()
                 if settings.QUOTA_LIMITING_ENABLED:
                     recordings_were_limited = True
+                    continue
+
+        elif event.get("event") == "$exception":
+            EVENTS_RECEIVED_COUNTER.labels(resource_type="exceptions").inc()
+            if token in limited_tokens_exceptions:
+                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="exceptions", token=token).inc()
+                if settings.QUOTA_LIMITING_ENABLED:
+                    exceptions_were_limited = True
                     continue
 
         else:
@@ -372,7 +407,10 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
         results.append(event)
 
     return EventsOverQuotaResult(
-        results, events_were_limited=events_were_limited, recordings_were_limited=recordings_were_limited
+        results,
+        events_were_limited=events_were_limited,
+        exceptions_were_limited=exceptions_were_limited,
+        recordings_were_limited=recordings_were_limited,
     )
 
 
@@ -508,6 +546,7 @@ def get_event(request):
 
         try:
             processed_events = list(preprocess_events(events))
+
         except ValueError as e:
             return cors_response(
                 request,
@@ -519,10 +558,22 @@ def get_event(request):
     with start_span(op="kafka.produce") as span:
         span.set_tag("event.count", len(processed_events))
         for event, event_uuid, distinct_id in processed_events:
+            if f"{token}:{distinct_id}" in get_tokens_to_drop():
+                logger.warning("Dropping event", token=token, distinct_id=distinct_id)
+                continue
+
             try:
                 futures.append(
                     capture_internal(
-                        event, distinct_id, ip, site_url, now, sent_at, event_uuid, token, historical=historical
+                        event,
+                        distinct_id,
+                        ip,
+                        site_url,
+                        now,
+                        sent_at,
+                        event_uuid,
+                        token,
+                        historical=historical,
                     )
                 )
             except Exception as exc:
@@ -574,9 +625,10 @@ def get_event(request):
     try:
         if replay_events:
             lib_version = lib_version_from_query_params(request)
+            user_agent = request.headers.get("User-Agent", "")
 
             alternative_replay_events = preprocess_replay_events_for_blob_ingestion(
-                replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
+                replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES, user_agent
             )
 
             replay_futures: list[tuple[FutureRecordMetadata, tuple, dict]] = []
@@ -838,6 +890,8 @@ def capture_internal(
     if extra_headers is None:
         extra_headers = []
 
+    headers = [("token", token), ("distinct_id", distinct_id), *extra_headers]
+
     parsed_event = build_kafka_event_data(
         distinct_id=distinct_id,
         ip=ip,
@@ -851,7 +905,6 @@ def capture_internal(
 
     if event["event"] in SESSION_RECORDING_EVENT_NAMES:
         session_id = event["properties"]["$session_id"]
-        headers = [("token", token), *extra_headers]
 
         overflowing = False
         if token in settings.REPLAY_OVERFLOW_FORCED_TOKENS:
@@ -871,6 +924,11 @@ def capture_internal(
     # overriding this to deal with hot partitions in specific cases.
     # Setting the partition key to None means using random partitioning.
     candidate_partition_key = f"{token}:{distinct_id}"
+    if event.get("properties", {}).get(COOKIELESS_MODE_FLAG_PROPERTY):
+        # In cookieless mode, the distinct id is meaningless, so we can't use it as the partition key.
+        # Instead, use the IP address as the partition key.
+        candidate_partition_key = f"{token}:{ip}"
+
     if (
         not historical
         and settings.CAPTURE_ALLOW_RANDOM_PARTITIONING
@@ -880,7 +938,9 @@ def capture_internal(
     else:
         kafka_partition_key = candidate_partition_key
 
-    return log_event(parsed_event, event["event"], partition_key=kafka_partition_key, historical=historical)
+    return log_event(
+        parsed_event, event["event"], partition_key=kafka_partition_key, historical=historical, headers=headers
+    )
 
 
 def is_randomly_partitioned(candidate_partition_key: str) -> bool:

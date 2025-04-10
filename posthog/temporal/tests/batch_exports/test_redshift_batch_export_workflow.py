@@ -1,7 +1,11 @@
+import ast
+import collections.abc
+import dataclasses
 import datetime as dt
 import json
 import operator
 import os
+import unittest.mock
 import uuid
 import warnings
 
@@ -18,24 +22,39 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog import constants
-from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
+from posthog.batch_exports.service import (
+    BackfillDetails,
+    BatchExportModel,
+    BatchExportSchema,
+)
 from posthog.temporal.batch_exports.batch_exports import (
     finish_batch_export_run,
-    iter_model_records,
     start_batch_export_run,
 )
 from posthog.temporal.batch_exports.redshift_batch_export import (
     RedshiftBatchExportInputs,
     RedshiftBatchExportWorkflow,
+    RedshiftHeartbeatDetails,
     RedshiftInsertInputs,
     insert_into_redshift_activity,
     redshift_default_fields,
+)
+from posthog.temporal.batch_exports.spmc import (
+    Producer,
+    RecordBatchQueue,
+    RecordBatchTaskError,
+    SessionsRecordBatchModel,
 )
 from posthog.temporal.batch_exports.temporary_file import (
     remove_escaped_whitespace_recursive,
 )
 from posthog.temporal.common.clickhouse import ClickHouseClient
-from posthog.temporal.tests.batch_exports.utils import mocked_start_batch_export_run
+from posthog.temporal.tests.batch_exports.utils import (
+    FlakyClickHouseClient,
+    get_record_batch_from_queue,
+    mocked_start_batch_export_run,
+    remove_duplicates_from_records,
+)
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
@@ -66,10 +85,11 @@ EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
     "person_version",
     "person_distinct_id_version",
     "created_at",
+    "is_deleted",
 ]
 
 
-async def assert_clickhouse_records_in_redshfit(
+async def assert_clickhouse_records_in_redshift(
     redshift_connection,
     clickhouse_client: ClickHouseClient,
     schema_name: str,
@@ -81,9 +101,10 @@ async def assert_clickhouse_records_in_redshfit(
     include_events: list[str] | None = None,
     properties_data_type: str = "varchar",
     sort_key: str = "event",
-    is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
     expected_duplicates_threshold: float = 0.0,
     expected_fields: list[str] | None = None,
+    primary_key: collections.abc.Sequence[str] | None = None,
 ):
     """Assert expected records are written to a given Redshift table.
 
@@ -97,8 +118,6 @@ async def assert_clickhouse_records_in_redshfit(
 
     Caveats:
     * Casting records to a Python list of dicts means losing some type precision.
-    * Reading records from ClickHouse could be hiding bugs in the `iter_records` function and related.
-        * `iter_records` has its own set of related unit tests to control for this.
 
     Arguments:
         redshift_connection: A Redshift connection used to read inserted events.
@@ -113,6 +132,7 @@ async def assert_clickhouse_records_in_redshfit(
         expected_fields: The expected fields to be exported.
     """
     super_columns = ["properties", "set", "set_once", "person_properties"]
+    array_super_columns = ["urls"]
 
     inserted_records = []
     async with redshift_connection.cursor() as cursor:
@@ -131,41 +151,76 @@ async def assert_clickhouse_records_in_redshfit(
                 if column in event and event.get(column, None) is not None:
                     event[column] = json.loads(event[column])
 
+            for column in array_super_columns:
+                # Arrays stored in SUPER are dumped like Python sets: '{"value", "value1"}'
+                # But we expect these to come as lists from ClickHouse.
+                # So, since they are read as strings, we first `json.loads` them and
+                # then pass the resulting string to `literal_eval`, which will produce
+                # either a dict or a set (depending if it's empty or not). Either way
+                # we can cast them to list.
+                if column in event and event.get(column, None) is not None:
+                    value = ast.literal_eval(json.loads(event[column]))
+                    event[column] = list(value)
+
             inserted_records.append(event)
 
-    schema_column_names = (
-        expected_fields if expected_fields is not None else [field["alias"] for field in redshift_default_fields()]
-    )
-    if batch_export_model is not None and expected_fields is None:
+    if batch_export_model is not None:
         if isinstance(batch_export_model, BatchExportModel):
-            batch_export_schema = batch_export_model.schema
+            model_name = batch_export_model.name
+            fields = batch_export_model.schema["fields"] if batch_export_model.schema is not None else None
+            filters = batch_export_model.filters
+            extra_query_parameters = (
+                batch_export_model.schema["values"] if batch_export_model.schema is not None else None
+            )
         else:
-            batch_export_schema = batch_export_model
-
-        if batch_export_schema is not None:
-            schema_column_names = [field["alias"] for field in batch_export_schema["fields"]]
-        elif isinstance(batch_export_model, BatchExportModel) and batch_export_model.name == "persons":
-            schema_column_names = EXPECTED_PERSONS_BATCH_EXPORT_FIELDS
+            model_name = "custom"
+            fields = batch_export_model["fields"]
+            filters = None
+            extra_query_parameters = batch_export_model["values"]
+    else:
+        model_name = "events"
+        extra_query_parameters = None
+        fields = None
+        filters = None
 
     expected_records = []
+    queue = RecordBatchQueue()
+    if model_name == "sessions":
+        producer = Producer(model=SessionsRecordBatchModel(team_id))
+    else:
+        producer = Producer()
+
     for data_interval_start, data_interval_end in date_ranges:
-        async for record_batch in iter_model_records(
-            client=clickhouse_client,
-            model=batch_export_model,
+        producer_task = await producer.start(
+            queue=queue,
+            model_name=model_name,
             team_id=team_id,
-            interval_start=data_interval_start.isoformat(),
-            interval_end=data_interval_end.isoformat(),
+            full_range=(data_interval_start, data_interval_end),
+            done_ranges=[],
+            fields=fields,
+            filters=filters,
+            destination_default_fields=redshift_default_fields(),
             exclude_events=exclude_events,
             include_events=include_events,
-            destination_default_fields=redshift_default_fields(),
-            is_backfill=is_backfill,
-            use_latest_schema=True,
-        ):
-            for record in record_batch.select(schema_column_names).to_pylist():
+            is_backfill=backfill_details is not None,
+            backfill_details=backfill_details,
+            extra_query_parameters=extra_query_parameters,
+        )
+        while True:
+            record_batch = await get_record_batch_from_queue(queue, producer_task)
+
+            if record_batch is None:
+                break
+
+            select = record_batch.column_names
+            if expected_fields:
+                select = expected_fields
+
+            for record in record_batch.select(select).to_pylist():
                 expected_record = {}
 
                 for k, v in record.items():
-                    if k not in schema_column_names or k == "_inserted_at":
+                    if k == "_inserted_at":
                         # _inserted_at is not exported, only used for tracking progress.
                         continue
 
@@ -179,17 +234,7 @@ async def assert_clickhouse_records_in_redshfit(
                 expected_records.append(expected_record)
 
     if expected_duplicates_threshold > 0.0:
-        seen = set()
-
-        def is_record_seen(record) -> bool:
-            nonlocal seen
-            if record["uuid"] in seen:
-                return True
-
-            seen.add(record["uuid"])
-            return False
-
-        inserted_records = [record for record in inserted_records if not is_record_seen(record)]
+        inserted_records = remove_duplicates_from_records(inserted_records, primary_key)
         unduplicated_len = len(inserted_records)
         assert (unduplicated_len - len(inserted_records)) / len(inserted_records) < expected_duplicates_threshold
 
@@ -225,7 +270,7 @@ def redshift_config():
         user = os.environ["REDSHIFT_USER"]
         password = os.environ["REDSHIFT_PASSWORD"]
         host = os.environ["REDSHIFT_HOST"]
-        port = os.environ.get("REDSHIFT_PORT", "5439")
+        port = int(os.environ.get("REDSHIFT_PORT", "5439"))
 
     return {
         "user": user,
@@ -233,7 +278,7 @@ def redshift_config():
         "database": "posthog_batch_exports_test_2",
         "schema": "exports_test_schema",
         "host": host,
-        "port": int(port),
+        "port": port,
     }
 
 
@@ -288,6 +333,7 @@ TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
     ),
     BatchExportModel(name="events", schema=None),
     BatchExportModel(name="persons", schema=None),
+    BatchExportModel(name="sessions", schema=None),
     {
         "fields": [
             {"expression": "event", "alias": "event"},
@@ -329,11 +375,19 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
     Once we have these events, we pass them to the assert_events_in_redshift function to check
     that they appear in the expected Redshift table.
     """
-    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
-        pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
+    if (
+        isinstance(model, BatchExportModel)
+        and (model.name == "persons" or model.name == "sessions")
+        and exclude_events is not None
+    ):
+        pytest.skip(f"Unnecessary test case as {model.name} batch export is not affected by 'exclude_events'")
 
-    if isinstance(model, BatchExportModel) and model.name == "persons" and MISSING_REQUIRED_ENV_VARS:
-        pytest.skip("Persons batch export cannot be tested in PostgreSQL")
+    if (
+        isinstance(model, BatchExportModel)
+        and (model.name == "persons" or model.name == "sessions")
+        and MISSING_REQUIRED_ENV_VARS
+    ):
+        pytest.skip(f"Batch export model {model.name} cannot be tested in PostgreSQL")
 
     if properties_data_type == "super" and MISSING_REQUIRED_ENV_VARS:
         pytest.skip("SUPER type is only available in Redshift")
@@ -378,7 +432,14 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
 
     await activity_environment.run(insert_into_redshift_activity, insert_inputs)
 
-    await assert_clickhouse_records_in_redshfit(
+    sort_key = "event"
+    if batch_export_model is not None:
+        if batch_export_model.name == "persons":
+            sort_key = "person_id"
+        elif batch_export_model.name == "sessions":
+            sort_key = "session_id"
+
+    await assert_clickhouse_records_in_redshift(
         redshift_connection=psycopg_connection,
         clickhouse_client=clickhouse_client,
         schema_name=redshift_config["schema"],
@@ -388,7 +449,7 @@ async def test_insert_into_redshift_activity_inserts_data_into_redshift_table(
         batch_export_model=model,
         exclude_events=exclude_events,
         properties_data_type=properties_data_type,
-        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
+        sort_key=sort_key,
     )
 
 
@@ -493,7 +554,7 @@ async def test_insert_into_bigquery_activity_resumes_from_heartbeat(
     activity_environment.info = fake_info
     await activity_environment.run(insert_into_redshift_activity, insert_inputs)
 
-    await assert_clickhouse_records_in_redshfit(
+    await assert_clickhouse_records_in_redshift(
         redshift_connection=psycopg_connection,
         clickhouse_client=clickhouse_client,
         schema_name=redshift_config["schema"],
@@ -598,7 +659,7 @@ async def test_insert_into_redshift_activity_completes_range(
 
     await activity_environment.run(insert_into_redshift_activity, insert_inputs)
 
-    await assert_clickhouse_records_in_redshfit(
+    await assert_clickhouse_records_in_redshift(
         redshift_connection=psycopg_connection,
         clickhouse_client=clickhouse_client,
         schema_name=redshift_config["schema"],
@@ -664,11 +725,19 @@ async def test_redshift_export_workflow(
     The workflow should update the batch export run status to completed and produce the expected
     records to the provided Redshift instance.
     """
-    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
-        pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
+    if (
+        isinstance(model, BatchExportModel)
+        and (model.name == "persons" or model.name == "sessions")
+        and exclude_events is not None
+    ):
+        pytest.skip(f"Unnecessary test case as {model.name} batch export is not affected by 'exclude_events'")
 
-    if isinstance(model, BatchExportModel) and model.name == "persons" and MISSING_REQUIRED_ENV_VARS:
-        pytest.skip("Persons batch export cannot be tested in PostgreSQL")
+    if (
+        isinstance(model, BatchExportModel)
+        and (model.name == "persons" or model.name == "sessions")
+        and MISSING_REQUIRED_ENV_VARS
+    ):
+        pytest.skip(f"Batch export model {model.name} cannot be tested in PostgreSQL")
 
     batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
@@ -717,10 +786,20 @@ async def test_redshift_export_workflow(
 
     run = runs[0]
     assert run.status == "Completed"
-    assert run.records_completed == len(events_to_export_created) or run.records_completed == len(
-        persons_to_export_created
+    assert (
+        run.records_completed == len(events_to_export_created)
+        or run.records_completed == len(persons_to_export_created)
+        or (isinstance(model, BatchExportModel) and model.name == "sessions" and run.records_completed == 1)
     )
-    await assert_clickhouse_records_in_redshfit(
+
+    sort_key = "event"
+    if batch_export_model is not None:
+        if batch_export_model.name == "persons":
+            sort_key = "person_id"
+        elif batch_export_model.name == "sessions":
+            sort_key = "session_id"
+
+    await assert_clickhouse_records_in_redshift(
         redshift_connection=psycopg_connection,
         clickhouse_client=clickhouse_client,
         schema_name=redshift_config["schema"],
@@ -729,7 +808,7 @@ async def test_redshift_export_workflow(
         date_ranges=[(data_interval_start, data_interval_end)],
         batch_export_model=model,
         exclude_events=exclude_events,
-        sort_key="person_id" if batch_export_model is not None and batch_export_model.name == "persons" else "event",
+        sort_key=sort_key,
     )
 
 
@@ -852,7 +931,7 @@ async def test_redshift_export_workflow_handles_insert_activity_non_retryable_er
     assert run.records_completed is None
 
 
-async def test_insert_into_redshift_activity_merges_data_in_follow_up_runs(
+async def test_insert_into_redshift_activity_merges_persons_data_in_follow_up_runs(
     clickhouse_client,
     activity_environment,
     psycopg_connection,
@@ -887,7 +966,7 @@ async def test_insert_into_redshift_activity_merges_data_in_follow_up_runs(
 
     await activity_environment.run(insert_into_redshift_activity, insert_inputs)
 
-    await assert_clickhouse_records_in_redshfit(
+    await assert_clickhouse_records_in_redshift(
         redshift_connection=psycopg_connection,
         clickhouse_client=clickhouse_client,
         schema_name=redshift_config["schema"],
@@ -924,7 +1003,7 @@ async def test_insert_into_redshift_activity_merges_data_in_follow_up_runs(
 
     await activity_environment.run(insert_into_redshift_activity, insert_inputs)
 
-    await assert_clickhouse_records_in_redshfit(
+    await assert_clickhouse_records_in_redshift(
         redshift_connection=psycopg_connection,
         clickhouse_client=clickhouse_client,
         schema_name=redshift_config["schema"],
@@ -935,6 +1014,112 @@ async def test_insert_into_redshift_activity_merges_data_in_follow_up_runs(
         properties_data_type=properties_data_type,
         sort_key="person_id",
     )
+
+
+async def test_insert_into_redshift_activity_merges_sessions_data_in_follow_up_runs(
+    clickhouse_client,
+    activity_environment,
+    psycopg_connection,
+    redshift_config,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+):
+    """Test that the `insert_into_redshift_activity` merges new versions of rows.
+
+    This unit test looks at the mutability handling capabilities of the aforementioned activity.
+    We will generate a new entry in the raw_sessions table for the only row exported in a first
+    run of the activity. We expect the new entry to have replaced the old one in Redshift after
+    the second run.
+    """
+    if MISSING_REQUIRED_ENV_VARS:
+        pytest.skip("Sessions batch export cannot be tested in PostgreSQL")
+
+    model = BatchExportModel(name="sessions", schema=None)
+    table_name = f"test_insert_activity_mutability_table_sessions_{ateam.pk}"
+
+    insert_inputs = RedshiftInsertInputs(
+        team_id=ateam.pk,
+        table_name=table_name,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        batch_export_model=model,
+        **redshift_config,
+    )
+
+    await activity_environment.run(insert_into_redshift_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_redshift(
+        redshift_connection=psycopg_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=redshift_config["schema"],
+        table_name=table_name,
+        team_id=ateam.pk,
+        date_ranges=[(data_interval_start, data_interval_end)],
+        batch_export_model=model,
+        sort_key="session_id",
+    )
+
+    events_to_export_created, _ = generate_test_data
+    event = events_to_export_created[0]
+
+    new_data_interval_start, new_data_interval_end = (
+        data_interval_start + dt.timedelta(hours=1),
+        data_interval_end + dt.timedelta(hours=1),
+    )
+
+    new_events, _, _ = await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=ateam.pk,
+        start_time=new_data_interval_start,
+        end_time=new_data_interval_end,
+        count=1,
+        count_outside_range=0,
+        count_other_team=0,
+        duplicate=False,
+        properties=event["properties"],
+        person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
+        event_name=event["event"],
+        table="sharded_events",
+        insert_sessions=True,
+    )
+
+    insert_inputs.data_interval_start = new_data_interval_start.isoformat()
+    insert_inputs.data_interval_end = new_data_interval_end.isoformat()
+
+    await activity_environment.run(insert_into_redshift_activity, insert_inputs)
+
+    await assert_clickhouse_records_in_redshift(
+        redshift_connection=psycopg_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=redshift_config["schema"],
+        table_name=table_name,
+        team_id=ateam.pk,
+        date_ranges=[(new_data_interval_start, new_data_interval_end)],
+        batch_export_model=model,
+        sort_key="session_id",
+    )
+
+    rows = []
+    async with psycopg_connection.cursor() as cursor:
+        await cursor.execute(sql.SQL("SELECT * FROM {}").format(sql.Identifier(redshift_config["schema"], table_name)))
+
+        columns = [column.name for column in cursor.description]
+
+        for row in await cursor.fetchall():
+            event = dict(zip(columns, row))
+            rows.append(event)
+
+    new_event = new_events[0]
+    new_event_properties = new_event["properties"] or {}
+    assert len(rows) == 1, "Previous session row still present in Redshift"
+    assert (
+        rows[0]["session_id"] == new_event_properties["$session_id"]
+    ), "Redshift row does not match expected `session_id`"
+    assert rows[0]["end_timestamp"] == dt.datetime.fromisoformat(new_event["timestamp"]).replace(
+        tzinfo=dt.UTC
+    ), "Redshift data was not updated with new timestamp"
 
 
 async def test_insert_into_redshift_activity_handles_person_schema_changes(
@@ -976,7 +1161,7 @@ async def test_insert_into_redshift_activity_handles_person_schema_changes(
 
     await activity_environment.run(insert_into_redshift_activity, insert_inputs)
 
-    await assert_clickhouse_records_in_redshfit(
+    await assert_clickhouse_records_in_redshift(
         redshift_connection=psycopg_connection,
         clickhouse_client=clickhouse_client,
         schema_name=redshift_config["schema"],
@@ -1025,7 +1210,7 @@ async def test_insert_into_redshift_activity_handles_person_schema_changes(
     # This time we don't expect there to be a created_at column
     expected_fields = [f for f in EXPECTED_PERSONS_BATCH_EXPORT_FIELDS if f != "created_at"]
 
-    await assert_clickhouse_records_in_redshfit(
+    await assert_clickhouse_records_in_redshift(
         redshift_connection=psycopg_connection,
         clickhouse_client=clickhouse_client,
         schema_name=redshift_config["schema"],
@@ -1036,4 +1221,96 @@ async def test_insert_into_redshift_activity_handles_person_schema_changes(
         properties_data_type=properties_data_type,
         sort_key="person_id",
         expected_fields=expected_fields,
+    )
+
+
+@pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
+async def test_insert_into_redshift_activity_completes_range_when_there_is_a_failure(
+    clickhouse_client,
+    activity_environment,
+    psycopg_connection,
+    redshift_config,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    exclude_events,
+    ateam,
+    model,
+):
+    """Test that the insert_into_redshift_activity can resume from a failure using heartbeat details."""
+    if MISSING_REQUIRED_ENV_VARS and model.name == "persons":
+        pytest.skip("Persons batch export cannot be tested in PostgreSQL")
+
+    table_name = f"test_insert_activity_table_{ateam.pk}"
+
+    events_to_create, persons_to_create = generate_test_data
+    total_records = len(persons_to_create) if model.name == "persons" else len(events_to_create)
+    # fail halfway through
+    fail_after_records = total_records // 2
+
+    heartbeat_details: list[RedshiftHeartbeatDetails] = []
+
+    def track_heartbeat_details(*details):
+        """Record heartbeat details received."""
+        nonlocal heartbeat_details
+        redshift_details = RedshiftHeartbeatDetails.from_activity_details(details)
+        heartbeat_details.append(redshift_details)
+
+    activity_environment.on_heartbeat = track_heartbeat_details
+
+    insert_inputs = RedshiftInsertInputs(
+        team_id=ateam.pk,
+        table_name=table_name,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=exclude_events,
+        batch_export_model=model,
+        **redshift_config,
+    )
+
+    with unittest.mock.patch(
+        "posthog.temporal.common.clickhouse.ClickHouseClient",
+        lambda *args, **kwargs: FlakyClickHouseClient(*args, **kwargs, fail_after_records=fail_after_records),
+    ):
+        # We expect this to raise an exception
+        with pytest.raises(RecordBatchTaskError):
+            await activity_environment.run(insert_into_redshift_activity, insert_inputs)
+
+    assert len(heartbeat_details) > 0
+    detail = heartbeat_details[-1]
+    assert len(detail.done_ranges) > 0
+    assert detail.records_completed == fail_after_records
+
+    # Now we resume from the heartbeat
+    previous_info = dataclasses.asdict(activity_environment.info)
+    previous_info["heartbeat_details"] = detail.serialize_details()
+    new_info = activity.Info(
+        **previous_info,
+    )
+
+    activity_environment.info = new_info
+
+    await activity_environment.run(insert_into_redshift_activity, insert_inputs)
+
+    assert len(heartbeat_details) > 0
+    detail = heartbeat_details[-1]
+    assert len(detail.done_ranges) == 1
+    assert detail.done_ranges[0] == (data_interval_start, data_interval_end)
+
+    sort_key = "event" if model.name == "events" else "person_id"
+
+    # Verify all the data for the whole range was exported correctly
+    await assert_clickhouse_records_in_redshift(
+        redshift_connection=psycopg_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=redshift_config["schema"],
+        table_name=table_name,
+        team_id=ateam.pk,
+        date_ranges=[(data_interval_start, data_interval_end)],
+        batch_export_model=model,
+        exclude_events=exclude_events,
+        properties_data_type="SUPER",
+        sort_key=sort_key,
+        expected_duplicates_threshold=1.0,
+        primary_key=["uuid"] if model.name == "events" else ["distinct_id", "person_id"],
     )

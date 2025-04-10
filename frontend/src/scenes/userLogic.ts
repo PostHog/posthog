@@ -1,13 +1,13 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getAppContext } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AvailableFeature, OrganizationBasicType, ProductKey, UserRole, UserTheme, UserType } from '~/types'
 
 import { urls } from './urls'
@@ -27,7 +27,7 @@ export const userLogic = kea<userLogicType>([
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
         updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean) => ({ productKey, value }),
-        switchTeam: (teamId: string | number) => ({ teamId }),
+        switchTeam: (teamId: string | number, destination?: string) => ({ teamId, destination }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -181,6 +181,9 @@ export const userLogic = kea<userLogicType>([
             }
             await breakpoint(10)
             await api.update('api/users/@me/', { set_current_organization: organizationId })
+
+            sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
+
             window.location.href = destination || '/'
         },
         updateHasSeenProductIntroFor: async ({ productKey, value }, breakpoint) => {
@@ -196,8 +199,10 @@ export const userLogic = kea<userLogicType>([
                     actions.loadUser()
                 })
         },
-        switchTeam: ({ teamId }) => {
-            window.location.href = urls.project(teamId)
+        switchTeam: ({ teamId, destination }) => {
+            sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
+
+            window.location.href = destination || urls.project(teamId)
         },
     })),
     selectors({
@@ -277,14 +282,4 @@ export const userLogic = kea<userLogicType>([
             actions.loadUser()
         }
     }),
-    urlToAction(({ values }) => ({
-        '/year_in_posthog/2023': () => {
-            if (window.POSTHOG_APP_CONTEXT?.year_in_hog_url) {
-                window.location.href = `${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`
-            }
-            if (values.user?.uuid) {
-                window.location.href = `${window.location.origin}/year_in_posthog/2023/${values.user?.uuid}`
-            }
-        },
-    })),
 ])

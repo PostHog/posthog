@@ -1,8 +1,8 @@
-import { TZLabel } from '@posthog/apps-common'
 import { IconCheck, IconEllipsis, IconPencil, IconShare } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonTextAreaMarkdown, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useEffect, useRef } from 'react'
 
@@ -32,7 +32,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     return (
         <div
             ref={ref}
-            className={clsx('Comment border rounded-lg bg-bg-light', isHighlighted && 'border-primary-3000')}
+            className={clsx('Comment border rounded-lg bg-surface-primary', isHighlighted && 'border-accent')}
             data-comment-id={comment.id}
         >
             <div className="flex-1 flex justify-start p-2 gap-2">
@@ -73,12 +73,12 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                         </LemonMenu>
                     </div>
                     <LemonMarkdown lowKeyHeadings>{comment.content}</LemonMarkdown>
-                    {comment.version ? <span className="text-xs text-muted italic">(edited)</span> : null}
+                    {comment.version ? <span className="text-xs text-secondary italic">(edited)</span> : null}
                 </div>
             </div>
 
             {editingComment?.id === comment.id ? (
-                <div className="space-y-2 border-t p-2">
+                <div className="deprecated-space-y-2 border-t p-2">
                     <LemonTextAreaMarkdown
                         data-attr="comment-composer"
                         placeholder="Edit comment"
@@ -119,16 +119,16 @@ export const CommentWithReplies = ({ commentWithReplies }: CommentProps): JSX.El
     // TODO: Permissions
 
     return (
-        <div className="relative space-y-2">
+        <div className="relative deprecated-space-y-2">
             {comment ? (
                 <Comment comment={comment} />
             ) : (
-                <div className="border rounded border-dashed p-2 font-semibold italic bg-bg-accent-3000 text-muted-alt">
+                <div className="border rounded border-dashed p-2 font-semibold italic bg-surface-primary text-secondary">
                     Deleted comment
                 </div>
             )}
 
-            <div className="pl-8 space-y-2">
+            <div className="pl-8 deprecated-space-y-2">
                 {replies?.map((x) => (
                     <CommentWithReplies
                         key={x.id}

@@ -3,7 +3,7 @@ import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { BreakdownFilter } from '~/queries/schema'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/types'
 
 import { formatBreakdownLabel } from '../utils'
@@ -41,6 +41,7 @@ export interface TooltipConfig {
     renderCount?: (value: number) => React.ReactNode
     showHeader?: boolean
     hideColorCol?: boolean
+    groupTypeLabel?: string
 }
 
 export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' | 'renderCount'> {
@@ -105,7 +106,7 @@ export function invertDataSource(
     breakdownFilter: BreakdownFilter | null | undefined
 ): InvertedSeriesDatum[] {
     // NOTE: Assuming these logics are mounted elsewhere, and we're not interested in tracking changes.
-    const cohorts = cohortsModel.findMounted()?.values?.cohorts
+    const cohorts = cohortsModel.findMounted()?.values?.allCohorts
     const formatPropertyValueForDisplay = propertyDefinitionsModel.findMounted()?.values?.formatPropertyValueForDisplay
     const flattenedData: Record<string, InvertedSeriesDatum> = {}
     seriesData.forEach((s) => {

@@ -16,7 +16,7 @@ class FunnelsTaxonomyAgentToolkit(TaxonomyAgentToolkit):
                     Answer in the following format:
                     ```
                     Sequence:
-                    1. event 1
+                    1. event: event name 1
                         - property filter 1:
                             - entity
                             - property name
@@ -24,7 +24,8 @@ class FunnelsTaxonomyAgentToolkit(TaxonomyAgentToolkit):
                             - operator
                             - property value
                         - property filter 2... Repeat for each property filter.
-                    2. event 2
+                    2. action: action name 2
+                        - action id: `numeric id`
                         - property filter 1:
                             - entity
                             - property name
@@ -32,23 +33,26 @@ class FunnelsTaxonomyAgentToolkit(TaxonomyAgentToolkit):
                             - operator
                             - property value
                         - property filter 2... Repeat for each property filter.
-                    3. Repeat for each event...
+                    3. Repeat for each event or action...
 
                     (if exclusion steps are used)
                     Exclusions:
-                    - exclusion 1
+                    - exclusion event name 1
                         - start index: 1
                         - end index: 2
-                    - exclusion 2... Repeat for each exclusion...
+                    - exclusion event name 2... Repeat for each exclusion...
 
                     (if a breakdown is used)
                     Breakdown by:
                     - entity
                     - property name
+
+                    (if a time period is explicitly mentioned)
+                    Time period: from and/or to dates or durations. For example: `last 1 week`, `last 12 days`, `from 2025-01-15 to 2025-01-20`, `2025-01-15`, from `last month` to `2024-11-15`.
                     ```
 
                     Args:
-                        final_response: List all events and properties that you want to use to answer the question.
+                        final_response: List all events, actions, and properties that you want to use to answer the question.
                 """,
             },
         ]

@@ -18,7 +18,7 @@ from ee.clickhouse.materialized_columns.columns import (
 )
 from ee.tasks.materialized_columns import mark_all_materialized
 from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.models.event.sql import EVENTS_DATA_TABLE
@@ -84,7 +84,7 @@ class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
     def recreate_database(self):
         sync_execute(f"DROP DATABASE {CLICKHOUSE_DATABASE} SYNC")
         sync_execute(f"CREATE DATABASE {CLICKHOUSE_DATABASE}")
-        create_clickhouse_tables(0)
+        create_clickhouse_tables()
 
     def test_get_columns_default(self):
         self.assertCountEqual(

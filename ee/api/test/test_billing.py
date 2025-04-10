@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Any
+from unittest import TestCase
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -8,6 +9,7 @@ import jwt
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
+from requests import get, Response
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
@@ -48,8 +50,11 @@ def create_missing_billing_customer(**kwargs) -> CustomerInfo:
         ),
         usage_summary={
             "events": {"limit": None, "usage": 0},
+            "exceptions": {"limit": None, "usage": 0},
             "recordings": {"limit": None, "usage": 0},
             "rows_synced": {"limit": None, "usage": 0},
+            "feature_flag_requests": {"limit": None, "usage": 0},
+            "api_queries_read_bytes": {"limit": None, "usage": 0},
         },
         free_trial_until=None,
         available_product_features=[],
@@ -143,8 +148,11 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
         ),
         usage_summary={
             "events": {"limit": None, "usage": 0},
+            "exceptions": {"limit": None, "usage": 0},
             "recordings": {"limit": None, "usage": 0},
             "rows_synced": {"limit": None, "usage": 0},
+            "feature_flag_requests": {"limit": None, "usage": 0},
+            "api_queries_read_bytes": {"limit": None, "usage": 0},
         },
         free_trial_until=None,
     )
@@ -434,8 +442,11 @@ class TestBillingAPI(APILicensedTest):
             },
             "usage_summary": {
                 "events": {"limit": None, "usage": 0},
+                "exceptions": {"limit": None, "usage": 0},
                 "recordings": {"limit": None, "usage": 0},
                 "rows_synced": {"limit": None, "usage": 0},
+                "feature_flag_requests": {"limit": None, "usage": 0},
+                "api_queries_read_bytes": {"limit": None, "usage": 0},
             },
             "free_trial_until": None,
         }
@@ -557,8 +568,11 @@ class TestBillingAPI(APILicensedTest):
             },
             "usage_summary": {
                 "events": {"limit": None, "usage": 0},
+                "exceptions": {"limit": None, "usage": 0},
                 "recordings": {"limit": None, "usage": 0},
                 "rows_synced": {"limit": None, "usage": 0},
+                "feature_flag_requests": {"limit": None, "usage": 0},
+                "api_queries_read_bytes": {"limit": None, "usage": 0},
             },
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
@@ -716,24 +730,42 @@ class TestBillingAPI(APILicensedTest):
         res = self.client.get("/api/billing")
         assert res.status_code == 200
         self.organization.refresh_from_db()
-        assert self.organization.usage == {
-            "events": {
-                "limit": None,
-                "todays_usage": 0,
-                "usage": 1000,
+        TestCase().assertDictEqual(
+            self.organization.usage,
+            {
+                "events": {
+                    "limit": None,
+                    "todays_usage": 0,
+                    "usage": 1000,
+                },
+                "exceptions": {
+                    "limit": None,
+                    "todays_usage": 0,
+                    "usage": 0,
+                },
+                "recordings": {
+                    "limit": None,
+                    "todays_usage": 0,
+                    "usage": 0,
+                },
+                "rows_synced": {
+                    "limit": None,
+                    "todays_usage": 0,
+                    "usage": 0,
+                },
+                "feature_flag_requests": {
+                    "limit": None,
+                    "todays_usage": 0,
+                    "usage": 0,
+                },
+                "api_queries_read_bytes": {
+                    "limit": None,
+                    "todays_usage": 0,
+                    "usage": 0,
+                },
+                "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
             },
-            "recordings": {
-                "limit": None,
-                "todays_usage": 0,
-                "usage": 0,
-            },
-            "rows_synced": {
-                "limit": None,
-                "todays_usage": 0,
-                "usage": 0,
-            },
-            "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
-        }
+        )
 
         self.organization.usage = {"events": {"limit": None, "usage": 1000, "todays_usage": 1100000}}
         self.organization.save()
@@ -754,21 +786,21 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.api.billing.requests.get")
     def test_organization_usage_count_with_demo_project(self, mock_request, *args):
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock | Response:
             mock = MagicMock()
-            mock.status_code = 404
-
             if "api/billing/portal" in url:
                 mock.status_code = 200
                 mock.json.return_value = {"url": "https://billing.stripe.com/p/session/test_1234"}
+                return mock
             elif "api/billing" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_response(
                     # Set usage to none so it is calculated from scratch
                     customer=create_billing_customer(has_active_subscription=False, usage=None)
                 )
-
-            return mock
+                return mock
+            else:
+                return get(url, headers=headers, params=params)
 
         mock_request.side_effect = mock_implementation
 
@@ -805,8 +837,11 @@ class TestBillingAPI(APILicensedTest):
 
         assert self.organization.usage == {
             "events": {"limit": None, "usage": 0, "todays_usage": 0},
+            "exceptions": {"limit": None, "usage": 0, "todays_usage": 0},
             "recordings": {"limit": None, "usage": 0, "todays_usage": 0},
             "rows_synced": {"limit": None, "usage": 0, "todays_usage": 0},
+            "feature_flag_requests": {"limit": None, "usage": 0, "todays_usage": 0},
+            "api_queries_read_bytes": {"limit": None, "usage": 0, "todays_usage": 0},
             "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
         }
 
@@ -831,14 +866,29 @@ class TestBillingAPI(APILicensedTest):
         mock_request.side_effect = mock_implementation
 
         self.organization.customer_id = None
-        self.organization.customer_trust_scores = {"recordings": 0, "events": 0, "rows_synced": 0}
+        # For key values check: TRUST_SCORE_KEYS
+        self.organization.customer_trust_scores = {
+            "events": 0,
+            "exceptions": 0,
+            "recordings": 0,
+            "rows_synced": 0,
+            "feature_flags": 0,
+            "api_queries_read_bytes": 17,
+        }
         self.organization.save()
 
         res = self.client.get("/api/billing")
         assert res.status_code == 200
         self.organization.refresh_from_db()
 
-        assert self.organization.customer_trust_scores == {"recordings": 0, "events": 15, "rows_synced": 0}
+        assert self.organization.customer_trust_scores == {
+            "events": 15,
+            "exceptions": 0,
+            "recordings": 0,
+            "rows_synced": 0,
+            "feature_flags": 0,
+            "api_queries_read_bytes": 17,
+        }
 
     @patch("ee.api.billing.requests.get")
     def test_billing_with_supported_params(self, mock_get):
@@ -963,7 +1013,7 @@ class TestActivateBillingAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_deactivate_products.assert_called_once_with(self.organization, "product_1")
-        mock_get_billing.assert_called_once_with(self.organization, None, {})
+        mock_get_billing.assert_called_once_with(self.organization, {})
 
     def test_deactivate_failure(self):
         url = "/api/billing/deactivate"

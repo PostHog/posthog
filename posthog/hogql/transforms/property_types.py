@@ -1,4 +1,6 @@
-from typing import Literal, cast
+from typing import Literal, cast, Optional
+
+from django.db.models.functions.comparison import Coalesce
 
 from posthog.clickhouse.materialized_columns import (
     MaterializedColumn,
@@ -13,9 +15,11 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
+from posthog.models import Team
 from posthog.models.property import PropertyName, TableColumn
 from posthog.schema import PersonsOnEventsMode
 from posthog.hogql.database.s3_table import S3Table
+from django.db import models
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
@@ -24,28 +28,41 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     if not context or not context.team_id:
         return
 
+    if not context.team:
+        context.team = Team.objects.get(id=context.team_id)
+
+    if not context.team:
+        return
+
     # find all properties
     property_finder = PropertyFinder(context)
     property_finder.visit(node)
 
-    # fetch them
     event_property_values = (
-        PropertyDefinition.objects.filter(
+        PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        )
+        .filter(
+            effective_project_id=context.team.project_id,  # type: ignore
             name__in=property_finder.event_properties,
-            team_id=context.team_id,
             type__in=[None, PropertyDefinition.Type.EVENT],
-        ).values_list("name", "property_type")
+        )
+        .values_list("name", "property_type")
         if property_finder.event_properties
         else []
     )
     event_properties = {name: property_type for name, property_type in event_property_values if property_type}
 
     person_property_values = (
-        PropertyDefinition.objects.filter(
+        PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        )
+        .filter(
+            effective_project_id=context.team.project_id,  # type: ignore
             name__in=property_finder.person_properties,
-            team_id=context.team_id,
             type=PropertyDefinition.Type.PERSON,
-        ).values_list("name", "property_type")
+        )
+        .values_list("name", "property_type")
         if property_finder.person_properties
         else []
     )
@@ -55,12 +72,18 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     for group_id, properties in property_finder.group_properties.items():
         if not properties:
             continue
-        group_property_values = PropertyDefinition.objects.filter(
-            name__in=properties,
-            team_id=context.team_id,
-            type=PropertyDefinition.Type.GROUP,
-            group_type_index=group_id,
-        ).values_list("name", "property_type")
+        group_property_values = (
+            PropertyDefinition.objects.alias(
+                effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+            )
+            .filter(
+                effective_project_id=context.team.project_id,  # type: ignore
+                name__in=properties,
+                type=PropertyDefinition.Type.GROUP,
+                group_type_index=group_id,
+            )
+            .values_list("name", "property_type")
+        )
         group_properties.update(
             {f"{group_id}_{name}": property_type for name, property_type in group_property_values if property_type}
         )
@@ -102,6 +125,14 @@ class PropertyFinder(TraversingVisitor):
                             if self.group_properties.get(group_id) is None:
                                 self.group_properties[group_id] = set()
                             self.group_properties[group_id].add(property_name)
+                    elif isinstance(table_type, ast.LazyTableType):
+                        global_group_id: Optional[int] = (
+                            self.context.globals.get("group_id") if self.context.globals else None
+                        )
+                        if isinstance(global_group_id, int):
+                            if self.group_properties.get(global_group_id) is None:
+                                self.group_properties[global_group_id] = set()
+                            self.group_properties[global_group_id].add(property_name)
                 if table_name == "events":
                     if (
                         isinstance(node.field_type.table_type, ast.VirtualTableType)
@@ -186,6 +217,15 @@ class PropertySwapper(CloningVisitor):
                             if f"{group_id}_{property_name}" in self.group_properties:
                                 return self._convert_string_property_to_type(
                                     node, "group", f"{group_id}_{property_name}"
+                                )
+                    elif isinstance(table_type, ast.LazyTableType):
+                        global_group_id: Optional[int] = (
+                            self.context.globals.get("group_id") if self.context.globals else None
+                        )
+                        if isinstance(global_group_id, int):
+                            if f"{global_group_id}_{property_name}" in self.group_properties:
+                                return self._convert_string_property_to_type(
+                                    node, "group", f"{global_group_id}_{property_name}"
                                 )
                 if table_name == "events":
                     if property_name in self.event_properties:

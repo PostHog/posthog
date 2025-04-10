@@ -4,7 +4,7 @@ import structlog
 from django.conf import settings
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 
 logger = structlog.get_logger(__name__)
 

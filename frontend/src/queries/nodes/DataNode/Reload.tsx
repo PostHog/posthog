@@ -5,9 +5,10 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { shouldQueryBeAsync } from '~/queries/utils'
 
 export function Reload(): JSX.Element {
-    const { responseLoading } = useValues(dataNodeLogic)
+    const { responseLoading, query } = useValues(dataNodeLogic)
     const { loadData, cancelQuery } = useActions(dataNodeLogic)
 
     return (
@@ -17,7 +18,7 @@ export function Reload(): JSX.Element {
                 if (responseLoading) {
                     cancelQuery()
                 } else {
-                    loadData(true)
+                    loadData(shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
                 }
             }}
             // Setting the loading icon manually to capture clicks while spinning.
@@ -28,7 +29,7 @@ export function Reload(): JSX.Element {
     )
 }
 
-export function ReloadAll(): JSX.Element {
+export function ReloadAll({ iconOnly }: { iconOnly?: boolean }): JSX.Element {
     const { areAnyLoading } = useValues(dataNodeCollectionLogic)
     const { reloadAll } = useActions(dataNodeCollectionLogic)
 
@@ -36,14 +37,12 @@ export function ReloadAll(): JSX.Element {
         <LemonButton
             type="secondary"
             size="small"
-            onClick={() => {
-                reloadAll()
-            }}
+            onClick={reloadAll}
             // Setting the loading icon manually to capture clicks while spinning.
             icon={areAnyLoading ? <Spinner textColored /> : <IconRefresh />}
             disabledReason={areAnyLoading ? 'Loading' : undefined}
         >
-            Reload
+            {!iconOnly && 'Reload'}
         </LemonButton>
     )
 }

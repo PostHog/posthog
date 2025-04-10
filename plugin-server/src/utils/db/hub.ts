@@ -9,20 +9,12 @@ import { ConnectionOptions } from 'tls'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { EncryptedFields } from '../../cdp/encryption-utils'
+import { LegacyOneventCompareService } from '../../cdp/services/legacy-onevent-compare.service'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
-import { KAFKA_JOBS } from '../../config/kafka-topics'
-import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars } from '../../kafka/config'
-import { createKafkaProducer } from '../../kafka/producer'
-import { getObjectStorage } from '../../main/services/object_storage'
-import {
-    EnqueuedPluginJob,
-    Hub,
-    KafkaSaslMechanism,
-    KafkaSecurityProtocol,
-    PluginServerCapabilities,
-    PluginsServerConfig,
-} from '../../types'
+import { CookielessManager } from '../../ingestion/cookieless/cookieless-manager'
+import { KafkaProducerWrapper } from '../../kafka/producer'
+import { Hub, KafkaSecurityProtocol, PluginServerCapabilities, PluginsServerConfig } from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
@@ -31,13 +23,15 @@ import { OrganizationManager } from '../../worker/ingestion/organization-manager
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { RustyHook } from '../../worker/rusty-hook'
 import { isTestEnv } from '../env-utils'
-import { status } from '../status'
+import { GeoIPService } from '../geoip'
+import { logger } from '../logger'
+import { getObjectStorage } from '../object_storage'
+import { TeamManagerLazy } from '../team-manager-lazy'
 import { UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { Celery } from './celery'
 import { DB } from './db'
-import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 import { PostgresRouter } from './postgres'
 import { createRedisPool } from './redis'
 
@@ -53,13 +47,6 @@ pgTypes.setTypeParser(1114 /* types.TypeId.TIMESTAMP */, (timeStr) =>
 pgTypes.setTypeParser(1184 /* types.TypeId.TIMESTAMPTZ */, (timeStr) =>
     timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
 )
-
-export async function createKafkaProducerWrapper(serverConfig: PluginsServerConfig): Promise<KafkaProducerWrapper> {
-    const kafkaConnectionConfig = createRdConnectionConfigFromEnvVars(serverConfig)
-    const producerConfig = createRdProducerConfigFromEnvVars(serverConfig)
-    const producer = await createKafkaProducer(kafkaConnectionConfig, producerConfig)
-    return new KafkaProducerWrapper(producer)
-}
 
 export function createEventsToDropByToken(eventsToDropByTokenStr?: string): Map<string, string[]> {
     const eventsToDropByToken: Map<string, string[]> = new Map()
@@ -78,7 +65,7 @@ export async function createHub(
     config: Partial<PluginsServerConfig> = {},
     capabilities: PluginServerCapabilities | null = null
 ): Promise<Hub> {
-    status.info('ℹ️', `Connecting to all services:`)
+    logger.info('ℹ️', `Connecting to all services:`)
 
     const serverConfig: PluginsServerConfig = {
         ...defaultConfig,
@@ -87,10 +74,9 @@ export async function createHub(
     if (capabilities === null) {
         capabilities = getPluginServerCapabilities(serverConfig)
     }
-    status.updatePrompt(serverConfig.PLUGIN_SERVER_MODE)
     const instanceId = new UUIDT()
 
-    status.info('🤔', `Connecting to ClickHouse...`)
+    logger.info('🤔', `Connecting to ClickHouse...`)
     const clickhouse = new ClickHouse({
         // We prefer to run queries on the offline cluster.
         host: serverConfig.CLICKHOUSE_OFFLINE_CLUSTER_HOST ?? serverConfig.CLICKHOUSE_HOST,
@@ -108,29 +94,29 @@ export async function createHub(
             : undefined,
         rejectUnauthorized: serverConfig.CLICKHOUSE_CA ? false : undefined,
     })
-    status.info('👍', `ClickHouse ready`)
+    logger.info('👍', `ClickHouse ready`)
 
-    status.info('🤔', `Connecting to Kafka...`)
+    logger.info('🤔', `Connecting to Kafka...`)
 
     const kafka = createKafkaClient(serverConfig)
-    const kafkaProducer = await createKafkaProducerWrapper(serverConfig)
-    status.info('👍', `Kafka ready`)
+    const kafkaProducer = await KafkaProducerWrapper.create(serverConfig)
+    logger.info('👍', `Kafka ready`)
 
     const postgres = new PostgresRouter(serverConfig)
     // TODO: assert tables are reachable (async calls that cannot be in a constructor)
-    status.info('👍', `Postgres Router ready`)
+    logger.info('👍', `Postgres Router ready`)
 
-    status.info('🤔', `Connecting to Redis...`)
+    logger.info('🤔', `Connecting to Redis...`)
     const redisPool = createRedisPool(serverConfig, 'ingestion')
-    status.info('👍', `Redis ready`)
+    logger.info('👍', `Redis ready`)
 
-    status.info('🤔', `Connecting to object storage...`)
+    logger.info('🤔', `Connecting to object storage...`)
 
     const objectStorage = getObjectStorage(serverConfig)
     if (objectStorage) {
-        status.info('👍', 'Object storage ready')
+        logger.info('👍', 'Object storage ready')
     } else {
-        status.warn('🪣', `Object storage could not be created`)
+        logger.warn('🪣', `Object storage could not be created`)
     }
 
     const db = new DB(
@@ -141,38 +127,20 @@ export async function createHub(
         serverConfig.PLUGINS_DEFAULT_LOG_LEVEL,
         serverConfig.PERSON_INFO_CACHE_TTL
     )
-    const teamManager = new TeamManager(postgres, serverConfig)
-    const organizationManager = new OrganizationManager(postgres, teamManager)
+    const teamManagerLazy = new TeamManagerLazy(postgres)
+    const teamManager = new TeamManager(postgres, teamManagerLazy)
+    const organizationManager = new OrganizationManager(postgres, teamManager, teamManagerLazy)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
     const rustyHook = new RustyHook(serverConfig)
 
     const actionManager = new ActionManager(postgres, serverConfig)
-    const actionMatcher = new ActionMatcher(postgres, actionManager, teamManager)
+    const actionMatcher = new ActionMatcher(postgres, actionManager)
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
 
-    const enqueuePluginJob = async (job: EnqueuedPluginJob) => {
-        // NOTE: we use the producer directly here rather than using the wrapper
-        // such that we can a response immediately on error, and thus bubble up
-        // any errors in producing. It's important that we ensure that we have
-        // an acknowledgement as for instance there are some jobs that are
-        // chained, and if we do not manage to produce then the chain will be
-        // broken.
-        await kafkaProducer.queueMessage({
-            kafkaMessage: {
-                topic: KAFKA_JOBS,
-                messages: [
-                    {
-                        value: Buffer.from(JSON.stringify(job)),
-                        key: Buffer.from(job.pluginConfigTeam.toString()),
-                    },
-                ],
-            },
-            waitForAck: true,
-        })
-    }
+    const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
 
-    const hub: Hub = {
+    const hub: Omit<Hub, 'legacyOneventCompareService'> = {
         ...serverConfig,
         instanceId,
         capabilities,
@@ -182,7 +150,6 @@ export async function createHub(
         clickhouse,
         kafka,
         kafkaProducer,
-        enqueuePluginJob,
         objectStorage: objectStorage,
         groupTypeManager,
 
@@ -194,14 +161,19 @@ export async function createHub(
         pluginSchedule: null,
 
         teamManager,
+        teamManagerLazy,
         organizationManager,
         pluginsApiKeyManager,
         rootAccessManager,
         rustyHook,
         actionMatcher,
         actionManager,
+        geoipService: new GeoIPService(serverConfig),
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
+        eventsToSkipPersonsProcessingByToken: createEventsToDropByToken(
+            process.env.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID
+        ),
         appMetrics: new AppMetrics(
             kafkaProducer,
             serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
@@ -209,9 +181,13 @@ export async function createHub(
         ),
         encryptedFields: new EncryptedFields(serverConfig),
         celery: new Celery(serverConfig),
+        cookielessManager,
     }
 
-    return hub as Hub
+    return {
+        ...hub,
+        legacyOneventCompareService: new LegacyOneventCompareService(hub as Hub),
+    }
 }
 
 export const closeHub = async (hub: Hub): Promise<void> => {
@@ -220,6 +196,7 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     }
     await Promise.allSettled([hub.kafkaProducer.disconnect(), hub.redisPool.drain(), hub.postgres?.end()])
     await hub.redisPool.clear()
+    hub.cookielessManager.shutdown()
 
     if (isTestEnv()) {
         // Break circular references to allow the hub to be GCed when running unit tests
@@ -229,19 +206,23 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     }
 }
 
-export type KafkaConfig = {
-    KAFKA_HOSTS: string
-    KAFKAJS_LOG_LEVEL: keyof typeof KAFKAJS_LOG_LEVEL_MAPPING
-    KAFKA_SECURITY_PROTOCOL: 'PLAINTEXT' | 'SSL' | 'SASL_PLAINTEXT' | 'SASL_SSL' | undefined
-    KAFKA_CLIENT_CERT_B64?: string
-    KAFKA_CLIENT_CERT_KEY_B64?: string
-    KAFKA_TRUSTED_CERT_B64?: string
-    KAFKA_SASL_MECHANISM?: KafkaSaslMechanism
-    KAFKA_SASL_USER?: string
-    KAFKA_SASL_PASSWORD?: string
-    KAFKA_CLIENT_RACK?: string
-    KAFKA_CLIENT_ID?: string
-}
+export type KafkaConfig = Pick<
+    PluginsServerConfig,
+    | 'KAFKA_HOSTS'
+    | 'KAFKA_PRODUCER_HOSTS'
+    | 'KAFKA_SECURITY_PROTOCOL'
+    | 'KAFKA_PRODUCER_SECURITY_PROTOCOL'
+    | 'KAFKA_CLIENT_ID'
+    | 'KAFKA_PRODUCER_CLIENT_ID'
+    | 'KAFKA_CLIENT_RACK'
+    | 'KAFKAJS_LOG_LEVEL'
+    | 'KAFKA_CLIENT_CERT_B64'
+    | 'KAFKA_CLIENT_CERT_KEY_B64'
+    | 'KAFKA_TRUSTED_CERT_B64'
+    | 'KAFKA_SASL_MECHANISM'
+    | 'KAFKA_SASL_USER'
+    | 'KAFKA_SASL_PASSWORD'
+>
 
 export function createKafkaClient({
     KAFKA_HOSTS,

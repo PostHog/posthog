@@ -7,12 +7,12 @@ from django.http import HttpRequest
 from django.utils import timezone
 from prometheus_client import Counter
 import requests
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 import structlog
 
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.feedback.survey import Survey
+from posthog.models.surveys.survey import Survey
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
@@ -107,7 +107,7 @@ class RemoteConfig(UUIDModel):
         from posthog.models.feature_flag import FeatureFlag
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
-        from posthog.api.survey import get_surveys_response
+        from posthog.api.survey import get_surveys_response, get_surveys_opt_in
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -152,7 +152,9 @@ class RemoteConfig(UUIDModel):
         # TODO: Support the domain based check for recordings (maybe do it client side)?
         if team.session_recording_opt_in:
             capture_console_logs = True if team.capture_console_log_opt_in else False
-            sample_rate = str(team.session_recording_sample_rate) if team.session_recording_sample_rate else None
+            sample_rate = (
+                str(team.session_recording_sample_rate) if team.session_recording_sample_rate is not None else None
+            )
 
             if sample_rate == "1.00":
                 sample_rate = None
@@ -187,6 +189,7 @@ class RemoteConfig(UUIDModel):
                 "minimumDurationMilliseconds": minimum_duration,
                 "linkedFlag": linked_flag,
                 "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
+                "masking": team.session_recording_masking_config or None,
                 "urlTriggers": team.session_recording_url_trigger_config,
                 "urlBlocklist": team.session_recording_url_blocklist_config,
                 "eventTriggers": team.session_recording_event_trigger_config,
@@ -225,10 +228,21 @@ class RemoteConfig(UUIDModel):
                 config["sessionRecording"] = False
 
         config["heatmaps"] = True if team.heatmaps_opt_in else False
-        surveys_response = get_surveys_response(team)
-        config["surveys"] = surveys_response["surveys"]
-        if surveys_response["survey_config"]:
-            config["survey_config"] = surveys_response["survey_config"]
+
+        surveys_opt_in = get_surveys_opt_in(team)
+
+        if surveys_opt_in:
+            surveys_response = get_surveys_response(team)
+            surveys = surveys_response["surveys"]
+            if len(surveys) > 0:
+                config["surveys"] = surveys_response["surveys"]
+
+                if surveys_response["survey_config"]:
+                    config["survey_config"] = surveys_response["survey_config"]
+            else:
+                config["surveys"] = False
+        else:
+            config["surveys"] = False
 
         config["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
 
@@ -335,7 +349,7 @@ class RemoteConfig(UUIDModel):
   window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {{}};
   window._POSTHOG_REMOTE_CONFIG['{token}'] = {{
     config: {json.dumps(config)},
-    siteApps: [{','.join(site_apps_js)}]
+    siteApps: [{",".join(site_apps_js)}]
   }}
 }})();
         """.strip()

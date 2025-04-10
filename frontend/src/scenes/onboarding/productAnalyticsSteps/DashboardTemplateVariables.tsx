@@ -69,7 +69,7 @@ function VariableSelector({
                 </LemonBanner>
             )}
             {variable.touched && !activeVariableCustomEventName && (
-                <div className="flex justify-between items-center bg-bg-3000-light p-2 pl-3 rounded mb-4">
+                <div className="flex justify-between items-center bg-primary-light p-2 pl-3 rounded mb-4">
                     <div>
                         <p className="mb-2">
                             <IconCheckCircle className="text-success font-bold" />{' '}
@@ -78,26 +78,26 @@ function VariableSelector({
                         <div className="ml-4">
                             {variable.default.type === EntityTypes.ACTIONS ? (
                                 <>
-                                    <p className="text-muted mb-0 text-xs">
+                                    <p className="text-secondary mb-0 text-xs">
                                         <span className="font-bold">CSS selector:</span>{' '}
                                         {variable.default.selector || 'not set'}
                                     </p>
-                                    <p className="text-muted mb-0 text-xs">
+                                    <p className="text-secondary mb-0 text-xs">
                                         <span className="font-bold">Element href:</span>{' '}
                                         {variable.default.href || 'not set'}
                                     </p>
-                                    <p className="text-muted mb-1 text-xs">
+                                    <p className="text-secondary mb-1 text-xs">
                                         <span className="font-bold">Page URL:</span> {variable.default.url || 'any url'}
                                     </p>
                                 </>
                             ) : variable.default.type === EntityTypes.EVENTS &&
                               variable.default.name == '$screenview' ? (
-                                <p className="text-muted mb-1 text-xs">
+                                <p className="text-secondary mb-1 text-xs">
                                     <span className="font-bold">Screenview:</span>{' '}
                                     {variable.default.properties?.[0].value || 'any screenview'}
                                 </p>
                             ) : variable.default.type === EntityTypes.EVENTS ? (
-                                <p className="text-muted mb-1 text-xs">
+                                <p className="text-secondary mb-1 text-xs">
                                     <span className="font-bold">Pageview URL contains:</span>{' '}
                                     {variable.default.properties?.[0].value || 'any url'}
                                 </p>
@@ -203,7 +203,7 @@ function VariableSelector({
                                     setNewActionName(null)
                                     setIsCurrentlySelectingElement(false)
                                 }}
-                                icon={<Spinner textColored className="text-muted" />}
+                                icon={<Spinner textColored className="text-secondary" />}
                                 center
                                 className="min-w-44"
                             >
@@ -237,7 +237,7 @@ function VariableSelector({
                                                 <div className="flex">
                                                     This pageview{' '}
                                                     {currentFullUrl ? (
-                                                        <div className="text-muted max-w-44 overflow-clip overflow-ellipsis text-nowrap ml-2">
+                                                        <div className="text-secondary max-w-44 overflow-clip overflow-ellipsis text-nowrap ml-2">
                                                             {!currentPath ? browserUrl : '/' + currentPath}
                                                         </div>
                                                     ) : null}
@@ -327,7 +327,7 @@ export function DashboardTemplateVariables({
                             iframeRef={iframeRef}
                         />
                     ),
-                    className: 'p-4 bg-white',
+                    className: 'p-4 bg-primary',
                     onHeaderClick: () => {
                         setActiveVariableIndex(i)
                         disableElementSelector()

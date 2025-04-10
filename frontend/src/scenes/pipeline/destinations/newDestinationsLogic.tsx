@@ -8,31 +8,17 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import {
-    BATCH_EXPORT_SERVICE_NAMES,
-    BatchExportService,
-    HogFunctionTemplateStatus,
-    HogFunctionTemplateType,
-    PipelineStage,
-} from '~/types'
+import { BATCH_EXPORT_SERVICE_NAMES, BatchExportService, HogFunctionTemplateType, PipelineStage } from '~/types'
 
 import { humanizeBatchExportName } from '../batch-exports/utils'
 import { HogFunctionIcon } from '../hogfunctions/HogFunctionIcon'
+import { shouldShowHogFunctionTemplate } from '../hogfunctions/list/hogFunctionTemplateListLogic'
 import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
-import { PipelineBackend } from '../types'
+import { NewDestinationItemType, PipelineBackend } from '../types'
 import { RenderBatchExportIcon } from '../utils'
 import { destinationsFiltersLogic } from './destinationsFiltersLogic'
 import { PipelineDestinationsLogicProps } from './destinationsLogic'
 import type { newDestinationsLogicType } from './newDestinationsLogicType'
-
-export type NewDestinationItemType = {
-    icon: JSX.Element
-    url: string
-    name: string
-    description: string
-    backend: PipelineBackend.HogFunction | PipelineBackend.BatchExport
-    status?: HogFunctionTemplateStatus
-}
 
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<NewDestinationItemType> {}
@@ -93,30 +79,34 @@ export const newDestinationsLogic = kea<newDestinationsLogicType>([
             },
         ],
         destinations: [
-            (s) => [s.hogFunctionTemplates, s.batchExportServiceNames, router.selectors.hashParams],
-            (hogFunctionTemplates, batchExportServiceNames, hashParams): NewDestinationItemType[] => {
+            (s) => [s.hogFunctionTemplates, s.batchExportServiceNames, router.selectors.hashParams, s.user],
+            (hogFunctionTemplates, batchExportServiceNames, hashParams, user): NewDestinationItemType[] => {
                 return [
-                    ...Object.values(hogFunctionTemplates).map((hogFunction) => ({
-                        icon: <HogFunctionIcon size="small" src={hogFunction.icon_url} />,
-                        name: hogFunction.name,
-                        description: hogFunction.description,
-                        backend: PipelineBackend.HogFunction as const,
-                        url: combineUrl(
-                            urls.pipelineNodeNew(
-                                hogFunctionTypeToPipelineStage(hogFunction.type),
-                                `hog-${hogFunction.id}`
-                            ),
-                            {},
-                            hashParams
-                        ).url,
-                        status: hogFunction.status,
-                    })),
+                    ...Object.values(hogFunctionTemplates)
+                        .filter((hogFunction) => shouldShowHogFunctionTemplate(hogFunction, user))
+                        .map((hogFunction) => ({
+                            icon: <HogFunctionIcon size="small" src={hogFunction.icon_url} />,
+                            name: hogFunction.name,
+                            description: hogFunction.description,
+                            backend: PipelineBackend.HogFunction as const,
+                            url: combineUrl(
+                                urls.pipelineNodeNew(
+                                    hogFunctionTypeToPipelineStage(hogFunction.type),
+                                    `hog-${hogFunction.id}`
+                                ),
+                                {},
+                                hashParams
+                            ).url,
+                            status: hogFunction.status,
+                            free: hogFunction.free,
+                        })),
                     ...batchExportServiceNames.map((service) => ({
                         icon: <RenderBatchExportIcon type={service} />,
                         name: humanizeBatchExportName(service),
                         description: `${service} batch export`,
                         backend: PipelineBackend.BatchExport as const,
                         url: urls.pipelineNodeNew(PipelineStage.Destination, `${service}`),
+                        free: false,
                     })),
                 ]
             },

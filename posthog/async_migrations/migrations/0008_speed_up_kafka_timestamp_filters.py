@@ -7,7 +7,7 @@ from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperationSQL,
 )
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import AnalyticsDBMS
 from posthog.version_requirement import ServiceVersionRequirement
 

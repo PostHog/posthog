@@ -2,18 +2,26 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../../src/config/config'
-import { Hub, Person, PropertyOperator, PropertyUpdateOperation, RawAction, Team } from '../../src/types'
+import {
+    BasePerson,
+    Hub,
+    InternalPerson,
+    Person,
+    PropertyOperator,
+    PropertyUpdateOperation,
+    RawAction,
+    Team,
+} from '../../src/types'
 import { DB } from '../../src/utils/db/db'
-import { DependencyUnavailableError } from '../../src/utils/db/error'
+import { DependencyUnavailableError, RedisOperationError } from '../../src/utils/db/error'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { createOrganization, createTeam, getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
-import { plugin60 } from './../helpers/plugins'
 
-jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/logger')
 
 describe('DB', () => {
     let hub: Hub
@@ -35,9 +43,10 @@ describe('DB', () => {
     })
 
     const TIMESTAMP = DateTime.fromISO('2000-10-14T11:42:06.502Z').toUTC()
+    const ISO_TIMESTAMP = TIMESTAMP.toISO()!
 
-    function runPGQuery(queryString: string, values: any[] = null) {
-        return db.postgres.query(PostgresUse.COMMON_WRITE, queryString, values, 'testQuery')
+    function runPGQuery(queryString: string) {
+        return db.postgres.query(PostgresUse.COMMON_WRITE, queryString, [], 'testQuery')
     }
 
     describe('fetchAllActionsGroupedByTeam() and fetchAction()', () => {
@@ -180,8 +189,6 @@ describe('DB', () => {
                                 target: 'https://example.com/',
                             },
                         ],
-                        bytecode: null,
-                        bytecode_error: null,
                     },
                 },
             })
@@ -189,7 +196,6 @@ describe('DB', () => {
             expect(await db.fetchAction(69)).toEqual({
                 ...result[2][69],
                 steps_json: null, // Temporary diff whilst we migrate to this new field
-                pinned_at: null,
             })
         })
 
@@ -259,7 +265,7 @@ describe('DB', () => {
         })
     })
 
-    async function fetchPersonByPersonId(teamId: number, personId: number): Promise<Person | undefined> {
+    async function fetchPersonByPersonId(teamId: number, personId: InternalPerson['id']): Promise<Person | undefined> {
         const selectResult = await db.postgres.query(
             PostgresUse.COMMON_WRITE,
             `SELECT * FROM posthog_person WHERE team_id = $1 AND id = $2`,
@@ -298,32 +304,33 @@ describe('DB', () => {
 
         test('without properties', async () => {
             const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [{ distinctId }])
-            const fetched_person = await fetchPersonByPersonId(team.id, person.id)
+            const fetched_person = (await fetchPersonByPersonId(team.id, person.id))! as unknown as BasePerson
 
-            expect(fetched_person!.is_identified).toEqual(false)
-            expect(fetched_person!.properties).toEqual({})
-            expect(fetched_person!.properties_last_operation).toEqual({})
-            expect(fetched_person!.properties_last_updated_at).toEqual({})
-            expect(fetched_person!.uuid).toEqual(uuid)
-            expect(fetched_person!.team_id).toEqual(team.id)
+            expect(fetched_person.is_identified).toEqual(false)
+            expect(fetched_person.properties).toEqual({})
+            expect(fetched_person.properties_last_operation).toEqual({})
+            expect(fetched_person.properties_last_updated_at).toEqual({})
+            expect(fetched_person.uuid).toEqual(uuid)
+            expect(fetched_person.team_id).toEqual(team.id)
         })
 
         test('without properties indentified true', async () => {
             const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [{ distinctId }])
-            const fetched_person = await fetchPersonByPersonId(team.id, person.id)
-            expect(fetched_person!.is_identified).toEqual(true)
-            expect(fetched_person!.properties).toEqual({})
-            expect(fetched_person!.properties_last_operation).toEqual({})
-            expect(fetched_person!.properties_last_updated_at).toEqual({})
-            expect(fetched_person!.uuid).toEqual(uuid)
-            expect(fetched_person!.team_id).toEqual(team.id)
+            const fetched_person = (await fetchPersonByPersonId(team.id, person.id))! as unknown as BasePerson
+
+            expect(fetched_person.is_identified).toEqual(true)
+            expect(fetched_person.properties).toEqual({})
+            expect(fetched_person.properties_last_operation).toEqual({})
+            expect(fetched_person.properties_last_updated_at).toEqual({})
+            expect(fetched_person.uuid).toEqual(uuid)
+            expect(fetched_person.team_id).toEqual(team.id)
         })
 
         test('with properties', async () => {
             const person = await db.createPerson(
                 TIMESTAMP,
                 { a: 123, b: false, c: 'bbb' },
-                { a: TIMESTAMP.toISO(), b: TIMESTAMP.toISO(), c: TIMESTAMP.toISO() },
+                { a: ISO_TIMESTAMP, b: ISO_TIMESTAMP, c: ISO_TIMESTAMP },
                 { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set, c: PropertyUpdateOperation.SetOnce },
                 team.id,
                 null,
@@ -331,7 +338,9 @@ describe('DB', () => {
                 uuid,
                 [{ distinctId }]
             )
-            const fetched_person = await fetchPersonByPersonId(team.id, person.id)
+
+            const fetched_person = (await fetchPersonByPersonId(team.id, person.id))! as unknown as BasePerson
+
             expect(fetched_person!.is_identified).toEqual(false)
             expect(fetched_person!.properties).toEqual({ a: 123, b: false, c: 'bbb' })
             expect(fetched_person!.properties_last_operation).toEqual({
@@ -340,9 +349,9 @@ describe('DB', () => {
                 c: PropertyUpdateOperation.SetOnce,
             })
             expect(fetched_person!.properties_last_updated_at).toEqual({
-                a: TIMESTAMP.toISO(),
-                b: TIMESTAMP.toISO(),
-                c: TIMESTAMP.toISO(),
+                a: ISO_TIMESTAMP,
+                b: ISO_TIMESTAMP,
+                c: ISO_TIMESTAMP,
             })
             expect(fetched_person!.uuid).toEqual(uuid)
             expect(fetched_person!.team_id).toEqual(team.id)
@@ -351,7 +360,7 @@ describe('DB', () => {
 
     describe('updatePerson', () => {
         it('Clickhouse and Postgres are in sync if multiple updates concurrently', async () => {
-            jest.spyOn(db.kafkaProducer!, 'queueMessage')
+            jest.spyOn(db.kafkaProducer!, 'queueMessages')
             const team = await getFirstTeam(hub)
             const uuid = new UUIDT().toString()
             const distinctId = 'distinct_id1'
@@ -364,10 +373,7 @@ describe('DB', () => {
             const updateTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
             const update = { created_at: updateTs }
             const [updatedPerson, kafkaMessages] = await db.updatePersonDeprecated(personProvided, update)
-            await hub.db.kafkaProducer.queueMessages({
-                kafkaMessages,
-                waitForAck: true,
-            })
+            await hub.db.kafkaProducer.queueMessages(kafkaMessages)
 
             // verify we have the correct update in Postgres db
             const personDbAfter = await fetchPersonByPersonId(personDbBefore.team_id, personDbBefore.id)
@@ -380,10 +386,9 @@ describe('DB', () => {
             expect(updatedPerson.properties).toEqual({ c: 'aaa' })
 
             // verify correct Kafka message was sent
-            expect(db.kafkaProducer!.queueMessage).toHaveBeenLastCalledWith({
-                kafkaMessage: generateKafkaPersonUpdateMessage(updatedPerson),
-                waitForAck: true,
-            })
+            expect(db.kafkaProducer!.queueMessages).toHaveBeenLastCalledWith([
+                generateKafkaPersonUpdateMessage(updatedPerson),
+            ])
         })
     })
 
@@ -428,15 +433,12 @@ describe('DB', () => {
                 const [_p, updatePersonKafkaMessages] = await db.updatePersonDeprecated(person, {
                     properties: { foo: 'bar' },
                 })
-                await hub.db.kafkaProducer.queueMessages({
-                    kafkaMessages: updatePersonKafkaMessages,
-                    waitForAck: true,
-                })
+                await hub.db.kafkaProducer.queueMessages(updatePersonKafkaMessages)
                 await db.kafkaProducer.flush()
                 await delayUntilEventIngested(fetchPersonsRows, 2)
 
                 const kafkaMessages = await db.deletePerson(person)
-                await db.kafkaProducer.queueMessages({ kafkaMessages, waitForAck: true })
+                await db.kafkaProducer.queueMessages(kafkaMessages)
                 await db.kafkaProducer.flush()
 
                 const persons = await delayUntilEventIngested(fetchPersonsRows, 3)
@@ -497,7 +499,7 @@ describe('DB', () => {
             expect(person).toEqual(createdPerson)
             expect(person).toEqual(
                 expect.objectContaining({
-                    id: expect.any(Number),
+                    id: expect.any(String),
                     uuid: uuid.toString(),
                     properties: { foo: 'bar' },
                     is_identified: true,
@@ -516,7 +518,7 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'val' },
                 TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
+                { prop: ISO_TIMESTAMP },
                 { prop: PropertyUpdateOperation.Set },
                 1
             )
@@ -533,7 +535,7 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'val' },
                 TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
+                { prop: ISO_TIMESTAMP },
                 { prop: PropertyUpdateOperation.Set },
                 1
             )
@@ -545,7 +547,7 @@ describe('DB', () => {
                 group_key: 'group_key',
                 group_properties: { prop: 'val' },
                 created_at: TIMESTAMP,
-                properties_last_updated_at: { prop: TIMESTAMP.toISO() },
+                properties_last_updated_at: { prop: ISO_TIMESTAMP },
                 properties_last_operation: { prop: PropertyUpdateOperation.Set },
                 version: 1,
             })
@@ -558,7 +560,7 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'val' },
                 TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
+                { prop: ISO_TIMESTAMP },
                 { prop: PropertyUpdateOperation.Set },
                 1
             )
@@ -570,7 +572,7 @@ describe('DB', () => {
                     'group_key',
                     { prop: 'newval' },
                     TIMESTAMP,
-                    { prop: TIMESTAMP.toISO() },
+                    { prop: ISO_TIMESTAMP },
                     { prop: PropertyUpdateOperation.Set },
                     1
                 )
@@ -584,7 +586,7 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'val' },
                 TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
+                { prop: ISO_TIMESTAMP },
                 { prop: PropertyUpdateOperation.Set },
                 1
             )
@@ -598,7 +600,7 @@ describe('DB', () => {
                 'group_key',
                 { prop: 'newVal', prop2: 2 },
                 TIMESTAMP,
-                { prop: timestamp2.toISO(), prop2: timestamp2.toISO() },
+                { prop: timestamp2.toISO()!, prop2: timestamp2.toISO()! },
                 { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
                 2
             )
@@ -614,44 +616,6 @@ describe('DB', () => {
                 properties_last_operation: { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
                 version: 2,
             })
-        })
-    })
-
-    describe('addOrUpdatePublicJob', () => {
-        it('updates the column if the job name is new', async () => {
-            await insertRow(db.postgres, 'posthog_plugin', { ...plugin60, id: 88 })
-
-            const jobName = 'newJob'
-            const jobPayload = { foo: 'string' }
-            await db.addOrUpdatePublicJob(88, jobName, jobPayload)
-            const publicJobs = (
-                await db.postgres.query(
-                    PostgresUse.COMMON_WRITE,
-                    'SELECT public_jobs FROM posthog_plugin WHERE id = $1',
-                    [88],
-                    'testPublicJob1'
-                )
-            ).rows[0].public_jobs
-
-            expect(publicJobs[jobName]).toEqual(jobPayload)
-        })
-
-        it('updates the column if the job payload is new', async () => {
-            await insertRow(db.postgres, 'posthog_plugin', { ...plugin60, id: 88, public_jobs: { foo: 'number' } })
-
-            const jobName = 'newJob'
-            const jobPayload = { foo: 'string' }
-            await db.addOrUpdatePublicJob(88, jobName, jobPayload)
-            const publicJobs = (
-                await db.postgres.query(
-                    PostgresUse.COMMON_WRITE,
-                    'SELECT public_jobs FROM posthog_plugin WHERE id = $1',
-                    [88],
-                    'testPublicJob1'
-                )
-            ).rows[0].public_jobs
-
-            expect(publicJobs[jobName]).toEqual(jobPayload)
         })
     })
 
@@ -688,8 +652,8 @@ describe('DB', () => {
 
     describe('updateCohortsAndFeatureFlagsForMerge()', () => {
         let team: Team
-        let sourcePersonID: Person['id']
-        let targetPersonID: Person['id']
+        let sourcePersonID: BasePerson['id']
+        let targetPersonID: BasePerson['id']
 
         async function getAllHashKeyOverrides(): Promise<any> {
             const result = await db.postgres.query(
@@ -910,6 +874,61 @@ describe('DB', () => {
     })
 
     describe('redis', () => {
+        describe('instrumentRedisQuery', () => {
+            const otherErrorType = new Error('other error type')
+
+            it('should only throw Redis errors for operations', async () => {
+                hub.redisPool.acquire = jest.fn().mockImplementation(() => ({
+                    get: jest.fn().mockImplementation(() => {
+                        throw otherErrorType
+                    }),
+                }))
+                hub.redisPool.release = jest.fn()
+                await expect(hub.db.redisGet('testKey', 'testDefaultValue', 'testTag')).rejects.toBeInstanceOf(
+                    RedisOperationError
+                )
+            })
+            it('should only throw Redis errors for pool acquire', async () => {
+                hub.redisPool.acquire = jest.fn().mockImplementation(() => {
+                    throw otherErrorType
+                })
+                hub.redisPool.release = jest.fn()
+                await expect(hub.db.redisGet('testKey', 'testDefaultValue', 'testTag')).rejects.toBeInstanceOf(
+                    RedisOperationError
+                )
+            })
+
+            it('should only throw Redis errors for pool release', async () => {
+                hub.redisPool.acquire = jest.fn().mockImplementation(() => ({
+                    get: jest.fn().mockImplementation(() => {
+                        return 'testValue'
+                    }),
+                }))
+                hub.redisPool.release = jest.fn().mockImplementation(() => {
+                    throw otherErrorType
+                })
+                await expect(hub.db.redisGet('testKey', 'testDefaultValue', 'testTag')).rejects.toBeInstanceOf(
+                    RedisOperationError
+                )
+            })
+        })
+
+        describe('get', () => {
+            const defaultValue = 'testDefaultValue'
+            const value = 'testValue'
+            const key = 'testKey'
+            const tag = 'testTag'
+            it('should get a value that was previously set', async () => {
+                await hub.db.redisSet(key, value, tag)
+                const result = await hub.db.redisGet(key, defaultValue, tag)
+                expect(result).toEqual(value)
+            })
+            it('should return the default value if there is no value already set', async () => {
+                const result = await hub.db.redisGet(key, defaultValue, tag)
+                expect(result).toEqual(defaultValue)
+            })
+        })
+
         describe('buffer operations', () => {
             it('writes and reads buffers', async () => {
                 const buffer = Buffer.from('test')
@@ -999,8 +1018,8 @@ describe('PostgresRouter()', () => {
             return Promise.reject(new Error(errorMessage))
         })
 
-        const router = new PostgresRouter(defaultConfig, null)
-        await expect(router.query(PostgresUse.COMMON_WRITE, 'SELECT 1;', null, 'testing')).rejects.toEqual(
+        const router = new PostgresRouter(defaultConfig)
+        await expect(router.query(PostgresUse.COMMON_WRITE, 'SELECT 1;', [], 'testing')).rejects.toEqual(
             new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage))
         )
         pgQueryMock.mockRestore()

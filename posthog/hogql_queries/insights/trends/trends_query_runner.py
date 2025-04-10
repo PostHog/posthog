@@ -1,12 +1,13 @@
 import threading
 from copy import deepcopy
-from datetime import timedelta
+from datetime import timedelta, datetime
 from math import ceil
 from operator import itemgetter
 from typing import Any, Optional, Union
 
 from django.conf import settings
-from django.utils.timezone import datetime
+from django.db import models
+from django.db.models.functions import Coalesce
 from natsort import natsorted, ns
 
 from posthog.caching.insights_api import (
@@ -68,6 +69,7 @@ from posthog.schema import (
     Series,
     TrendsQuery,
     TrendsQueryResponse,
+    TrendsFormulaNode,
 )
 from posthog.utils import format_label_date, multisort
 from posthog.warehouse.models.util import get_view_or_table_by_name
@@ -87,6 +89,14 @@ class TrendsQueryRunner(QueryRunner):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
     ):
+        from posthog.hogql_queries.insights.utils.utils import convert_active_user_math_based_on_interval
+
+        if isinstance(query, dict):
+            query = TrendsQuery.model_validate(query)
+
+        # Use the new function to handle WAU/MAU conversions
+        query = convert_active_user_math_based_on_interval(query)
+
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
         self.update_hogql_modifiers()
         self.series = self.setup_series()
@@ -141,39 +151,48 @@ class TrendsQueryRunner(QueryRunner):
 
         return queries
 
-    def to_actors_query(
+    def to_events_query(self, *args, **kwargs) -> ast.SelectQuery:
+        with self.timings.measure("trends_to_events_query"):
+            query_builder = self._get_trends_actors_query_builder(*args, **kwargs)
+            query = query_builder._get_events_query()
+
+        return query
+
+    def to_actors_query(self, *args, **kwargs) -> ast.SelectQuery:
+        with self.timings.measure("trends_to_actors_query"):
+            query_builder = self._get_trends_actors_query_builder(*args, **kwargs)
+            query = query_builder.build_actors_query()
+
+        return query
+
+    def _get_trends_actors_query_builder(
         self,
         time_frame: Optional[str],
         series_index: int,
         breakdown_value: Optional[str | int | list[str]] = None,
         compare_value: Optional[Compare] = None,
         include_recordings: Optional[bool] = None,
-    ) -> ast.SelectQuery | ast.SelectSetQuery:
-        with self.timings.measure("trends_to_actors_query"):
-            if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_type == BreakdownType.COHORT:
-                if self.query.breakdownFilter.breakdown in ("all", ["all"]) or breakdown_value == "all":
-                    self.query.breakdownFilter = None
-                elif isinstance(self.query.breakdownFilter.breakdown, list):
-                    self.query.breakdownFilter.breakdown = [
-                        x for x in self.query.breakdownFilter.breakdown if x != "all"
-                    ]
-            query_builder = TrendsActorsQueryBuilder(
-                trends_query=self.query,
-                team=self.team,
-                timings=self.timings,
-                modifiers=self.modifiers,
-                limit_context=self.limit_context,
-                # actors related args
-                time_frame=time_frame,
-                series_index=series_index,
-                breakdown_value=breakdown_value if breakdown_value != "all" else None,
-                compare_value=compare_value,
-                include_recordings=include_recordings,
-            )
+    ) -> TrendsActorsQueryBuilder:
+        if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_type == BreakdownType.COHORT:
+            if self.query.breakdownFilter.breakdown in ("all", ["all"]) or breakdown_value == "all":
+                self.query.breakdownFilter = None
+            elif isinstance(self.query.breakdownFilter.breakdown, list):
+                self.query.breakdownFilter.breakdown = [x for x in self.query.breakdownFilter.breakdown if x != "all"]
+        query_builder = TrendsActorsQueryBuilder(
+            trends_query=self.query,
+            team=self.team,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+            # actors related args
+            time_frame=time_frame,
+            series_index=series_index,
+            breakdown_value=breakdown_value if breakdown_value != "all" else None,
+            compare_value=compare_value,
+            include_recordings=include_recordings,
+        )
 
-            query = query_builder.build_actors_query()
-
-        return query
+        return query_builder
 
     def to_actors_query_options(self) -> InsightActorsQueryOptionsResponse:
         res_breakdown: list[BreakdownItem] | None = None
@@ -386,28 +405,35 @@ class TrendsQueryRunner(QueryRunner):
             elif isinstance(result, dict):
                 returned_results.append([result])
 
-        if (
-            self.query.trendsFilter is not None
-            and self.query.trendsFilter.formula is not None
-            and self.query.trendsFilter.formula != ""
-        ):
+        final_result: list[dict] = []
+        formula_nodes = self.formula_nodes
+
+        if formula_nodes:
             with self.timings.measure("apply_formula"):
                 has_compare = bool(self.query.compareFilter and self.query.compareFilter.compare)
                 if has_compare:
                     current_results = returned_results[: len(returned_results) // 2]
                     previous_results = returned_results[len(returned_results) // 2 :]
 
-                    final_result = self.apply_formula(
-                        self.query.trendsFilter.formula, current_results
-                    ) + self.apply_formula(self.query.trendsFilter.formula, previous_results)
+                    final_result = []
+                    for formula_node in formula_nodes:
+                        current_formula_results = self.apply_formula(formula_node, current_results)
+                        previous_formula_results = self.apply_formula(formula_node, previous_results)
+                        # Create a new list for each formula's results
+                        formula_results = []
+                        formula_results.extend(current_formula_results)
+                        formula_results.extend(previous_formula_results)
+                        final_result.extend(formula_results)
                 else:
-                    final_result = self.apply_formula(self.query.trendsFilter.formula, returned_results)
+                    for formula_node in formula_nodes:
+                        formula_results = self.apply_formula(formula_node, returned_results)
+                        # Create a new list for each formula's results
+                        final_result.extend(formula_results)
         else:
-            final_result = []
             for result in returned_results:
                 if isinstance(result, list):
                     final_result.extend(result)
-                elif isinstance(result, dict):
+                elif isinstance(result, dict):  # type: ignore [unreachable]
                     raise ValueError("This should not happen")
 
         timings_matrix[-1] = self.timings.to_list()
@@ -730,7 +756,7 @@ class TrendsQueryRunner(QueryRunner):
         return series_with_extras
 
     def apply_formula(
-        self, formula: str, results: list[list[dict[str, Any]]], in_breakdown_clause=False
+        self, formula_node: TrendsFormulaNode, results: list[list[dict[str, Any]]], in_breakdown_clause=False
     ) -> list[dict[str, Any]]:
         has_compare = bool(self.query.compareFilter and self.query.compareFilter.compare)
         has_breakdown = self.breakdown_enabled
@@ -760,7 +786,9 @@ class TrendsQueryRunner(QueryRunner):
                 for i in range(cohort_count):
                     cohort_series = results[(i * results_per_cohort) : ((i + 1) * results_per_cohort)]
                     cohort_results = self.apply_formula(
-                        self.query.trendsFilter.formula, cohort_series, in_breakdown_clause=True
+                        TrendsFormulaNode(formula=self.query.trendsFilter.formula),
+                        cohort_series,
+                        in_breakdown_clause=True,
                     )
                     conjoined_results.append(cohort_results)
                 results = conjoined_results
@@ -801,7 +829,8 @@ class TrendsQueryRunner(QueryRunner):
                 for result in results:
                     matching_result = [item for item in result if itemgetter(*keys)(item) == breakdown_value]
                     if matching_result:
-                        row_results.append(matching_result[0])
+                        # Create a deep copy of the matching result to avoid modifying shared data
+                        row_results.append(deepcopy(matching_result[0]))
                     else:
                         row_results.append(
                             {
@@ -816,7 +845,7 @@ class TrendsQueryRunner(QueryRunner):
                             }
                         )
                 new_result = self.apply_formula_to_results_group(
-                    row_results, formula, breakdown_value=breakdown_value, aggregate_values=is_total_value
+                    row_results, formula_node, breakdown_value=breakdown_value, aggregate_values=is_total_value
                 )
                 computed_results.append(new_result)
 
@@ -826,11 +855,13 @@ class TrendsQueryRunner(QueryRunner):
             return sorted(
                 computed_results,
                 key=lambda s: (
-                    0
-                    if s.get("breakdown_value") not in (BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL)
-                    else -1
-                    if s["breakdown_value"] == BREAKDOWN_NULL_STRING_LABEL
-                    else -2,
+                    (
+                        0
+                        if s.get("breakdown_value") not in (BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL)
+                        else -1
+                        if s["breakdown_value"] == BREAKDOWN_NULL_STRING_LABEL
+                        else -2
+                    ),
                     s.get("aggregated_value", sum(s.get("data") or [])),
                     s.get("count"),
                     s.get("data"),
@@ -839,14 +870,16 @@ class TrendsQueryRunner(QueryRunner):
                 reverse=True,
             )
         else:
+            # Create a deep copy of the results to avoid modifying shared data
+            copied_results = [[deepcopy(r[0]) for r in results]]
             return [
-                self.apply_formula_to_results_group([r[0] for r in results], formula, aggregate_values=is_total_value)
+                self.apply_formula_to_results_group(copied_results[0], formula_node, aggregate_values=is_total_value)
             ]
 
     @staticmethod
     def apply_formula_to_results_group(
         results_group: list[dict[str, Any]],
-        formula: str,
+        formula_node: TrendsFormulaNode,
         *,
         breakdown_value: Any = None,
         aggregate_values: Optional[bool] = False,
@@ -854,8 +887,9 @@ class TrendsQueryRunner(QueryRunner):
         """
         Applies the formula to a list of results, resulting in a single, computed result.
         """
+        formula = formula_node.formula
         base_result = results_group[0]
-        base_result["label"] = f"Formula ({formula})"
+        base_result["label"] = formula_node.custom_name or f"Formula ({formula})"
         base_result["action"] = None
 
         if aggregate_values:
@@ -950,12 +984,16 @@ class TrendsQueryRunner(QueryRunner):
     ) -> str:
         try:
             return (
-                PropertyDefinition.objects.get(
+                PropertyDefinition.objects.alias(
+                    effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+                )
+                .get(
+                    effective_project_id=self.team.project_id,  # type: ignore
                     name=field,
-                    team=self.team,
                     type=field_type,
                     group_type_index=group_type_index if field_type == PropertyDefinition.Type.GROUP else None,
-                ).property_type
+                )
+                .property_type
                 or "String"
             )
         except PropertyDefinition.DoesNotExist:
@@ -1074,3 +1112,19 @@ class TrendsQueryRunner(QueryRunner):
             or isinstance(breakdown, list)
             and BREAKDOWN_OTHER_STRING_LABEL in breakdown
         )
+
+    @cached_property
+    def formula_nodes(self) -> list[TrendsFormulaNode]:
+        if not self.query.trendsFilter:
+            return []
+
+        formula_nodes = self.query.trendsFilter.formulaNodes if self.query.trendsFilter.formulaNodes else []
+
+        # for backwards compatibility
+        if not formula_nodes:
+            if self.query.trendsFilter.formulas:
+                formula_nodes = [TrendsFormulaNode(formula=formula) for formula in self.query.trendsFilter.formulas]
+            elif self.query.trendsFilter.formula:
+                formula_nodes = [TrendsFormulaNode(formula=self.query.trendsFilter.formula)]
+
+        return formula_nodes

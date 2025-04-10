@@ -18,8 +18,8 @@ export const SearchResultPreview = (): JSX.Element | null => {
     const result = combinedSearchResults[activeResultIndex]
 
     return (
-        <div className="border bg-bg-light rounded p-4 md:p-6">
-            <div className="space-y-4">
+        <div className="border bg-surface-primary rounded p-4 md:p-6">
+            <div className="deprecated-space-y-4">
                 <div>
                     <div>{tabToName[result.type as keyof typeof tabToName]}</div>
                     <div className="text-text-3000 font-bold text-lg">
@@ -29,7 +29,7 @@ export const SearchResultPreview = (): JSX.Element | null => {
                         {location.host}
                         <span className="text-muted-3000">{urlForResult(result)}</span>
                     </span>
-                    <div className="mt-2 text-muted">
+                    <div className="mt-2 text-secondary">
                         <ResultDescription result={result} />
                     </div>
                 </div>

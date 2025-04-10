@@ -1,3 +1,4 @@
+import collections.abc
 import datetime as dt
 import typing
 from dataclasses import asdict, dataclass, fields
@@ -24,7 +25,10 @@ from posthog.batch_exports.models import (
     BatchExportDestination,
     BatchExportRun,
 )
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import BATCH_EXPORTS_TASK_QUEUE, SYNC_BATCH_EXPORTS_TASK_QUEUE
+from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.hogql import HogQLContext
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -56,107 +60,136 @@ class BatchExportSchema(typing.TypedDict):
 
 
 @dataclass
-class BatchExportModel:
-    name: str
-    schema: BatchExportSchema | None
-
-
-class BatchExportsInputsProtocol(typing.Protocol):
-    team_id: int
-    batch_export_model: BatchExportModel | None = None
-    is_backfill: bool = False
+class BatchExportEventPropertyFilter:
+    key: str
+    operator: str
+    type: str
+    value: list[str]
 
 
 @dataclass
-class S3BatchExportInputs:
-    """Inputs for S3 export workflow.
+class BatchExportModel:
+    name: str
+    schema: BatchExportSchema | None
+    filters: list[dict[str, str | list[str]]] | None = None
+
+
+@dataclass
+class BackfillDetails:
+    backfill_id: str | None
+    start_at: str | None
+    end_at: str | None
+    is_earliest_backfill: bool = False
+
+
+@dataclass(kw_only=True)
+class BaseBatchExportInputs:
+    """Base class for all batch export inputs containing common fields.
 
     Attributes:
         batch_export_id: The ID of the parent BatchExport.
         team_id: The ID of the team that contains the BatchExport whose data we are exporting.
         interval: The range of data we are exporting.
-        bucket_name: The S3 bucket we are exporting to.
-        region: The AWS region where the bucket is located.
-        prefix: A prefix for the file name to be created in S3.
-            For example, for one hour batches, this should be 3600.
-        max_file_size_mb: The maximum file size in MB for each file to be uploaded.
         data_interval_end: For manual runs, the end date of the batch. This should be set to `None` for regularly
             scheduled runs and for backfills.
     """
 
     batch_export_id: str
     team_id: int
+    interval: str = "hour"
+    data_interval_end: str | None = None
+    exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
+    # TODO: Remove 'is_backfill' and 'is_earliest_backfill' after ensuring no existing backfills are running
+    is_backfill: bool = False
+    is_earliest_backfill: bool = False
+    backfill_details: BackfillDetails | None = None
+    batch_export_model: BatchExportModel | None = None
+    batch_export_schema: BatchExportSchema | None = None
+
+    def get_is_backfill(self) -> bool:
+        """Needed for backwards compatibility with existing batch exports.
+
+        TODO: remove once all existing backfills are finished.
+        """
+        # to check status of migration
+        if self.is_backfill and not self.backfill_details:
+            logger.info(
+                "Backfill inputs migration: BatchExport %s has is_backfill set to True but no backfill_details",
+                self.batch_export_id,
+            )
+
+        if self.backfill_details is not None:
+            return True
+        return self.is_backfill
+
+    def get_is_earliest_backfill(self) -> bool:
+        """Needed for backwards compatibility with existing batch exports.
+
+        TODO: remove once all existing backfills are finished.
+        """
+        if self.backfill_details is not None:
+            return self.backfill_details.is_earliest_backfill
+        return self.is_earliest_backfill
+
+
+@dataclass(kw_only=True)
+class S3BatchExportInputs(BaseBatchExportInputs):
+    """Inputs for S3 export workflow.
+
+    Attributes:
+        bucket_name: The S3 bucket we are exporting to.
+        region: The AWS region where the bucket is located.
+        prefix: A prefix for the file name to be created in S3.
+        max_file_size_mb: The maximum file size in MB for each file to be uploaded.
+    """
+
     bucket_name: str
     region: str
     prefix: str
-    interval: str = "hour"
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
-    data_interval_end: str | None = None
     compression: str | None = None
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
     endpoint_url: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
-    is_backfill: bool = False
-    is_earliest_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
 
     def __post_init__(self):
         if self.max_file_size_mb:
             self.max_file_size_mb = int(self.max_file_size_mb)
 
 
-@dataclass
-class SnowflakeBatchExportInputs:
+@dataclass(kw_only=True)
+class SnowflakeBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Snowflake export workflow."""
 
-    batch_export_id: str
-    team_id: int
-    user: str
-    password: str
     account: str
+    user: str
     database: str
     warehouse: str
     schema: str
-    interval: str = "hour"
     table_name: str = "events"
-    data_interval_end: str | None = None
+    authentication_type: str = "password"
+    password: str | None = None
+    private_key: str | None = None
+    private_key_passphrase: str | None = None
     role: str | None = None
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
-    is_backfill: bool = False
-    is_earliest_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
 
 
-@dataclass
-class PostgresBatchExportInputs:
+@dataclass(kw_only=True)
+class PostgresBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Postgres export workflow."""
 
-    batch_export_id: str
-    team_id: int
     user: str
     password: str
     host: str
     database: str
-    has_self_signed_cert: bool = False
-    interval: str = "hour"
     schema: str = "public"
     table_name: str = "events"
     port: int = 5432
-    data_interval_end: str | None = None
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
-    is_backfill: bool = False
-    is_earliest_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
+    has_self_signed_cert: bool = False
 
     def __post_init__(self):
         if self.has_self_signed_cert == "True":  # type: ignore
@@ -167,36 +200,25 @@ class PostgresBatchExportInputs:
         self.port = int(self.port)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class RedshiftBatchExportInputs(PostgresBatchExportInputs):
     """Inputs for Redshift export workflow."""
 
     properties_data_type: str = "varchar"
 
 
-@dataclass
-class BigQueryBatchExportInputs:
+@dataclass(kw_only=True)
+class BigQueryBatchExportInputs(BaseBatchExportInputs):
     """Inputs for BigQuery export workflow."""
 
-    batch_export_id: str
-    team_id: int
     project_id: str
     dataset_id: str
+    table_id: str = "events"
     private_key: str
     private_key_id: str
     token_uri: str
     client_email: str
-    interval: str = "hour"
-    table_id: str = "events"
-    data_interval_end: str | None = None
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
     use_json_type: bool = False
-    is_backfill: bool = False
-    is_earliest_backfill: bool = False
-
-    batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
 
     def __post_init__(self):
         if self.use_json_type == "True":  # type: ignore
@@ -205,35 +227,19 @@ class BigQueryBatchExportInputs:
             self.use_json_type = False
 
 
-@dataclass
-class HttpBatchExportInputs:
+@dataclass(kw_only=True)
+class HttpBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Http export workflow."""
 
-    batch_export_id: str
-    team_id: int
     url: str
     token: str
-    interval: str = "hour"
-    data_interval_end: str | None = None
-    exclude_events: list[str] | None = None
-    include_events: list[str] | None = None
-    is_backfill: bool = False
-    is_earliest_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
 
 
-@dataclass
-class NoOpInputs:
+@dataclass(kw_only=True)
+class NoOpInputs(BaseBatchExportInputs):
     """NoOp Workflow is used for testing, it takes a single argument to echo back."""
 
-    batch_export_id: str
-    team_id: int
-    interval: str = "hour"
     arg: str = ""
-    is_backfill: bool = False
-    batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
 
 
 DESTINATION_WORKFLOWS = {
@@ -435,6 +441,16 @@ async def cancel_running_batch_export_backfill(temporal: Client, batch_export_ba
     await batch_export_backfill.asave()
 
 
+def sync_cancel_running_batch_export_backfill(temporal: Client, batch_export_backfill: BatchExportBackfill) -> None:
+    """Cancel a running BatchExportBackfill."""
+
+    handle = temporal.get_workflow_handle(workflow_id=batch_export_backfill.workflow_id)
+    async_to_sync(handle.cancel)()
+
+    batch_export_backfill.status = BatchExportBackfill.Status.CANCELLED
+    batch_export_backfill.save()
+
+
 def cancel_running_batch_export_run(temporal: Client, batch_export_run: BatchExportRun) -> None:
     """Cancel a running BatchExportRun."""
 
@@ -523,7 +539,7 @@ def create_batch_export_run(
     data_interval_start: str | None,
     data_interval_end: str,
     status: str = BatchExportRun.Status.STARTING,
-    records_total_count: int | None = None,
+    backfill_id: UUID | None = None,
 ) -> BatchExportRun:
     """Create a BatchExportRun after a Temporal Workflow execution.
 
@@ -535,45 +551,16 @@ def create_batch_export_run(
         data_interval_start: The start of the period of data exported in this BatchExportRun.
         data_interval_end: The end of the period of data exported in this BatchExportRun.
         status: The initial status for the created BatchExportRun.
+        backfill_id: The UUID of the BatchExportBackfill the BatchExportRun belongs to (if any).
     """
     run = BatchExportRun(
         batch_export_id=batch_export_id,
         status=status,
         data_interval_start=dt.datetime.fromisoformat(data_interval_start) if data_interval_start else None,
         data_interval_end=dt.datetime.fromisoformat(data_interval_end),
-        records_total_count=records_total_count,
+        backfill_id=backfill_id,
     )
     run.save()
-
-    return run
-
-
-async def acreate_batch_export_run(
-    batch_export_id: UUID,
-    data_interval_start: str,
-    data_interval_end: str,
-    status: str = BatchExportRun.Status.STARTING,
-    records_total_count: int | None = None,
-) -> BatchExportRun:
-    """Create a BatchExportRun after a Temporal Workflow execution.
-
-    In a first approach, this method is intended to be called only by Temporal Workflows,
-    as only the Workflows themselves can know when they start.
-
-    Args:
-        batch_export_id: The UUID of the BatchExport the BatchExportRun to create belongs to.
-        data_interval_start: The start of the period of data exported in this BatchExportRun.
-        data_interval_end: The end of the period of data exported in this BatchExportRun.
-        status: The initial status for the created BatchExportRun.
-    """
-    run = BatchExportRun(
-        batch_export_id=batch_export_id,
-        status=status,
-        data_interval_start=dt.datetime.fromisoformat(data_interval_start),
-        data_interval_end=dt.datetime.fromisoformat(data_interval_end),
-        records_total_count=records_total_count,
-    )
-    await run.asave()
 
     return run
 
@@ -665,6 +652,13 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
     destination_config = {k: v for k, v in batch_export.destination.config.items() if k in destination_config_fields}
     task_queue = SYNC_BATCH_EXPORTS_TASK_QUEUE if batch_export.destination.type == "HTTP" else BATCH_EXPORTS_TASK_QUEUE
 
+    context = HogQLContext(
+        team_id=batch_export.team.id,
+        enable_select_queries=True,
+        limit_top_select=False,
+    )
+    context.database = create_hogql_database(team=batch_export.team, modifiers=context.modifiers)
+
     temporal = sync_connect()
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -677,6 +671,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                     batch_export_model=BatchExportModel(
                         name=batch_export.model or "events",
                         schema=batch_export.schema,
+                        filters=batch_export.filters,
                     ),
                     # TODO: This field is deprecated, but we still set it for backwards compatibility.
                     # New exports created will always have `batch_export_schema` set to `None`, but existing
@@ -777,36 +772,23 @@ async def acreate_batch_export_backfill(
     return backfill
 
 
-def update_batch_export_backfill_status(backfill_id: UUID, status: str) -> BatchExportBackfill:
+def update_batch_export_backfill_status(
+    backfill_id: UUID, status: str, finished_at: dt.datetime | None = None
+) -> BatchExportBackfill:
     """Update the status of an BatchExportBackfill with given id.
 
     Arguments:
         id: The id of the BatchExportBackfill to update.
         status: The new status to assign to the BatchExportBackfill.
+        finished_at: The time the BatchExportBackfill finished.
     """
     model = BatchExportBackfill.objects.filter(id=backfill_id)
-    updated = model.update(status=status)
+    updated = model.update(status=status, finished_at=finished_at)
 
     if not updated:
         raise ValueError(f"BatchExportBackfill with id {backfill_id} not found.")
 
     return model.get()
-
-
-async def aupdate_batch_export_backfill_status(backfill_id: UUID, status: str) -> BatchExportBackfill:
-    """Update the status of an BatchExportBackfill with given id.
-
-    Arguments:
-        id: The id of the BatchExportBackfill to update.
-        status: The new status to assign to the BatchExportBackfill.
-    """
-    model = BatchExportBackfill.objects.filter(id=backfill_id)
-    updated = await model.aupdate(status=status)
-
-    if not updated:
-        raise ValueError(f"BatchExportBackfill with id {backfill_id} not found.")
-
-    return await model.aget()
 
 
 async def aupdate_records_total_count(
@@ -847,3 +829,125 @@ async def afetch_batch_export_runs_in_range(
     ).order_by("data_interval_start")
 
     return [run async for run in queryset]
+
+
+def fetch_earliest_backfill_start_at(
+    *,
+    team_id: int,
+    model: str,
+    interval_time_delta: dt.timedelta,
+    exclude_events: collections.abc.Iterable[str] | None = None,
+    include_events: collections.abc.Iterable[str] | None = None,
+) -> dt.datetime | None:
+    """Get the earliest start_at for a batch export backfill.
+
+    If there is no data for the given model, return None.
+    """
+    interval_seconds = int(interval_time_delta.total_seconds())
+    if model == "events":
+        exclude_events = exclude_events or []
+        include_events = include_events or []
+        query = """
+            SELECT MIN(toStartOfInterval(timestamp, INTERVAL %(interval_seconds)s SECONDS))
+            FROM events
+            WHERE team_id = %(team_id)s
+            AND timestamp > '2000-01-01'
+            AND (length(%(include_events)s::Array(String)) = 0 OR event IN %(include_events)s::Array(String))
+            AND (length(%(exclude_events)s::Array(String)) = 0 OR event NOT IN %(exclude_events)s::Array(String))
+        """
+        query_args = {
+            "team_id": team_id,
+            "include_events": include_events,
+            "exclude_events": exclude_events,
+            "interval_seconds": interval_seconds,
+        }
+        result = sync_execute(query, query_args)[0][0]
+        # if no data, ClickHouse returns 1970-01-01 00:00:00
+        # (we just compare the year rather than the whole object because in some cases the timestamp returned by
+        # ClickHouse has a timezone and sometimes it doesn't)
+        if result.year == 1970:
+            return None
+        return result
+    elif model == "persons":
+        # In the case of persons, we need to check 2 tables: person and person_distinct_id2
+        # It's more efficient querying both tables separately and taking the minimum timestamp, rather than trying to
+        # join them together.
+        # In some cases we might have invalid timestamps, so we use an arbitrary date in the past to filter these out.
+        query = """
+            SELECT toStartOfInterval(MIN(_timestamp), INTERVAL %(interval_seconds)s SECONDS)
+            FROM person
+            WHERE team_id = %(team_id)s
+            AND _timestamp > '2000-01-01'
+            UNION ALL
+            SELECT toStartOfInterval(MIN(_timestamp), INTERVAL %(interval_seconds)s SECONDS)
+            FROM person_distinct_id2
+            WHERE team_id = %(team_id)s
+            AND _timestamp > '2000-01-01'
+        """
+        query_args = {
+            "team_id": team_id,
+            "interval_seconds": interval_seconds,
+        }
+        results = sync_execute(query, query_args)
+        # if no data, ClickHouse returns 1970-01-01 00:00:00
+        # (we just compare the year rather than the whole object because in some cases the timestamp returned by
+        # ClickHouse has a timezone and sometimes it doesn't)
+        results = [result[0] for result in results if result[0].year != 1970]
+        if not results:
+            return None
+        return min(results)
+    else:
+        raise NotImplementedError(f"Invalid model: {model}")
+
+
+@dataclass(kw_only=True)
+class BatchExportInsertInputs:
+    """Base dataclass for batch export insert inputs containing common fields."""
+
+    team_id: int
+    data_interval_start: str | None
+    data_interval_end: str
+    exclude_events: list[str] | None = None
+    include_events: list[str] | None = None
+    run_id: str | None = None
+    backfill_details: BackfillDetails | None = None
+    batch_export_model: BatchExportModel | None = None
+    # TODO: Remove after updating existing batch exports
+    batch_export_schema: BatchExportSchema | None = None
+    # TODO: Remove after updating existing batch exports to use backfill_details
+    is_backfill: bool = False
+
+    def get_is_backfill(self) -> bool:
+        """Needed for backwards compatibility with existing batch exports.
+
+        TODO: remove once all existing backfills are finished.
+        """
+        # to check status of migration
+        if self.is_backfill and not self.backfill_details:
+            logger.info(
+                "Backfill inputs migration: BatchExport for team %s has is_backfill set to True but no backfill_details",
+                self.team_id,
+            )
+
+        if self.backfill_details is not None:
+            return True
+        return self.is_backfill
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        """Return a dictionary of properties that we want to log if an error is raised.
+
+        We list these explicitly rather than setting all fields as safe to log, so that the default is opt-out (just in
+        case new fields get added which are sensitive).
+        """
+        return {
+            "team_id": self.team_id,
+            "data_interval_start": self.data_interval_start,
+            "data_interval_end": self.data_interval_end,
+            "exclude_events": self.exclude_events,
+            "include_events": self.include_events,
+            "run_id": self.run_id,
+            "backfill_details": self.backfill_details,
+            "batch_export_model": self.batch_export_model,
+            "batch_export_schema": self.batch_export_schema,
+        }

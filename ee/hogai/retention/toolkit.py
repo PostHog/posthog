@@ -15,11 +15,18 @@ Use this tool to provide the final answer to the user's question.
 
 Answer in the following format:
 ```
-Activation event:
-chosen event
+Activation:
+(if an event is used)
+- event: chosen event name
+(or if an action is used)
+- action id: `numeric id`
+- action name: action name
 
-Retention event:
-chosen event (can be the same as activation event, or different)
+Retention:
+- event: chosen event name (can be the same as activation event, or different)
+(or if an action is used)
+- action id: `numeric id`
+- action name: action name
 
 (if filters are used)
 Filters:
@@ -30,6 +37,9 @@ Filters:
         - operator
         - property value
     - property filter 2... Repeat for each property filter.
+
+(if a time period is explicitly mentioned)
+Time period: from and/or to dates or durations. For example: `last 1 week`, `last 12 days`, `from 2025-01-15 to 2025-01-20`, `2025-01-15`, from `last month` to `2024-11-15`.
 ```
 
 Args:

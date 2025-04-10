@@ -20,6 +20,22 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
     ],
   ],
   [
+    "cookielessServerHashStep",
+    [
+      {
+        "distinct_id": "my_id",
+        "event": "default event",
+        "ip": "127.0.0.1",
+        "now": "2020-02-23T02:15:00.000Z",
+        "properties": {},
+        "site_url": "http://localhost",
+        "team_id": 2,
+        "timestamp": "2020-02-23T02:15:00.000Z",
+        "uuid": "uuid1",
+      },
+    ],
+  ],
+  [
     "pluginsProcessEventStep",
     [
       {
@@ -33,6 +49,12 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
         "timestamp": "2020-02-23T02:15:00.000Z",
         "uuid": "uuid1",
       },
+    ],
+  ],
+  [
+    "transformEventStep",
+    [
+      null,
     ],
   ],
   [
@@ -56,6 +78,10 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
         "team_id": 2,
         "timestamp": "2020-02-23T02:15:00.000Z",
         "uuid": "uuid1",
+      },
+      {
+        "id": 2,
+        "person_processing_opt_out": false,
       },
       "2020-02-23T02:15:00.000Z",
       true,

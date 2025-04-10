@@ -49,14 +49,14 @@ export function TwoFactorSettings(): JSX.Element {
 
             {isBackupCodesModalOpen && (
                 <LemonModal title="Backup Codes" onClose={() => toggleBackupCodesModal(false)}>
-                    <div className="space-y-4 max-w-md">
+                    <div className="deprecated-space-y-4 max-w-md">
                         {status?.backup_codes?.length ? (
                             <>
                                 <p>
                                     Save these backup codes in a secure location. Each code can only be used once to
                                     sign in if you lose access to your authentication device.
                                 </p>
-                                <div className="bg-bg-3000 p-4 rounded font-mono space-y-1 relative">
+                                <div className="bg-primary p-4 rounded font-mono deprecated-space-y-1 relative">
                                     <LemonButton
                                         icon={<IconCopy />}
                                         size="small"
@@ -73,8 +73,8 @@ export function TwoFactorSettings(): JSX.Element {
                                 </div>
                             </>
                         ) : (
-                            <div className="bg-bg-3000 p-4 rounded font-mono space-y-1 relative">
-                                <p className="text-muted mb-0">No backup codes generated</p>
+                            <div className="bg-primary p-4 rounded font-mono deprecated-space-y-1 relative">
+                                <p className="text-secondary mb-0">No backup codes generated</p>
                             </div>
                         )}
                         <LemonButton
@@ -91,11 +91,11 @@ export function TwoFactorSettings(): JSX.Element {
 
             {user?.is_2fa_enabled ? (
                 <>
-                    <div className="mb-4 flex items-center space-x-2">
+                    <div className="mb-4 flex items-center deprecated-space-x-2">
                         <IconCheckCircle color="green" className="text-xl" />
                         <span className="font-medium">2FA enabled</span>
                     </div>
-                    <div className="space-x-2 flex items-center">
+                    <div className="deprecated-space-x-2 flex items-center">
                         <LemonButton type="secondary" onClick={() => toggleBackupCodesModal(true)}>
                             View backup codes
                         </LemonButton>
@@ -106,7 +106,7 @@ export function TwoFactorSettings(): JSX.Element {
                 </>
             ) : (
                 <div>
-                    <div className="mb-4 flex items-center space-x-2">
+                    <div className="mb-4 flex items-center deprecated-space-x-2">
                         <IconWarning color="orange" className="text-xl" />
                         <span className="font-medium">2FA is not enabled</span>
                     </div>

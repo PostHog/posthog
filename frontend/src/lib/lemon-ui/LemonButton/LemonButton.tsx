@@ -62,19 +62,22 @@ export interface LemonButtonPropsBase
     /** @deprecated Buttons should never be quietly disabled. Use `disabledReason` to provide an explanation instead. */
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
-    disabledReason?: string | null | false
+    disabledReason?: React.ReactElement | string | null | false
     noPadding?: boolean
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
     'aria-label'?: string
     /** Whether to truncate the button's text if necessary */
     truncate?: boolean
+    /** Wrap the main button element with a container element */
+    buttonWrapper?: (button: JSX.Element) => JSX.Element
 }
 
 export type SideAction = Pick<
     LemonButtonProps,
     | 'onClick'
     | 'to'
+    | 'loading'
     | 'disableClientSideRouting'
     | 'disabled'
     | 'disabledReason'
@@ -102,7 +105,7 @@ export interface LemonButtonWithoutSideActionProps extends LemonButtonPropsBase 
 }
 /** A LemonButtonWithSideAction can't have a sideIcon - instead it has a clickable sideAction. */
 export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
-    sideAction: SideAction
+    sideAction?: SideAction
     sideIcon?: null
 }
 export type LemonButtonProps = LemonButtonWithoutSideActionProps | LemonButtonWithSideActionProps
@@ -135,6 +138,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 disableClientSideRouting,
                 onClick,
                 truncate = false,
+                buttonWrapper,
                 ...buttonProps
             },
             ref
@@ -205,7 +209,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 buttonProps['aria-label'] = tooltip
             }
 
-            let workingButton = (
+            let workingButton: JSX.Element = (
                 <ButtonComponent
                     ref={ref as any}
                     className={clsx(
@@ -236,6 +240,10 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                     </span>
                 </ButtonComponent>
             )
+
+            if (buttonWrapper) {
+                workingButton = buttonWrapper(workingButton)
+            }
 
             if (tooltipContent) {
                 workingButton = (

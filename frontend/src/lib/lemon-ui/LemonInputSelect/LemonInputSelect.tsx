@@ -27,7 +27,7 @@ export interface LemonInputSelectOption {
 export type LemonInputSelectProps = Pick<
     // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
     LemonInputProps,
-    'autoFocus'
+    'autoFocus' | 'autoWidth' | 'fullWidth'
 > & {
     options?: LemonInputSelectOption[]
     value?: string[] | null
@@ -39,6 +39,7 @@ export type LemonInputSelectProps = Pick<
     disableFiltering?: boolean
     mode: 'multiple' | 'single'
     allowCustomValues?: boolean
+    emptyStateComponent?: React.ReactNode
     onChange?: (newValue: string[]) => void
     onBlur?: () => void
     onFocus?: () => void
@@ -56,6 +57,7 @@ export function LemonInputSelect({
     options = [],
     value,
     loading,
+    emptyStateComponent,
     onChange,
     onInputChange,
     onFocus,
@@ -70,6 +72,8 @@ export function LemonInputSelect({
     'data-attr': dataAttr,
     size = 'medium',
     transparentBackground,
+    autoWidth = true,
+    fullWidth = false,
 }: LemonInputSelectProps): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
@@ -374,7 +378,7 @@ export function LemonInputSelect({
             fallbackPlacements={['bottom-end', 'top-start', 'top-end']}
             loadingBar={loading && visibleOptions.length > 0}
             overlay={
-                <div className="space-y-px overflow-y-auto">
+                <div className="deprecated-space-y-px overflow-y-auto">
                     {title && <h5 className="mx-2 my-1">{title}</h5>}
                     {visibleOptions.length > 0 ? (
                         visibleOptions.map((option, index) => {
@@ -436,11 +440,17 @@ export function LemonInputSelect({
                             ))}
                         </>
                     ) : (
-                        <p className="text-muted italic p-1">
-                            {allowCustomValues
-                                ? 'Start typing and press Enter to add options'
-                                : `No options matching "${inputValue}"`}
-                        </p>
+                        <>
+                            {emptyStateComponent ? (
+                                emptyStateComponent
+                            ) : (
+                                <p className="text-secondary italic p-1">
+                                    {allowCustomValues
+                                        ? 'Start typing and press Enter to add options'
+                                        : `No options matching "${inputValue}"`}
+                                </p>
+                            )}
+                        </>
                     )}
                 </div>
             }
@@ -456,7 +466,8 @@ export function LemonInputSelect({
                         ? 'Add value'
                         : 'Pick value'
                 }
-                autoWidth
+                autoWidth={autoWidth}
+                fullWidth={fullWidth}
                 prefix={valuesPrefix}
                 suffix={valuesAndEditButtonSuffix}
                 onFocus={_onFocus}
@@ -468,12 +479,12 @@ export function LemonInputSelect({
                 autoFocus={autoFocus}
                 transparentBackground={transparentBackground}
                 className={clsx(
-                    'h-auto leading-7', // leading-7 means line height aligned with LemonSnack height
+                    '!h-auto leading-7', // leading-7 means line height aligned with LemonSnack height
                     // Putting button-like text styling on the single-select unfocused placeholder
                     // NOTE: We need font-medium on both the input (for autosizing) and its placeholder (for display)
                     mode === 'multiple' && 'flex-wrap',
-                    mode === 'single' && values.length > 0 && '*:*:font-medium placeholder:*:*:font-medium',
-                    mode === 'single' && values.length > 0 && !showPopover && 'placeholder:*:*:text-default',
+                    mode === 'single' && values.length > 0 && '*:*:font-medium *:*:placeholder:font-medium',
+                    mode === 'single' && values.length > 0 && !showPopover && '*:*:placeholder:text-default',
                     className
                 )}
                 data-attr={dataAttr}

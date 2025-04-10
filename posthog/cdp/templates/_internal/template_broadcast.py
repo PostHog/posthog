@@ -1,15 +1,24 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 
 template_new_broadcast: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+    status="alpha",
+    free=True,
     type="broadcast",
     id="template-new-broadcast",
-    name="Hello !",
-    description="This is a broadcast",
+    name="Broadcast message",
+    description="Send an email to a list of people",
     icon_url="/static/hedgehog/explorer-hog.png",
     category=["Email Marketing"],
-    hog="""import('provider/email').sendEmail(inputs.email)""".strip(),
+    hog="""sendEmail(inputs)""".strip(),
     inputs_schema=[
+        {
+            "key": "auth",
+            "type": "integration",
+            "integration": "email",
+            "label": "Email integration",
+            "secret": False,
+            "required": True,
+        },
         {
             "key": "email",
             "type": "email",

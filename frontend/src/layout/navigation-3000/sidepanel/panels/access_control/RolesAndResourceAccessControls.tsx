@@ -120,11 +120,11 @@ export function RolesAndResourceAccessControls({ noAccessControls }: RolesAndRes
     ]
 
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <p>Use roles to group your organization members and assign them permissions.</p>
 
             <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                <div className="space-y-2">
+                <div className="deprecated-space-y-2">
                     <LemonTable
                         columns={columns}
                         dataSource={rolesWithResourceAccessControls}
@@ -174,7 +174,7 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
     }
 
     return (
-        <div className="my-2 pr-2 space-y-2">
+        <div className="my-2 pr-2 deprecated-space-y-2">
             <div className="flex items-center gap-2 justify-between min-h-10">
                 <div className="flex items-center gap-2">
                     <div className="min-w-[16rem]">

@@ -19,6 +19,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import {
     Breadcrumb,
     LegacyRecordingFilters,
+    ProjectTreeRef,
     RecordingUniversalFilters,
     ReplayTabs,
     SessionRecordingPlaylistType,
@@ -38,9 +39,9 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
     path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsPlaylistSceneLogic', key]),
     props({} as SessionRecordingsPlaylistLogicProps),
     key((props) => props.shortId),
-    connect({
+    connect(() => ({
         values: [cohortsModel, ['cohortsById'], sceneLogic, ['activeScene']],
-    }),
+    })),
     actions({
         updatePlaylist: (properties?: Partial<SessionRecordingPlaylistType>, silent = false) => ({
             properties,
@@ -49,6 +50,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
         setFilters: (filters: LegacyRecordingFilters | RecordingUniversalFilters | null) => ({ filters }),
         loadPinnedRecordings: true,
         onPinnedChange: (recording: SessionRecordingType, pinned: boolean) => ({ pinned, recording }),
+        markPlaylistViewed: true,
     }),
     loaders(({ values, props }) => ({
         playlist: [
@@ -126,11 +128,21 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
     })),
 
     listeners(({ actions, values }) => ({
-        getPlaylistSuccess: () => {
+        getPlaylistSuccess: ({ playlist }) => {
             if (values.playlist?.derived_name !== values.derivedName) {
                 // This keeps the derived name up to date if the playlist changes
                 actions.updatePlaylist({ derived_name: values.derivedName }, true)
             }
+
+            if (playlist.filters) {
+                actions.markPlaylistViewed()
+            }
+        },
+        markPlaylistViewed: async () => {
+            if (!values.playlist) {
+                return
+            }
+            await api.recordings.playlistViewed(values.playlist.short_id)
         },
     })),
 
@@ -171,6 +183,10 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
                     },
                 },
             ],
+        ],
+        projectTreeRef: [
+            () => [(_, props: SessionRecordingsPlaylistLogicProps) => props.shortId],
+            (shortId): ProjectTreeRef => ({ type: 'session_recording_playlist', ref: String(shortId) }),
         ],
         hasChanges: [
             (s) => [s.playlist, s.filters],

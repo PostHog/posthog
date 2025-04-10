@@ -2,6 +2,7 @@ import { v4 as uuid4 } from 'uuid'
 
 import { ONE_HOUR } from '../src/config/constants'
 import { PluginLogEntryType } from '../src/types'
+import { parseJSON } from '../src/utils/json-parse'
 import { UUIDT } from '../src/utils/utils'
 import { getCacheKey } from '../src/worker/vm/extensions/cache'
 import {
@@ -135,7 +136,7 @@ test.concurrent(
         expect(appMetric.successes).toEqual(0)
         expect(appMetric.failures).toEqual(1)
         expect(appMetric.error_type).toEqual('Error')
-        expect(JSON.parse(appMetric.error_details!)).toMatchObject({
+        expect(parseJSON(appMetric.error_details!)).toMatchObject({
             error: { message: 'error thrown in plugin' },
             event: { properties: event.properties },
         })
@@ -321,7 +322,7 @@ test.concurrent(`plugin method tests: can drop events via processEvent`, async (
 
     await waitForExpect(async () => {
         const [event] = await fetchEvents(teamId, customEventUuid)
-        expect(event).toBeDefined()
+        expect(event).toBeTruthy()
     })
 
     const [event] = await fetchEvents(teamId, dropMeUuid)
@@ -408,148 +409,6 @@ test.concurrent(
     20000
 )
 
-test.concurrent(`plugin jobs: can call runNow from onEvent`, async () => {
-    const indexJs = `
-        export function onEvent (event, { jobs }) {
-            console.info(JSON.stringify(['onEvent', event]))
-            jobs.runMeAsync().runNow()
-        }
-
-        export const jobs = {
-            runMeAsync: async () => {
-                console.info(JSON.stringify(['runMeAsync']))
-            }
-        }
-    `
-
-    const plugin = await createPlugin({
-        organization_id: organizationId,
-        name: 'jobs plugin',
-        plugin_type: 'source',
-        is_global: false,
-        source__index_ts: indexJs,
-    })
-    const teamId = await createTeam(organizationId)
-    const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
-    const distinctId = new UUIDT().toString()
-    const uuid = new UUIDT().toString()
-
-    // First let's ingest an event
-    await capture({
-        teamId,
-        distinctId,
-        uuid,
-        event: 'custom event',
-        properties: {
-            name: 'hehe',
-            uuid: new UUIDT().toString(),
-        },
-    })
-
-    await waitForExpect(async () => {
-        const events = await fetchEvents(teamId)
-        expect(events.length).toBe(1)
-    })
-
-    // Then check that the runMeAsync function was called
-    await waitForExpect(async () => {
-        const logEntries = await fetchPluginConsoleLogEntries(pluginConfig.id)
-        const runMeAsync = logEntries.filter(({ message: [method] }) => method === 'runMeAsync')
-        expect(runMeAsync.length).toBeGreaterThan(0)
-    })
-})
-
-test.concurrent(`plugin jobs: can call runNow from processEvent`, async () => {
-    const indexJs = `
-        export function processEvent(event, { jobs }) {
-            console.info(JSON.stringify(['processEvent', event]))
-            jobs.runMeAsync().runNow()
-            return event
-        }
-
-        export const jobs = {
-            runMeAsync: async () => {
-                console.info(JSON.stringify(['runMeAsync']))
-            }
-        }
-    `
-
-    const plugin = await createPlugin({
-        organization_id: organizationId,
-        name: 'jobs plugin',
-        plugin_type: 'source',
-        is_global: false,
-        source__index_ts: indexJs,
-    })
-    const teamId = await createTeam(organizationId)
-    const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
-    const distinctId = new UUIDT().toString()
-    const uuid = new UUIDT().toString()
-
-    // First let's ingest an event
-    await capture({
-        teamId,
-        distinctId,
-        uuid,
-        event: 'custom event',
-        properties: {
-            name: 'hehe',
-            uuid: new UUIDT().toString(),
-        },
-    })
-
-    await waitForExpect(async () => {
-        const events = await fetchEvents(teamId)
-        expect(events.length).toBe(1)
-    })
-
-    // Then check that the runMeAsync function was called
-    await waitForExpect(async () => {
-        const logEntries = await fetchPluginConsoleLogEntries(pluginConfig.id)
-        const runMeAsync = logEntries.filter(({ message: [method] }) => method === 'runMeAsync')
-        expect(runMeAsync.length).toBeGreaterThan(0)
-    })
-})
-
-test.concurrent(
-    `plugin jobs: runEveryMinute is executed`,
-    async () => {
-        // NOTE: we do not check Hour and Day, merely because if we advance
-        // too much it seems we end up performing alot of reloads of
-        // actions, which prevents the test from completing.
-        //
-        // NOTE: we do not use Fake Timers here as there is an issue in that
-        // it only appears to work for timers in the main thread, and not
-        // ones in the worker threads.
-        const plugin = await createPlugin({
-            organization_id: organizationId,
-            name: 'runEveryMinute plugin',
-            plugin_type: 'source',
-            is_global: false,
-            source__index_ts: `
-            export async function runEveryMinute() {
-                console.info(JSON.stringify(['runEveryMinute']))
-            }
-        `,
-        })
-
-        const teamId = await createTeam(organizationId)
-        const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
-
-        await waitForExpect(
-            async () => {
-                const logEntries = await fetchPluginConsoleLogEntries(pluginConfig.id)
-                expect(
-                    logEntries.filter(({ message: [method] }) => method === 'runEveryMinute').length
-                ).toBeGreaterThan(0)
-            },
-            120_000,
-            1000
-        )
-    },
-    120000
-)
-
 test.concurrent('plugins can use attachements', async () => {
     const indexJs = `
         export function processEvent(event, { attachments }) {
@@ -618,7 +477,7 @@ test.concurrent('plugins can use attachements', async () => {
         testAttachment: {
             file_name: 'test.txt',
             content_type: 'text/plain',
-            contents: JSON.parse(JSON.stringify(Buffer.from('test'))),
+            contents: parseJSON(JSON.stringify(Buffer.from('test'))),
         },
     })
 })

@@ -1,6 +1,7 @@
 import structlog
 
 from enum import StrEnum
+from datetime import datetime, timedelta, UTC
 from .feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
@@ -29,25 +30,34 @@ class FeatureFlagStatus(StrEnum):
 class FeatureFlagStatusChecker:
     def __init__(
         self,
-        feature_flag_id: str,
+        feature_flag_id: int | None = None,
+        feature_flag: FeatureFlag | None = None,
         # The amount of time considered "recent" for the purposes of determining staleness.
         stale_window: str = "-30d",
     ):
         self.feature_flag_id = feature_flag_id
+        self.feature_flag = feature_flag
         self.stale_window = stale_window
 
     def get_status(self) -> tuple[FeatureFlagStatus, FeatureFlagStatusReason]:
+        if not self.feature_flag_id and not self.feature_flag:
+            return FeatureFlagStatus.UNKNOWN, "Must provide feature flag or feature flag id"
+
         try:
-            flag = FeatureFlag.objects.get(pk=self.feature_flag_id)
+            flag = FeatureFlag.objects.get(pk=self.feature_flag_id) if self.feature_flag_id else self.feature_flag
         except FeatureFlag.DoesNotExist:
             return FeatureFlagStatus.UNKNOWN, "Flag could not be found"
+
+        if not flag:
+            return FeatureFlagStatus.UNKNOWN, "Flag could not be loaded"
 
         if flag.deleted:
             return FeatureFlagStatus.DELETED, "Flag has been deleted"
 
         # See if the flag is set to 100% on one variant (or 100% on rolled out and active if boolean flag).
         is_flag_fully_rolled_out, fully_rolled_out_explanation = self.is_flag_fully_rolled_out(flag)
-        if is_flag_fully_rolled_out:
+        is_flag_at_least_thirty_days_old = flag.created_at < datetime.now(UTC) - timedelta(days=30)
+        if is_flag_fully_rolled_out and is_flag_at_least_thirty_days_old:
             return FeatureFlagStatus.STALE, fully_rolled_out_explanation
 
         return FeatureFlagStatus.ACTIVE, "Flag is not fully rolled out and may still be active"
@@ -141,32 +151,3 @@ class FeatureFlagStatusChecker:
                 return True
 
         return False
-
-    def is_flag_unevaluated_recently(self, flag: FeatureFlag) -> bool:
-        recent_evaluations = self.get_recent_evaluations(flag)
-        return len(recent_evaluations) == 0
-
-    def get_recent_evaluations(self, flag: FeatureFlag) -> list[list[str]]:
-        from posthog.schema import EventsQuery, EventsQueryResponse
-        from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-
-        eq = EventsQuery(
-            after=self.stale_window,
-            event="$feature_flag_called",
-            properties=[
-                {
-                    "key": "$feature_flag",
-                    "operator": "exact",
-                    "type": "event",
-                    "value": flag.key,
-                }
-            ],
-            select=[],
-            # We only care if there has been one or more recent call, so ask ClickHouse for one result
-            limit=1,
-        )
-
-        result: EventsQueryResponse = EventsQueryRunner(query=eq, team=flag.team).calculate()
-
-        logger.debug(f"Flag {flag.id} has {len(result.results)} recent ({self.stale_window}) calls")
-        return result.results

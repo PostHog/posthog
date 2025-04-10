@@ -8,14 +8,6 @@ import { combineUrl } from 'kea-router'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
-import {
-    CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS,
-    CORE_FILTER_DEFINITIONS_BY_GROUP,
-    getCoreFilterDefinition,
-    KNOWN_PROMOTED_PROPERTY_PARENTS,
-    POSTHOG_EVENT_PROMOTED_PROPERTIES,
-    PROPERTY_KEYS,
-} from 'lib/taxonomy'
 import { isObject, isURL } from 'lib/utils'
 import { useMemo, useState } from 'react'
 import { NewProperty } from 'scenes/persons/NewProperty'
@@ -23,6 +15,13 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import {
+    CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS,
+    KNOWN_PROMOTED_PROPERTY_PARENTS,
+    POSTHOG_EVENT_PROMOTED_PROPERTIES,
+} from '~/taxonomy/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import { PropertyDefinitionType, PropertyType } from '~/types'
 
 import { CopyToClipboardInline } from '../CopyToClipboard'
@@ -237,6 +236,7 @@ export function PropertiesTable({
                 // if this is a posthog property we want to sort by its label
                 const propertyTypeMap: Record<PropertyDefinitionType, TaxonomicFilterGroupType> = {
                     [PropertyDefinitionType.Event]: TaxonomicFilterGroupType.EventProperties,
+                    [PropertyDefinitionType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
                     [PropertyDefinitionType.Person]: TaxonomicFilterGroupType.PersonProperties,
                     [PropertyDefinitionType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
                     [PropertyDefinitionType.Session]: TaxonomicFilterGroupType.SessionProperties,
@@ -312,17 +312,44 @@ export function PropertiesTable({
         return (
             <div>
                 {properties.length ? (
-                    properties.map((item, index) => (
-                        <PropertiesTable
-                            key={index}
-                            type={type}
-                            properties={item}
-                            nestingLevel={nestingLevel + 1}
-                            useDetectedPropertyType={
-                                ['$set', '$set_once'].some((s) => s === rootKey) ? false : useDetectedPropertyType
-                            }
-                        />
-                    ))
+                    <LemonTable
+                        columns={[
+                            {
+                                key: 'key',
+                                title: 'Index',
+                                render: function Key(_, item: any): JSX.Element {
+                                    return <div className="properties-table-key">{item[0]}</div>
+                                },
+                            },
+                            {
+                                key: 'value',
+                                title: (
+                                    <div className="flex justify-between w-full">
+                                        <div>Value</div>
+                                        <LemonTag type="muted" className="font-mono uppercase">
+                                            array
+                                        </LemonTag>
+                                    </div>
+                                ),
+                                fullWidth: true,
+                                render: function Value(_, item: any): JSX.Element {
+                                    return (
+                                        <PropertiesTable
+                                            type={type}
+                                            properties={item[1]}
+                                            nestingLevel={nestingLevel + 1}
+                                            useDetectedPropertyType={
+                                                ['$set', '$set_once'].some((s) => s === rootKey)
+                                                    ? false
+                                                    : useDetectedPropertyType
+                                            }
+                                        />
+                                    )
+                                },
+                            },
+                        ]}
+                        dataSource={properties.map((item, index) => [index, item])}
+                    />
                 ) : (
                     <LemonTag type="muted" className="font-mono uppercase">
                         Array (empty)
@@ -337,6 +364,8 @@ export function PropertiesTable({
             {
                 key: 'key',
                 title: 'Key',
+                // Minimize the width of the key column when nested
+                style: nestingLevel > 0 ? { width: '0px' } : undefined,
                 render: function Key(_, item: any): JSX.Element {
                     return (
                         <div className="properties-table-key">
@@ -506,6 +535,10 @@ export function PropertiesTable({
                 />
             </>
         )
+    }
+
+    if (properties === undefined) {
+        return <div className="px-4 py-2">No defined properties</div>
     }
 
     // if none of above, it's a value

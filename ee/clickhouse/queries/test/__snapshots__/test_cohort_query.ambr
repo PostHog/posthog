@@ -4,7 +4,7 @@
   
   SELECT person.person_id AS id
   FROM
-    (SELECT pdi.person_id AS person_id,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 day
                     AND timestamp < now()
                     AND event = '$pageview'
@@ -127,7 +127,7 @@
   
   SELECT person.person_id AS id
   FROM
-    (SELECT pdi.person_id AS person_id,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview'
@@ -170,7 +170,7 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT pdi.person_id AS person_id,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview'
@@ -202,6 +202,34 @@
     AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))))
           OR ((performed_event_condition_None_level_level_0_level_1_level_0_0)))) SETTINGS optimize_aggregation_in_order = 1,
                                                                                            join_algorithm = 'auto'
+  '''
+# ---
+# name: TestCohortQuery.test_performed_event_poe_override
+  '''
+  
+  SELECT behavior_query.person_id AS id
+  FROM
+    (SELECT if(not(empty(overrides.distinct_id)), overrides.person_id, e.person_id) AS person_id,
+            countIf(timestamp > 'explicit_redacted_timestamp'
+                    AND timestamp < now()
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_0_0
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+     WHERE team_id = 99999
+       AND event IN ['$pageview']
+       AND timestamp <= now()
+       AND timestamp >= now() - INTERVAL 8 day
+     GROUP BY person_id) behavior_query
+  WHERE 1 = 1
+    AND (((performed_event_condition_None_level_level_0_level_0_0))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                              join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_sequence
@@ -366,8 +394,8 @@
   
   SELECT behavior_query.person_id AS id
   FROM
-    (SELECT pdi.person_id AS person_id,
-            countIf(timestamp > 'explicit_timestamp'
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
+            countIf(timestamp > 'explicit_redacted_timestamp'
                     AND timestamp < now()
                     AND event = '$pageview'
                     AND (has(['something'], replaceRegexpAll(JSONExtractRaw(properties, '$filter_prop'), '^"|"$', '')))) > 0 AS performed_event_condition_None_level_level_0_level_0_0
@@ -394,7 +422,7 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT pdi.person_id AS person_id,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview'
@@ -433,7 +461,7 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT pdi.person_id AS person_id,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview'
@@ -472,7 +500,7 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT pdi.person_id AS person_id,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 day
                     AND timestamp < now()
                     AND event = '$pageview'
@@ -625,7 +653,7 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT pdi.person_id AS person_id,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview'
@@ -667,7 +695,7 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT pdi.person_id AS person_id,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview'
@@ -718,7 +746,7 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT pdi.person_id AS person_id,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 7 day
                     AND timestamp < now()
                     AND event = '$new_view'

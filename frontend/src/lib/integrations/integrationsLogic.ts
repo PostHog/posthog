@@ -2,12 +2,15 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
-import api from 'lib/api'
+import api, { getCookie } from 'lib/api'
 import { fromParamsGivenUrl } from 'lib/utils'
 import IconGoogleAds from 'public/services/google-ads.png'
 import IconGoogleCloud from 'public/services/google-cloud.png'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 import IconHubspot from 'public/services/hubspot.png'
+import IconIntercom from 'public/services/intercom.png'
+import IconLinkedIn from 'public/services/linkedin.png'
+import IconMailjet from 'public/services/mailjet.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
 import IconSnapchat from 'public/services/snapchat.png'
@@ -26,19 +29,27 @@ const ICONS: Record<IntegrationKind, any> = {
     'google-cloud-storage': IconGoogleCloudStorage,
     'google-ads': IconGoogleAds,
     snapchat: IconSnapchat,
+    intercom: IconIntercom,
+    'linkedin-ads': IconLinkedIn,
+    email: IconMailjet,
 }
 
 export const integrationsLogic = kea<integrationsLogicType>([
     path(['lib', 'integrations', 'integrationsLogic']),
-    connect({
+    connect(() => ({
         values: [preflightLogic, ['siteUrlMisconfigured', 'preflight']],
-    }),
+    })),
 
     actions({
         handleOauthCallback: (kind: IntegrationKind, searchParams: any) => ({ kind, searchParams }),
         newGoogleCloudKey: (kind: string, key: File, callback?: (integration: IntegrationType) => void) => ({
             kind,
             key,
+            callback,
+        }),
+        newMailjetKey: (apiKey: string, secretKey: string, callback?: (integration: IntegrationType) => void) => ({
+            apiKey,
+            secretKey,
             callback,
         }),
         deleteIntegration: (id: number) => ({ id }),
@@ -89,13 +100,30 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         throw e
                     }
                 },
+                newMailjetKey: async ({ apiKey, secretKey, callback }) => {
+                    try {
+                        const response = await api.integrations.create({
+                            kind: 'email',
+                            config: { api_key: apiKey, secret_key: secretKey },
+                        })
+                        const responseWithIcon = { ...response, icon_url: ICONS['email'] }
+
+                        // run onChange after updating the integrations loader
+                        window.setTimeout(() => callback?.(responseWithIcon), 0)
+
+                        return [...(values.integrations ?? []), responseWithIcon]
+                    } catch (e) {
+                        lemonToast.error('Failed to upload Mailjet key.')
+                        throw e
+                    }
+                },
             },
         ],
     })),
     listeners(({ actions }) => ({
         handleOauthCallback: async ({ kind, searchParams }) => {
             const { state, code, error } = searchParams
-            const { next } = fromParamsGivenUrl(state)
+            const { next, token } = fromParamsGivenUrl(state)
             let replaceUrl: string = next || urls.settings('project-integrations')
 
             if (error) {
@@ -105,6 +133,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
             }
 
             try {
+                if (token !== getCookie('ph_oauth_state')) {
+                    throw new Error('Invalid state token')
+                }
+
                 const integration = await api.integrations.create({
                     kind,
                     config: { state, code },

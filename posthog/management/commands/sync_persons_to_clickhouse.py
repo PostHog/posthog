@@ -6,7 +6,7 @@ import structlog
 from django.core.management.base import BaseCommand
 from django.utils.timezone import now
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.client import KafkaProducer
 from posthog.models.group.group import Group
 from posthog.models.group.util import raw_create_group_ch

@@ -1,7 +1,7 @@
 import api from 'lib/api'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { DashboardFilter, HogQLVariable, RefreshType } from '~/queries/schema'
+import { DashboardFilter, HogQLVariable, RefreshType } from '~/queries/schema/schema-general'
 import { InsightShortId, QueryBasedInsightModel } from '~/types'
 
 async function _perform(

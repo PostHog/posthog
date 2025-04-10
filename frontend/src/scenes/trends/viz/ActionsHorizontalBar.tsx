@@ -15,7 +15,7 @@ import { trendsDataLogic } from '../trendsDataLogic'
 
 type DataSet = any
 
-export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): JSX.Element | null {
+export function ActionsHorizontalBar({ showPersonsModal = true, context }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
 
@@ -80,6 +80,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
             type={GraphType.HorizontalBar}
             tooltip={{
                 showHeader: false,
+                groupTypeLabel: context?.groupTypeLabel,
             }}
             labelGroupType={labelGroupType}
             datasets={data}
@@ -90,13 +91,23 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
             formula={formula}
             showValuesOnSeries={showValuesOnSeries}
             onClick={
-                !showPersonsModal || trendsFilter?.formula || isDataWarehouseSeries
-                    ? undefined
-                    : (point) => {
+                context?.onDataPointClick || (showPersonsModal && !trendsFilter?.formula && !isDataWarehouseSeries)
+                    ? (point) => {
                           const { index, points } = point
 
                           const dataset = points.referencePoint.dataset
                           const label = dataset.labels?.[point.index]
+
+                          if (context?.onDataPointClick) {
+                              context.onDataPointClick(
+                                  {
+                                      breakdown: dataset.breakdownValues?.[index],
+                                      compare: dataset.compareLabels?.[index],
+                                  },
+                                  indexedResults[0]
+                              )
+                              return
+                          }
 
                           openPersonsModal({
                               title: label || '',
@@ -108,6 +119,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
                               orderBy: ['event_count DESC, actor_id DESC'],
                           })
                       }
+                    : undefined
             }
         />
     ) : (

@@ -93,7 +93,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
                 raise serializers.ValidationError("This setting cannot be updated on cloud.")
 
             # TODO: Move to top-level imports once CH is moved out of `ee`
-            from posthog.client import sync_execute
+            from posthog.clickhouse.client import sync_execute
             from posthog.session_recordings.sql.session_recording_event_sql import (
                 UPDATE_RECORDINGS_TABLE_TTL_SQL,
             )
@@ -107,7 +107,7 @@ class InstanceSettingsSerializer(serializers.Serializer):
                 raise serializers.ValidationError("This setting cannot be updated on cloud.")
 
             # TODO: Move to top-level imports once CH is moved out of `ee`
-            from posthog.client import sync_execute
+            from posthog.clickhouse.client import sync_execute
             from posthog.models.performance.sql import (
                 UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL,
             )

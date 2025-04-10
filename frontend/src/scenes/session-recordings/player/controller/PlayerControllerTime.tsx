@@ -13,31 +13,63 @@ import { HotKeyOrModifier } from '~/types'
 import { playerSettingsLogic, TimestampFormat } from '../playerSettingsLogic'
 import { seekbarLogic } from './seekbarLogic'
 
-export function Timestamp(): JSX.Element {
-    const { logicProps, currentPlayerTime, currentTimestamp, sessionPlayerData } =
-        useValues(sessionRecordingPlayerLogic)
+function RelativeTimestampLabel({ size }: { size: 'small' | 'normal' }): JSX.Element {
+    const { logicProps, currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
-    const { timestampFormat } = useValues(playerSettingsLogic)
 
     const startTimeSeconds = ((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000
     const endTimeSeconds = Math.floor(sessionPlayerData.durationMs / 1000)
 
     const fixedUnits = endTimeSeconds > 3600 ? 3 : 2
 
-    return (
-        <div data-attr="recording-timestamp" className="text-center whitespace-nowrap font-mono text-xs">
-            {timestampFormat === TimestampFormat.Relative ? (
-                <div className="flex gap-0.5">
-                    <span>{colonDelimitedDuration(startTimeSeconds, fixedUnits)}</span>
-                    <span>/</span>
-                    <span>{colonDelimitedDuration(endTimeSeconds, fixedUnits)}</span>
-                </div>
-            ) : currentTimestamp ? (
-                <SimpleTimeLabel startTime={currentTimestamp} isUTC={timestampFormat === TimestampFormat.UTC} />
-            ) : (
-                '--/--/----, 00:00:00'
-            )}
+    const current = colonDelimitedDuration(startTimeSeconds, fixedUnits)
+    const total = colonDelimitedDuration(endTimeSeconds, fixedUnits)
+    const fullDisplay = (
+        <div className="flex gap-0.5">
+            <span>{current}</span>
+            <span>/</span>
+            <span>{total}</span>
         </div>
+    )
+    return size === 'small' ? (
+        <Tooltip title={fullDisplay}>
+            <span className="text-muted text-xs">{current}</span>
+        </Tooltip>
+    ) : (
+        <span className="text-muted text-xs">{fullDisplay}</span>
+    )
+}
+
+export function Timestamp({ size }: { size: 'small' | 'normal' }): JSX.Element {
+    const { logicProps, currentTimestamp, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
+    const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
+    const { timestampFormat } = useValues(playerSettingsLogic)
+    const { setTimestampFormat } = useActions(playerSettingsLogic)
+
+    const scrubbingTimestamp = sessionPlayerData.start?.valueOf()
+        ? scrubbingTime + sessionPlayerData.start?.valueOf()
+        : undefined
+
+    return (
+        <LemonButton
+            data-attr="recording-timestamp"
+            className="text-center whitespace-nowrap font-mono text-xs"
+            onClick={() => {
+                const values = Object.values(TimestampFormat)
+                const nextIndex = (values.indexOf(timestampFormat) + 1) % values.length
+                setTimestampFormat(values[nextIndex])
+            }}
+        >
+            {timestampFormat === TimestampFormat.Relative ? (
+                <RelativeTimestampLabel size={size} />
+            ) : (
+                <SimpleTimeLabel
+                    startTime={isScrubbing ? scrubbingTimestamp : currentTimestamp}
+                    timestampFormat={timestampFormat}
+                    containerSize={size}
+                />
+            )}
+        </LemonButton>
     )
 }
 

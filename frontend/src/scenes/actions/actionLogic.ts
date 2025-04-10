@@ -6,7 +6,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { ActionType, ActivityScope, Breadcrumb, HogFunctionType } from '~/types'
+import { ActionType, ActivityScope, Breadcrumb, HogFunctionType, ProjectTreeRef } from '~/types'
 
 import { actionEditLogic } from './actionEditLogic'
 import type { actionLogicType } from './actionLogicType'
@@ -41,7 +41,7 @@ export const actionLogic = kea<actionLogicType>([
             null as HogFunctionType[] | null,
             {
                 loadMatchingHogFunctions: async () => {
-                    const res = await api.hogFunctions.list({ actions: [{ id: `${props.id}` }] })
+                    const res = await api.hogFunctions.list({ filters: { actions: [{ id: `${props.id}` }] } })
 
                     return res.results
                 },
@@ -100,6 +100,10 @@ export const actionLogic = kea<actionLogicType>([
                     forceEditMode: !action?.id,
                 },
             ],
+        ],
+        projectTreeRef: [
+            () => [(_, props: ActionLogicProps) => props.id],
+            (id): ProjectTreeRef => ({ type: 'action', ref: String(id) }),
         ],
         hasCohortFilters: [
             (s) => [s.action],

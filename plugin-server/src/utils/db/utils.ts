@@ -1,7 +1,7 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
-import { ProducerRecord } from 'kafkajs'
 import { Counter } from 'prom-client'
+
+import { TopicMessage } from '~/src/kafka/producer'
 
 import { defaultConfig } from '../../config/config'
 import { KAFKA_PERSON } from '../../config/kafka-topics'
@@ -14,8 +14,9 @@ import {
     RawPerson,
     TimestampFormat,
 } from '../../types'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { areMapsEqual, castTimestampOrNow } from '../../utils/utils'
+import { captureException } from '../posthog'
 
 export function unparsePersonPartial(person: Partial<InternalPerson>): Partial<RawPerson> {
     return {
@@ -47,9 +48,9 @@ export function timeoutGuard(
 ): NodeJS.Timeout {
     return setTimeout(() => {
         const ctx = typeof context === 'function' ? context() : context
-        status.warn('⌛', message, ctx)
+        logger.warn('⌛', message, ctx)
         if (sendToSentry) {
-            Sentry.captureMessage(message, ctx ? { extra: ctx } : undefined)
+            captureException(message, ctx ? { extra: ctx } : undefined)
         }
     }, timeout)
 }
@@ -102,6 +103,11 @@ export const eventToPersonProperties = new Set([
     '$os_version',
     '$referring_domain',
     '$referrer',
+    '$screen_height',
+    '$screen_width',
+    '$viewport_height',
+    '$viewport_width',
+    '$raw_user_agent',
 
     ...campaignParams,
 ])
@@ -181,7 +187,7 @@ export function hasDifferenceWithProposedNewNormalisationMode(properties: Proper
     return !areMapsEqual(setOnce, filteredSetOnce)
 }
 
-export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): ProducerRecord {
+export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): TopicMessage {
     return {
         topic: KAFKA_PERSON,
         messages: [

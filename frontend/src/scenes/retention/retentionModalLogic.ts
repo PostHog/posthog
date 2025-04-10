@@ -6,7 +6,13 @@ import { retentionToActorsQuery } from 'scenes/retention/queries'
 import { urls } from 'scenes/urls'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
-import { ActorsQuery, DataTableNode, NodeKind, RetentionQuery } from '~/queries/schema/schema-general'
+import {
+    ActorsQuery,
+    DataTableNode,
+    InsightActorsQuery,
+    NodeKind,
+    RetentionQuery,
+} from '~/queries/schema/schema-general'
 import { isInsightActorsQuery, isLifecycleQuery, isRetentionQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
@@ -22,7 +28,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
-            ['querySource', 'retentionFilter'],
+            ['querySource', 'retentionFilter', 'theme'],
             groupsModel,
             ['aggregationLabel'],
             featureFlagLogic,
@@ -63,9 +69,35 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                 return retentionToActorsQuery(querySource, selectedInterval ?? 0)
             },
         ],
+        insightEventsQueryUrl: [
+            (s) => [s.actorsQuery],
+            (actorsQuery: ActorsQuery): string | null => {
+                if (!actorsQuery) {
+                    return null
+                }
+
+                // Generate insight events query from actors query
+                const { select: _select, ...source } = actorsQuery
+
+                const { includeRecordings, ...insightActorsQuery } = source.source as InsightActorsQuery
+
+                const query: DataTableNode = {
+                    kind: NodeKind.DataTableNode,
+                    source: {
+                        kind: NodeKind.EventsQuery,
+                        source: insightActorsQuery,
+                        select: ['*', 'event', 'person', 'timestamp'],
+                        after: 'all', // Show all events by default because date range is filtered by the source
+                    },
+                    full: true,
+                }
+
+                return urls.insightNew({ query })
+            },
+        ],
         exploreUrl: [
             (s) => [s.actorsQuery],
-            (actorsQuery): string | null => {
+            (actorsQuery: ActorsQuery): string | null => {
                 if (!actorsQuery) {
                     return null
                 }
@@ -81,7 +113,8 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                 ) {
                     query.showPropertyFilter = false
                 }
-                return urls.insightNew(undefined, undefined, query)
+
+                return urls.insightNew({ query })
             },
         ],
     }),

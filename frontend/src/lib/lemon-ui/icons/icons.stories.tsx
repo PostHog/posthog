@@ -54,7 +54,7 @@ const LibraryTemplate: StoryFn<{ letter?: string | null }> = ({ letter }) => {
             : allIcons.filter((icon) => !icon.name.replace('Icon', '').toLowerCase().match(/[a-z]/))
 
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <LemonCheckbox bordered checked={showBorder} onChange={setShowBorder} label="Show border" />
             <LemonTable
                 dataSource={filteredIcons}
@@ -194,7 +194,7 @@ ShelfOther.parameters = { testOptions: { snapshotTargetSelector: '.LemonTable tb
 
 export function IconWithCountBubble(): JSX.Element {
     return (
-        <span className="inline-flex text-2xl border border-primary p-1">
+        <span className="inline-flex text-2xl border border-accent p-1">
             <IconWithCount count={7}>
                 <IconDashboard />
             </IconWithCount>
@@ -204,7 +204,7 @@ export function IconWithCountBubble(): JSX.Element {
 
 export function IconWithCountHidingZero(): JSX.Element {
     return (
-        <span className="inline-flex text-2xl border border-primary p-1">
+        <span className="inline-flex text-2xl border border-accent p-1">
             <IconWithCount count={0} showZero={false}>
                 <IconDashboard />
             </IconWithCount>
@@ -214,7 +214,7 @@ export function IconWithCountHidingZero(): JSX.Element {
 
 export function IconWithCountShowingZero(): JSX.Element {
     return (
-        <span className="inline-flex text-2xl border border-primary p-1">
+        <span className="inline-flex text-2xl border border-accent p-1">
             <IconWithCount count={0} showZero={true}>
                 <IconDashboard />
             </IconWithCount>
@@ -224,7 +224,7 @@ export function IconWithCountShowingZero(): JSX.Element {
 
 export function IconWithCountOverflowing(): JSX.Element {
     return (
-        <span className="inline-flex text-2xl border border-primary p-1">
+        <span className="inline-flex text-2xl border border-accent p-1">
             <IconWithCount count={11} showZero={true}>
                 <IconDashboard />
             </IconWithCount>

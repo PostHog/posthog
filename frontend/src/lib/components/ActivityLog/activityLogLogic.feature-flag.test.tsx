@@ -528,5 +528,223 @@ describe('the activity log logic', () => {
                 'peter changed the filter conditions to apply to 76% of Initial Browser = Chrome , and 99% of Initial Browser Version = 100 on with two changes'
             )
         })
+
+        it('can handle changing variants from a multivariate flag', async () => {
+            const logic = await featureFlagsTestSetup('test flag', 'updated', [
+                {
+                    type: ActivityScope.FEATURE_FLAG,
+                    action: 'changed',
+                    field: 'filters',
+                    before: {
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 75,
+                            },
+                        ],
+                        multivariate: {
+                            variants: [
+                                { key: 'control', rollout_percentage: 50 },
+                                { key: 'test-1', rollout_percentage: 50 },
+                            ],
+                        },
+                    },
+                    after: {
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 75,
+                            },
+                        ],
+                        multivariate: {
+                            variants: [
+                                { key: 'control', rollout_percentage: 60 },
+                                { key: 'test-1', rollout_percentage: 40 },
+                            ],
+                        },
+                    },
+                },
+            ])
+
+            const actual = logic.values.humanizedActivity
+            expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
+                'peter changed the rollout percentage for the variants to control: 60%, and test-1: 40% on test flag'
+            )
+        })
+
+        it('can handle removing variant from a multivariate flag', async () => {
+            const logic = await featureFlagsTestSetup('test flag', 'updated', [
+                {
+                    type: ActivityScope.FEATURE_FLAG,
+                    action: 'changed',
+                    field: 'filters',
+                    before: {
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 75,
+                            },
+                        ],
+                        multivariate: {
+                            variants: [
+                                { key: 'control', rollout_percentage: 33 },
+                                { key: 'test-1', rollout_percentage: 33 },
+                                { key: 'test-2', rollout_percentage: 34 },
+                            ],
+                        },
+                    },
+                    after: {
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 75,
+                            },
+                        ],
+                        multivariate: {
+                            variants: [
+                                { key: 'control', rollout_percentage: 50 },
+                                { key: 'test-1', rollout_percentage: 50 },
+                            ],
+                        },
+                    },
+                },
+            ])
+
+            const actual = logic.values.humanizedActivity
+            expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
+                'peter changed the rollout percentage for the variants to control: 50%, and test-1: 50%, and removed variant test-2 on test flag'
+            )
+        })
+
+        it('can handle removing more than one variant from a multivariate flag', async () => {
+            const logic = await featureFlagsTestSetup('test flag', 'updated', [
+                {
+                    type: ActivityScope.FEATURE_FLAG,
+                    action: 'changed',
+                    field: 'filters',
+                    before: {
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 75,
+                            },
+                        ],
+                        multivariate: {
+                            variants: [
+                                { key: 'control', rollout_percentage: 33 },
+                                { key: 'test-1', rollout_percentage: 33 },
+                                { key: 'test-2', rollout_percentage: 34 },
+                                { key: 'test-3', rollout_percentage: 34 },
+                            ],
+                        },
+                    },
+                    after: {
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 75,
+                            },
+                        ],
+                        multivariate: {
+                            variants: [
+                                { key: 'control', rollout_percentage: 50 },
+                                { key: 'test-1', rollout_percentage: 50 },
+                            ],
+                        },
+                    },
+                },
+            ])
+
+            const actual = logic.values.humanizedActivity
+            expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
+                'peter changed the rollout percentage for the variants to control: 50%, and test-1: 50%, and removed variants test-2, and test-3 on test flag'
+            )
+        })
+
+        it.each([
+            {
+                name: 'null multivariate',
+                after: { multivariate: null },
+            },
+            {
+                name: 'empty variants array',
+                after: { multivariate: { variants: [] } },
+            },
+            {
+                name: 'undefined multivariate',
+                after: { multivariate: undefined },
+            },
+        ])('can handle removing all variants when $name', async ({ after }) => {
+            const logic = await featureFlagsTestSetup('test flag', 'updated', [
+                {
+                    type: ActivityScope.FEATURE_FLAG,
+                    action: 'changed',
+                    field: 'filters',
+                    before: {
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 75,
+                            },
+                        ],
+                        multivariate: {
+                            variants: [
+                                { key: 'control', rollout_percentage: 33 },
+                                { key: 'test-1', rollout_percentage: 33 },
+                            ],
+                        },
+                    },
+                    after: {
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 75,
+                            },
+                        ],
+                        ...after,
+                    },
+                },
+            ])
+
+            const actual = logic.values.humanizedActivity
+            expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
+                'peter removed all variants on test flag'
+            )
+        })
+
+        it('can handle removing the last variant from a multivariate flag', async () => {
+            const logic = await featureFlagsTestSetup('test flag', 'updated', [
+                {
+                    type: ActivityScope.FEATURE_FLAG,
+                    action: 'changed',
+                    field: 'filters',
+                    before: {
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 75,
+                            },
+                        ],
+                        multivariate: {
+                            variants: [{ key: 'control', rollout_percentage: 100 }],
+                        },
+                    },
+                    after: {
+                        groups: [
+                            {
+                                properties: [],
+                                rollout_percentage: 75,
+                            },
+                        ],
+                        multivariate: null,
+                    },
+                },
+            ])
+
+            const actual = logic.values.humanizedActivity
+            expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
+                'peter removed the last variant on test flag'
+            )
+        })
     })
 })

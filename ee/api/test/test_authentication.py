@@ -445,6 +445,61 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         _session = self.client.session
         self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
 
+    @freeze_time("2021-08-25T23:37:55.345Z")
+    def test_saml_jit_provisioning_with_case_insensitive_domain(self):
+        """
+        Tests that JIT provisioning works with case-insensitive domain matching.
+        This verifies that users with email domains that differ only in case from
+        the verified domain in the system can still be provisioned automatically.
+        """
+
+        # Create a new domain with uppercase characters
+        original_domain = self.organization_domain.domain
+        uppercase_email = f"engineering@{original_domain.upper()}"
+
+        response = self.client.get(f"/login/saml/?email={uppercase_email}")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        _session = self.client.session
+        _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
+        _session.save()
+
+        with open(
+            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_alt_attribute_names"),
+            encoding="utf_8",
+        ) as f:
+            saml_response = f.read()
+
+        user_count = User.objects.count()
+
+        response = self.client.post(
+            "/complete/saml/",
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": str(self.organization_domain.id),
+            },
+            format="multipart",
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+        self.assertRedirects(response, "/")  # redirect to the home page
+
+        # User is created despite the case difference in domain
+        self.assertEqual(User.objects.count(), user_count + 1)
+        user = cast(User, User.objects.last())
+        self.assertEqual(user.email, uppercase_email.lower())  # The SSO middleware will make this lowercase
+        self.assertEqual(user.organization, self.organization)
+        self.assertEqual(user.team, self.team)
+        self.assertEqual(user.organization_memberships.count(), 1)
+        self.assertEqual(
+            cast(OrganizationMembership, user.organization_memberships.first()).level,
+            OrganizationMembership.Level.MEMBER,
+        )
+
+        _session = self.client.session
+        self.assertEqual(_session.get("_auth_user_id"), str(user.pk))
+
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_cannot_login_with_improperly_signed_payload(self):
         self.organization_domain.saml_x509_cert = """MIIDPjCCAiYCCQC864/0fftWQTANBgkqhkiG9w0BAQsFADBhMQswCQYDVQQGEwJV
@@ -709,8 +764,8 @@ YotAcSbU3p5bzd11wpyebYHB"""
         import xmlsec
         import lxml
 
-        assert "1.3.13" == xmlsec.__version__
-        assert "4.9.4" == lxml.__version__
+        assert "1.3.14" == xmlsec.__version__
+        assert "5.2.1" == lxml.__version__
 
 
 class TestCustomGoogleOAuth2(APILicensedTest):

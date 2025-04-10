@@ -1,8 +1,7 @@
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonColorGlyph, LemonInput, LemonLabel, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { ColorGlyph } from 'lib/components/SeriesGlyph'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { dataColorThemesModalLogic } from './dataColorThemeModalLogic'
@@ -24,7 +23,7 @@ export function DataColorThemeModal(): JSX.Element {
             footer={
                 isOfficial ? (
                     <div className="flex justify-between items-center w-full">
-                        <span className="italic text-muted">Official themes can't be edited.</span>
+                        <span className="italic text-secondary">Official themes can't be edited.</span>
                         <LemonButton type="secondary" onClick={closeModal}>
                             Close
                         </LemonButton>
@@ -53,7 +52,7 @@ export function DataColorThemeModal(): JSX.Element {
                             title: '',
                             dataIndex: 'color',
                             key: 'glyph',
-                            render: (_, { color }) => <ColorGlyph color={color} />,
+                            render: (_, { color }) => <LemonColorGlyph color={color} />,
                             width: 24,
                         },
                         {

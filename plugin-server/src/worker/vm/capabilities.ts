@@ -1,34 +1,15 @@
-import { PluginCapabilities, PluginMethods, PluginTask, PluginTaskType } from '../../types'
+import { PluginCapabilities, PluginMethods } from '../../types'
 import { PluginServerCapabilities } from './../../types'
 
-const PROCESS_EVENT_CAPABILITIES = new Set(['ingestion', 'ingestionOverflow', 'ingestionHistorical'])
+const PROCESS_EVENT_CAPABILITIES = new Set<keyof PluginServerCapabilities>(['ingestionV2', 'ingestionV2Combined'])
 
-export function getVMPluginCapabilities(
-    methods: PluginMethods,
-    tasks: Record<PluginTaskType, Record<string, PluginTask>>
-): PluginCapabilities {
-    const capabilities: Required<PluginCapabilities> = { scheduled_tasks: [], jobs: [], methods: [] }
+export function getVMPluginCapabilities(methods: PluginMethods): PluginCapabilities {
+    const capabilities: Required<PluginCapabilities> = { methods: [] }
 
     if (methods) {
         for (const [key, value] of Object.entries(methods)) {
             if (value as PluginMethods[keyof PluginMethods] | undefined) {
                 capabilities.methods.push(key)
-            }
-        }
-    }
-
-    if (tasks?.schedule) {
-        for (const [key, value] of Object.entries(tasks.schedule)) {
-            if (value) {
-                capabilities.scheduled_tasks.push(key)
-            }
-        }
-    }
-
-    if (tasks?.job) {
-        for (const [key, value] of Object.entries(tasks.job)) {
-            if (value) {
-                capabilities.jobs.push(key)
             }
         }
     }
@@ -39,12 +20,6 @@ export function getVMPluginCapabilities(
 function shouldSetupPlugin(serverCapability: keyof PluginServerCapabilities, pluginCapabilities: PluginCapabilities) {
     if (PROCESS_EVENT_CAPABILITIES.has(serverCapability)) {
         return pluginCapabilities.methods?.includes('processEvent')
-    }
-    if (serverCapability === 'pluginScheduledTasks') {
-        return (pluginCapabilities.scheduled_tasks || []).length > 0
-    }
-    if (serverCapability === 'processPluginJobs') {
-        return (pluginCapabilities.jobs || []).length > 0
     }
     if (serverCapability === 'processAsyncOnEventHandlers') {
         return pluginCapabilities.methods?.some((method) => ['onEvent', 'composeWebhook'].includes(method))

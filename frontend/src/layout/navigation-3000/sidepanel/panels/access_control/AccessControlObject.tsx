@@ -8,6 +8,8 @@ import {
     LemonSelect,
     LemonSelectProps,
     LemonTable,
+    LemonTag,
+    Tooltip,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -38,7 +40,7 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
 
     return (
         <BindLogic logic={accessControlLogic} props={props}>
-            <div className="space-y-6">
+            <div className="deprecated-space-y-6">
                 {canEditAccessControls === false ? (
                     <LemonBanner type="warning">
                         <b>Permission required</b>
@@ -48,17 +50,18 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                     </LemonBanner>
                 ) : null}
 
-                <div className="space-y-2">
+                <div className="deprecated-space-y-2">
                     <h3>Default access to {suffix}</h3>
                     <AccessControlObjectDefaults />
                 </div>
 
-                <PayGateMini feature={AvailableFeature.PROJECT_BASED_PERMISSIONING}>
+                <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS} className="deprecated-space-y-6">
                     <AccessControlObjectUsers />
-                </PayGateMini>
 
-                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                    <AccessControlObjectRoles />
+                    {/* Put this inside of Advanced Permissions so two aren't shown at once */}
+                    <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                        <AccessControlObjectRoles />
+                    </PayGateMini>
                 </PayGateMini>
             </div>
         </BindLogic>
@@ -76,7 +79,7 @@ function AccessControlObjectDefaults(): JSX.Element | null {
             placeholder="Loading..."
             value={accessControlDefault?.access_level ?? undefined}
             onChange={(newValue) => {
-                guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING, () => {
+                guardAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS, () => {
                     updateAccessControlDefault(newValue)
                 })
             }}
@@ -126,7 +129,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                                 ? `${member(ac)?.user.first_name} (you)`
                                 : member(ac)?.user.first_name}
                         </p>
-                        <p className="text-muted-alt mb-0">{member(ac)?.user.email}</p>
+                        <p className="text-secondary mb-0">{member(ac)?.user.email}</p>
                     </div>
                 </div>
             ),
@@ -136,8 +139,12 @@ function AccessControlObjectUsers(): JSX.Element | null {
             key: 'level',
             title: 'Level',
             width: 0,
-            render: function LevelRender(_, { access_level, organization_member }) {
-                return (
+            render: function LevelRender(_, { access_level, organization_member, resource }) {
+                return resource === 'organization' ? (
+                    <Tooltip title="Organization owners and admins have access to all resources in the organization">
+                        <LemonTag type="muted">Organization admin</LemonTag>
+                    </Tooltip>
+                ) : (
                     <div className="my-1">
                         <SimplLevelComponent
                             size="small"
@@ -154,8 +161,8 @@ function AccessControlObjectUsers(): JSX.Element | null {
         {
             key: 'remove',
             width: 0,
-            render: (_, { organization_member }) => {
-                return (
+            render: (_, { organization_member, resource }) => {
+                return resource === 'organization' ? null : (
                     <RemoveAccessButton
                         subject="member"
                         onConfirm={() =>
@@ -169,7 +176,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
 
     return (
         <>
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <div className="flex gap-2 items-center justify-between">
                     <h3 className="mb-0">Members</h3>
                     <LemonButton
@@ -189,7 +196,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                 setModelOpen={setModelOpen}
                 placeholder="Search for team members to add…"
                 onAdd={async (newValues, level) => {
-                    if (guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING)) {
+                    if (guardAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS)) {
                         await updateAccessControlMembers(newValues.map((member) => ({ member, level })))
                         setModelOpen(false)
                     }
@@ -282,7 +289,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
 
     return (
         <>
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <div className="flex gap-2 items-center justify-between">
                     <h3 className="mb-0">Roles</h3>
                     <LemonButton
@@ -302,7 +309,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
                 setModelOpen={setModelOpen}
                 placeholder="Search for roles to add…"
                 onAdd={async (newValues, level) => {
-                    if (guardAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING)) {
+                    if (guardAvailableFeature(AvailableFeature.ADVANCED_PERMISSIONS)) {
                         await updateAccessControlRoles(newValues.map((role) => ({ role, level })))
                         setModelOpen(false)
                     }

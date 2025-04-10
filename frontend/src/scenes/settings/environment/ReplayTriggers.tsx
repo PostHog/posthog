@@ -3,13 +3,17 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { AiRegexHelper, AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 import { replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
 import { SupportedPlatforms } from 'scenes/settings/environment/SessionRecordingSettings'
 
@@ -24,12 +28,14 @@ function UrlConfigForm({
     onCancel: () => void
     isSubmitting: boolean
 }): JSX.Element {
+    const { addUrlTrigger, addUrlBlocklist } = useActions(replayTriggersLogic)
+
     return (
         <Form
             logic={replayTriggersLogic}
             formKey={type === 'trigger' ? 'proposedUrlTrigger' : 'proposedUrlBlocklist'}
             enableFormOnSubmit
-            className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-bg-light gap-2"
+            className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-surface-primary gap-2"
         >
             <div className="flex flex-col gap-2 w-full">
                 <LemonBanner type="info" className="text-sm">
@@ -44,18 +50,43 @@ function UrlConfigForm({
                     </LemonField>
                 </LemonLabel>
             </div>
-            <div className="flex justify-end gap-2 w-full">
-                <LemonButton type="secondary" onClick={onCancel}>
-                    Cancel
-                </LemonButton>
-                <LemonButton
-                    htmlType="submit"
-                    type="primary"
-                    disabledReason={isSubmitting ? `Saving url in progress` : undefined}
-                    data-attr="url-save"
-                >
-                    Save
-                </LemonButton>
+            <div className="flex justify-between gap-2 w-full">
+                <div>
+                    <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_AI_REGEX}>
+                        <AiRegexHelper
+                            onApply={(regex) => {
+                                try {
+                                    const payload: SessionReplayUrlTriggerConfig = {
+                                        url: regex,
+                                        matching: 'regex',
+                                    }
+                                    if (type === 'trigger') {
+                                        addUrlTrigger(payload)
+                                    } else {
+                                        addUrlBlocklist(payload)
+                                    }
+                                } catch (error) {
+                                    lemonToast.error('Failed to apply regex')
+                                }
+                            }}
+                        />
+                        <AiRegexHelperButton />
+                    </FlaggedFeature>
+                </div>
+
+                <div className="flex gap-2">
+                    <LemonButton type="secondary" onClick={onCancel}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        htmlType="submit"
+                        type="primary"
+                        disabledReason={isSubmitting ? `Saving url in progress` : undefined}
+                        data-attr="url-save"
+                    >
+                        Save
+                    </LemonButton>
+                </div>
             </div>
         </Form>
     )
@@ -78,18 +109,19 @@ function UrlConfigRow({
 }): JSX.Element {
     if (editIndex === index) {
         return (
-            <div className="border rounded p-2 bg-bg-light">
+            <div className="border rounded p-2 bg-surface-primary">
                 <UrlConfigForm type={type} onCancel={() => onEdit(-1)} isSubmitting={false} />
             </div>
         )
     }
 
     return (
-        <div className={clsx('border rounded flex items-center p-2 pl-4 bg-bg-light')}>
+        <div className={clsx('border rounded flex items-center p-2 pl-4 bg-surface-primary')}>
             <span title={trigger.url} className="flex-1 truncate">
-                {trigger.matching === 'regex' ? 'Matches regex: ' : ''} {trigger.url}
+                <span>{trigger.matching === 'regex' ? 'Matches regex: ' : ''}</span>
+                <span>{trigger.url}</span>
             </span>
-            <div className="Actions flex space-x-1 shrink-0">
+            <div className="Actions flex deprecated-space-x-1 shrink-0">
                 <LemonButton icon={<IconPencil />} onClick={() => onEdit(index)} tooltip="Edit" center />
                 <LemonButton
                     icon={<IconTrash />}
@@ -134,7 +166,7 @@ function UrlConfigSection({
     onRemove: (index: number) => void
 }): JSX.Element {
     return (
-        <div className="flex flex-col space-y-2 mt-4">
+        <div className="flex flex-col deprecated-space-y-2 mt-4">
             <div className="flex items-center gap-2 justify-between">
                 <LemonLabel className="text-base">{title}</LemonLabel>
                 <LemonButton
@@ -221,7 +253,7 @@ function EventTriggerOptions(): JSX.Element | null {
     const { updateEventTriggerConfig } = useActions(replayTriggersLogic)
 
     return (
-        <div className="flex flex-col space-y-2 mt-4">
+        <div className="flex flex-col deprecated-space-y-2 mt-4">
             <div className="flex items-center gap-2 justify-between">
                 <LemonLabel className="text-base">Event emitted</LemonLabel>
             </div>
@@ -248,12 +280,22 @@ function EventTriggerOptions(): JSX.Element | null {
 
 export function ReplayTriggers(): JSX.Element {
     return (
-        <div className="space-y-2">
-            <SupportedPlatforms android={false} ios={false} flutter={false} web={true} reactNative={false} />
+        <div className="deprecated-space-y-2">
+            <SupportedPlatforms
+                android={false}
+                ios={false}
+                flutter={false}
+                web={{ version: '1.186.0', note: 'url trigger is supported since version 1.171.0' }}
+                reactNative={false}
+            />
             <p>
                 Use the settings below to control when recordings are started or paused. If no triggers are selected,
                 then recordings will always start if enabled.
             </p>
+            <LemonBanner type="info">
+                Session recording triggers work as OR conditions — the recording starts if <i>any</i> of the set
+                triggers (URL or event) are matched.
+            </LemonBanner>
             <UrlTriggerOptions />
             <UrlBlocklistOptions />
             <EventTriggerOptions />

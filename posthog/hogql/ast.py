@@ -1,3 +1,6 @@
+import dataclasses
+import inspect
+import sys
 from enum import StrEnum
 from typing import Any, Literal, Optional, Union, get_args
 from collections.abc import Sequence
@@ -187,15 +190,6 @@ class TableType(BaseTableType):
 
 
 @dataclass(kw_only=True)
-class TableAliasType(BaseTableType):
-    alias: str
-    table_type: TableType
-
-    def resolve_database_table(self, context: HogQLContext) -> Table:
-        return self.table_type.table
-
-
-@dataclass(kw_only=True)
 class LazyJoinType(BaseTableType):
     table_type: TableOrSelectType
     field: str
@@ -214,6 +208,15 @@ class LazyTableType(BaseTableType):
 
     def resolve_database_table(self, context: HogQLContext) -> Table:
         return self.table
+
+
+@dataclass(kw_only=True)
+class TableAliasType(BaseTableType):
+    alias: str
+    table_type: TableType | LazyTableType
+
+    def resolve_database_table(self, context: HogQLContext) -> Table | LazyTable:
+        return self.table_type.table
 
 
 @dataclass(kw_only=True)
@@ -370,6 +373,14 @@ class IntegerType(ConstantType):
 
 
 @dataclass(kw_only=True)
+class DecimalType(ConstantType):
+    data_type: ConstantDataType = field(default="unknown", init=False)
+
+    def print_type(self) -> str:
+        return "Decimal"
+
+
+@dataclass(kw_only=True)
 class FloatType(ConstantType):
     data_type: ConstantDataType = field(default="float", init=False)
 
@@ -501,7 +512,7 @@ class FieldType(Type):
     def is_nullable(self, context: HogQLContext) -> bool:
         database_field = self.resolve_database_field(context)
         if isinstance(database_field, DatabaseField):
-            return database_field.nullable
+            return bool(database_field.nullable)
         return True
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
@@ -567,7 +578,8 @@ class PropertyType(Type):
         if self.joined_subquery is not None and self.joined_subquery_field_name is not None:
             return self.joined_subquery.resolve_column_constant_type(self.joined_subquery_field_name, context)
 
-        return self.field_type.resolve_constant_type(context)
+        # PropertyTypes are always nullable
+        return dataclasses.replace(self.field_type.resolve_constant_type(context), nullable=True)
 
 
 @dataclass(kw_only=True)
@@ -764,7 +776,7 @@ class JoinExpr(Expr):
     type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
-    table: Optional[Union["SelectQuery", "SelectSetQuery", Field]] = None
+    table: Optional[Union["SelectQuery", "SelectSetQuery", Placeholder, "HogQLXTag", Field]] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
@@ -798,6 +810,13 @@ class WindowFunction(Expr):
 
 
 @dataclass(kw_only=True)
+class LimitByExpr(Expr):
+    n: Expr
+    exprs: list[Expr]
+    offset_value: Optional[Expr] = None
+
+
+@dataclass(kw_only=True)
 class SelectQuery(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[SelectQueryType] = None
@@ -814,11 +833,20 @@ class SelectQuery(Expr):
     group_by: Optional[list[Expr]] = None
     order_by: Optional[list[OrderExpr]] = None
     limit: Optional[Expr] = None
-    limit_by: Optional[list[Expr]] = None
+    limit_by: Optional[LimitByExpr] = None
     limit_with_ties: Optional[bool] = None
     offset: Optional[Expr] = None
     settings: Optional[HogQLQuerySettings] = None
     view_name: Optional[str] = None
+
+    @classmethod
+    def empty(cls) -> "SelectQuery":
+        """Returns an empty SelectQuery that evaluates to no rows.
+
+        Creates a query that selects constant 1 with a WHERE clause that is always false,
+        effectively returning zero rows while maintaining valid SQL syntax.
+        """
+        return SelectQuery(select=[Constant(value=1)], where=Constant(value=False))
 
 
 SetOperator = Literal["UNION ALL", "UNION DISTINCT", "INTERSECT", "INTERSECT DISTINCT", "EXCEPT"]
@@ -878,9 +906,25 @@ class HogQLXAttribute(AST):
 class HogQLXTag(AST):
     kind: str
     attributes: list[HogQLXAttribute]
+    type: Optional[Type] = None
 
     def to_dict(self):
         return {
             "kind": self.kind,
             **{a.name: a.value for a in self.attributes},
         }
+
+
+def create_ast_classes_mapping() -> dict[str, AST]:
+    current_module = sys.modules[__name__]
+    ast_classes: dict[str, AST] = {}
+
+    for name, obj in inspect.getmembers(current_module, inspect.isclass):
+        if issubclass(obj, AST) and obj is not AST:
+            ast_classes[name] = obj
+
+    return ast_classes
+
+
+# Call the function to dynamically generate AST_CLASSES
+AST_CLASSES = create_ast_classes_mapping()

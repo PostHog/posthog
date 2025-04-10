@@ -4,7 +4,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { useEffect, useState } from 'react'
 
-import { AnyDataNode } from '~/queries/schema'
+import { AnyDataNode } from '~/queries/schema/schema-general'
 import { isActorsQuery } from '~/queries/utils'
 
 export interface HogQLEditorProps {
@@ -53,12 +53,12 @@ export function HogQLEditor({
                           }
                 }
             />
-            <div className="text-muted pt-2 text-xs">
+            <div className="text-secondary pt-2 text-xs">
                 <pre>
                     {placeholder ??
                         (metadataSource && isActorsQuery(metadataSource)
-                            ? "Enter HogQL expression, such as:\n- properties.$geoip_country_name\n- toInt(properties.$browser_version) * 10\n- concat(properties.name, ' <', properties.email, '>')\n- is_identified ? 'user' : 'anon'"
-                            : "Enter HogQL Expression, such as:\n- properties.$current_url\n- person.properties.$geoip_country_name\n- pdi.person.properties.email\n- toInt(properties.`Long Field Name`) * 10\n- concat(event, ' ', distinct_id)\n- if(1 < 2, 'small', 'large')")}
+                            ? "Enter SQL expression, such as:\n- properties.$geoip_country_name\n- toInt(properties.$browser_version) * 10\n- concat(properties.name, ' <', properties.email, '>')\n- is_identified ? 'user' : 'anon'"
+                            : "Enter SQL Expression, such as:\n- properties.$current_url\n- person.properties.$geoip_country_name\n- pdi.person.properties.email\n- toInt(properties.`Long Field Name`) * 10\n- concat(event, ' ', distinct_id)")}
                 </pre>
             </div>
             <LemonButton
@@ -66,15 +66,15 @@ export function HogQLEditor({
                 fullWidth
                 type="primary"
                 onClick={() => onChange(bufferedValue)}
-                disabledReason={!bufferedValue ? 'Please enter a HogQL expression' : null}
+                disabledReason={!bufferedValue ? 'Please enter a SQL expression' : null}
                 center
             >
-                {submitText ?? 'Update HogQL expression'}
+                {submitText ?? 'Update SQL expression'}
             </LemonButton>
             <div className="flex mt-1 gap-1">
                 <div className={`w-full text-right select-none ${CLICK_OUTSIDE_BLOCK_CLASS}`}>
-                    <Link to="https://posthog.com/docs/hogql" target="_blank">
-                        Learn more about HogQL
+                    <Link to="https://posthog.com/docs/sql" target="_blank">
+                        Learn more about SQL
                     </Link>
                 </div>
             </div>

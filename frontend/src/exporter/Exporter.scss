@@ -1,4 +1,5 @@
 @import '../styles/mixins';
+@import '../styles/global';
 
 body.ExporterBody {
     overflow: initial;
@@ -45,9 +46,9 @@ html.export-type-image {
     }
 
     body {
-        // We put Inter first so that rendered images are the same no matter which platform it is rendered on.
-        font-family: Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
-            'Segoe UI Symbol';
+        // Put Inter high on the list so that rendered images are the same no matter which platform it is rendered on.
+        font-family: 'Emoji Flags Polyfill', Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif,
+            'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
     }
 }
 

@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { cohortsModel } from '~/models/cohortsModel'
-import { AnyDataNode } from '~/queries/schema'
+import { AnyDataNode } from '~/queries/schema/schema-general'
 import { CohortType, ExportContext, ExportedAssetType, ExporterFormat, LocalExportContext, SidePanelTab } from '~/types'
 
 import type { exportsLogicType } from './exportsLogicType'
@@ -36,9 +36,9 @@ export const exportsLogic = kea<exportsLogicType>([
         createStaticCohort: (name: string, query: AnyDataNode) => ({ query, name }),
     }),
 
-    connect({
+    connect(() => ({
         actions: [sidePanelStateLogic, ['openSidePanel']],
-    }),
+    })),
 
     reducers({
         exports: [

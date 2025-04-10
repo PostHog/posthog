@@ -7,7 +7,7 @@ from typing import Any, Optional
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.compiler.javascript_stl import STL_FUNCTIONS, import_stl_functions
-from posthog.hogql.errors import QueryError, NotImplementedError
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_program
 from posthog.hogql.visitor import Visitor
 
@@ -116,6 +116,7 @@ class JavaScriptCompiler(Visitor):
         self.args = args or []
         self.indent_level = 0
         self.stl_functions: set[str] = set()
+        self.mode: str = "hog"
 
         # Initialize locals with function arguments
         for arg in self.args:
@@ -140,6 +141,28 @@ class JavaScriptCompiler(Visitor):
     def _indent(self, code: str) -> str:
         indentation = "    " * self.indent_level
         return "\n".join(indentation + line if line else "" for line in code.split("\n"))
+
+    def visit(self, node: ast.AST | None):
+        # In "hog" mode we compile AST nodes to bytecode.
+        # In "ast" mode we pass through as they are.
+        # You may enter "ast" mode with `sql()` or `(select ...)`
+        if self.mode == "hog" or isinstance(node, ast.Placeholder):
+            return super().visit(node)
+        return self._visit_hog_ast(node)
+
+    def _visit_hog_ast(self, node: AST | None) -> str:
+        if node is None:
+            return "null"
+
+        fields = [f'"__hx_ast": {json.dumps(node.__class__.__name__)}']
+        for field in dataclasses.fields(node):
+            if field.name in ["start", "end", "type"]:
+                continue
+            value = getattr(node, field.name)
+            if value is None:
+                continue
+            fields.append(f"{json.dumps(field.name)}: {self._visit_hogqlx_value(value)}")
+        return "{" + ", ".join(fields) + "}"
 
     def visit_and(self, node: ast.And):
         code = " && ".join([self.visit(expr) for expr in node.exprs])
@@ -270,6 +293,8 @@ class JavaScriptCompiler(Visitor):
             raise QueryError(f"Unsupported constant type: {type(value)}")
 
     def visit_call(self, node: ast.Call):
+        # HogQL functions can come as name(params)(args), or name(args) if no params
+        # If node.params is not None, it means we actually have something like name(params)(args).
         if node.params is not None:
             return self.visit(ast.ExprCall(expr=ast.Call(name=node.name, args=node.params), args=node.args or []))
 
@@ -307,6 +332,11 @@ class JavaScriptCompiler(Visitor):
             expr_code = self.visit(node.args[0])
             if_null_code = self.visit(node.args[1])
             return f"({expr_code} ?? {if_null_code})"
+        if node.name == "sql" and len(node.args) == 1:
+            self.mode = "ast"
+            response = self.visit(node.args[0])
+            self.mode = "hog"
+            return response
 
         if node.name in STL_FUNCTIONS:
             self.stl_functions.add(node.name)
@@ -517,6 +547,8 @@ class JavaScriptCompiler(Visitor):
             expr_code = self.visit(
                 ast.Block(declarations=[ast.ExprStatement(expr=node.expr.expr), ast.ReturnStatement(expr=None)])
             )
+        elif isinstance(node.expr, ast.Dict):
+            expr_code = f"({self.visit(node.expr)})"
         else:
             expr_code = self.visit(node.expr)
         self._end_scope()
@@ -573,5 +605,25 @@ class JavaScriptCompiler(Visitor):
             return json.dumps(value)
         return "null"
 
+    def visit_placeholder(self, node: ast.Placeholder):
+        if self.mode == "ast":
+            self.mode = "hog"
+            result = self.visit(node.expr)
+            self.mode = "ast"
+            return result
+        raise QueryError("Placeholders are not allowed in this context")
+
+    def _visit_select_query(self, node: ast.SelectQuery | ast.SelectSetQuery) -> str:
+        # Select queries always trigger "ast" mode
+        last_mode = self.mode
+        self.mode = "ast"
+        try:
+            return self._visit_hog_ast(node)
+        finally:
+            self.mode = last_mode
+
     def visit_select_query(self, node: ast.SelectQuery):
-        raise NotImplementedError("JavaScriptCompiler does not support SelectQuery")
+        return self._visit_select_query(node)
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        return self._visit_select_query(node)

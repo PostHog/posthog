@@ -17,8 +17,6 @@ import { GlobalModals } from '~/layout/GlobalModals'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { actionsModel } from '~/models/actionsModel'
-import { cohortsModel } from '~/models/cohortsModel'
 
 import type { appLogicType } from './AppType'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
@@ -28,7 +26,7 @@ window.process = MOCK_NODE_PROCESS
 
 export const appLogic = kea<appLogicType>([
     path(['scenes', 'App']),
-    connect([teamLogic, organizationLogic, actionsModel, cohortsModel]),
+    connect([teamLogic, organizationLogic]),
     actions({
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,

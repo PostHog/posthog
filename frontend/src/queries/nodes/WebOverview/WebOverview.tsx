@@ -1,28 +1,34 @@
-import { IconTrending } from '@posthog/icons'
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { IconGear, IconTrending } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
+import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { revenueEventsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueEventsSettingsLogic'
 import { useState } from 'react'
+import { urls } from 'scenes/urls'
 
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
 import {
     AnyResponseType,
+    CurrencyCode,
     WebOverviewItem,
     WebOverviewItemKind,
     WebOverviewQuery,
     WebOverviewQueryResponse,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 
 const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS = 10
 
-const OVERVIEW_ITEM_CELL_CLASSES = `flex-1 border p-2 bg-bg-light rounded min-w-[${OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS}rem] h-30 flex flex-col items-center text-center justify-between`
+// Keep min-w-[10rem] in sync with OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS
+const OVERVIEW_ITEM_CELL_CLASSES = `flex-1 border p-2 bg-surface-primary rounded min-w-[10rem] h-30 flex flex-col items-center text-center justify-between`
 
 let uniqueNode = 0
 export function WebOverview(props: {
@@ -46,7 +52,10 @@ export function WebOverview(props: {
 
     const samplingRate = webOverviewQueryResponse?.samplingRate
 
-    const numSkeletons = props.query.conversionGoal ? 4 : 6
+    let numSkeletons = props.query.conversionGoal ? 4 : 5
+    if (useFeatureFlag('WEB_REVENUE_TRACKING')) {
+        numSkeletons += 1
+    }
 
     return (
         <>
@@ -82,7 +91,11 @@ const WebOverviewItemCellSkeleton = (): JSX.Element => {
 }
 
 const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element => {
+    const { baseCurrency } = useValues(revenueEventsSettingsLogic)
+
     const label = labelFromKey(item.key)
+    const isBeta = item.key === 'revenue' || item.key === 'conversion revenue'
+
     const trend = isNotNil(item.changeFromPreviousPct)
         ? item.changeFromPreviousPct === 0
             ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
@@ -97,27 +110,38 @@ const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element =
               }
         : undefined
 
+    const docsUrl = settingsLinkFromKey(item.key)
+
     // If current === previous, say "increased by 0%"
     const tooltip =
         isNotNil(item.value) && isNotNil(item.previous) && isNotNil(item.changeFromPreviousPct)
             ? `${label}: ${item.value >= item.previous ? 'increased' : 'decreased'} by ${formatPercentage(
                   Math.abs(item.changeFromPreviousPct),
                   { precise: true }
-              )}, to ${formatItem(item.value, item.kind, { precise: true })} from ${formatItem(
+              )}, to ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })} from ${formatItem(
                   item.previous,
                   item.kind,
-                  { precise: true }
+                  { precise: true, currency: baseCurrency }
               )}`
             : isNotNil(item.value)
-            ? `${label}: ${formatItem(item.value, item.kind, { precise: true })}`
+            ? `${label}: ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })}`
             : 'No data'
 
     return (
         <Tooltip title={tooltip}>
             <div className={OVERVIEW_ITEM_CELL_CLASSES}>
-                <div className="font-bold uppercase text-xs">{label}</div>
+                <div className="flex flex-row w-full">
+                    <div className="flex flex-row items-start justify-start flex-1">
+                        {/* NOTE: If ever removing the beta tag, make sure we keep an empty div with flex-1 to keep the layout consistent */}
+                        {isBeta && <LemonTag type="warning">BETA</LemonTag>}
+                    </div>
+                    <div className="font-bold uppercase text-xs py-1">{label}&nbsp;&nbsp;</div>
+                    <div className="flex flex-1 flex-row justify-end items-start">
+                        {docsUrl && <LemonButton to={docsUrl} icon={<IconGear />} size="xsmall" />}
+                    </div>
+                </div>
                 <div className="w-full flex-1 flex items-center justify-center">
-                    <div className="text-2xl">{formatItem(item.value, item.kind)}</div>
+                    <div className="text-2xl">{formatItem(item.value, item.kind, { currency: baseCurrency })}</div>
                 </div>
                 {trend && isNotNil(item.changeFromPreviousPct) ? (
                     // eslint-disable-next-line react/forbid-dom-props
@@ -148,13 +172,22 @@ const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     return humanFriendlyLargeNumber(x)
 }
 
-const formatItem = (value: number | undefined, kind: WebOverviewItemKind, options?: { precise?: boolean }): string => {
+const formatItem = (
+    value: number | undefined,
+    kind: WebOverviewItemKind,
+    options?: { precise?: boolean; currency?: string }
+): string => {
     if (value == null) {
         return '-'
     } else if (kind === 'percentage') {
-        return formatPercentage(value, options)
+        return formatPercentage(value, { precise: options?.precise })
     } else if (kind === 'duration_s') {
         return humanFriendlyDuration(value, { secondsPrecision: 3 })
+    } else if (kind === 'currency') {
+        const { symbol, isPrefix } = getCurrencySymbol(options?.currency ?? CurrencyCode.USD)
+        return `${isPrefix ? symbol : ''}${formatUnit(value, { precise: options?.precise })}${
+            isPrefix ? '' : ' ' + symbol
+        }`
     }
     return formatUnit(value, options)
 }
@@ -184,5 +217,15 @@ const labelFromKey = (key: string): string => {
                 .split(' ')
                 .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
                 .join(' ')
+    }
+}
+
+const settingsLinkFromKey = (key: string): string | null => {
+    switch (key) {
+        case 'revenue':
+        case 'conversion revenue':
+            return urls.revenueSettings()
+        default:
+            return null
     }
 }

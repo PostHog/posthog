@@ -10,6 +10,7 @@ import { ProjectType } from '~/types'
 
 import { organizationLogic } from './organizationLogic'
 import type { projectLogicType } from './projectLogicType'
+import { urls } from './urls'
 import { userLogic } from './userLogic'
 
 export const projectLogic = kea<projectLogicType>([
@@ -18,9 +19,15 @@ export const projectLogic = kea<projectLogicType>([
         deleteProject: (project: ProjectType) => ({ project }),
         deleteProjectSuccess: true,
         deleteProjectFailure: true,
+        moveProject: (project: ProjectType, organizationId: string) => ({ project, organizationId }),
     }),
     connect(() => ({
-        actions: [userLogic, ['loadUser', 'switchTeam'], organizationLogic, ['loadCurrentOrganization']],
+        actions: [
+            userLogic,
+            ['loadUser', 'switchTeam', 'updateCurrentOrganization'],
+            organizationLogic,
+            ['loadCurrentOrganization'],
+        ],
     })),
     reducers({
         projectBeingDeleted: [
@@ -87,6 +94,21 @@ export const projectLogic = kea<projectLogicType>([
                 },
             },
         ],
+
+        projectBeingMoved: [
+            null as ProjectType | null,
+            {
+                moveProject: async ({ project, organizationId }) => {
+                    const res = await api.create<ProjectType>(`api/projects/${project.id}/change_organization`, {
+                        organization_id: organizationId,
+                    })
+
+                    await api.update('api/users/@me/', { set_current_organization: organizationId })
+
+                    return res
+                },
+            },
+        ],
     })),
     selectors({
         currentProjectId: [(s) => [s.currentProject], (currentProject) => currentProject?.id || null],
@@ -111,8 +133,13 @@ export const projectLogic = kea<projectLogicType>([
         },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
-                actions.switchTeam(currentProject.id)
+                actions.switchTeam(currentProject.id, urls.products())
             }
+        },
+
+        moveProjectSuccess: () => {
+            lemonToast.success('Project has been moved. Redirecting...')
+            window.location.reload()
         },
     })),
     afterMount(({ actions }) => {

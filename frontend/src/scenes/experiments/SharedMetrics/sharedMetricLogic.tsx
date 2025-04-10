@@ -3,11 +3,13 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { UserBasicType } from '~/types'
 
-import { getDefaultTrendsMetric } from '../experimentLogic'
+import { getDefaultFunnelMetric, getDefaultTrendsMetric } from '../utils'
 import type { sharedMetricLogicType } from './sharedMetricLogicType'
 import { sharedMetricsLogic } from './sharedMetricsLogic'
 
@@ -23,12 +25,14 @@ export interface SharedMetric {
     created_by: UserBasicType | null
     created_at: string | null
     updated_at: string | null
+    tags: string[]
 }
 
 export const NEW_SHARED_METRIC: Partial<SharedMetric> = {
     name: '',
     description: '',
-    query: getDefaultTrendsMetric(),
+    query: undefined,
+    tags: [],
 }
 
 export const sharedMetricLogic = kea<sharedMetricLogicType>([
@@ -37,6 +41,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
     key((props) => props.sharedMetricId || 'new'),
     connect(() => ({
         actions: [sharedMetricsLogic, ['loadSharedMetrics'], eventUsageLogic, ['reportExperimentSharedMetricCreated']],
+        values: [featureFlagLogic, ['featureFlags']],
     })),
     actions({
         setSharedMetric: (metric: Partial<SharedMetric>) => ({ metric }),
@@ -45,7 +50,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
         deleteSharedMetric: true,
     }),
 
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         sharedMetric: {
             loadSharedMetric: async () => {
                 if (props.sharedMetricId && props.sharedMetricId !== 'new') {
@@ -54,7 +59,9 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
                     )
                     return response as SharedMetric
                 }
-                return { ...NEW_SHARED_METRIC }
+                return {
+                    ...values.newSharedMetric,
+                }
             },
         },
     })),
@@ -64,7 +71,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             const response = await api.create(`api/projects/@current/experiment_saved_metrics/`, values.sharedMetric)
             if (response.id) {
                 lemonToast.success('Shared metric created successfully')
-                actions.reportExperimentSharedMetricCreated(response)
+                actions.reportExperimentSharedMetricCreated(response as SharedMetric)
                 actions.loadSharedMetrics()
                 router.actions.push('/experiments/shared-metrics')
             }
@@ -108,6 +115,15 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             (sharedMetricId): string | number => sharedMetricId,
         ],
         isNew: [(s) => [s.sharedMetricId], (sharedMetricId) => sharedMetricId === 'new'],
+        newSharedMetric: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet) => ({
+                ...NEW_SHARED_METRIC,
+                query: featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER]
+                    ? getDefaultFunnelMetric()
+                    : getDefaultTrendsMetric(),
+            }),
+        ],
     }),
 
     urlToAction(({ actions, values }) => ({
@@ -117,7 +133,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
-                    actions.setSharedMetric({ ...NEW_SHARED_METRIC })
+                    actions.setSharedMetric({ ...values.newSharedMetric })
                 }
 
                 if (parsedId !== 'new' && parsedId === values.sharedMetricId) {

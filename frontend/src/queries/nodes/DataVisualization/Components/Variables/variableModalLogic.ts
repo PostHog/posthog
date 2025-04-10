@@ -1,8 +1,17 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import api, { ApiError } from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 
-import { BooleanVariable, ListVariable, NumberVariable, StringVariable, Variable, VariableType } from '../../types'
+import {
+    BooleanVariable,
+    DateVariable,
+    ListVariable,
+    NumberVariable,
+    StringVariable,
+    Variable,
+    VariableType,
+} from '../../types'
 import { variableDataLogic } from './variableDataLogic'
 import type { variableModalLogicType } from './variableModalLogicType'
 import { variablesLogic } from './variablesLogic'
@@ -23,9 +32,9 @@ export const variableModalLogic = kea<variableModalLogicType>([
     path(['queries', 'nodes', 'DataVisualization', 'Components', 'Variables', 'variableLogic']),
     props({ key: '' } as AddVariableLogicProps),
     key((props) => props.key),
-    connect({
+    connect(() => ({
         actions: [variableDataLogic, ['getVariables'], variablesLogic, ['addVariable']],
-    }),
+    })),
     actions({
         openNewVariableModal: (variableType: VariableType) => ({ variableType }),
         openExistingVariableModal: (variable: Variable) => ({ variable }),
@@ -100,6 +109,16 @@ export const variableModalLogic = kea<variableModalLogicType>([
                             default_value: '',
                             code_name: '',
                         } as ListVariable
+                    }
+
+                    if (variableType === 'Date') {
+                        return {
+                            id: '',
+                            type: 'Date',
+                            name: '',
+                            default_value: dayjs().format('YYYY-MM-DD HH:mm:00'),
+                            code_name: '',
+                        } as DateVariable
                     }
 
                     throw new Error(`Unsupported variable type ${variableType}`)

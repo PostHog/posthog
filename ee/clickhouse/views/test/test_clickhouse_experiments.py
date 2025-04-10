@@ -1,24 +1,22 @@
 from datetime import datetime, timedelta, UTC
 from django.core.cache import cache
-from flaky import flaky
+from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from dateutil import parser
 
+from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 from posthog.models import WebExperiment
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.experiment import Experiment
+from posthog.models.experiment import Experiment, ExperimentSavedMetric
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
-from posthog.schema import ExperimentSignificanceCode
 from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
     flush_persons_and_events,
-    snapshot_clickhouse_insert_cohortpeople_queries,
-    snapshot_clickhouse_queries,
     FuzzyInt,
 )
 from posthog.test.test_journeys import journeys_for
@@ -636,6 +634,123 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.json()["type"], "validation_error")
         self.assertEqual(response.json()["detail"], "Metadata must be an object")
 
+    @freeze_time("2025-02-10T13:00:00Z")
+    def test_fetching_experiment_with_stale_metric_dates_applies_experiment_date_range(self):
+        test_feature_flag = FeatureFlag.objects.create(
+            name=f"Test experiment flag",
+            key="test-flag",
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {
+                            "key": "control",
+                            "name": "Control",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "test",
+                            "name": "Test",
+                            "rollout_percentage": 50,
+                        },
+                    ]
+                },
+            },
+            created_by=self.user,
+        )
+        funnel_query = {
+            "kind": "ExperimentFunnelsQuery",
+            "funnels_query": {
+                "kind": "FunnelsQuery",
+                "series": [
+                    {"kind": "EventsNode", "name": "[jan-16-running] seen", "event": "[jan-16-running] seen"},
+                    {"kind": "EventsNode", "name": "[jan-16-running] payment", "event": "[jan-16-running] payment"},
+                ],
+                "dateRange": {"date_to": "2025-02-13T23:59", "date_from": "2025-01-30T12:16", "explicitDate": True},
+                "funnelsFilter": {
+                    "layout": "horizontal",
+                    "funnelVizType": "steps",
+                    "funnelWindowInterval": 14,
+                    "funnelWindowIntervalUnit": "day",
+                },
+                "filterTestAccounts": True,
+            },
+        }
+        trends_query = {
+            "kind": "ExperimentTrendsQuery",
+            "count_query": {
+                "kind": "TrendsQuery",
+                "series": [
+                    {
+                        "kind": "EventsNode",
+                        "math": "total",
+                        "name": "[jan-16-running] event one",
+                        "event": "[jan-16-running] event one",
+                    }
+                ],
+                "interval": "day",
+                "dateRange": {"date_to": "2025-01-16T23:59", "date_from": "2025-01-02T13:54", "explicitDate": True},
+                "trendsFilter": {"display": "ActionsLineGraph"},
+                "filterTestAccounts": True,
+            },
+        }
+        saved_trends_metric = ExperimentSavedMetric.objects.create(
+            name="Test saved metric",
+            description="Test description",
+            query=trends_query,
+            team=self.team,
+            created_by=self.user,
+        )
+        saved_funnel_metric = ExperimentSavedMetric.objects.create(
+            name="Test saved metric",
+            description="Test description",
+            query=funnel_query,
+            team=self.team,
+            created_by=self.user,
+        )
+        experiment = Experiment.objects.create(
+            name="Test Experiment with stale dates",
+            team=self.team,
+            feature_flag=test_feature_flag,
+            start_date=datetime(2025, 2, 1),
+            end_date=None,
+            metrics=[funnel_query],
+            metrics_secondary=[trends_query],
+        )
+
+        for saved_metric_data in [saved_funnel_metric, saved_trends_metric]:
+            saved_metric_serializer = ExperimentToSavedMetricSerializer(
+                data={
+                    "experiment": experiment.id,
+                    "saved_metric": saved_metric_data.id,
+                    "metadata": {"type": "secondary"},
+                },
+            )
+            saved_metric_serializer.is_valid(raise_exception=True)
+            saved_metric_serializer.save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["metrics"][0]["funnels_query"]["dateRange"]["date_from"], "2025-02-01T00:00:00Z"
+        )
+        self.assertEqual(response.json()["metrics"][0]["funnels_query"]["dateRange"]["date_to"], "")
+        self.assertEqual(
+            response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_from"], "2025-02-01T00:00:00Z"
+        )
+        self.assertEqual(response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_to"], "")
+        self.assertEqual(
+            response.json()["saved_metrics"][0]["query"]["funnels_query"]["dateRange"]["date_from"],
+            "2025-02-01T00:00:00Z",
+        )
+        self.assertEqual(response.json()["saved_metrics"][0]["query"]["funnels_query"]["dateRange"]["date_to"], "")
+        self.assertEqual(
+            response.json()["saved_metrics"][1]["query"]["count_query"]["dateRange"]["date_from"],
+            "2025-02-01T00:00:00Z",
+        )
+        self.assertEqual(response.json()["saved_metrics"][1]["query"]["count_query"]["dateRange"]["date_to"], "")
+
     def test_adding_behavioral_cohort_filter_to_experiment_fails(self):
         cohort = Cohort.objects.create(
             team=self.team,
@@ -712,6 +827,104 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "This field may not be null.")
 
+    def test_experiment_date_validation(self):
+        ff_key = "a-b-tests"
+
+        # Test 1: End date same as start date
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2024-02-10T00:00:00Z",
+                "end_date": "2024-02-10T00:00:00Z",
+                "feature_flag_key": ff_key,
+                "parameters": {},
+                "filters": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "End date must be after start date")
+
+        # Test 2: End date before start date
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2024-02-10T00:00:00Z",
+                "end_date": "2024-02-09T00:00:00Z",
+                "feature_flag_key": ff_key,
+                "parameters": {},
+                "filters": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "End date must be after start date")
+
+        # Test 3: Valid dates
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2024-02-10T00:00:00Z",
+                "end_date": "2024-02-11T00:00:00Z",
+                "feature_flag_key": ff_key,
+                "parameters": {},
+                "filters": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["start_date"], "2024-02-10T00:00:00Z")
+        self.assertEqual(response.json()["end_date"], "2024-02-11T00:00:00Z")
+
+        # Test 4: Update with invalid dates
+        experiment_id = response.json()["id"]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {
+                "start_date": "2024-02-15T00:00:00Z",
+                "end_date": "2024-02-14T00:00:00Z",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "End date must be after start date")
+
+        # Test 5: Only start date provided (should be valid)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2024-02-10T00:00:00Z",
+                "end_date": None,
+                "feature_flag_key": ff_key + "_2",
+                "parameters": {},
+                "filters": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["start_date"], "2024-02-10T00:00:00Z")
+        self.assertIsNone(response.json()["end_date"])
+
+        # Test 6: Only end date provided (should be valid)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": "2024-02-11T00:00:00Z",
+                "feature_flag_key": ff_key + "_3",
+                "parameters": {},
+                "filters": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(response.json()["start_date"])
+        self.assertEqual(response.json()["end_date"], "2024-02-11T00:00:00Z")
+
     def test_invalid_update(self):
         # Draft experiment
         ff_key = "a-b-tests"
@@ -744,31 +957,6 @@ class TestExperimentCRUD(APILicensedTest):
             response.json()["detail"],
             "Can't update keys: get_feature_flag_key on Experiment",
         )
-
-    def test_cant_reuse_existing_feature_flag(self):
-        ff_key = "a-b-test"
-        FeatureFlag.objects.create(
-            team=self.team,
-            rollout_percentage=50,
-            name="Beta feature",
-            key=ff_key,
-            created_by=self.user,
-        )
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2021-12-01T10:23",
-                "end_date": None,
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {"events": []},
-            },
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "There is already a feature flag with this key.")
 
     def test_draft_experiment_doesnt_have_FF_active(self):
         # Draft experiment
@@ -867,6 +1055,59 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         updated_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertTrue(updated_ff.active)
+
+    def test_draft_experiment_update_doesnt_delete_ff_payloads(self):
+        # Draft experiment
+        ff_key = "a-b-tests-with-flag-payloads"
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {},
+                "filters": {"events": []},
+            },
+        )
+        id = create_response.json()["id"]
+
+        created_ff = FeatureFlag.objects.get(key=ff_key)
+        # Update feature flag payloads
+        created_ff.filters["payloads"] = {"test": '"test-payload"', "control": '"control-payload"'}
+        created_ff.save()
+
+        # Update parameters on experiment
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {
+                "description": "Update parameters",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {
+                            "key": "control",
+                            "name": "Control Group",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "test",
+                            "name": "Test Variant",
+                            "rollout_percentage": 33,
+                        },
+                        {
+                            "key": "special",
+                            "name": "Special Variant",
+                            "rollout_percentage": 34,
+                        },
+                    ]
+                },
+            },
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        updated_ff = FeatureFlag.objects.get(key=ff_key)
+        self.assertEqual(updated_ff.filters["payloads"], {"test": '"test-payload"', "control": '"control-payload"'})
 
     def test_create_multivariate_experiment_can_update_variants_in_draft(self):
         ff_key = "a-b-test"
@@ -1175,48 +1416,6 @@ class TestExperimentCRUD(APILicensedTest):
             "Feature flag variants must contain a control variant",
         )
 
-    def test_deleting_experiment_soft_deletes_feature_flag(self):
-        ff_key = "a-b-tests"
-        data = {
-            "name": "Test Experiment",
-            "description": "",
-            "start_date": "2021-12-01T10:23",
-            "end_date": None,
-            "feature_flag_key": ff_key,
-            "parameters": None,
-            "filters": {
-                "events": [
-                    {"order": 0, "id": "$pageview"},
-                    {"order": 1, "id": "$pageleave"},
-                ],
-                "properties": [],
-            },
-        }
-        response = self.client.post(f"/api/projects/{self.team.id}/experiments/", data)
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["name"], "Test Experiment")
-        self.assertEqual(response.json()["feature_flag_key"], ff_key)
-
-        created_ff = FeatureFlag.objects.get(key=ff_key)
-
-        id = response.json()["id"]
-
-        # Now delete the experiment
-        response = self.client.delete(f"/api/projects/{self.team.id}/experiments/{id}")
-
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-
-        with self.assertRaises(Experiment.DoesNotExist):
-            Experiment.objects.get(pk=id)
-
-        # soft deleted
-        self.assertEqual(FeatureFlag.objects.get(pk=created_ff.id).deleted, True)
-
-        # can recreate new experiment with same FF key
-        response = self.client.post(f"/api/projects/{self.team.id}/experiments/", data)
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
     def test_soft_deleting_feature_flag_does_not_delete_experiment(self):
         ff_key = "a-b-tests"
         response = self.client.post(
@@ -1476,7 +1675,7 @@ class TestExperimentCRUD(APILicensedTest):
         ).json()
 
         # TODO: Make sure permission bool doesn't cause n + 1
-        with self.assertNumQueries(17):
+        with self.assertNumQueries(19):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -1777,6 +1976,61 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.json()["name"], "Test Experiment")
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
 
+    def test_create_experiment_with_feature_flag_missing_control(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Beta feature",
+            key="beta-feature",
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "test-1", "rollout_percentage": 50},
+                        {"key": "test-2", "rollout_percentage": 50},
+                    ]
+                }
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Beta experiment",
+                "feature_flag_key": feature_flag.key,
+                "parameters": {},
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Feature flag must have control as the first variant.")
+
+    def test_create_experiment_with_valid_existing_feature_flag(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Beta feature",
+            key="beta-feature",
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Beta experiment",
+                "feature_flag_key": feature_flag.key,
+                "parameters": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["feature_flag"]["id"], feature_flag.id)
+
     def test_feature_flag_and_experiment_sync(self):
         # Create an experiment with control and test variants
         response = self.client.post(
@@ -1884,6 +2138,77 @@ class TestExperimentCRUD(APILicensedTest):
         # Verify that aggregation_group_type_index is removed from experiment parameters
         experiment = Experiment.objects.get(id=experiment_id)
         self.assertNotIn("aggregation_group_type_index", experiment.parameters)
+
+    def test_update_experiment_exposure_config_valid(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Test Feature Flag",
+            key="test-feature-flag",
+            filters={},
+        )
+
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Test Experiment",
+            description="My test experiment",
+            feature_flag=feature_flag,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
+            {
+                "exposure_criteria": {
+                    "filterTestAccounts": True,
+                    "exposure_config": {
+                        "event": "$pageview",
+                        "properties": [
+                            {"key": "plan", "operator": "is_not", "value": "free", "type": "event"},
+                        ],
+                    },
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        experiment = Experiment.objects.get(id=experiment.id)
+        self.assertEqual(experiment.exposure_criteria["filterTestAccounts"], True)
+        self.assertEqual(experiment.exposure_criteria["exposure_config"]["event"], "$pageview")
+        self.assertEqual(
+            experiment.exposure_criteria["exposure_config"]["properties"],
+            [{"key": "plan", "operator": "is_not", "value": "free", "type": "event"}],
+        )
+
+    def test_update_experiment_exposure_config_invalid(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Test Feature Flag",
+            key="test-feature-flag",
+            filters={},
+        )
+
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Test Experiment",
+            description="My test experiment",
+            feature_flag=feature_flag,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
+            {
+                "exposure_criteria": {
+                    "filterTestAccounts": True,
+                    "exposure_config": {
+                        # Invalid event and properties
+                        "event": "",
+                        "properties": [
+                            1,
+                        ],
+                    },
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
@@ -2156,7 +2481,6 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(["person1", "person2"], sorted([res["name"] for res in response.json()["results"]]))
 
-    @snapshot_clickhouse_insert_cohortpeople_queries
     def test_create_exposure_cohort_for_experiment_with_custom_action_filters_exposure(self):
         cohort_extra = Cohort.objects.create(
             team=self.team,
@@ -2277,6 +2601,7 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
             },
             self.team,
         )
+
         _create_person(
             distinct_ids=["1"],
             team_id=self.team.pk,
@@ -2420,2507 +2745,3 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "Experiment already has an exposure cohort")
-
-
-@flaky(max_runs=10, min_passes=1)
-class ClickhouseTestFunnelExperimentResults(ClickhouseTestMixin, APILicensedTest):
-    @snapshot_clickhouse_queries
-    def test_experiment_flow_with_event_results(self):
-        journeys_for(
-            {
-                "person1": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                ],
-                "person2": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-                "person3": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-                # doesn't have feature set
-                "person_out_of_control": [
-                    {"event": "$pageview", "timestamp": "2020-01-03"},
-                    {"event": "$pageleave", "timestamp": "2020-01-05"},
-                ],
-                "person_out_of_end_date": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-08-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-08-05",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-                # non-converters with FF
-                "person4": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "test"},
-                    }
-                ],
-                "person5": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "test"},
-                    }
-                ],
-            },
-            self.team,
-        )
-
-        ff_key = "a-b-test"
-        # generates the FF which should result in the above events^
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2020-01-01T00:00",
-                "end_date": "2020-01-06T00:00",
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {
-                    "insight": "funnels",
-                    "events": [
-                        {"order": 0, "id": "$pageview"},
-                        {"order": 1, "id": "$pageleave"},
-                    ],
-                    "properties": [],
-                },
-            },
-        )
-
-        id = response.json()["id"]
-
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
-        self.assertEqual(200, response.status_code)
-
-        response_data = response.json()["result"]
-        result = sorted(response_data["insight"], key=lambda x: x[0]["breakdown_value"][0])
-
-        self.assertEqual(result[0][0]["name"], "$pageview")
-        self.assertEqual(result[0][0]["count"], 2)
-        self.assertEqual("control", result[0][0]["breakdown_value"][0])
-
-        self.assertEqual(result[0][1]["name"], "$pageleave")
-        self.assertEqual(result[0][1]["count"], 2)
-        self.assertEqual("control", result[0][1]["breakdown_value"][0])
-
-        self.assertEqual(result[1][0]["name"], "$pageview")
-        self.assertEqual(result[1][0]["count"], 3)
-        self.assertEqual("test", result[1][0]["breakdown_value"][0])
-
-        self.assertEqual(result[1][1]["name"], "$pageleave")
-        self.assertEqual(result[1][1]["count"], 1)
-        self.assertEqual("test", result[1][1]["breakdown_value"][0])
-
-        # Variant with test: Beta(2, 3) and control: Beta(3, 1) distribution
-        # The variant has very low probability of being better.
-        self.assertAlmostEqual(response_data["probability"]["test"], 0.114, places=2)
-        self.assertEqual(
-            response_data["significance_code"],
-            ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE,
-        )
-        self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
-
-    @snapshot_clickhouse_queries
-    def test_experiment_flow_with_event_results_with_hogql_aggregation(self):
-        journeys_for(
-            {
-                "person1": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature/a-b-test": "test",
-                            "$account_id": "person1",
-                        },
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-04",
-                        "properties": {
-                            "$feature/a-b-test": "test",
-                            "$account_id": "person1",
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-03",
-                        "properties": {
-                            "$feature/a-b-test": "control",
-                            "$account_id": "person2",
-                        },
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-05",
-                        "properties": {
-                            "$feature/a-b-test": "control",
-                            "$account_id": "person2",
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {
-                            "$feature/a-b-test": "control",
-                            "$account_id": "person3",
-                        },
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-05",
-                        "properties": {
-                            "$feature/a-b-test": "control",
-                            "$account_id": "person3",
-                        },
-                    },
-                    # doesn't have feature set
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$account_id": "person_out_of_control"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$account_id": "person_out_of_control"},
-                    },
-                    # non converter
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-03",
-                        "properties": {
-                            "$feature/a-b-test": "test",
-                            "$account_id": "person4",
-                        },
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {
-                            "$feature/a-b-test": "test",
-                            "$account_id": "person5",
-                        },
-                    },
-                    # doesn't have any properties
-                    {"event": "$pageview", "timestamp": "2020-01-03"},
-                    {"event": "$pageleave", "timestamp": "2020-01-05"},
-                ],
-                "person_out_of_end_date": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-08-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-08-05",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-            },
-            self.team,
-        )
-
-        ff_key = "a-b-test"
-        # generates the FF which should result in the above events^
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2020-01-01T00:00",
-                "end_date": "2020-01-06T00:00",
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {
-                    "insight": "funnels",
-                    "events": [
-                        {"order": 0, "id": "$pageview"},
-                        {"order": 1, "id": "$pageleave"},
-                    ],
-                    "properties": [],
-                    "funnel_aggregate_by_hogql": "properties.$account_id",
-                },
-            },
-        )
-
-        id = response.json()["id"]
-
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
-        self.assertEqual(200, response.status_code)
-
-        response_data = response.json()["result"]
-        result = sorted(response_data["insight"], key=lambda x: x[0]["breakdown_value"][0])
-
-        self.assertEqual(result[0][0]["name"], "$pageview")
-        self.assertEqual(result[0][0]["count"], 2)
-        self.assertEqual("control", result[0][0]["breakdown_value"][0])
-
-        self.assertEqual(result[0][1]["name"], "$pageleave")
-        self.assertEqual(result[0][1]["count"], 2)
-        self.assertEqual("control", result[0][1]["breakdown_value"][0])
-
-        self.assertEqual(result[1][0]["name"], "$pageview")
-        self.assertEqual(result[1][0]["count"], 3)
-        self.assertEqual("test", result[1][0]["breakdown_value"][0])
-
-        self.assertEqual(result[1][1]["name"], "$pageleave")
-        self.assertEqual(result[1][1]["count"], 1)
-        self.assertEqual("test", result[1][1]["breakdown_value"][0])
-
-        # Variant with test: Beta(2, 3) and control: Beta(3, 1) distribution
-        # The variant has very low probability of being better.
-        self.assertAlmostEqual(response_data["probability"]["test"], 0.114, places=2)
-        self.assertEqual(
-            response_data["significance_code"],
-            ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE,
-        )
-        self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
-
-    def test_experiment_with_test_account_filters(self):
-        self.team.test_account_filters = [
-            {
-                "key": "exclude",
-                "type": "event",
-                "value": "yes",
-                "operator": "is_not_set",
-            }
-        ]
-        self.team.save()
-
-        journeys_for(
-            {
-                "person1": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test", "exclude": "yes"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "test", "exclude": "yes"},
-                    },
-                ],
-                "person2": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-                "person3": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-                "person3_exclude": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control", "exclude": "yes"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "control", "exclude": "yes"},
-                    },
-                ],
-                # doesn't have feature set
-                "person_out_of_control": [
-                    {"event": "$pageview", "timestamp": "2020-01-03"},
-                    {"event": "$pageleave", "timestamp": "2020-01-05"},
-                ],
-                "person_out_of_end_date": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-08-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-08-05",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-                # non-converters with FF
-                "person4": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "test"},
-                    }
-                ],
-                "person5": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "test"},
-                    }
-                ],
-            },
-            self.team,
-        )
-
-        ff_key = "a-b-test"
-        # generates the FF which should result in the above events^
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2020-01-01T00:00",
-                "end_date": "2020-01-06T00:00",
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {
-                    "filter_test_accounts": True,
-                    "insight": "funnels",
-                    "events": [
-                        {"order": 0, "id": "$pageview"},
-                        {"order": 1, "id": "$pageleave"},
-                    ],
-                    "properties": [],
-                },
-            },
-        )
-
-        id = response.json()["id"]
-
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
-        self.assertEqual(200, response.status_code)
-
-        response_data = response.json()["result"]
-        result = sorted(response_data["insight"], key=lambda x: x[0]["breakdown_value"][0])
-
-        self.assertEqual(result[0][0]["name"], "$pageview")
-        self.assertEqual(result[0][0]["count"], 2)
-        self.assertEqual("control", result[0][0]["breakdown_value"][0])
-
-        self.assertEqual(result[0][1]["name"], "$pageleave")
-        self.assertEqual(result[0][1]["count"], 2)
-        self.assertEqual("control", result[0][1]["breakdown_value"][0])
-
-        self.assertEqual(result[1][0]["name"], "$pageview")
-        self.assertEqual(result[1][0]["count"], 3)
-        self.assertEqual("test", result[1][0]["breakdown_value"][0])
-
-        self.assertEqual(result[1][1]["name"], "$pageleave")
-        self.assertEqual(result[1][1]["count"], 1)
-        self.assertEqual("test", result[1][1]["breakdown_value"][0])
-
-        # Variant with test: Beta(2, 3) and control: Beta(3, 1) distribution
-        # The variant has very low probability of being better.
-        self.assertAlmostEqual(response_data["probability"]["test"], 0.114, places=2)
-        self.assertEqual(
-            response_data["significance_code"],
-            ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE,
-        )
-        self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
-
-    def test_experiment_flow_with_event_results_cached(self):
-        journeys_for(
-            {
-                "person1": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                ],
-                "person2": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-                "person3": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-                # doesn't have feature set
-                "person_out_of_control": [
-                    {"event": "$pageview", "timestamp": "2020-01-03"},
-                    {"event": "$pageleave", "timestamp": "2020-01-05"},
-                ],
-                "person_out_of_end_date": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-08-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-08-05",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-                # non-converters with FF
-                "person4": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "test"},
-                    }
-                ],
-                "person5": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "test"},
-                    }
-                ],
-            },
-            self.team,
-        )
-
-        ff_key = "a-b-test"
-        # generates the FF which should result in the above events^
-
-        experiment_payload = {
-            "name": "Test Experiment",
-            "description": "",
-            "start_date": "2020-01-01T00:00",
-            "end_date": "2020-01-06T00:00",
-            "feature_flag_key": ff_key,
-            "parameters": None,
-            "filters": {
-                "insight": "funnels",
-                "events": [
-                    {"order": 0, "id": "$pageview"},
-                    {"order": 1, "id": "$pageleave"},
-                ],
-                "properties": [],
-            },
-        }
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            experiment_payload,
-        )
-
-        id = response.json()["id"]
-
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
-        self.assertEqual(200, response.status_code)
-
-        response_json = response.json()
-        response_data = response_json["result"]
-        result = sorted(response_data["insight"], key=lambda x: x[0]["breakdown_value"][0])
-
-        self.assertEqual(response_json.pop("is_cached"), False)
-
-        self.assertEqual(result[0][0]["name"], "$pageview")
-        self.assertEqual(result[0][0]["count"], 2)
-        self.assertEqual("control", result[0][0]["breakdown_value"][0])
-
-        self.assertEqual(result[0][1]["name"], "$pageleave")
-        self.assertEqual(result[0][1]["count"], 2)
-        self.assertEqual("control", result[0][1]["breakdown_value"][0])
-
-        self.assertEqual(result[1][0]["name"], "$pageview")
-        self.assertEqual(result[1][0]["count"], 3)
-        self.assertEqual("test", result[1][0]["breakdown_value"][0])
-
-        self.assertEqual(result[1][1]["name"], "$pageleave")
-        self.assertEqual(result[1][1]["count"], 1)
-        self.assertEqual("test", result[1][1]["breakdown_value"][0])
-
-        # Variant with test: Beta(2, 3) and control: Beta(3, 1) distribution
-        # The variant has very low probability of being better.
-        self.assertAlmostEqual(response_data["probability"]["test"], 0.114, places=2)
-        self.assertEqual(
-            response_data["significance_code"],
-            ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE,
-        )
-        self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
-
-        response2 = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
-
-        response2_json = response2.json()
-
-        self.assertEqual(response2_json.pop("is_cached"), True)
-        self.assertEqual(response2_json["result"], response_data)
-
-    @snapshot_clickhouse_queries
-    def test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones(self):
-        journeys_for(
-            {
-                "person1": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-01T13:40:00",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-04T13:00:00",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                ],
-                "person2": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-03T13:00:00",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-05 13:00:00",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-                "person3": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04T13:00:00",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-05T13:00:00",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-                # non-converters with FF
-                "person4": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "test"},
-                    }
-                ],
-                "person5": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "test"},
-                    }
-                ],
-                # converted on the same day as end date, but offset by a few minutes.
-                # experiment ended at 10 AM, UTC+1, so this person should not be included.
-                "person6": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-06T09:10:00",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-06T09:25:00",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-            },
-            self.team,
-        )
-
-        self.team.timezone = "Europe/Amsterdam"  # GMT+1
-        self.team.save()
-
-        ff_key = "a-b-test"
-        # generates the FF which should result in the above events^
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {
-                    "insight": "funnels",
-                    "events": [
-                        {"order": 0, "id": "$pageview"},
-                        {"order": 1, "id": "$pageleave"},
-                    ],
-                    "properties": [],
-                },
-            },
-        )
-
-        id = response.json()["id"]
-
-        self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{id}/",
-            {
-                "start_date": "2020-01-01T13:20:21.710000Z",  # date is after first event, BUT timezone is GMT+1, so should be included
-                "end_date": "2020-01-06 09:00",
-            },
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
-        self.assertEqual(200, response.status_code)
-
-        response_data = response.json()["result"]
-        result = sorted(response_data["insight"], key=lambda x: x[0]["breakdown_value"][0])
-
-        self.assertEqual(result[0][0]["name"], "$pageview")
-        self.assertEqual(result[0][0]["count"], 2)
-        self.assertEqual("control", result[0][0]["breakdown_value"][0])
-
-        self.assertEqual(result[0][1]["name"], "$pageleave")
-        self.assertEqual(result[0][1]["count"], 2)
-        self.assertEqual("control", result[0][1]["breakdown_value"][0])
-
-        self.assertEqual(result[1][0]["name"], "$pageview")
-        self.assertEqual(result[1][0]["count"], 3)
-        self.assertEqual("test", result[1][0]["breakdown_value"][0])
-
-        self.assertEqual(result[1][1]["name"], "$pageleave")
-        self.assertEqual(result[1][1]["count"], 1)
-        self.assertEqual("test", result[1][1]["breakdown_value"][0])
-
-        # Variant with test: Beta(2, 3) and control: Beta(3, 1) distribution
-        # The variant has very low probability of being better.
-        self.assertAlmostEqual(response_data["probability"]["test"], 0.114, places=2)
-        self.assertEqual(
-            response_data["significance_code"],
-            ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE,
-        )
-        self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
-
-    @snapshot_clickhouse_queries
-    def test_experiment_flow_with_event_results_for_three_test_variants(self):
-        journeys_for(
-            {
-                "person1_2": [
-                    # one event having the property is sufficient, since first touch breakdown is the default
-                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {}},
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "test_2"},
-                    },
-                ],
-                "person1_1": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test_1"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-04",
-                        "properties": {},
-                    },
-                ],
-                "person2_1": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test_1"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "test_1"},
-                    },
-                ],
-                "person1": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-04",
-                        "properties": {},
-                    },
-                ],
-                "person2": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-                "person3": [
-                    {"event": "$pageview", "timestamp": "2020-01-04", "properties": {}},
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-                # doesn't have feature set
-                "person_out_of_control": [
-                    {"event": "$pageview", "timestamp": "2020-01-03"},
-                    {"event": "$pageleave", "timestamp": "2020-01-05"},
-                ],
-                "person_out_of_end_date": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-08-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-08-05",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-                # non-converters with FF
-                "person4": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "test"},
-                    }
-                ],
-                "person5": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "test"},
-                    }
-                ],
-                "person6_1": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test_1"},
-                    }
-                ],
-                # converters with unknown flag variant set
-                "person_unknown_1": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "unknown_1"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "unknown_1"},
-                    },
-                ],
-                "person_unknown_2": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "unknown_2"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "unknown_2"},
-                    },
-                ],
-                "person_unknown_3": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "unknown_3"},
-                    },
-                    {
-                        "event": "$pageleave",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "unknown_3"},
-                    },
-                ],
-            },
-            self.team,
-        )
-
-        ff_key = "a-b-test"
-        # generates the FF which should result in the above events^
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2020-01-01T00:00",
-                "end_date": "2020-01-06T00:00",
-                "feature_flag_key": ff_key,
-                "parameters": {
-                    "feature_flag_variants": [
-                        {
-                            "key": "control",
-                            "name": "Control Group",
-                            "rollout_percentage": 25,
-                        },
-                        {
-                            "key": "test_1",
-                            "name": "Test Variant 1",
-                            "rollout_percentage": 25,
-                        },
-                        {
-                            "key": "test_2",
-                            "name": "Test Variant 2",
-                            "rollout_percentage": 25,
-                        },
-                        {
-                            "key": "test",
-                            "name": "Test Variant 3",
-                            "rollout_percentage": 25,
-                        },
-                    ]
-                },
-                "filters": {
-                    "insight": "funnels",
-                    "events": [
-                        {"order": 0, "id": "$pageview"},
-                        {"order": 1, "id": "$pageleave"},
-                    ],
-                    "properties": [],
-                },
-            },
-        )
-
-        id = response.json()["id"]
-
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
-        self.assertEqual(200, response.status_code)
-
-        response_data = response.json()["result"]
-        result = sorted(response_data["insight"], key=lambda x: x[0]["breakdown_value"][0])
-
-        self.assertEqual(result[0][0]["name"], "$pageview")
-        self.assertEqual(result[0][0]["count"], 2)
-        self.assertEqual("control", result[0][0]["breakdown_value"][0])
-
-        self.assertEqual(result[0][1]["name"], "$pageleave")
-        self.assertEqual(result[0][1]["count"], 2)
-        self.assertEqual("control", result[0][1]["breakdown_value"][0])
-
-        self.assertEqual(result[1][0]["name"], "$pageview")
-        self.assertEqual(result[1][0]["count"], 3)
-        self.assertEqual("test", result[1][0]["breakdown_value"][0])
-
-        self.assertEqual(result[1][1]["name"], "$pageleave")
-        self.assertEqual(result[1][1]["count"], 1)
-        self.assertEqual("test", result[1][1]["breakdown_value"][0])
-
-        self.assertAlmostEqual(response_data["probability"]["test"], 0.031, places=1)
-        self.assertAlmostEqual(response_data["probability"]["test_1"], 0.158, places=1)
-        self.assertAlmostEqual(response_data["probability"]["test_2"], 0.324, places=1)
-        self.assertAlmostEqual(response_data["probability"]["control"], 0.486, places=1)
-        self.assertEqual(
-            response_data["significance_code"],
-            ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE,
-        )
-        self.assertAlmostEqual(response_data["expected_loss"], 1, places=2)
-
-
-@flaky(max_runs=10, min_passes=1)
-class ClickhouseTestTrendExperimentResults(ClickhouseTestMixin, APILicensedTest):
-    @snapshot_clickhouse_queries
-    def test_experiment_flow_with_event_results(self):
-        self.team.test_account_filters = [
-            {
-                "key": "exclude",
-                "type": "event",
-                "value": "yes",
-                "operator": "is_not_set",
-            }
-        ]
-        self.team.save()
-
-        journeys_for(
-            {
-                "person1": [
-                    # 5 counts, single person
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test", "exclude": "yes"},
-                    },
-                    # exposure measured via $feature_flag_called events
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "test",
-                        },
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-03",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "test",
-                        },
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "test",
-                            "exclude": "yes",
-                        },
-                    },
-                ],
-                "person2": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "control",
-                            "exclude": "yes",
-                        },
-                    },
-                    # 1 exposure, but more absolute counts
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "control", "exclude": "yes"},
-                    },
-                ],
-                "person3": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-03",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                ],
-                # doesn't have feature set
-                "person_out_of_control": [
-                    {"event": "$pageview", "timestamp": "2020-01-03"},
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "random",
-                        },
-                    },
-                ],
-                "person_out_of_end_date": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-08-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-08-03",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                ],
-            },
-            self.team,
-        )
-
-        ff_key = "a-b-test"
-        # generates the FF which should result in the above events^
-        creation_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2020-01-01T00:00",
-                "end_date": "2020-01-06T00:00",
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {
-                    "insight": "TRENDS",
-                    "events": [{"order": 0, "id": "$pageview"}],
-                    "filter_test_accounts": True,
-                },
-            },
-        )
-
-        id = creation_response.json()["id"]
-
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
-        self.assertEqual(200, response.status_code)
-
-        response_data = response.json()["result"]
-        result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
-
-        self.assertEqual(result[0]["count"], 4)
-        self.assertEqual("control", result[0]["breakdown_value"])
-
-        self.assertEqual(result[1]["count"], 5)
-        self.assertEqual("test", result[1]["breakdown_value"])
-
-        # Variant with test: Gamma(5, 0.5) and control: Gamma(5, 1) distribution
-        # The variant has high probability of being better. (effectively Gamma(10,1))
-        self.assertAlmostEqual(response_data["probability"]["test"], 0.923, places=2)
-        self.assertFalse(response_data["significant"])
-
-    def test_experiment_flow_with_event_results_with_custom_exposure(self):
-        self.team.test_account_filters = [
-            {
-                "key": "exclude",
-                "type": "event",
-                "value": "yes",
-                "operator": "is_not_set",
-            }
-        ]
-        self.team.save()
-
-        journeys_for(
-            {
-                "person1": [
-                    # 5 counts, single person
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test", "exclude": "yes"},
-                    },
-                    # exposure measured via $feature_flag_called events
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "test",
-                        },
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-03",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "test",
-                        },
-                    },
-                    {
-                        "event": "custom_exposure_event",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "test", "bonk": "bonk"},
-                    },
-                    {
-                        "event": "custom_exposure_event",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "test", "bonk": "bonk", "exclude": "yes"},
-                    },
-                    {
-                        "event": "custom_exposure_event",
-                        "timestamp": "2020-01-03",
-                        "properties": {
-                            "$feature/a-b-test": "control",
-                            "bonk": "no-bonk",
-                        },
-                    },
-                ],
-                "person2": [
-                    {
-                        "event": "custom_exposure_event",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "control", "bonk": "bonk"},
-                    },
-                    {
-                        "event": "custom_exposure_event",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "control", "bonk": "bonk", "exclude": "yes"},
-                    },
-                    # 1 exposure, but more absolute counts
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-                "person3": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "custom_exposure_event",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "control", "bonk": "bonk"},
-                    },
-                    {
-                        "event": "custom_exposure_event",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "test", "bonk": "no-bonk"},
-                    },
-                ],
-                # doesn't have feature set
-                "person_out_of_control": [
-                    {"event": "$pageview", "timestamp": "2020-01-03"},
-                    {
-                        "event": "custom_exposure_event",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "random", "bonk": "bonk"},
-                    },
-                    {
-                        "event": "custom_exposure_event",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "test", "bonk": "no-bonk"},
-                    },
-                ],
-                "person_out_of_end_date": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-08-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-08-03",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                    {
-                        "event": "custom_exposure_event",
-                        "timestamp": "2020-08-03",
-                        "properties": {"$feature/a-b-test": "test", "bonk": "bonk"},
-                    },
-                ],
-            },
-            self.team,
-        )
-
-        ff_key = "a-b-test"
-        # generates the FF which should result in the above events^
-        creation_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2020-01-01T00:00",
-                "end_date": "2020-01-06T00:00",
-                "feature_flag_key": ff_key,
-                "parameters": {
-                    "custom_exposure_filter": {
-                        "events": [
-                            {
-                                "id": "custom_exposure_event",
-                                "order": 0,
-                                "properties": [{"key": "bonk", "value": "bonk"}],
-                            }
-                        ],
-                        "filter_test_accounts": True,
-                    }
-                },
-                "filters": {
-                    "insight": "TRENDS",
-                    "events": [{"order": 0, "id": "$pageview"}],
-                    "filter_test_accounts": True,
-                },
-            },
-        )
-
-        id = creation_response.json()["id"]
-
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
-        self.assertEqual(200, response.status_code)
-
-        response_data = response.json()["result"]
-        result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
-
-        self.assertEqual(result[0]["count"], 4)
-        self.assertEqual("control", result[0]["breakdown_value"])
-
-        self.assertEqual(result[1]["count"], 5)
-        self.assertEqual("test", result[1]["breakdown_value"])
-
-        # Variant with test: Gamma(5, 0.5) and control: Gamma(5, 1) distribution
-        # The variant has high probability of being better. (effectively Gamma(10,1))
-        self.assertAlmostEqual(response_data["probability"]["test"], 0.923, places=2)
-        self.assertFalse(response_data["significant"])
-
-    @snapshot_clickhouse_queries
-    def test_experiment_flow_with_event_results_with_hogql_filter(self):
-        journeys_for(
-            {
-                "person1": [
-                    # 5 counts, single person
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test", "hogql": "true"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test", "hogql": "true"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test", "hogql": "true"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test", "hogql": "true"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test", "hogql": "true"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    # exposure measured via $feature_flag_called events
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "test",
-                        },
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-03",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "test",
-                        },
-                    },
-                ],
-                "person2": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                    # 1 exposure, but more absolute counts
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "control", "hogql": "true"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control", "hogql": "true"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "control", "hogql": "true"},
-                    },
-                ],
-                "person3": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control", "hogql": "true"},
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-03",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                ],
-                # doesn't have feature set
-                "person_out_of_control": [
-                    {"event": "$pageview", "timestamp": "2020-01-03"},
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "random",
-                        },
-                    },
-                ],
-                "person_out_of_end_date": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-08-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-08-03",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                ],
-            },
-            self.team,
-        )
-
-        ff_key = "a-b-test"
-        # generates the FF which should result in the above events^
-        creation_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2020-01-01T00:00",
-                "end_date": "2020-01-06T00:00",
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {
-                    "insight": "TRENDS",
-                    "events": [
-                        {
-                            "order": 0,
-                            "id": "$pageview",
-                            "properties": [
-                                {
-                                    "key": "properties.hogql ilike 'true'",
-                                    "type": "hogql",
-                                    "value": None,
-                                }
-                            ],
-                        }
-                    ],
-                },
-            },
-        )
-
-        id = creation_response.json()["id"]
-
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
-        self.assertEqual(200, response.status_code)
-
-        response_data = response.json()["result"]
-        result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
-
-        self.assertEqual(result[0]["count"], 4)
-        self.assertEqual("control", result[0]["breakdown_value"])
-
-        self.assertEqual(result[1]["count"], 5)
-        self.assertEqual("test", result[1]["breakdown_value"])
-
-        # Variant with test: Gamma(5, 0.5) and control: Gamma(5, 1) distribution
-        # The variant has high probability of being better. (effectively Gamma(10,1))
-        self.assertAlmostEqual(response_data["probability"]["test"], 0.923, places=2)
-        self.assertFalse(response_data["significant"])
-
-    @snapshot_clickhouse_queries
-    def test_experiment_flow_with_event_results_out_of_timerange_timezone(self):
-        journeys_for(
-            {
-                "person1": [
-                    # 5 counts, single person
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    # exposure measured via $feature_flag_called events
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "test",
-                        },
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-03",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "test",
-                        },
-                    },
-                ],
-                "person2": [
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                    # 1 exposure, but more absolute counts
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-                "person3": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-03",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                ],
-                # doesn't have feature set
-                "person_out_of_control": [
-                    {"event": "$pageview", "timestamp": "2020-01-03"},
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "random",
-                        },
-                    },
-                ],
-                "person_out_of_end_date": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-08-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-08-03",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                ],
-                # slightly out of time range
-                "person_t1": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-01 09:00:00",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-01 08:00:00",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-01 07:00:00",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-01 06:00:00",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-01 06:00:00",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "test",
-                        },
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-01 08:00:00",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "test",
-                        },
-                    },
-                ],
-                "person_t2": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-06 15:02:00",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-06 15:02:00",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-06 16:00:00",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                ],
-            },
-            self.team,
-        )
-
-        self.team.timezone = "US/Pacific"  # GMT -8
-        self.team.save()
-
-        ff_key = "a-b-test"
-        # generates the FF which should result in the above events^
-        creation_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2020-01-01T10:10",  # 2 PM in GMT-8 is 10 PM in GMT
-                "end_date": "2020-01-06T15:00",
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {
-                    "insight": "TRENDS",
-                    "events": [{"order": 0, "id": "$pageview"}],
-                },
-            },
-        )
-
-        id = creation_response.json()["id"]
-
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
-        self.assertEqual(200, response.status_code)
-
-        response_data = response.json()["result"]
-        result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
-
-        self.assertEqual(result[0]["count"], 4)
-        self.assertEqual("control", result[0]["breakdown_value"])
-
-        self.assertEqual(result[1]["count"], 5)
-        self.assertEqual("test", result[1]["breakdown_value"])
-
-        # Variant with test: Gamma(5, 0.5) and control: Gamma(5, 1) distribution
-        # The variant has high probability of being better. (effectively Gamma(10,1))
-        self.assertAlmostEqual(response_data["probability"]["test"], 0.923, places=2)
-        self.assertFalse(response_data["significant"])
-
-    @snapshot_clickhouse_queries
-    def test_experiment_flow_with_event_results_for_three_test_variants(self):
-        journeys_for(
-            {
-                "person1_2": [
-                    {
-                        "event": "$pageview1",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test_2"},
-                    }
-                ],
-                "person1_1": [
-                    {
-                        "event": "$pageview1",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test_1"},
-                    }
-                ],
-                "person2_1": [
-                    {
-                        "event": "$pageview1",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test_1"},
-                    }
-                ],
-                # "person1": [
-                #     {"event": "$pageview1", "timestamp": "2020-01-02", "properties": {"$feature/a-b-test": "test"},},
-                # ],
-                "person2": [
-                    {
-                        "event": "$pageview1",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    }
-                ],
-                "person3": [
-                    {
-                        "event": "$pageview1",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control"},
-                    }
-                ],
-                "person4": [
-                    {
-                        "event": "$pageview1",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control"},
-                    }
-                ],
-                # doesn't have feature set
-                "person_out_of_control": [{"event": "$pageview1", "timestamp": "2020-01-03"}],
-                "person_out_of_end_date": [
-                    {
-                        "event": "$pageview1",
-                        "timestamp": "2020-08-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    }
-                ],
-            },
-            self.team,
-        )
-
-        ff_key = "a-b-test"
-        # generates the FF which should result in the above events^
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2020-01-01T00:00",
-                "end_date": "2020-01-06T00:00",
-                "feature_flag_key": ff_key,
-                "parameters": {
-                    "feature_flag_variants": [
-                        {
-                            "key": "control",
-                            "name": "Control Group",
-                            "rollout_percentage": 25,
-                        },
-                        {
-                            "key": "test_1",
-                            "name": "Test Variant 1",
-                            "rollout_percentage": 25,
-                        },
-                        {
-                            "key": "test_2",
-                            "name": "Test Variant 2",
-                            "rollout_percentage": 25,
-                        },
-                        {
-                            "key": "test",
-                            "name": "Test Variant 3",
-                            "rollout_percentage": 25,
-                        },
-                    ]
-                },
-                "filters": {
-                    "insight": "trends",
-                    "events": [{"order": 0, "id": "$pageview1"}],
-                    "properties": [],
-                },
-            },
-        )
-
-        id = response.json()["id"]
-
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
-        self.assertEqual(200, response.status_code)
-
-        response_data = response.json()["result"]
-        result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
-
-        self.assertEqual(result[0]["count"], 3)
-        self.assertEqual("control", result[0]["breakdown_value"])
-
-        self.assertEqual(result[1]["count"], 2)
-        self.assertEqual("test_1", result[1]["breakdown_value"])
-
-        self.assertEqual(result[2]["count"], 1)
-        self.assertEqual("test_2", result[2]["breakdown_value"])
-
-        # test missing from results, since no events
-        self.assertAlmostEqual(response_data["probability"]["test_1"], 0.299, places=2)
-        self.assertAlmostEqual(response_data["probability"]["test_2"], 0.119, places=2)
-        self.assertAlmostEqual(response_data["probability"]["control"], 0.583, places=2)
-
-    def test_experiment_flow_with_event_results_for_two_test_variants_with_varying_exposures(self):
-        journeys_for(
-            {
-                "person1_2": [
-                    # for count data
-                    {
-                        "event": "$pageview1",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test_2"},
-                    },
-                    {
-                        "event": "$pageview1",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test_2"},
-                    },
-                    # for exposure counting (counted as 1 only)
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "test_2",
-                        },
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "test_2",
-                        },
-                    },
-                ],
-                "person1_1": [
-                    {
-                        "event": "$pageview1",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test_1"},
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "test_1",
-                        },
-                    },
-                ],
-                "person2_1": [
-                    {
-                        "event": "$pageview1",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test_1"},
-                    },
-                    {
-                        "event": "$pageview1",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test_1"},
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "test_1",
-                        },
-                    },
-                ],
-                "person2": [
-                    {
-                        "event": "$pageview1",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageview1",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    # 0 exposure shouldn't ideally happen, but it's possible
-                ],
-                "person3": [
-                    {
-                        "event": "$pageview1",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                ],
-                "person4": [
-                    {
-                        "event": "$pageview1",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-01-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                ],
-                # doesn't have feature set
-                "person_out_of_control": [{"event": "$pageview1", "timestamp": "2020-01-03"}],
-                "person_out_of_end_date": [
-                    {
-                        "event": "$pageview1",
-                        "timestamp": "2020-08-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$feature_flag_called",
-                        "timestamp": "2020-08-02",
-                        "properties": {
-                            "$feature_flag": "a-b-test",
-                            "$feature_flag_response": "control",
-                        },
-                    },
-                ],
-            },
-            self.team,
-        )
-
-        ff_key = "a-b-test"
-        # generates the FF which should result in the above events^
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2020-01-01T00:00",
-                "end_date": "2020-01-06T00:00",
-                "feature_flag_key": ff_key,
-                "parameters": {
-                    "feature_flag_variants": [
-                        {
-                            "key": "control",
-                            "name": "Control Group",
-                            "rollout_percentage": 33,
-                        },
-                        {
-                            "key": "test_1",
-                            "name": "Test Variant 1",
-                            "rollout_percentage": 33,
-                        },
-                        {
-                            "key": "test_2",
-                            "name": "Test Variant 2",
-                            "rollout_percentage": 34,
-                        },
-                    ]
-                },
-                "filters": {
-                    "insight": "trends",
-                    "events": [{"order": 0, "id": "$pageview1"}],
-                },
-            },
-        )
-
-        id = response.json()["id"]
-
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
-        self.assertEqual(200, response.status_code)
-
-        response_data = response.json()["result"]
-        result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
-
-        self.assertEqual(result[0]["count"], 4)
-        self.assertEqual("control", result[0]["breakdown_value"])
-
-        self.assertEqual(result[1]["count"], 3)
-        self.assertEqual("test_1", result[1]["breakdown_value"])
-
-        self.assertEqual(result[2]["count"], 2)
-        self.assertEqual("test_2", result[2]["breakdown_value"])
-
-        # control: Gamma(4, 1)
-        # test1: Gamma(3, 1)
-        # test2: Gamma(2, 0.5)
-        self.assertAlmostEqual(response_data["probability"]["test_1"], 0.177, places=2)
-        self.assertAlmostEqual(response_data["probability"]["test_2"], 0.488, places=2)
-        self.assertAlmostEqual(response_data["probability"]["control"], 0.334, places=2)
-
-    def test_experiment_flow_with_avg_count_per_user_event_results(self):
-        journeys_for(
-            {
-                "person1": [
-                    # 5 counts, single person
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                ],
-                "person2": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-                "person3": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-                "person4": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "test"},
-                    },
-                ],
-                # doesn't have feature set
-                "person_out_of_control": [
-                    {"event": "$pageview", "timestamp": "2020-01-03"},
-                ],
-                "person_out_of_end_date": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-08-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-            },
-            self.team,
-        )
-
-        ff_key = "a-b-test"
-        # generates the FF which should result in the above events^
-        creation_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2020-01-01T00:00",
-                "end_date": "2020-01-06T00:00",
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {
-                    "insight": "TRENDS",
-                    "events": [
-                        {
-                            "order": 0,
-                            "id": "$pageview",
-                            "math": "avg_count_per_actor",
-                            "name": "$pageview",
-                        }
-                    ],
-                    "properties": [],
-                },
-            },
-        )
-
-        id = creation_response.json()["id"]
-
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
-        self.assertEqual(200, response.status_code)
-
-        response_data = response.json()["result"]
-        result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
-
-        self.assertEqual(result[0]["data"], [0.0, 0.0, 1.0, 1.0, 1.0, 0.0])
-        self.assertEqual("control", result[0]["breakdown_value"])
-
-        self.assertEqual(result[1]["data"], [0.0, 5.0, 0.0, 0.0, 2.0, 0.0])
-        self.assertEqual("test", result[1]["breakdown_value"])
-
-        # Variant with test: Gamma(7, 1) and control: Gamma(4, 1) distribution
-        # The variant has high probability of being better. (effectively Gamma(10,1))
-        self.assertAlmostEqual(response_data["probability"]["test"], 0.805, places=2)
-        self.assertFalse(response_data["significant"])
-
-    def test_experiment_flow_with_avg_count_per_property_value_results(self):
-        journeys_for(
-            {
-                "person1": [
-                    # 5 counts, single person
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test", "mathable": 1},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test", "mathable": 1},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test", "mathable": 3},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test", "mathable": 3},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test", "mathable": 100},
-                    },
-                ],
-                "person2": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "control", "mathable": 1},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control", "mathable": 1},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "control", "mathable": 1},
-                    },
-                ],
-                "person3": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control", "mathable": 2},
-                    },
-                ],
-                "person4": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "test", "mathable": 1},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "test", "mathable": 1.5},
-                    },
-                ],
-                # doesn't have feature set
-                "person_out_of_control": [
-                    {"event": "$pageview", "timestamp": "2020-01-03"},
-                ],
-                "person_out_of_end_date": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-08-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-            },
-            self.team,
-        )
-
-        ff_key = "a-b-test"
-        # generates the FF which should result in the above events^
-        creation_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2020-01-01T00:00",
-                "end_date": "2020-01-06T00:00",
-                "feature_flag_key": ff_key,
-                "parameters": None,
-                "filters": {
-                    "insight": "TRENDS",
-                    "events": [
-                        {
-                            "order": 0,
-                            "id": "$pageview",
-                            "math": "max",
-                            "math_property": "mathable",
-                        }
-                    ],
-                    "properties": [],
-                },
-            },
-        )
-
-        id = creation_response.json()["id"]
-
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
-        self.assertEqual(200, response.status_code)
-
-        response_data = response.json()["result"]
-        result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
-
-        self.assertEqual(result[0]["data"], [0.0, 0.0, 1.0, 2.0, 1.0, 0.0])
-        self.assertEqual("control", result[0]["breakdown_value"])
-
-        self.assertEqual(result[1]["data"], [0.0, 100.0, 0.0, 0.0, 1.5, 0.0])
-        self.assertEqual("test", result[1]["breakdown_value"])
-
-        # Variant with test: Gamma(7, 1) and control: Gamma(4, 1) distribution
-        # The variant has high probability of being better. (effectively Gamma(10,1))
-        self.assertAlmostEqual(response_data["probability"]["test"], 0.805, places=2)
-        self.assertFalse(response_data["significant"])
-
-    def test_experiment_flow_with_sum_count_per_property_value_results(self):
-        journeys_for(
-            {
-                "person1": [
-                    # 5 counts, single person
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test", "mathable": 1},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test", "mathable": 1},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test", "mathable": 3},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test", "mathable": 3},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-02",
-                        "properties": {"$feature/a-b-test": "test", "mathable": 10},
-                    },
-                ],
-                "person2": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-03",
-                        "properties": {"$feature/a-b-test": "control", "mathable": 1},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control", "mathable": 1},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "control", "mathable": 1},
-                    },
-                ],
-                "person3": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-04",
-                        "properties": {"$feature/a-b-test": "control", "mathable": 2},
-                    },
-                ],
-                "person4": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "test", "mathable": 1},
-                    },
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-01-05",
-                        "properties": {"$feature/a-b-test": "test", "mathable": 1.5},
-                    },
-                ],
-                # doesn't have feature set
-                "person_out_of_control": [
-                    {"event": "$pageview", "timestamp": "2020-01-03"},
-                ],
-                "person_out_of_end_date": [
-                    {
-                        "event": "$pageview",
-                        "timestamp": "2020-08-03",
-                        "properties": {"$feature/a-b-test": "control"},
-                    },
-                ],
-            },
-            self.team,
-        )
-
-        ff_key = "a-b-test"
-        # generates the FF which should result in the above events^
-        creation_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "description": "",
-                "start_date": "2020-01-01T00:00",
-                "end_date": "2020-01-06T00:00",
-                "feature_flag_key": ff_key,
-                "parameters": {
-                    "custom_exposure_filter": {
-                        "events": [
-                            {
-                                "id": "$pageview",  # exposure is total pageviews
-                                "order": 0,
-                            }
-                        ],
-                    }
-                },
-                "filters": {
-                    "insight": "TRENDS",
-                    "events": [
-                        {
-                            "order": 0,
-                            "id": "$pageview",
-                            "math": "sum",
-                            "math_property": "mathable",
-                        }
-                    ],
-                    "properties": [],
-                },
-            },
-        )
-
-        id = creation_response.json()["id"]
-
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{id}/results")
-        self.assertEqual(200, response.status_code)
-
-        response_data = response.json()["result"]
-        result = sorted(response_data["insight"], key=lambda x: x["breakdown_value"])
-
-        self.assertEqual(result[0]["data"], [0.0, 0.0, 1.0, 4.0, 5.0, 5.0])
-        self.assertEqual("control", result[0]["breakdown_value"])
-
-        self.assertEqual(result[1]["data"], [0.0, 18.0, 18.0, 18.0, 20.5, 20.5])
-        self.assertEqual("test", result[1]["breakdown_value"])
-
-        # Variant with test: Gamma(7, 1) and control: Gamma(4, 1) distribution
-        # The variant has high probability of being better. (effectively Gamma(10,1))
-        self.assertAlmostEqual(response_data["probability"]["test"], 0.9513, places=2)
-        self.assertFalse(response_data["significant"])

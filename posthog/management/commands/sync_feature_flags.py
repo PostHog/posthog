@@ -4,10 +4,16 @@ from django.core.management.base import BaseCommand
 
 from posthog.models import FeatureFlag, Project, User
 
+# These flags won't be enabled when syncing feature flags
+# Turn these on for flags that heavily change the behavior and that you wouldn't like
+# your fellow colleagues to see locally
+#
+# Examples of changes that should go here are authentication changes, big UI changes, etc.
 INACTIVE_FLAGS = [
-    "cloud-announcement",
     "session-reset-on-load",
     "posthog-3000-nav",
+    "tree-view",
+    "insight-horizontal-controls",
 ]
 
 

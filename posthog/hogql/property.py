@@ -1,5 +1,6 @@
 from typing import Literal, Optional, cast
 
+from django.db.models.functions.comparison import Coalesce
 from pydantic import BaseModel
 
 from posthog.constants import (
@@ -26,6 +27,7 @@ from posthog.models.property import PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
 from posthog.models.property_definition import PropertyType
 from posthog.schema import (
+    EventMetadataPropertyFilter,
     FilterLogicalOperator,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -48,6 +50,8 @@ from posthog.schema import (
 from posthog.warehouse.models import DataWarehouseJoin
 from posthog.utils import get_from_dict_or_attr
 from django.db.models import Q
+from django.db import models
+
 
 from posthog.warehouse.models.util import get_view_or_table_by_name
 
@@ -85,14 +89,18 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     if value != "true" and value != "false":
         return value
     if property.type == "person":
-        property_types = PropertyDefinition.objects.filter(
-            team=team,
+        property_types = PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        ).filter(
+            effective_project_id=team.project_id,  # type: ignore
             name=property.key,
             type=PropertyDefinition.Type.PERSON,
         )
     elif property.type == "group":
-        property_types = PropertyDefinition.objects.filter(
-            team=team,
+        property_types = PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        ).filter(
+            effective_project_id=team.project_id,  # type: ignore
             name=property.key,
             type=PropertyDefinition.Type.GROUP,
             group_type_index=property.group_type_index,
@@ -132,8 +140,10 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         return value
 
     else:
-        property_types = PropertyDefinition.objects.filter(
-            team=team,
+        property_types = PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        ).filter(
+            effective_project_id=team.project_id,  # type: ignore
             name=property.key,
             type=PropertyDefinition.Type.EVENT,
         )
@@ -184,13 +194,13 @@ def _expr_to_compare_op(
     elif operator == PropertyOperator.ICONTAINS:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.ILike,
-            left=expr,
+            left=ast.Call(name="toString", args=[expr]),
             right=ast.Constant(value=f"%{value}%"),
         )
     elif operator == PropertyOperator.NOT_ICONTAINS:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.NotILike,
-            left=expr,
+            left=ast.Call(name="toString", args=[expr]),
             right=ast.Constant(value=f"%{value}%"),
         )
     elif operator == PropertyOperator.REGEX:
@@ -234,8 +244,36 @@ def _expr_to_compare_op(
         return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.GTE:
         return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value))
+    elif operator == PropertyOperator.IS_CLEANED_PATH_EXACT:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=apply_path_cleaning(expr, team),
+            right=apply_path_cleaning(ast.Constant(value=value), team),
+        )
+    elif operator == PropertyOperator.IN_ or operator == PropertyOperator.NOT_IN:
+        if not isinstance(value, list):
+            raise Exception("IN and NOT IN operators require a list of values")
+        op = ast.CompareOperationOp.NotIn if operator == PropertyOperator.NOT_IN else ast.CompareOperationOp.In
+        return ast.CompareOperation(op=op, left=expr, right=ast.Array(exprs=[ast.Constant(value=v) for v in value]))
     else:
         raise NotImplementedError(f"PropertyOperator {operator} not implemented")
+
+
+def apply_path_cleaning(path_expr: ast.Expr, team: Team) -> ast.Expr:
+    if not team.path_cleaning_filters:
+        return path_expr
+
+    for replacement in team.path_cleaning_filter_models():
+        path_expr = ast.Call(
+            name="replaceRegexpAll",
+            args=[
+                path_expr,
+                ast.Constant(value=replacement.regex),
+                ast.Constant(value=replacement.alias),
+            ],
+        )
+
+    return path_expr
 
 
 def property_to_expr(
@@ -251,6 +289,7 @@ def property_to_expr(
         | PersonPropertyFilter
         | ElementPropertyFilter
         | SessionPropertyFilter
+        | EventMetadataPropertyFilter
         | CohortPropertyFilter
         | RecordingPropertyFilter
         | LogEntryPropertyFilter
@@ -262,7 +301,7 @@ def property_to_expr(
         | DataWarehousePersonPropertyFilter
     ),
     team: Team,
-    scope: Literal["event", "person", "session", "replay", "replay_entity"] = "event",
+    scope: Literal["event", "person", "group", "session", "replay", "replay_entity"] = "event",
 ) -> ast.Expr:
     if isinstance(property, dict):
         try:
@@ -326,6 +365,7 @@ def property_to_expr(
         return parse_expr(property.key)
     elif (
         property.type == "event"
+        or property.type == "event_metadata"
         or property.type == "feature"
         or property.type == "person"
         or property.type == "group"
@@ -335,7 +375,11 @@ def property_to_expr(
         or property.type == "recording"
         or property.type == "log_entry"
     ):
-        if (scope == "person" and property.type != "person") or (scope == "session" and property.type != "session"):
+        if (
+            (scope == "person" and property.type != "person")
+            or (scope == "session" and property.type != "session")
+            or (scope != "event" and property.type == "event_metadata")
+        ):
             raise QueryError(f"The '{property.type}' property filter does not work in '{scope}' scope")
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
@@ -381,9 +425,9 @@ def property_to_expr(
                 property.key = key
             else:
                 raise QueryError("Data warehouse person property filter value must be a string")
-        elif property.type == "group":
+        elif property.type == "group" and scope != "group":
             chain = [f"group_{property.group_type_index}", "properties"]
-        elif property.type in ["recording", "data_warehouse", "log_entry"]:
+        elif property.type in ["recording", "data_warehouse", "log_entry", "event_metadata"]:
             chain = []
         elif property.type == "session" and scope in ["event", "replay"]:
             chain = ["session"]
@@ -392,7 +436,12 @@ def property_to_expr(
         else:
             chain = ["properties"]
 
-        field = ast.Field(chain=[*chain, property.key])
+        # We pretend elements chain is a property, but it is actually a column on the events table
+        if chain == ["properties"] and property.key == "$elements_chain":
+            field = ast.Field(chain=["elements_chain"])
+        else:
+            field = ast.Field(chain=[*chain, property.key])
+
         expr: ast.Expr = field
 
         if property.type == "recording" and property.key == "snapshot_source":
@@ -404,7 +453,20 @@ def property_to_expr(
             elif len(value) == 1:
                 value = value[0]
             else:
-                # Using an AND here instead of `in()` or `notIn()`, due to Clickhouses poor handling of `null` values
+                if operator in (
+                    PropertyOperator.EXACT,
+                    PropertyOperator.IS_NOT,
+                    PropertyOperator.IN_,
+                    PropertyOperator.NOT_IN,
+                ):
+                    op = (
+                        ast.CompareOperationOp.In
+                        if operator in (PropertyOperator.EXACT, PropertyOperator.IN_)
+                        else ast.CompareOperationOp.NotIn
+                    )
+                    return ast.CompareOperation(
+                        op=op, left=field, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
+                    )
                 exprs = [
                     property_to_expr(
                         Property(
@@ -509,10 +571,12 @@ def property_to_expr(
         cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
-            op=ast.CompareOperationOp.NotInCohort
-            # Kludge: negation is outdated but still used in places
-            if property.negation or property.operator == PropertyOperator.NOT_IN.value
-            else ast.CompareOperationOp.InCohort,
+            op=(
+                ast.CompareOperationOp.NotInCohort
+                # Kludge: negation is outdated but still used in places
+                if property.negation or property.operator == PropertyOperator.NOT_IN.value
+                else ast.CompareOperationOp.InCohort
+            ),
             right=ast.Constant(value=cohort.pk),
         )
 
@@ -588,6 +652,7 @@ def action_to_expr(action: Action) -> ast.Expr:
                             {"value": ast.Constant(value=value)},
                         )
                     )
+
         if step.url:
             if step.url_matching == "exact":
                 expr = parse_expr(
@@ -622,18 +687,25 @@ def action_to_expr(action: Action) -> ast.Expr:
         return ast.Or(exprs=or_queries)
 
 
-def entity_to_expr(entity: RetentionEntity) -> ast.Expr:
+def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
     if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
         action = Action.objects.get(pk=entity.id)
         return action_to_expr(action)
     if entity.id is None:
         return ast.Constant(value=True)
 
-    return ast.CompareOperation(
-        op=ast.CompareOperationOp.Eq,
-        left=ast.Field(chain=["events", "event"]),
-        right=ast.Constant(value=entity.id),
-    )
+    filters: list[ast.Expr] = [
+        ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["events", "event"]),
+            right=ast.Constant(value=entity.id),
+        )
+    ]
+
+    if entity.properties is not None and entity.properties != []:
+        filters.append(property_to_expr(entity.properties, team))
+
+    return ast.And(exprs=filters)
 
 
 def tag_name_to_expr(tag_name: str):

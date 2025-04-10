@@ -1,12 +1,11 @@
-import { captureException } from '@sentry/node'
-import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
 import { KAFKA_LOG_ENTRIES } from '../../../../config/kafka-topics'
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
-import { flushProducer, produce } from '../../../../kafka/producer'
-import { status } from '../../../../utils/status'
+import { KafkaProducerWrapper } from '../../../../kafka/producer'
+import { logger } from '../../../../utils/logger'
+import { captureException } from '../../../../utils/posthog'
 import { eventDroppedCounter } from '../../metrics'
 import { ConsoleLogEntry, gatherConsoleLogEvents, RRWebEventType } from '../process-event'
 import { IncomingRecordingMessage } from '../types'
@@ -41,12 +40,12 @@ function deduplicateConsoleLogEvents(consoleLogEntries: ConsoleLogEntry[]): Cons
 // am going to leave this duplication and then collapse it when/if we add a performance events ingester
 export class ConsoleLogsIngester {
     constructor(
-        private readonly producer: RdKafkaProducer,
+        private readonly producer: KafkaProducerWrapper,
         private readonly persistentHighWaterMarker?: OffsetHighWaterMarker
     ) {}
 
     public async consumeBatch(messages: IncomingRecordingMessage[]) {
-        const pendingProduceRequests: Promise<NumberNullUndefined>[] = []
+        const pendingProduceRequests: Promise<void>[] = []
 
         for (const message of messages) {
             const results = await retryOnDependencyUnavailableError(() => this.consume(message))
@@ -60,7 +59,7 @@ export class ConsoleLogsIngester {
         // On each loop, we flush the producer to ensure that all messages
         // are sent to Kafka.
         try {
-            await flushProducer(this.producer!)
+            await this.producer.flush()
         } catch (error) {
             // Rather than handling errors from flush, we instead handle
             // errors per produce request, which gives us a little more
@@ -77,7 +76,7 @@ export class ConsoleLogsIngester {
             try {
                 await produceRequest
             } catch (error) {
-                status.error('🔁', '[console-log-events-ingester] main_loop_error', { error })
+                logger.error('🔁', '[console-log-events-ingester] main_loop_error', { error })
 
                 if (error?.isRetriable) {
                     // We assume that if the error is retriable, then we
@@ -105,7 +104,7 @@ export class ConsoleLogsIngester {
         }
     }
 
-    public async consume(event: IncomingRecordingMessage): Promise<Promise<number | null | undefined>[] | void> {
+    public async consume(event: IncomingRecordingMessage): Promise<Promise<void>[] | void> {
         const drop = (reason: string) => {
             eventDroppedCounter
                 .labels({
@@ -155,17 +154,17 @@ export class ConsoleLogsIngester {
             )
             consoleLogEventsCounter.inc(consoleLogEvents.length)
 
-            return consoleLogEvents.map((cle: ConsoleLogEntry) =>
-                produce({
-                    producer,
+            return [
+                this.producer.queueMessages({
                     topic: KAFKA_LOG_ENTRIES,
-                    value: Buffer.from(JSON.stringify(cle)),
-                    key: event.session_id,
-                    waitForAck: true,
-                })
-            )
+                    messages: consoleLogEvents.map((cle: ConsoleLogEntry) => ({
+                        value: JSON.stringify(cle),
+                        key: event.session_id,
+                    })),
+                }),
+            ]
         } catch (error) {
-            status.error('⚠️', '[console-log-events-ingester] processing_error', {
+            logger.error('⚠️', '[console-log-events-ingester] processing_error', {
                 error: error,
             })
             captureException(error, {

@@ -80,7 +80,7 @@ function MathTag({ math, mathProperty, mathHogQL, mathGroupTypeIndex }: MathTagP
         )
     }
     if (math === 'hogql') {
-        return <LemonTag className="max-w-60 text-ellipsis overflow-hidden">{String(mathHogQL) || 'HogQL'}</LemonTag>
+        return <LemonTag className="max-w-60 text-ellipsis overflow-hidden">{String(mathHogQL) || 'SQL'}</LemonTag>
     }
     return <LemonTag>{capitalizeFirstLetter(math)}</LemonTag>
 }

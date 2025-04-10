@@ -8,7 +8,8 @@ export const summarizeUsage = (usage: number | null): string => {
     } else if (usage < 1000) {
         return `${usage}`
     } else if (Math.round(usage / 1000) < 1000) {
-        return `${Math.round(usage / 1000)} thousand`
+        const thousands = usage / 1000
+        return `${Number.isInteger(thousands) ? thousands : thousands.toFixed(1)} thousand`
     }
     return `${Math.round(usage / 1000000)} million`
 }
@@ -101,8 +102,8 @@ export const convertAmountToUsage = (
         let totalAmount = parseFloat(tier.unit_amount_usd)
         let flatFee = parseFloat(tier.flat_amount_usd || '0')
         for (const addonTiers of allAddonsTiers) {
-            totalAmount += parseFloat(addonTiers[index].unit_amount_usd)
-            flatFee += parseFloat(addonTiers[index].flat_amount_usd || '0')
+            totalAmount += parseFloat(addonTiers[index]?.unit_amount_usd || '0')
+            flatFee += parseFloat(addonTiers[index]?.flat_amount_usd || '0')
         }
         return {
             ...tier,
@@ -158,32 +159,17 @@ export const convertAmountToUsage = (
 export const getUpgradeProductLink = ({
     product,
     redirectPath,
-    includeAddons = true,
 }: {
     product: BillingProductV2Type
     redirectPath?: string
-    includeAddons: boolean
 }): string => {
     let url = '/api/billing/activate?'
     if (redirectPath) {
-        url += `redirect_path=${redirectPath}&`
+        url += `redirect_path=${encodeURIComponent(redirectPath)}&`
     }
 
-    url += `products=all_products:&intent_product=${product.type},`
+    url += `products=all_products:&intent_product=${product.type}`
 
-    if (includeAddons && product.addons?.length) {
-        for (const addon of product.addons) {
-            if (
-                // TODO: this breaks if we support multiple plans per addon due to just grabbing the first plan
-                addon.plans?.[0]?.plan_key &&
-                !addon.inclusion_only
-            ) {
-                url += `${addon.type}:${addon.plans[0].plan_key},`
-            }
-        }
-    }
-    // remove the trailing comma that will be at the end of the url
-    url = url.slice(0, -1)
     return url
 }
 
@@ -256,4 +242,35 @@ export const getProration = ({
 
 export const getProrationMessage = (prorationAmount: string, unitAmountUsd: string | null): string => {
     return `Pay ~$${prorationAmount} today (prorated) and $${parseInt(unitAmountUsd || '0')} every month thereafter.`
+}
+
+/**
+ * Formats the plan status for display, trial or not
+ */
+export const formatPlanStatus = (billing: BillingType | null): string => {
+    if (!billing) {
+        return ''
+    }
+
+    // Check for old-style active trial
+    if (billing.free_trial_until && billing.free_trial_until.isAfter(dayjs())) {
+        return '(trial plan)'
+    }
+
+    // Check for new-style active trial
+    if (billing.trial?.status === 'active') {
+        return '(trial plan)'
+    }
+
+    // Check for expired trial
+    if (billing.trial?.status === 'expired' && billing.trial.expires_at) {
+        return `(trial expired)`
+    }
+
+    // Regular paid plan
+    if (billing.subscription_level !== 'free') {
+        return '(your plan)'
+    }
+
+    return ''
 }

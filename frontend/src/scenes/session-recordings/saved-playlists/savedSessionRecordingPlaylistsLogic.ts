@@ -9,6 +9,7 @@ import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { objectClean, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 
 import { ReplayTabs, SessionRecordingPlaylistType } from '~/types'
@@ -48,9 +49,9 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
     path((key) => ['scenes', 'session-recordings', 'saved-playlists', 'savedSessionRecordingPlaylistsLogic', key]),
     props({} as SavedSessionRecordingPlaylistsLogicProps),
     key((props) => props.tab),
-    connect({
+    connect(() => ({
         actions: [eventUsageLogic, ['reportRecordingPlaylistCreated']],
-    }),
+    })),
 
     actions(() => ({
         setSavedPlaylistsFilters: (filters: Partial<SavedSessionRecordingPlaylistsFilters>) => ({
@@ -204,6 +205,29 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 }
             },
         ],
+    })),
+    listeners(() => ({
+        loadPlaylistsSuccess: ({ playlists }) => {
+            try {
+                // the feature flag might be off, so we don't show the count column
+                // but we want to know if we _would_ have shown counts
+                // so we'll emit a posthog event
+                const playlistTotal = playlists.results.length
+                const savedFiltersWithCounts = playlists.results.filter(
+                    (playlist) => playlist.recordings_counts?.saved_filters?.count !== null
+                ).length
+                const collectionWithCounts = playlists.results.filter(
+                    (playlist) => playlist.recordings_counts?.collection.count !== null
+                ).length
+                posthog.capture('session_recordings_playlist_counts', {
+                    playlistTotal,
+                    savedFiltersWithCounts,
+                    collectionWithCounts,
+                })
+            } catch (e) {
+                posthog.captureException(e, { posthog_feature: 'playlist_counting' })
+            }
+        },
     })),
     actionToUrl(({ values }) => {
         const changeUrl = ():

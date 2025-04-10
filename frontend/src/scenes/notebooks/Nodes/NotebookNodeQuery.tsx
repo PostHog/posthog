@@ -175,14 +175,14 @@ export const Settings = ({
     }
 
     return attributes.query.kind === NodeKind.SavedInsightNode ? (
-        <div className="p-3 space-y-2">
+        <div className="p-3 deprecated-space-y-2">
             <div className="text-lg font-semibold">Insight created outside of this notebook</div>
             <div>
                 Changes made to the original insight will be reflected in the notebook. Or you can detach from the
                 insight to make changes independently in the notebook.
             </div>
 
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <LemonButton
                     center={true}
                     type="secondary"
@@ -235,11 +235,11 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             default: DEFAULT_QUERY,
         },
     },
-    href: (attrs) =>
-        attrs.query.kind === NodeKind.SavedInsightNode
-            ? urls.insightView(attrs.query.shortId)
-            : isInsightVizNode(attrs.query)
-            ? urls.insightNew(undefined, undefined, attrs.query)
+    href: ({ query }) =>
+        query.kind === NodeKind.SavedInsightNode
+            ? urls.insightView(query.shortId)
+            : isInsightVizNode(query)
+            ? urls.insightNew({ query })
             : undefined,
     Settings,
     pasteOptions: {

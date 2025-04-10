@@ -34,7 +34,6 @@ export function Sidebar({ navbarItem, sidebarOverlay, sidebarOverlayProps }: Sid
         sidebarOverslideDirection: overslideDirection,
         isSearchShown,
     } = useValues(navigation3000Logic({ inputElement: inputElementRef.current }))
-    const { beginResize } = useActions(navigation3000Logic({ inputElement: inputElementRef.current }))
     const { contents } = useValues(navbarItem.logic)
 
     return (
@@ -48,7 +47,7 @@ export function Sidebar({ navbarItem, sidebarOverlay, sidebarOverlayProps }: Sid
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
-                    '--sidebar-width': `${width}px`,
+                    '--sidebar-width': `${isShown ? width : 0}px`,
                 } as React.CSSProperties
             }
         >
@@ -65,16 +64,8 @@ export function Sidebar({ navbarItem, sidebarOverlay, sidebarOverlayProps }: Sid
                         <React.Fragment key={category.key}>{category.modalContent}</React.Fragment>
                     ))}
             </div>
-            <div
-                className="Sidebar3000__slider"
-                onMouseDown={(e) => {
-                    if (e.button === 0) {
-                        beginResize()
-                    }
-                }}
-            />
             {sidebarOverlay && (
-                <SidebarOverlay {...sidebarOverlayProps} isOpen={isShown && sidebarOverlayProps?.isOpen} width={width}>
+                <SidebarOverlay {...sidebarOverlayProps} isOpen={sidebarOverlayProps?.isOpen && isShown} width={width}>
                     {sidebarOverlay}
                 </SidebarOverlay>
             )}
@@ -102,9 +93,9 @@ function SidebarSearchBar({
     const isLoading = contents.some((item) => item.loading)
 
     return (
-        <div className="h-10">
+        <div className="h-8 m-1.5">
             <LemonInput
-                className="h-full"
+                className="rounded-md border border-border"
                 inputRef={inputElementRef}
                 type="search"
                 value={localSearchTerm}
@@ -165,7 +156,7 @@ function SidebarOverlay({
 
     return (
         <div
-            className={clsx('absolute top-0 left-0 h-full bg-bg-3000 z-10', className)}
+            className={clsx('absolute top-0 left-0 h-full bg-primary z-10', className)}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: `${width}px` }}
         >

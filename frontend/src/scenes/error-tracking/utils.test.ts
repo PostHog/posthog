@@ -1,6 +1,6 @@
-import { ErrorTrackingIssue } from '~/queries/schema'
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { mergeIssues } from './utils'
+import { generateDateRangeLabel, generateSparklineLabels, mergeIssues, resolveDate, resolveDateRange } from './utils'
 
 describe('mergeIssues', () => {
     it('arbitrary values', async () => {
@@ -11,25 +11,15 @@ describe('mergeIssues', () => {
             name: 'TypeError',
             first_seen: '2024-07-22T13:15:07.074000Z',
             last_seen: '2024-07-20T13:15:50.186000Z',
-            occurrences: 250,
-            sessions: 100,
+            aggregations: {
+                occurrences: 250,
+                sessions: 100,
+                users: 50,
+                volumeDay: [10, 5, 10, 20, 50],
+                volumeRange: [0, 0, 10, 25, 95],
+            },
             status: 'active',
-            users: 50,
             earliest: '',
-            volume: [
-                '__hx_tag',
-                'Sparkline',
-                'data',
-                [10, 5, 10, 20, 50],
-                'labels',
-                [
-                    '25 Jun, 2024 00:00 (UTC)',
-                    '26 Jun, 2024 00:00 (UTC)',
-                    '27 Jun, 2024 00:00 (UTC)',
-                    '28 Jun, 2024 00:00 (UTC)',
-                    '29 Jun, 2024 00:00 (UTC)',
-                ],
-            ],
         }
 
         const mergingIssues: ErrorTrackingIssue[] = [
@@ -40,25 +30,15 @@ describe('mergeIssues', () => {
                 name: 'SyntaxError',
                 first_seen: '2024-07-21T13:15:07.074000Z',
                 last_seen: '2024-07-20T13:15:50.186000Z',
-                occurrences: 10,
-                sessions: 5,
+                aggregations: {
+                    occurrences: 10,
+                    sessions: 5,
+                    users: 1,
+                    volumeDay: [1, 1, 2, 1, 2],
+                    volumeRange: [0, 0, 0, 0, 1],
+                },
                 status: 'active',
-                users: 1,
                 earliest: '',
-                volume: [
-                    '__hx_tag',
-                    'Sparkline',
-                    'data',
-                    [1, 1, 2, 1, 2],
-                    'labels',
-                    [
-                        '25 Jun, 2024 00:00 (UTC)',
-                        '26 Jun, 2024 00:00 (UTC)',
-                        '27 Jun, 2024 00:00 (UTC)',
-                        '28 Jun, 2024 00:00 (UTC)',
-                        '29 Jun, 2024 00:00 (UTC)',
-                    ],
-                ],
             },
             {
                 id: 'thirdId',
@@ -67,25 +47,15 @@ describe('mergeIssues', () => {
                 name: 'SyntaxError',
                 first_seen: '2024-07-21T13:15:07.074000Z',
                 last_seen: '2024-07-22T13:15:50.186000Z',
-                occurrences: 1,
-                sessions: 1,
+                aggregations: {
+                    occurrences: 1,
+                    sessions: 1,
+                    users: 1,
+                    volumeDay: [5, 10, 2, 3, 5],
+                    volumeRange: [0, 0, 0, 1, 0],
+                },
                 status: 'active',
-                users: 1,
                 earliest: '',
-                volume: [
-                    '__hx_tag',
-                    'Sparkline',
-                    'data',
-                    [5, 10, 2, 3, 5],
-                    'labels',
-                    [
-                        '25 Jun, 2024 00:00 (UTC)',
-                        '26 Jun, 2024 00:00 (UTC)',
-                        '27 Jun, 2024 00:00 (UTC)',
-                        '28 Jun, 2024 00:00 (UTC)',
-                        '29 Jun, 2024 00:00 (UTC)',
-                    ],
-                ],
             },
             {
                 id: 'fourthId',
@@ -94,25 +64,15 @@ describe('mergeIssues', () => {
                 name: 'SyntaxError',
                 first_seen: '2023-07-22T13:15:07.074000Z',
                 last_seen: '2024-07-22T13:15:50.186000Z',
-                occurrences: 1000,
-                sessions: 500,
+                aggregations: {
+                    occurrences: 1000,
+                    sessions: 500,
+                    users: 50,
+                    volumeDay: [10, 100, 200, 300, 700],
+                    volumeRange: [0, 500, 1500, 1000, 1310],
+                },
                 status: 'active',
-                users: 50,
                 earliest: '',
-                volume: [
-                    '__hx_tag',
-                    'Sparkline',
-                    'data',
-                    [10, 100, 200, 300, 700],
-                    'labels',
-                    [
-                        '25 Jun, 2024 00:00 (UTC)',
-                        '26 Jun, 2024 00:00 (UTC)',
-                        '27 Jun, 2024 00:00 (UTC)',
-                        '28 Jun, 2024 00:00 (UTC)',
-                        '29 Jun, 2024 00:00 (UTC)',
-                    ],
-                ],
             },
         ]
 
@@ -130,25 +90,103 @@ describe('mergeIssues', () => {
             first_seen: '2023-07-22T13:15:07.074Z',
             // latest last_seen
             last_seen: '2024-07-22T13:15:50.186Z',
-            // sums counts
-            occurrences: 1261,
-            sessions: 606,
-            users: 102,
-            // sums volumes
-            volume: [
-                '__hx_tag',
-                'Sparkline',
-                'data',
-                [26, 116, 214, 324, 757],
-                'labels',
-                [
-                    '25 Jun, 2024 00:00 (UTC)',
-                    '26 Jun, 2024 00:00 (UTC)',
-                    '27 Jun, 2024 00:00 (UTC)',
-                    '28 Jun, 2024 00:00 (UTC)',
-                    '29 Jun, 2024 00:00 (UTC)',
-                ],
-            ],
+            aggregations: {
+                // sums counts
+                occurrences: 1261,
+                sessions: 606,
+                users: 102,
+                // sums volumes
+                volumeDay: [26, 116, 214, 324, 757],
+                volumeRange: [0, 500, 1510, 1026, 1406],
+            },
         })
+    })
+})
+
+describe('generate sparkline labels', () => {
+    beforeAll(() => {
+        jest.useFakeTimers().setSystemTime(new Date('2023-01-10 17:22:08'))
+    })
+
+    it('generate labels from with hour resolution', async () => {
+        const labels = generateSparklineLabels(
+            {
+                date_from: '2025-01-01',
+                date_to: '2025-01-02',
+            },
+            4
+        )
+        expect(labels).toEqual([
+            '2025-01-01T00:00:00.000Z',
+            '2025-01-01T06:00:00.000Z',
+            '2025-01-01T12:00:00.000Z',
+            '2025-01-01T18:00:00.000Z',
+        ])
+    })
+
+    it('test date range resolution', async () => {
+        const range = {
+            date_from: '-7d',
+            date_to: '-1d',
+        }
+        const resolvedRange = resolveDateRange(range)
+        expect(resolvedRange.date_from.toISOString()).toEqual('2023-01-03T17:22:08.000Z')
+        expect(resolvedRange.date_to.toISOString()).toEqual('2023-01-09T17:22:08.000Z')
+    })
+
+    it('test date resolution', async () => {
+        const resolvedDate = resolveDate('yStart')
+        expect(resolvedDate.toISOString()).toEqual('2023-01-01T00:00:00.000Z')
+    })
+
+    it('test date range label generation', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: '-7d',
+        })
+        expect(rangeLabel).toEqual('7d')
+    })
+})
+
+describe('date range label generation', () => {
+    it('-7d', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: '-7d',
+        })
+        expect(rangeLabel).toEqual('7d')
+    })
+
+    it('-24h', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: '-24h',
+        })
+        expect(rangeLabel).toEqual('24h')
+    })
+
+    it('-3h', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: '-3h',
+        })
+        expect(rangeLabel).toEqual('3h')
+    })
+
+    it('01-01-2025', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: '01-01-2025',
+        })
+        expect(rangeLabel).toEqual('Custom')
+    })
+
+    it('yStart', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: 'yStart',
+        })
+        expect(rangeLabel).toEqual('Year')
+    })
+
+    it('mStart', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: 'mStart',
+        })
+        expect(rangeLabel).toEqual('Month')
     })
 })

@@ -9,6 +9,7 @@ import { membershipLevelToName } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { OrganizationMemberType } from '~/types'
 
 import type { membersLogicType } from './membersLogicType'
@@ -19,9 +20,9 @@ const PAGINATION_LIMIT = 200
 
 export const membersLogic = kea<membersLogicType>([
     path(['scenes', 'organization', 'membersLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user']],
-    }),
+    })),
     actions({
         ensureAllMembersLoaded: true,
         loadAllMembers: true,
@@ -165,6 +166,11 @@ export const membersLogic = kea<membersLogicType>([
                 actions.loadAllMembers()
             } else {
                 actions.loadMemberUpdates()
+            }
+        },
+        loadAllMembersSuccess: ({ members }) => {
+            if (members && members.length > 1) {
+                activationLogic.findMounted()?.actions?.markTaskAsCompleted(ActivationTask.InviteTeamMember)
             }
         },
     })),

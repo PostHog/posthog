@@ -193,6 +193,21 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
                     }
                     break
                 }
+                case 'priority': {
+                    changes.push({
+                        inline: (
+                            <>
+                                changed priority from {change.before} to {change.after} for{' '}
+                            </>
+                        ),
+                        inlist: (
+                            <>
+                                changed priority from {change.before} to {change.after} for{' '}
+                            </>
+                        ),
+                    })
+                    break
+                }
                 default:
                     changes.push({
                         inline: `updated unknown field: ${change.field}`,

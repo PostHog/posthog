@@ -1,10 +1,9 @@
 use crate::config::KafkaConfig;
 
-use futures::future::join_all;
 use health::HealthHandle;
 use rdkafka::error::KafkaError;
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
-use rdkafka::ClientConfig;
+use rdkafka::{ClientConfig, ClientContext};
 use serde::Serialize;
 use serde_json::error::Error as SerdeError;
 use thiserror::Error;
@@ -12,6 +11,12 @@ use tracing::{debug, error, info};
 
 pub struct KafkaContext {
     liveness: HealthHandle,
+}
+
+impl From<HealthHandle> for KafkaContext {
+    fn from(value: HealthHandle) -> Self {
+        KafkaContext { liveness: value }
+    }
 }
 
 impl rdkafka::ClientContext for KafkaContext {
@@ -43,6 +48,10 @@ pub async fn create_kafka_producer(
         .set(
             "queue.buffering.max.kbytes",
             (config.kafka_producer_queue_mib * 1024).to_string(),
+        )
+        .set(
+            "queue.buffering.max.messages",
+            config.kafka_producer_queue_messages.to_string(),
         );
 
     if config.kafka_tls {
@@ -52,8 +61,7 @@ pub async fn create_kafka_producer(
     };
 
     debug!("rdkafka configuration: {:?}", client_config);
-    let api: FutureProducer<KafkaContext> =
-        client_config.create_with_context(KafkaContext { liveness })?;
+    let api: FutureProducer<KafkaContext> = client_config.create_with_context(liveness.into())?;
 
     // "Ping" the Kafka brokers by requesting metadata
     match api
@@ -85,65 +93,78 @@ pub enum KafkaProduceError {
     KafkaProduceCanceled,
 }
 
-pub async fn send_iter_to_kafka<T>(
-    kafka_producer: &FutureProducer<KafkaContext>,
+pub async fn send_iter_to_kafka<T, C: ClientContext>(
+    kafka_producer: &FutureProducer<C>,
     topic: &str,
     iter: impl IntoIterator<Item = T>,
-) -> Result<(), KafkaProduceError>
+) -> Vec<Result<(), KafkaProduceError>>
 where
     T: Serialize,
 {
     send_keyed_iter_to_kafka(kafka_producer, topic, |_| None, iter).await
 }
 
-pub async fn send_keyed_iter_to_kafka<T>(
-    kafka_producer: &FutureProducer<KafkaContext>,
+pub async fn send_keyed_iter_to_kafka<T, C: ClientContext>(
+    kafka_producer: &FutureProducer<C>,
     topic: &str,
     key_extractor: impl Fn(&T) -> Option<String>,
     iter: impl IntoIterator<Item = T>,
-) -> Result<(), KafkaProduceError>
+) -> Vec<Result<(), KafkaProduceError>>
 where
     T: Serialize,
 {
-    let mut payloads = Vec::new();
+    let mut results = Vec::new();
+    let mut handles = Vec::new();
 
-    for i in iter {
-        let key = key_extractor(&i);
-        let payload = serde_json::to_string(&i)
-            .map_err(|e| KafkaProduceError::SerializationError { error: e })?;
-        payloads.push((key, payload));
-    }
-
-    if payloads.is_empty() {
-        return Ok(());
-    }
-
-    let mut delivery_futures = Vec::new();
-
-    for (key, payload) in payloads {
-        match kafka_producer.send_result(FutureRecord {
-            topic,
-            payload: Some(&payload),
-            partition: None,
-            key: key.as_deref(),
-            timestamp: None,
-            headers: None,
-        }) {
-            Ok(future) => delivery_futures.push(future),
-            Err((error, _)) => return Err(KafkaProduceError::KafkaProduceError { error }),
-        }
-    }
-
-    for result in join_all(delivery_futures).await {
-        match result {
-            Ok(Ok(_)) => {}
-            Ok(Err((error, _))) => return Err(KafkaProduceError::KafkaProduceError { error }),
-            Err(_) => {
-                // Cancelled due to timeout while retrying
-                return Err(KafkaProduceError::KafkaProduceCanceled);
+    for (index, item) in iter.into_iter().enumerate() {
+        let key = key_extractor(&item);
+        let payload = match serde_json::to_string(&item)
+            .map_err(|e| KafkaProduceError::SerializationError { error: e })
+        {
+            Ok(p) => p,
+            Err(e) => {
+                results.push((index, Err(e)));
+                continue;
             }
+        };
+
+        let record = FutureRecord {
+            topic,
+            key: key.as_deref(),
+            payload: Some(&payload),
+            timestamp: None,
+            partition: None,
+            headers: None,
+        };
+
+        let future_handle = match kafka_producer.send_result(record) {
+            Ok(f) => f,
+            Err((e, _)) => {
+                results.push((
+                    index,
+                    Err(KafkaProduceError::KafkaProduceError { error: e }),
+                ));
+                continue;
+            }
+        };
+
+        handles.push((index, future_handle));
+    }
+
+    for handle in handles {
+        let (index, future_handle) = handle;
+        match future_handle.await {
+            Ok(Ok(_)) => results.push((index, Ok(()))),
+            Ok(Err((e, _))) => results.push((
+                index,
+                Err(KafkaProduceError::KafkaProduceError { error: e }),
+            )),
+            Err(_) => results.push((index, Err(KafkaProduceError::KafkaProduceCanceled))),
         }
     }
 
-    Ok(())
+    // Sort to return in passed-in order
+    results.sort_by_key(|e| e.0);
+
+    results.into_iter().map(|(_, r)| r).collect()
 }

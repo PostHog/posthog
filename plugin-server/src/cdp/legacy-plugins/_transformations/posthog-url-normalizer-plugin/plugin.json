@@ -1,0 +1,12 @@
+{
+    "name": "URL Normalizer",
+    "url": "https://github.com/PostHog/posthog-url-normalizer-plugin",
+    "description": "A PostHog plugin to normalize the format of urls in your application allowing you to more easily compare them in insights.",
+    "main": "index.ts",
+    "posthogVersion": ">= 1.25.0",
+    "config": [
+        {
+            "markdown": "Normalize the format of urls in your application allowing you to more easily compare them in insights. By default, this converts all urls to lowercase and strips the trailing slash, overrighting the old `current_url` value."
+        }
+    ]
+}

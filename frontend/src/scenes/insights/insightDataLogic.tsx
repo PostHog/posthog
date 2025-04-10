@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { actionToUrl, router } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
-import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/external/dataWarehouseExternalSceneLogic'
+import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
@@ -13,7 +13,7 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getDefaultQuery, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import { queryExportContext } from '~/queries/query'
 import { DataVisualizationNode, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
-import { isDataTableNode, isDataVisualizationNode, isHogQuery, isInsightVizNode } from '~/queries/utils'
+import { isDataTableNode, isDataVisualizationNode, isHogQLQuery, isHogQuery, isInsightVizNode } from '~/queries/utils'
 import { ExportContext, InsightLogicProps, InsightType } from '~/types'
 
 import { teamLogic } from '../teamLogic'
@@ -48,6 +48,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 'query as insightQuery',
                 'response as insightDataRaw',
                 'dataLoading as insightDataLoading',
+                'loadingTimeSeconds as insightLoadingTimeSeconds',
                 'responseErrorObject as insightDataError',
                 'getInsightRefreshButtonDisabledReason',
                 'pollResponse as insightPollResponse',
@@ -171,8 +172,16 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
 
         hogQL: [
-            (s) => [s.insightData],
-            (insightData): string | null => {
+            (s) => [s.insightData, s.query],
+            (insightData, query): string | null => {
+                // Try to get it from the query itself, so we don't have to wait for the response
+                if (isDataVisualizationNode(query) && isHogQLQuery(query.source)) {
+                    return query.source.query
+                }
+                if (isHogQLQuery(query)) {
+                    return query.query
+                }
+                // Otherwise, get it from the response
                 if (insightData && 'hogql' in insightData && insightData.hogql !== '') {
                     return insightData.hogql
                 }

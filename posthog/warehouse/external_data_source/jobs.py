@@ -32,6 +32,7 @@ def update_external_job_status(
 
     schema = ExternalDataSchema.objects.get(id=model.schema_id, team_id=team_id)
     schema.status = schema_status
+    schema.latest_error = latest_error
     schema.save()
 
     model.refresh_from_db()

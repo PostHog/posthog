@@ -14,6 +14,7 @@ RELATED_OBJECTS = (
     "property_definition",
     "action",
     "feature_flag",
+    "experiment_saved_metric",
 )
 
 
@@ -96,6 +97,13 @@ class TaggedItem(UUIDModel):
     )
     feature_flag = models.ForeignKey(
         "FeatureFlag",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="tagged_items",
+    )
+    experiment_saved_metric = models.ForeignKey(
+        "ExperimentSavedMetric",
         on_delete=models.CASCADE,
         null=True,
         blank=True,

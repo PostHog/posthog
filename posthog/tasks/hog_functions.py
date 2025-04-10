@@ -6,6 +6,7 @@ from posthog.cdp.filters import compile_filters_bytecode
 from posthog.models.action.action import Action
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 from posthog.tasks.utils import CeleryQueue
+from django.utils import timezone
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
@@ -49,8 +50,9 @@ def refresh_affected_hog_functions(team_id: Optional[int] = None, action_id: Opt
 
     for hog_function in affected_hog_functions:
         hog_function.filters = compile_filters_bytecode(hog_function.filters, hog_function.team, actions_by_id)
+        hog_function.updated_at = timezone.now()
 
-    updates = HogFunction.objects.bulk_update(affected_hog_functions, ["filters"])
+    updates = HogFunction.objects.bulk_update(affected_hog_functions, ["filters", "updated_at"])
 
     reload_hog_functions_on_workers(
         team_id=team_id, hog_function_ids=[str(hog_function.id) for hog_function in affected_hog_functions]

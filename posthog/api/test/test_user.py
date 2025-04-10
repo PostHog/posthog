@@ -2,7 +2,7 @@ import datetime
 import uuid
 from typing import cast
 from unittest import mock
-from unittest.mock import ANY, Mock, patch
+from unittest.mock import ANY, patch
 from urllib.parse import quote, unquote
 
 from django.contrib.auth.tokens import default_token_generator
@@ -847,6 +847,11 @@ class TestUserAPI(APIBaseTest):
             response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
+    def test_no_ratelimit_for_updates_that_are_not_password_changes(self):
+        for _ in range(10):
+            response = self.client.patch("/api/users/@me/", {"organization_name": "new name"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     # DELETING USER
 
     def test_deleting_current_user_is_not_supported(self):
@@ -873,10 +878,38 @@ class TestUserAPI(APIBaseTest):
         locationHeader = response.headers.get("location", "not found")
         self.assertIn("22apiURL%22%3A%20%22http%3A%2F%2Ftestserver%22", locationHeader)
         self.maxDiff = None
-        self.assertEqual(
-            unquote(locationHeader),
-            'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}',
+        assert (
+            unquote(locationHeader)
+            == 'http://127.0.0.1:8010#__posthog={"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
         )
+
+    @patch("posthog.api.user.secrets.token_urlsafe")
+    def test_generate_params_for_user_to_load_toolbar(self, patched_token):
+        patched_token.return_value = "tokenvalue"
+
+        self.team.app_urls = ["http://127.0.0.1:8010"]
+        self.team.save()
+
+        response = self.client.get(
+            "/api/user/redirect_to_site/?userIntent=add-action&appUrl=http%3A%2F%2F127.0.0.1%3A8010&generateOnly=1"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert (
+            unquote(response.json()["toolbarParams"])
+            == '{"action": "ph_authorize", "token": "token123", "temporaryToken": "tokenvalue", "actionId": null, "experimentId": null, "userIntent": "add-action", "toolbarVersion": "toolbar", "apiURL": "http://testserver", "dataAttributes": ["data-attr"]}'
+        )
+
+    @patch("posthog.api.user.secrets.token_urlsafe")
+    def test_generate_only_param_can_be_falsy(self, patched_token):
+        patched_token.return_value = "tokenvalue"
+
+        self.team.app_urls = ["http://127.0.0.1:8010"]
+        self.team.save()
+
+        response = self.client.get(
+            "/api/user/redirect_to_site/?userIntent=add-action&appUrl=http%3A%2F%2F127.0.0.1%3A8010&generateOnly=0"
+        )
+        assert response.status_code == status.HTTP_302_FOUND
 
     @patch("posthog.api.user.secrets.token_urlsafe")
     def test_redirect_user_to_site_with_experiments_toolbar(self, patched_token):
@@ -967,6 +1000,7 @@ class TestUserAPI(APIBaseTest):
                 "plugin_disabled": False,
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
                 "all_weekly_digest_disabled": False,
+                "error_tracking_issue_assigned": True,
             },
         )
 
@@ -977,6 +1011,7 @@ class TestUserAPI(APIBaseTest):
                 "plugin_disabled": False,
                 "project_weekly_digest_disabled": {"123": True},
                 "all_weekly_digest_disabled": False,
+                "error_tracking_issue_assigned": True,
             },
         )
 
@@ -1041,6 +1076,7 @@ class TestUserAPI(APIBaseTest):
                 "plugin_disabled": True,  # Default value
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
+                "error_tracking_issue_assigned": True,  # Default value
             },
         )
 
@@ -1138,14 +1174,6 @@ class TestStaffUserAPI(APIBaseTest):
 
         user.refresh_from_db()
         self.assertEqual(user.is_staff, False)
-
-    @patch("posthog.api.user.TOTPDeviceForm")
-    def test_add_2fa(self, patch_is_valid):
-        patch_is_valid.return_value = Mock()
-        self._create_user("newuser@posthog.com", password="12345678")
-        response = self.client.get(f"/api/users/@me/two_factor_start_setup/")
-        response = self.client.post(f"/api/users/@me/validate_2fa/", {"token": 123456})
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
 
 class TestEmailVerificationAPI(APIBaseTest):
@@ -1410,8 +1438,9 @@ class TestUserTwoFactor(APIBaseTest):
         self.assertIn("django_two_factor-qr_secret_key", self.client.session)
         self.assertEqual(len(self.client.session["django_two_factor-hex"]), 40)  # 20 bytes hex = 40 chars
 
+    @patch("posthog.api.user.send_two_factor_auth_enabled_email")
     @patch("posthog.api.user.TOTPDeviceForm")
-    def test_two_factor_validation_with_valid_token(self, mock_totp_form):
+    def test_two_factor_validation_with_valid_token(self, mock_totp_form, mock_send_email):
         # Setup form mock
         mock_form_instance = mock_totp_form.return_value
         mock_form_instance.is_valid.return_value = True
@@ -1428,6 +1457,9 @@ class TestUserTwoFactor(APIBaseTest):
         # Verify form was created with correct params
         mock_totp_form.assert_called_once_with("1234567890abcdef1234", self.user, data={"token": "123456"})
         mock_form_instance.save.assert_called_once()
+
+        # Verify email was triggered
+        mock_send_email.delay.assert_called_once_with(self.user.id)
 
     @patch("posthog.api.user.TOTPDeviceForm")
     def test_two_factor_validation_with_invalid_token(self, mock_totp_form):
@@ -1516,7 +1548,8 @@ class TestUserTwoFactor(APIBaseTest):
             },
         )
 
-    def test_two_factor_disable(self):
+    @patch("posthog.api.user.send_two_factor_auth_disabled_email")
+    def test_two_factor_disable(self, mock_send_email):
         # Setup 2FA devices
         TOTPDevice.objects.create(user=self.user, name="default")
         static_device = StaticDevice.objects.create(user=self.user, name="backup")
@@ -1529,3 +1562,6 @@ class TestUserTwoFactor(APIBaseTest):
         # Verify all 2FA devices are removed
         self.assertEqual(TOTPDevice.objects.filter(user=self.user).count(), 0)
         self.assertEqual(StaticDevice.objects.filter(user=self.user).count(), 0)
+
+        # Verify email was triggered
+        mock_send_email.delay.assert_called_once_with(self.user.id)

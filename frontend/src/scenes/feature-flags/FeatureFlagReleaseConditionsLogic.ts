@@ -32,15 +32,17 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
     path(['scenes', 'feature-flags', 'featureFlagReleaseConditionsLogic']),
     props({} as FeatureFlagReleaseConditionsLogicProps),
     key(({ id }) => id ?? 'unknown'),
-    connect({
+    connect(() => ({
         values: [projectLogic, ['currentProjectId'], groupsModel, ['groupTypes', 'aggregationLabel']],
-    }),
+    })),
     actions({
         setFilters: (filters: FeatureFlagFilters) => ({ filters }),
         setAggregationGroupTypeIndex: (value: number | null) => ({ value }),
         addConditionSet: true,
         removeConditionSet: (index: number) => ({ index }),
         duplicateConditionSet: (index: number) => ({ index }),
+        moveConditionSetUp: (index: number) => ({ index }),
+        moveConditionSetDown: (index: number) => ({ index }),
         updateConditionSet: (
             index: number,
             newRolloutPercentage?: number,
@@ -118,6 +120,27 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                         return state
                     }
                     const groups = state.groups.concat([state.groups[index]])
+                    return { ...state, groups }
+                },
+                moveConditionSetDown: (state, { index }) => {
+                    if (!state || index === state.groups.length - 1) {
+                        return state
+                    }
+
+                    const groups = [...state.groups]
+                    const condition = groups[index]
+                    groups.splice(index, 1)
+                    groups.splice(index + 1, 0, condition)
+                    return { ...state, groups }
+                },
+                moveConditionSetUp: (state, { index }) => {
+                    if (!state || index === 0) {
+                        return state
+                    }
+                    const groups = [...state.groups]
+                    const condition = groups[index]
+                    groups.splice(index, 1)
+                    groups.splice(index - 1, 0, condition)
                     return { ...state, groups }
                 },
             },

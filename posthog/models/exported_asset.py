@@ -10,7 +10,7 @@ from django.http import HttpResponse
 from django.utils.text import slugify
 from django.utils.timezone import now
 from rest_framework.exceptions import NotFound
-from sentry_sdk import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
 from posthog.models.utils import UUIDT

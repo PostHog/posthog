@@ -1,24 +1,27 @@
 import json
 import threading
 import types
-from contextlib import contextmanager
+from collections.abc import Sequence
+from contextlib import contextmanager, suppress
 from functools import lru_cache
 from time import perf_counter
 from typing import Any, Optional, Union
-from collections.abc import Sequence
 
+import posthoganalytics
 import sqlparse
+from cachetools import cached, TTLCache
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
+from prometheus_client import Counter, Gauge
+from sentry_sdk import set_tag
 
 from posthog.clickhouse.client.connection import Workload, get_client_from_pool
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
+from posthog.cloud_utils import is_cloud
 from posthog.errors import wrap_query_error
 from posthog.settings import TEST
 from posthog.utils import generate_short_id, patchable
-from prometheus_client import Counter, Gauge
-from sentry_sdk import set_tag
 
 QUERY_ERROR_COUNTER = Counter(
     "clickhouse_query_failure",
@@ -87,6 +90,14 @@ def validated_client_query_id() -> Optional[str]:
     return f"{client_query_team_id}_{client_query_id}_{random_id}"
 
 
+@cached(cache=TTLCache(maxsize=1, ttl=600))
+def get_api_queries_online_allow_list() -> set[int]:
+    with suppress(Exception):
+        cfg = json.loads(posthoganalytics.get_remote_config_payload("api-queries-on-online-cluster"))
+        return set(cfg.get("allowed_team_id", [])) if cfg else set[int]()
+    return set[int]()
+
+
 @patchable
 def sync_execute(
     query,
@@ -121,26 +132,43 @@ def sync_execute(
     if get_query_tag_value("id") == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
 
-    with sync_client or get_client_from_pool(workload, team_id, readonly) as client:
-        start_time = perf_counter()
+    # Customer is paying for API
+    if (
+        team_id
+        and workload == Workload.OFFLINE
+        and get_query_tag_value("chargeable")
+        and is_cloud()
+        and team_id in get_api_queries_online_allow_list()
+    ):
+        workload = Workload.ONLINE
 
-        prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
-        query_id = validated_client_query_id()
-        core_settings = {**default_settings(), **(settings or {})}
-        tags["query_settings"] = core_settings
+    start_time = perf_counter()
 
-        query_type = tags.get("query_type", "Other")
-        set_tag("query_type", query_type)
-        if team_id is not None:
-            set_tag("team_id", team_id)
+    prepared_sql, prepared_args, tags = _prepare_query(query=query, args=args, workload=workload)
+    query_id = validated_client_query_id()
+    core_settings = {**default_settings(), **(settings or {})}
+    tags["query_settings"] = core_settings
 
-        settings = {
-            **core_settings,
-            "log_comment": json.dumps(tags, separators=(",", ":")),
-            "query_id": query_id,
-        }
+    query_type = tags.get("query_type", "Other")
+    set_tag("query_type", query_type)
+    if team_id is not None:
+        set_tag("team_id", team_id)
 
-        try:
+    settings = {
+        **core_settings,
+        "log_comment": json.dumps(tags, separators=(",", ":")),
+        "query_id": query_id,
+    }
+
+    if workload == Workload.OFFLINE:
+        # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the
+        # online resource pool when the offline resource pool is under heavy load. this comes at the cost of higher and
+        # more variable latency and a higher likelihood of query failures - but offline workloads should be tolerant to
+        # these disruptions
+        settings["use_hedged_requests"] = "0"
+
+    try:
+        with sync_client or get_client_from_pool(workload, team_id, readonly) as client:
             result = client.execute(
                 prepared_sql,
                 params=prepared_args,
@@ -148,23 +176,23 @@ def sync_execute(
                 with_column_types=with_column_types,
                 query_id=query_id,
             )
-        except Exception as e:
-            err = wrap_query_error(e)
-            exception_type = type(err).__name__
-            set_tag("clickhouse_exception_type", exception_type)
-            QUERY_ERROR_COUNTER.labels(exception_type=exception_type, query_type=query_type).inc()
+    except Exception as e:
+        err = wrap_query_error(e)
+        exception_type = type(err).__name__
+        set_tag("clickhouse_exception_type", exception_type)
+        QUERY_ERROR_COUNTER.labels(exception_type=exception_type, query_type=query_type).inc()
 
-            raise err from e
-        finally:
-            execution_time = perf_counter() - start_time
+        raise err from e
+    finally:
+        execution_time = perf_counter() - start_time
 
-            QUERY_EXECUTION_TIME_GAUGE.labels(query_type=query_type).set(execution_time * 1000.0)
+        QUERY_EXECUTION_TIME_GAUGE.labels(query_type=query_type).set(execution_time * 1000.0)
 
-            if query_counter := getattr(thread_local_storage, "query_counter", None):
-                query_counter.total_query_time += execution_time
+        if query_counter := getattr(thread_local_storage, "query_counter", None):
+            query_counter.total_query_time += execution_time
 
-            if app_settings.SHELL_PLUS_PRINT_SQL:
-                print("Execution time: %.6fs" % (execution_time,))  # noqa T201
+        if app_settings.SHELL_PLUS_PRINT_SQL:
+            print("Execution time: %.6fs" % (execution_time,))  # noqa T201
     return result
 
 
@@ -196,9 +224,7 @@ def query_with_columns(
     return rows
 
 
-@patchable
 def _prepare_query(
-    client: SyncClient,
     query: str,
     args: QueryArgs,
     workload: Workload = Workload.DEFAULT,

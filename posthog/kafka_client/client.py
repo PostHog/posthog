@@ -15,7 +15,7 @@ from kafka.structs import TopicPartition
 from statshog.defaults.django import statsd
 from structlog import get_logger
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client import helper
 from posthog.utils import SingletonDecorator
 

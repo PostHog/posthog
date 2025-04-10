@@ -81,7 +81,7 @@ fi
 export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}"
 
 cd posthog
-git pull
+git pull --prune
 cd ../
 
 # Upgrade Docker Compose to version 2.13.0
@@ -138,4 +138,5 @@ else
     exit
 fi
 
+echo "Consider running 'docker system prune -a' to clean up old images and free disk space"
 echo "PostHog upgraded successfully!"

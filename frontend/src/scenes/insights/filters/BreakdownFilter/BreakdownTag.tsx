@@ -9,7 +9,8 @@ import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import { BreakdownType } from '~/types'
+import { groupsModel } from '~/models/groupsModel'
+import { BreakdownType, GroupTypeIndex } from '~/types'
 
 import { breakdownTagLogic } from './breakdownTagLogic'
 import { BreakdownTagMenu } from './BreakdownTagMenu'
@@ -20,9 +21,15 @@ type EditableBreakdownTagProps = {
     breakdown: string | number
     breakdownType: BreakdownType
     isTrends: boolean
+    size?: 'small' | 'medium'
 }
 
-export function EditableBreakdownTag({ breakdown, breakdownType, isTrends }: EditableBreakdownTagProps): JSX.Element {
+export function EditableBreakdownTag({
+    breakdown,
+    breakdownType,
+    isTrends,
+    size = 'medium',
+}: EditableBreakdownTagProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const [filterOpen, setFilterOpen] = useState(false)
     const [menuOpen, setMenuOpen] = useState(false)
@@ -64,6 +71,7 @@ export function EditableBreakdownTag({ breakdown, breakdownType, isTrends }: Edi
                                     },
                                 }}
                                 disablePropertyInfo={filterOpen || menuOpen}
+                                size={size}
                             />
                         </PopoverReferenceContext.Provider>
                     </div>
@@ -79,6 +87,7 @@ export function EditableBreakdownTag({ breakdown, breakdownType, isTrends }: Edi
                                 setFilterOpen(!filterOpen)
                             }}
                             disablePropertyInfo={filterOpen || menuOpen}
+                            size={size}
                         />
                     </div>
                 )}
@@ -100,6 +109,7 @@ export function BreakdownTag({
     ...props
 }: BreakdownTagProps): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
+    const { groupTypes } = useValues(groupsModel)
 
     let propertyName = breakdown
 
@@ -107,6 +117,13 @@ export function BreakdownTag({
         propertyName = 'All Users'
     } else if (isCohort(breakdown)) {
         propertyName = cohortsById[breakdown]?.name || `Cohort ${breakdown}`
+    } else if (breakdownType === 'event_metadata' && (propertyName as string).startsWith('$group_')) {
+        const group = groupTypes.get(
+            parseInt((propertyName as string).replace('$group_', '')) as unknown as GroupTypeIndex
+        )
+        if (group) {
+            propertyName = group.name_singular || group.group_type
+        }
     }
 
     return (

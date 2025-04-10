@@ -1,13 +1,14 @@
 import './SidePanel.scss'
 
 import { IconEllipsis, IconFeatures, IconGear, IconInfo, IconLock, IconNotebook, IconSupport } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonMenuItems, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItems, LemonModal, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
 import { useEffect, useRef } from 'react'
 import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
+import { userLogic } from 'scenes/userLogic'
 
 import {
     SidePanelExports,
@@ -22,16 +23,32 @@ import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/Side
 import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelFeaturePreviews } from './panels/SidePanelFeaturePreviews'
+import { SidePanelMax } from './panels/SidePanelMax'
 import { SidePanelSettings } from './panels/SidePanelSettings'
 import { SidePanelStatus, SidePanelStatusIcon } from './panels/SidePanelStatus'
 import { SidePanelSupport } from './panels/SidePanelSupport'
 import { sidePanelLogic } from './sidePanelLogic'
-import { sidePanelStateLogic } from './sidePanelStateLogic'
+import { sidePanelStateLogic, WithinSidePanelContext } from './sidePanelStateLogic'
 
 export const SIDE_PANEL_TABS: Record<
     SidePanelTab,
     { label: string; Icon: any; Content: any; noModalSupport?: boolean }
 > = {
+    [SidePanelTab.Max]: {
+        label: 'Max',
+        Icon: function IconMaxFromHedgehogConfig() {
+            const { user } = useValues(userLogic)
+            return (
+                <ProfilePicture
+                    user={{ hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }}
+                    size="md"
+                    className="border bg-bg-light -scale-x-100" // Flip the hedegehog to face the scene
+                />
+            )
+        },
+        Content: SidePanelMax,
+        noModalSupport: true,
+    },
     [SidePanelTab.Notebooks]: {
         label: 'Notebooks',
         Icon: IconNotebook,
@@ -105,7 +122,7 @@ export function SidePanel(): JSX.Element | null {
 
     const activeTab = sidePanelOpen && selectedTab
 
-    const PanelConent = activeTab ? SIDE_PANEL_TABS[activeTab]?.Content : null
+    const PanelConent = activeTab && visibleTabs.includes(activeTab) ? SIDE_PANEL_TABS[activeTab]?.Content : null
 
     const ref = useRef<HTMLDivElement>(null)
 
@@ -214,11 +231,12 @@ export function SidePanel(): JSX.Element | null {
                     </div>
                 ) : null}
             </div>
-            <Resizer {...resizerLogicProps} offset="3rem" />
 
             {PanelConent ? (
                 <div className="SidePanel3000__content">
-                    <PanelConent />
+                    <WithinSidePanelContext.Provider value={true}>
+                        <PanelConent />
+                    </WithinSidePanelContext.Provider>
                 </div>
             ) : null}
         </div>

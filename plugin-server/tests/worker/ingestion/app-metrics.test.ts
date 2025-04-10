@@ -1,11 +1,12 @@
+import { KafkaProducerWrapper } from '../../../src/kafka/producer'
 import { Hub } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { KafkaProducerWrapper } from '../../../src/utils/db/kafka-producer-wrapper'
+import { parseJSON } from '../../../src/utils/json-parse'
 import { UUIDT } from '../../../src/utils/utils'
 import { AppMetricIdentifier, AppMetrics } from '../../../src/worker/ingestion/app-metrics'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 
 const metric: AppMetricIdentifier = {
     teamId: 2,
@@ -25,9 +26,8 @@ describe('AppMetrics()', () => {
     beforeEach(() => {
         kafkaProducer = {
             producer: jest.fn(),
-            waitForAck: jest.fn(),
             produce: jest.fn(),
-            queueMessage: jest.fn(),
+            queueMessages: jest.fn(() => Promise.resolve()),
             flush: jest.fn(),
             disconnect: jest.fn(),
         } as unknown as KafkaProducerWrapper
@@ -217,7 +217,7 @@ describe('AppMetrics()', () => {
                 },
                 timestamp,
             ])
-            expect(JSON.parse(call[0].errorDetails)).toEqual({
+            expect(parseJSON(call[0].errorDetails!)).toEqual({
                 error: {
                     name: 'Error',
                     message: 'foobar',
@@ -240,7 +240,7 @@ describe('AppMetrics()', () => {
                 },
                 timestamp,
             ])
-            expect(JSON.parse(call[0].errorDetails)).toEqual({
+            expect(parseJSON(call[0].errorDetails!)).toEqual({
                 error: {
                     name: 'StringError',
                 },
@@ -258,7 +258,7 @@ describe('AppMetrics()', () => {
 
     describe('flush()', () => {
         it('flushes queued messages', async () => {
-            const spy = jest.spyOn(kafkaProducer, 'queueMessage')
+            const spy = jest.spyOn(kafkaProducer, 'queueMessages')
 
             await appMetrics.queueMetric({ ...metric, jobId: '000-000', successes: 1 }, timestamp)
             await appMetrics.flush()
@@ -269,7 +269,7 @@ describe('AppMetrics()', () => {
         it('does nothing if nothing queued', async () => {
             await appMetrics.flush()
 
-            expect(kafkaProducer.queueMessage).not.toHaveBeenCalled()
+            expect(kafkaProducer.queueMessages).not.toHaveBeenCalled()
         })
     })
 
@@ -282,7 +282,7 @@ describe('AppMetrics()', () => {
                 APP_METRICS_FLUSH_MAX_QUEUE_SIZE: 5,
             })
             // doesn't flush again on the next call, i.e. flust metrics were reset
-            jest.spyOn(hub.kafkaProducer, 'queueMessage').mockReturnValue(Promise.resolve())
+            jest.spyOn(hub.kafkaProducer, 'queueMessages').mockReturnValue(Promise.resolve())
         })
         afterEach(async () => {
             await closeHub(hub)
@@ -293,7 +293,7 @@ describe('AppMetrics()', () => {
 
         beforeEach(async () => {
             await resetTestDatabaseClickhouse()
-            jest.mocked(hub.kafkaProducer.queueMessage).mockRestore()
+            jest.mocked(hub.kafkaProducer.queueMessages).mockRestore()
         })
 
         it('can read its own writes', async () => {
@@ -353,7 +353,7 @@ describe('AppMetrics()', () => {
                 })
             )
             expect(rows[0].error_uuid).not.toEqual('00000000-0000-0000-0000-000000000000')
-            expect(JSON.parse(rows[0].error_details)).toEqual({
+            expect(parseJSON(rows[0].error_details)).toEqual({
                 error: {
                     name: 'Error',
                     message: 'foobar',

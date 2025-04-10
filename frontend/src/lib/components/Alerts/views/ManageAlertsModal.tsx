@@ -44,7 +44,7 @@ export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Eleme
                     <AlertStateIndicator alert={alert} />
 
                     {alert.enabled ? (
-                        <div className="text-muted pl-3">
+                        <div className="text-secondary pl-3">
                             {bounds?.lower != null &&
                                 `Low ${isPercentage ? bounds.lower * 100 : bounds.lower}${isPercentage ? '%' : ''}`}
                             {bounds?.lower != null && bounds?.upper != null ? ' · ' : ''}
@@ -52,7 +52,7 @@ export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Eleme
                                 `High ${isPercentage ? bounds.upper * 100 : bounds.upper}${isPercentage ? '%' : ''}`}
                         </div>
                     ) : (
-                        <div className="text-muted pl-3">Disabled</div>
+                        <div className="text-secondary pl-3">Disabled</div>
                     )}
                 </div>
 
@@ -77,23 +77,20 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
     return (
         <LemonModal onClose={props.onClose} isOpen={props.isOpen} width={600} simple title="">
             <LemonModal.Header>
-                <div className="flex items-center gap-2">
-                    <h3 className="m-0">Manage Alerts</h3>
-                    <LemonTag type="warning">ALPHA</LemonTag>
-                </div>
+                <h3 className="!m-0">Manage Alerts</h3>
             </LemonModal.Header>
             <LemonModal.Content>
                 <div className="mb-4">
                     With alerts, PostHog will monitor your insight and notify you when certain conditions are met. We do
-                    not evaluate alerts in real-time, but rather on a schedule (hourly, daily...). Please note that
-                    alerts are in alpha and may not be fully reliable. <br />
+                    not evaluate alerts in real-time, but rather on a schedule (hourly, daily...).
+                    <br />
                     <Link to={urls.alerts()} target="_blank">
                         View all your alerts here
                     </Link>
                 </div>
 
                 {alerts.length ? (
-                    <div className="space-y-2">
+                    <div className="deprecated-space-y-2">
                         <div>
                             <strong>{alerts?.length}</strong> {pluralize(alerts.length || 0, 'alert', 'alerts', false)}
                         </div>

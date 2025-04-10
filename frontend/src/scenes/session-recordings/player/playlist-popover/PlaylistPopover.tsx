@@ -43,15 +43,15 @@ export function PlaylistPopoverButton({
                 onClickOutside={() => setShowPlaylistPopover(false)}
                 actionable
                 overlay={
-                    <div className="space-y-1 w-100">
-                        <div className="shrink-0 space-y-1">
+                    <div className="deprecated-space-y-1 w-100">
+                        <div className="shrink-0 deprecated-space-y-1">
                             {newFormShowing ? (
                                 <Form
                                     formKey="newPlaylist"
                                     logic={playlistPopoverLogic}
                                     props={{ sessionRecordingId }}
                                     enableFormOnSubmit
-                                    className="space-y-1"
+                                    className="deprecated-space-y-1"
                                 >
                                     <LemonField name="name">
                                         <LemonInput placeholder="Playlist name" fullWidth />
@@ -126,7 +126,7 @@ export function PlaylistPopoverButton({
                         ) : playlistsLoading ? (
                             <LemonSkeleton className="my-2 h-4" repeat={3} />
                         ) : (
-                            <div className="p-2 text-center text-muted">No playlists found</div>
+                            <div className="p-2 text-center text-secondary">No playlists found</div>
                         )}
                     </div>
                 }

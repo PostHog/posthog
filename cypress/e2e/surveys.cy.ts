@@ -97,7 +97,7 @@ describe('Surveys', () => {
         // select the first property
         cy.get('[data-attr="property-select-toggle-0"]').click()
         cy.get('[data-attr="prop-filter-person_properties-0"]').click()
-        cy.get('[data-attr=prop-val]').focus().type('true').type('{enter}')
+        cy.get('[data-attr=prop-val]').eq(1).focus().type('true').type('{enter}')
         cy.get('[data-attr="rollout-percentage"]').click().clear().type('50')
 
         // save
@@ -120,7 +120,7 @@ describe('Surveys', () => {
         // refresh, see survey show up on page
         cy.reload()
 
-        cy.contains('Unique users shown').should('exist')
+        cy.contains('Total Impressions by Unique Users').should('exist')
 
         // Update the stop survey part
         cy.contains('Stop').click()
@@ -198,7 +198,7 @@ describe('Surveys', () => {
         cy.contains('Add property targeting').click()
         cy.get('[data-attr="property-select-toggle-0"]').click()
         cy.get('[data-attr="prop-filter-person_properties-0"]').click()
-        cy.get('[data-attr=prop-val]').focus().type('true').type('{enter}')
+        cy.get('[data-attr=prop-val]').eq(1).focus().type('true').type('{enter}')
         cy.get('[data-attr="rollout-percentage"]').click().clear().type('50')
 
         cy.get('[data-attr=save-survey]').first().click()

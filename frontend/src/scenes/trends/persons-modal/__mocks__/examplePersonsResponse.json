@@ -15,7 +15,7 @@
                     "is_identified": false,
                     "name": "mortgage2056@yandex.com",
                     "distinct_ids": ["90b3bace-3577-50bd-f7f8-6910bfbca6fe", "mT1onBumlvtNdUpw"],
-                    "matched_recordings": [],
+                    "matched_recordings": ["1234567890"],
                     "value_at_data_point": 15
                 },
                 {

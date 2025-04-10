@@ -1,15 +1,16 @@
 import 'react-data-grid/lib/styles.css'
+import './DataGrid.scss'
 
-import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { IconCode, IconCopy, IconExpand45, IconGear, IconMinus, IconPlus } from '@posthog/icons'
+import { LemonButton, LemonModal, LemonTable, LemonTabs } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
-import { AnimationType } from 'lib/animations/animations'
-import { Animation } from 'lib/components/Animation/Animation'
+import { useActions, useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useMemo } from 'react'
+import { JSONViewer } from 'lib/components/JSONViewer'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { useCallback, useMemo, useState } from 'react'
 import DataGrid from 'react-data-grid'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
@@ -17,74 +18,276 @@ import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
+import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { Table } from '~/queries/nodes/DataVisualization/Components/Table'
 import { TableDisplay } from '~/queries/nodes/DataVisualization/Components/TableDisplay'
-import { AddVariableButton } from '~/queries/nodes/DataVisualization/Components/Variables/AddVariableButton'
-import { VariablesForInsight } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
-import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
 import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/DataVisualization'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
-import { HogQLQueryResponse } from '~/queries/schema'
+import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 import { ChartDisplayType, ExporterFormat } from '~/types'
 
-import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
-import { InfoTab } from './OutputPaneTabs/InfoTab'
-import { LineageTab } from './OutputPaneTabs/lineageTab'
-import { lineageTabLogic } from './OutputPaneTabs/lineageTabLogic'
+import TabScroller from './TabScroller'
+
+interface RowDetailsModalProps {
+    isOpen: boolean
+    onClose: () => void
+    row: Record<string, any> | null
+    columns: string[]
+}
+
+function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps): JSX.Element {
+    const [showRawJson, setShowRawJson] = useState<Record<string, boolean>>({})
+    const [wordWrap, setWordWrap] = useState<Record<string, boolean>>({})
+
+    if (!row) {
+        return <></>
+    }
+
+    const isJsonString = (str: string): boolean => {
+        try {
+            const parsed = JSON.parse(str)
+            return typeof parsed === 'object' && parsed !== null
+        } catch {
+            return false
+        }
+    }
+
+    const tableData = columns.map((column) => {
+        const value = row[column]
+        const isStringifiedJson = typeof value === 'string' && isJsonString(value)
+        const isJson = typeof value === 'object' || isStringifiedJson
+        const jsonValue = isStringifiedJson ? JSON.parse(value) : value
+
+        return {
+            column,
+            isJson,
+            rawValue:
+                value === null
+                    ? 'null'
+                    : typeof value === 'object' || isStringifiedJson
+                    ? JSON.stringify(value, null, 2)
+                    : String(value),
+            value:
+                value === null ? (
+                    <span className="text-muted">null</span>
+                ) : isJson ? (
+                    <div className="flex gap-2 w-full">
+                        <div className="w-full overflow-hidden">
+                            {showRawJson[column] ? (
+                                <pre
+                                    className={clsx(
+                                        'm-0 font-mono',
+                                        wordWrap[column]
+                                            ? 'whitespace-pre-wrap break-all'
+                                            : 'overflow-x-auto hide-scrollbar'
+                                    )}
+                                >
+                                    {String(value)}
+                                </pre>
+                            ) : (
+                                <div className="overflow-x-auto max-w-full">
+                                    <JSONViewer src={jsonValue} name={null} collapsed={1} />
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="overflow-x-auto">
+                        <span className="whitespace-pre-wrap break-all font-mono">{String(value)}</span>
+                    </div>
+                ),
+        }
+    })
+
+    return (
+        <LemonModal title="Row Details" isOpen={isOpen} onClose={onClose} width={800}>
+            <div className="RowDetailsModal max-h-[70vh] overflow-y-auto px-2 overflow-x-hidden">
+                <LemonTable
+                    dataSource={tableData}
+                    className="w-full table-fixed"
+                    columns={[
+                        {
+                            title: 'Column',
+                            dataIndex: 'column',
+                            className: 'font-semibold',
+                            width: '35%',
+                            render: (_, record) => <span title={record.column}>{record.column}</span>,
+                        },
+                        {
+                            title: 'Value',
+                            dataIndex: 'value',
+                            className: 'px-4 overflow-hidden',
+                            width: '65%',
+                            render: (_, record) => (
+                                <div className="flex items-center gap-2 w-full">
+                                    <div className="flex-1 overflow-x-auto pr-2">{record.value}</div>
+                                    <div className="flex flex-row gap-1 flex-shrink-0 ml-auto">
+                                        {record.isJson && record.rawValue && record.rawValue != 'null' && (
+                                            <LemonButton
+                                                size="small"
+                                                icon={<IconCode />}
+                                                onClick={() =>
+                                                    setShowRawJson((prev) => ({
+                                                        ...prev,
+                                                        [record.column]: !prev[record.column],
+                                                    }))
+                                                }
+                                                tooltip={showRawJson[record.column] ? 'Show formatted' : 'Show raw'}
+                                            />
+                                        )}
+                                        {showRawJson[record.column] && (
+                                            <LemonButton
+                                                size="small"
+                                                icon={wordWrap[record.column] ? <IconMinus /> : <IconPlus />}
+                                                onClick={() =>
+                                                    setWordWrap((prev) => ({
+                                                        ...prev,
+                                                        [record.column]: !prev[record.column],
+                                                    }))
+                                                }
+                                                tooltip={wordWrap[record.column] ? 'Collapse' : 'Expand'}
+                                            />
+                                        )}
+                                        <LemonButton
+                                            size="small"
+                                            icon={<IconCopy />}
+                                            onClick={() => void copyToClipboard(record.rawValue, 'value')}
+                                            tooltip="Copy value"
+                                        />
+                                    </div>
+                                </div>
+                            ),
+                        },
+                    ]}
+                />
+            </div>
+        </LemonModal>
+    )
+}
 
 export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
-    const { variablesForInsight } = useValues(variablesLogic)
 
-    const { editingView, sourceQuery, exportContext, isValidView, error, editorKey, metadataLoading } =
+    const { sourceQuery, exportContext, editorKey, editingInsight, updateInsightButtonEnabled, showLegacyFilters } =
         useValues(multitabEditorLogic)
-    const { saveAsInsight, saveAsView, setSourceQuery, runQuery } = useActions(multitabEditorLogic)
+    const { saveAsInsight, updateInsight, setSourceQuery, runQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { response, responseLoading, responseError, queryId, pollResponse } = useValues(dataNodeLogic)
-    const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
-    const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
-    const { visualizationType, queryCancelled } = useValues(dataVisualizationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { queryCancelled } = useValues(dataVisualizationLogic)
+    const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
+
+    const [progressCache, setProgressCache] = useState<Record<string, number>>({})
 
     const vizKey = useMemo(() => `SQLEditorScene`, [])
 
+    const [selectedRow, setSelectedRow] = useState<Record<string, any> | null>(null)
+
+    const setProgress = useCallback((loadId: string, progress: number) => {
+        setProgressCache((prev) => ({ ...prev, [loadId]: progress }))
+    }, [])
+
     const columns = useMemo(() => {
-        return (
-            response?.columns?.map((column: string) => ({
-                key: column,
-                name: column,
-                resizable: true,
-            })) ?? []
-        )
-    }, [response])
+        const types = response?.types
+
+        const baseColumns = [
+            {
+                key: '__details',
+                name: '',
+                minWidth: 30,
+                width: 30,
+                renderCell: ({ row }: { row: any }) => (
+                    <div className="hover-actions-cell flex justify-center items-center">
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconExpand45 />}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedRow(row)
+                            }}
+                        />
+                    </div>
+                ),
+            },
+            ...(response?.columns?.map((column: string, index: number) => {
+                const type = types?.[index]?.[1]
+
+                const maxContentLength = Math.max(
+                    column.length,
+                    ...(response.results || response.result).map((row: any[]) => {
+                        const content = row[index]
+                        return typeof content === 'string'
+                            ? content.length
+                            : content === null
+                            ? 0
+                            : content.toString().length
+                    })
+                )
+                const isLongContent = maxContentLength > 100
+                const finalWidth = isLongContent ? 600 : undefined
+
+                // Hack to get bools to render in the data grid
+                if (type && type.indexOf('Bool') !== -1) {
+                    return {
+                        key: column,
+                        name: column,
+                        resizable: true,
+                        width: finalWidth,
+                        renderCell: (props: any) => {
+                            if (props.row[column] === null) {
+                                return null
+                            }
+                            return props.row[column].toString()
+                        },
+                    }
+                }
+
+                const baseColumn = {
+                    key: column,
+                    name: column,
+                    resizable: true,
+                    width: finalWidth,
+                }
+
+                return {
+                    ...baseColumn,
+                    renderCell: (props: any) => props.row[column],
+                }
+            }) ?? []),
+        ]
+
+        return baseColumns
+    }, [response, setSelectedRow])
 
     const rows = useMemo(() => {
         if (!response?.results) {
             return []
         }
-        return response?.results?.map((row: any[]) => {
-            const rowObject: Record<string, any> = {}
+        return response?.results?.map((row: any[], index: number) => {
+            const rowObject: Record<string, any> = { __index: index }
             response.columns.forEach((column: string, i: number) => {
-                rowObject[column] = row[i]
+                // Handling objects here as other viz methods can accept objects. Data grid does not for now
+                if (typeof row[i] === 'object' && row[i] !== null) {
+                    rowObject[column] = JSON.stringify(row[i])
+                } else {
+                    rowObject[column] = row[i]
+                }
             })
             return rowObject
         })
     }, [response])
 
+    const hasColumns = columns.length > 1
+
     return (
-        <div className="flex flex-col w-full flex-1 bg-bg-3000">
-            {variablesForInsight.length > 0 && (
-                <div className="py-2 px-4">
-                    <VariablesForInsight />
-                </div>
-            )}
-            <div className="flex flex-row justify-between align-center py-2 px-4 w-full h-[55px]">
+        <div className="OutputPane flex flex-col w-full flex-1 bg-primary">
+            <div className="flex flex-row justify-between align-center py-2 px-4 w-full h-[50px] border-b">
                 <LemonTabs
                     activeKey={activeTab}
                     onChange={(tab) => setActiveTab(tab as OutputTab)}
@@ -97,37 +300,25 @@ export function OutputPane(): JSX.Element {
                             key: OutputTab.Visualization,
                             label: 'Visualization',
                         },
-                        ...(featureFlags[FEATURE_FLAGS.DATA_MODELING]
-                            ? [
-                                  {
-                                      key: OutputTab.Info,
-                                      label: (
-                                          <span className="flex flex-row items-center gap-2">
-                                              Info {metadataLoading ? <Spinner /> : null}
-                                          </span>
-                                      ),
-                                  },
-                                  {
-                                      key: OutputTab.Lineage,
-                                      label: (
-                                          <span className="flex flex-row items-center gap-2">
-                                              Lineage {metadataLoading ? <Spinner /> : null}
-                                          </span>
-                                      ),
-                                  },
-                              ]
-                            : []),
                     ]}
                 />
-                <div className="flex gap-4">
-                    <AddVariableButton />
-
-                    {exportContext && (
+                <div className="flex gap-2">
+                    {showLegacyFilters && (
+                        <DateRange
+                            key="date-range"
+                            query={sourceQuery.source}
+                            setQuery={(query) => {
+                                setSourceQuery({
+                                    ...sourceQuery,
+                                    source: query,
+                                })
+                                runQuery(query.query)
+                            }}
+                        />
+                    )}
+                    {activeTab === OutputTab.Results && exportContext && (
                         <ExportButton
-                            disabledReason={
-                                visualizationType != ChartDisplayType.ActionsTable &&
-                                'Only table results are exportable'
-                            }
+                            disabledReason={!hasColumns ? 'No results to export' : undefined}
                             type="secondary"
                             items={[
                                 {
@@ -141,94 +332,121 @@ export function OutputPane(): JSX.Element {
                             ]}
                         />
                     )}
-
-                    {editingView ? (
+                    {activeTab === OutputTab.Visualization && (
                         <>
-                            <LemonButton
-                                loading={updatingDataWarehouseSavedQuery}
-                                type="secondary"
-                                onClick={() =>
-                                    updateDataWarehouseSavedQuery({
-                                        id: editingView.id,
-                                        query: sourceQuery.source,
-                                        types: response?.types ?? [],
-                                    })
-                                }
-                            >
-                                Update view
-                            </LemonButton>
+                            <div className="flex justify-between flex-wrap">
+                                <div className="flex items-center" />
+                                <div className="flex items-center">
+                                    <div className="flex gap-2 items-center flex-wrap">
+                                        <TableDisplay
+                                            disabledReason={!hasColumns ? 'No results to visualize' : undefined}
+                                        />
+
+                                        <LemonButton
+                                            disabledReason={!hasColumns ? 'No results to visualize' : undefined}
+                                            type="secondary"
+                                            icon={<IconGear />}
+                                            onClick={() => toggleChartSettingsPanel()}
+                                            tooltip="Visualization settings"
+                                        />
+                                        {editingInsight && (
+                                            <LemonButton
+                                                disabledReason={!updateInsightButtonEnabled && 'No updates to save'}
+                                                type="primary"
+                                                onClick={() => updateInsight()}
+                                                sideAction={{
+                                                    dropdown: {
+                                                        placement: 'bottom-end',
+                                                        overlay: (
+                                                            <LemonMenuOverlay
+                                                                items={[
+                                                                    {
+                                                                        label: 'Save as...',
+                                                                        onClick: () => saveAsInsight(),
+                                                                    },
+                                                                ]}
+                                                            />
+                                                        ),
+                                                    },
+                                                }}
+                                            >
+                                                Save insight
+                                            </LemonButton>
+                                        )}
+                                        {!editingInsight && (
+                                            <LemonButton
+                                                disabledReason={!hasColumns ? 'No results to save' : undefined}
+                                                type="primary"
+                                                onClick={() => saveAsInsight()}
+                                            >
+                                                Create insight
+                                            </LemonButton>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
                         </>
-                    ) : (
+                    )}
+                    {activeTab === OutputTab.Results && (
                         <LemonButton
-                            type="secondary"
-                            onClick={() => saveAsView()}
-                            disabledReason={isValidView ? '' : 'Some fields may need an alias'}
+                            disabledReason={!hasColumns ? 'No results to visualize' : undefined}
+                            type="primary"
+                            onClick={() => setActiveTab(OutputTab.Visualization)}
                         >
-                            Save as view
+                            Visualize
                         </LemonButton>
                     )}
-                    <LemonButton
-                        disabledReason={error ? error : ''}
-                        loading={responseLoading}
-                        type="primary"
-                        onClick={() => runQuery()}
-                    >
-                        <span className="mr-1">Run</span>
-                        <KeyboardShortcut command enter />
-                    </LemonButton>
                 </div>
             </div>
             <div className="flex flex-1 relative bg-dark">
-                <BindLogic logic={lineageTabLogic} props={{ codeEditorKey: editorKey }}>
-                    <Content
-                        activeTab={activeTab}
-                        responseError={responseError}
-                        responseLoading={responseLoading}
-                        response={response}
-                        sourceQuery={sourceQuery}
-                        queryCancelled={queryCancelled}
-                        columns={columns}
-                        rows={rows}
-                        isDarkModeOn={isDarkModeOn}
-                        vizKey={vizKey}
-                        setSourceQuery={setSourceQuery}
-                        exportContext={exportContext}
-                        saveAsInsight={saveAsInsight}
-                        queryId={queryId}
-                        pollResponse={pollResponse}
-                        editorKey={editorKey}
-                    />
-                </BindLogic>
+                <Content
+                    activeTab={activeTab}
+                    responseError={responseError}
+                    responseLoading={responseLoading}
+                    response={response}
+                    sourceQuery={sourceQuery}
+                    queryCancelled={queryCancelled}
+                    columns={columns}
+                    rows={rows}
+                    isDarkModeOn={isDarkModeOn}
+                    vizKey={vizKey}
+                    setSourceQuery={setSourceQuery}
+                    exportContext={exportContext}
+                    saveAsInsight={saveAsInsight}
+                    queryId={queryId}
+                    pollResponse={pollResponse}
+                    editorKey={editorKey}
+                    setProgress={setProgress}
+                    progress={queryId ? progressCache[queryId] : undefined}
+                />
             </div>
-            <div className="flex justify-end pr-2 border-t">
+            <div className="flex justify-between px-2 border-t">
+                <div>{response && !responseError ? <LoadPreviewText /> : <></>}</div>
                 <ElapsedTime />
             </div>
+            <RowDetailsModal
+                isOpen={!!selectedRow}
+                onClose={() => setSelectedRow(null)}
+                row={selectedRow}
+                columns={response?.columns || []}
+            />
         </div>
     )
 }
 
 function InternalDataTableVisualization(
     props: DataTableVisualizationProps & { onSaveInsight: () => void }
-): JSX.Element {
-    const {
-        query,
-        visualizationType,
-        showEditingUI,
-        showResultControls,
-        response,
-        responseLoading,
-        isChartSettingsPanelOpen,
-    } = useValues(dataVisualizationLogic)
-
-    const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
+): JSX.Element | null {
+    const { query, visualizationType, showEditingUI, response, responseLoading, isChartSettingsPanelOpen } =
+        useValues(dataVisualizationLogic)
 
     let component: JSX.Element | null = null
 
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
     if (!showEditingUI && (!response || responseLoading)) {
         component = (
-            <div className="flex flex-col flex-1 justify-center items-center border rounded bg-bg-light">
-                <Animation type={AnimationType.LaptopHog} />
+            <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
+                <LoadingBar />
             </div>
         )
     } else if (visualizationType === ChartDisplayType.ActionsTable) {
@@ -252,7 +470,7 @@ function InternalDataTableVisualization(
     }
 
     return (
-        <div className="h-full hide-scrollbar flex flex-1 gap-2">
+        <div className="DataVisualization h-full hide-scrollbar flex flex-1 gap-2">
             <div className="relative w-full flex flex-col gap-4 flex-1">
                 <div className="flex flex-1 flex-row gap-4 overflow-scroll hide-scrollbar">
                     {isChartSettingsPanelOpen && (
@@ -262,29 +480,6 @@ function InternalDataTableVisualization(
                     )}
                     <div className={clsx('w-full h-full flex-1 overflow-auto')}>{component}</div>
                 </div>
-                {showResultControls && (
-                    <>
-                        <div className="flex gap-4 justify-between flex-wrap px-px py-2">
-                            <div className="flex gap-4 items-center" />
-                            <div className="flex gap-4 items-center">
-                                <div className="flex gap-4 items-center flex-wrap">
-                                    <TableDisplay />
-
-                                    <LemonButton
-                                        icon={<IconGear />}
-                                        type={isChartSettingsPanelOpen ? 'primary' : 'secondary'}
-                                        onClick={() => toggleChartSettingsPanel()}
-                                        tooltip="Visualization settings"
-                                    />
-
-                                    <LemonButton type="primary" onClick={() => props.onSaveInsight()}>
-                                        Create insight
-                                    </LemonButton>
-                                </div>
-                            </div>
-                        </div>
-                    </>
-                )}
             </div>
         </div>
     )
@@ -324,54 +519,61 @@ const Content = ({
     saveAsInsight,
     queryId,
     pollResponse,
-    editorKey,
+    setProgress,
+    progress,
 }: any): JSX.Element | null => {
-    if (activeTab === OutputTab.Results) {
-        if (responseError) {
-            return (
-                <ErrorState
-                    responseError={responseError}
-                    sourceQuery={sourceQuery}
-                    queryCancelled={queryCancelled}
-                    response={response}
-                />
-            )
-        }
-
-        return responseLoading ? (
-            <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
-        ) : !response ? (
-            <div className="flex flex-1 justify-center items-center">
-                <span className="text-muted mt-3">Query results will appear here</span>
-            </div>
-        ) : (
-            <div className="flex-1 absolute top-0 left-0 right-0 bottom-0">
-                <DataGrid
-                    className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
-                    columns={columns}
-                    rows={rows}
+    if (responseLoading) {
+        return (
+            <div className="flex flex-1 p-2 w-full justify-center items-center">
+                <StatelessInsightLoadingState
+                    queryId={queryId}
+                    pollResponse={pollResponse}
+                    setProgress={setProgress}
+                    progress={progress}
                 />
             </div>
         )
     }
 
-    if (activeTab === OutputTab.Visualization) {
-        if (responseError) {
-            return (
-                <ErrorState
-                    responseError={responseError}
-                    sourceQuery={sourceQuery}
-                    queryCancelled={queryCancelled}
-                    response={response}
-                />
-            )
-        }
+    if (responseError) {
+        return (
+            <ErrorState
+                responseError={responseError}
+                sourceQuery={sourceQuery}
+                queryCancelled={queryCancelled}
+                response={response}
+            />
+        )
+    }
 
-        return !response ? (
+    if (!response) {
+        const msg =
+            activeTab === OutputTab.Results
+                ? 'Query results will appear here.'
+                : 'Query results will be visualized here.'
+        return (
             <div className="flex flex-1 justify-center items-center">
-                <span className="text-muted mt-3">Query results will be visualized here</span>
+                <span className="text-secondary mt-3">
+                    {msg} Press <KeyboardShortcut command enter /> to run the query.
+                </span>
             </div>
-        ) : (
+        )
+    }
+
+    if (activeTab === OutputTab.Results) {
+        return (
+            <TabScroller>
+                <DataGrid
+                    className={isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full'}
+                    columns={columns}
+                    rows={rows}
+                />
+            </TabScroller>
+        )
+    }
+
+    if (activeTab === OutputTab.Visualization) {
+        return (
             <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
                 <InternalDataTableVisualization
                     uniqueKey={vizKey}
@@ -385,18 +587,5 @@ const Content = ({
             </div>
         )
     }
-
-    if (activeTab === OutputTab.Info) {
-        return (
-            <div className="flex flex-1 relative bg-dark">
-                <InfoTab codeEditorKey={editorKey} />
-            </div>
-        )
-    }
-
-    if (activeTab === OutputTab.Lineage) {
-        return <LineageTab />
-    }
-
     return null
 }

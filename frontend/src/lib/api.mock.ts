@@ -1,7 +1,9 @@
 import apiReal from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
+import { CurrencyCode } from '~/queries/schema/schema-general'
 import {
+    ActivationTaskStatus,
     CohortType,
     DataColorThemeModel,
     FilterLogicalOperator,
@@ -77,6 +79,9 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     session_recording_minimum_duration_milliseconds: null,
     session_recording_linked_flag: null,
     session_recording_network_payload_capture_config: { recordHeaders: true, recordBody: true },
+    session_recording_masking_config: {
+        maskAllInputs: true,
+    },
     session_replay_config: null,
     capture_console_log_opt_in: true,
     capture_performance_opt_in: true,
@@ -87,6 +92,32 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     effective_membership_level: OrganizationMembershipLevel.Admin,
     user_access_level: 'admin',
     access_control: true,
+    group_types: [
+        {
+            group_type: 'organization',
+            group_type_index: 0,
+            name_singular: null,
+            name_plural: 'organizations',
+            default_columns: undefined,
+            detail_dashboard: undefined,
+        },
+        {
+            group_type: 'instance',
+            group_type_index: 1,
+            name_singular: null,
+            name_plural: 'instances',
+            default_columns: undefined,
+            detail_dashboard: undefined,
+        },
+        {
+            group_type: 'project',
+            group_type_index: 2,
+            name_singular: null,
+            name_plural: 'projects',
+            default_columns: undefined,
+            detail_dashboard: undefined,
+        },
+    ],
     has_group_types: true,
     primary_dashboard: 1,
     live_events_columns: null,
@@ -94,7 +125,25 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     live_events_token: '123',
     capture_dead_clicks: false,
     human_friendly_comparison_periods: false,
+    revenue_tracking_config: {
+        baseCurrency: CurrencyCode.USD,
+        events: [
+            {
+                eventName: 'purchase',
+                revenueProperty: 'value',
+                revenueCurrencyProperty: { static: CurrencyCode.ZAR },
+            },
+        ],
+    },
     flags_persistence_default: false,
+    access_control_version: 'v1',
+    has_completed_onboarding_for: {
+        product_analytics: true,
+    },
+    onboarding_tasks: {
+        ingest_first_event: ActivationTaskStatus.COMPLETED,
+        setup_session_recordings: ActivationTaskStatus.COMPLETED,
+    },
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {
@@ -102,7 +151,6 @@ export const MOCK_DEFAULT_PROJECT: ProjectType = {
     name: 'MockHog App + Marketing',
     organization_id: MOCK_ORGANIZATION_ID,
     created_at: '2020-06-30T09:53:35.932534Z',
-    product_description: null,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
@@ -306,5 +354,11 @@ export const MOCK_DATA_COLOR_THEMES: DataColorThemeModel[] = [
             '#30d5c8',
         ],
         is_global: true,
+    },
+    {
+        id: 2,
+        name: 'Custom Theme',
+        colors: ['#00ffff', '#ff00ff', '#ffff00'],
+        is_global: false,
     },
 ]

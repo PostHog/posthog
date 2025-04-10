@@ -24,6 +24,8 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
                 return 'Feature flags are'
             case ProductKey.SURVEYS:
                 return 'Surveys are'
+            case ProductKey.ERROR_TRACKING:
+                return 'Tracking errors is'
             default:
                 return 'PostHog is'
         }
@@ -48,7 +50,7 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
         <OnboardingStep
             title="Invite teammates"
             stepKey={stepKey}
-            continueAction={() =>
+            onContinue={() =>
                 preflight?.email_service_available &&
                 invitesToSend[0]?.target_email &&
                 canSubmitInvites &&

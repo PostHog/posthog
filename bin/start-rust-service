@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+#
+# Starts up "live" local builds of the posthog/rust
+# services for a faster local dev inner loop
+#
+
+# set exit strategy
+trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
+
+# ensure we have a service name
+if [ -z "$1" ]; then
+  echo "ERROR missing required argument: posthog/rust service name" >&2
+  echo "Usage: bin/start-rust-service <SERVICE_NAME>" >&2
+  exit 1
+fi
+RS_SVC="$1"
+
+# set up env appropriate for each *known* service - add new ones here!
+case "$RS_SVC" in
+  property-defs-rs)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL
+    export RUST_BACKTRACE=1
+    export KAFKA_HOSTS=localhost:9092
+    export DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+    export SKIP_WRITES=false
+    export SKIP_READS=false
+    export FILTER_MODE=opt-out
+    export DEBUG=1
+    ;;
+
+  cymbal)
+    # NOTE: to ensure the exceptions topic exists and avoid crash loops in dev:
+    # cd rust
+    # cargo run --bin generate_test_events
+    export RUST_LOG=debug,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export KAFKA_CONSUMER_GROUP=cymbal
+    export KAFKA_CONSUMER_TOPIC=exception_symbolification_events
+    export OBJECT_STORAGE_BUCKET=posthog
+    export OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
+    export OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
+    export FRAME_CACHE_TTL_SECONDS=1
+    export BIND_PORT=3302 # HACK! avoid local-dev clash with property-defs-rs port
+    export ALLOW_INTERNAL_IPS="true"
+    ;;
+
+  cyclotron-fetch)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL
+    export RUST_BACKTRACE=1
+    export KAFKA_HOSTS=localhost:9092
+    export KAFKA_TOPIC=clickhouse_app_metrics2
+    export DATABASE_URL=postgres://posthog:posthog@localhost:5432/cyclotron
+    export WORKER_ID=default_worker_id
+    export JOB_POLL_INTERVAL=1s
+    export MAX_CONCURRENT_JOBS=10
+    export DEBUG=1
+    export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
+    ;;
+
+  cyclotron-janitor)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL
+    export RUST_BACKTRACE=1
+    export KAFKA_HOSTS=localhost:9092
+    export KAFKA_TOPIC=clickhouse_app_metrics2
+    export DATABASE_URL=postgres://posthog:posthog@localhost:5432/cyclotron
+    export DEBUG=1
+    export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
+    ;;
+
+  *)
+    echo "ERROR unknown posthog/rust service '$RS_SVC' please register in: $0" >&2
+    exit 1
+    ;;
+esac
+
+# ensure Rust services are in scope for "cargo run --bin <SERVICE_NAME>"
+cd rust
+
+# ensure the service restarts if it crashes in dev
+sleep 1
+while true; do
+  if ! ps -p ${RS_PID:-} &>/dev/null; then
+    cargo run --bin "$RS_SVC" &
+    export RS_PID=$!
+    echo -e "\n\033[47m>>\033[0m Restarted '$RS_SVC' with PID $RS_PID\n"
+  fi
+
+  # restart subprocess if it fails without bin/start shutdown
+  set +e
+  wait $RS_PID
+  set -e
+
+  sleep 3
+done
+
+echo -e "\n\033[47m>>\033[0m Shut down '$RS_SVC'\n"
+exit 0

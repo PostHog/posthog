@@ -7,15 +7,16 @@ from typing import Optional
 from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle, BaseThrottle, UserRateThrottle
 from rest_framework.request import Request
-from sentry_sdk.api import capture_exception
+
+from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.metrics import LABEL_PATH, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.team.team import Team
 from posthog.settings.utils import get_list
 from token_bucket import Limiter, MemoryStorage
 from posthog.models.personal_api_key import hash_key_value
-
 
 RATE_LIMIT_EXCEEDED_COUNTER = Counter(
     "rate_limit_exceeded_total",
@@ -43,6 +44,14 @@ def get_team_allow_list(_ttl: int) -> list[str]:
     _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
     """
     return get_list(get_instance_setting("RATE_LIMITING_ALLOW_LIST_TEAMS"))
+
+
+def team_is_allowed_to_bypass_throttle(team_id: Optional[int]) -> bool:
+    """
+    Check if a given team_id belongs to a throttle bypass allow list.
+    """
+    allow_list = get_team_allow_list(round(time.time() / 60))
+    return team_id is not None and str(team_id) in allow_list
 
 
 @lru_cache(maxsize=1)
@@ -83,6 +92,21 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         except KeyError:
             return None
 
+    def load_team_rate_limit(self, team_id):
+        # try loading from cache
+        rate_limit_cache_key = f"team_ratelimit_{self.scope}_{team_id}"
+        cached_rate_limit = self.cache.get(rate_limit_cache_key, None)
+        if cached_rate_limit is not None:
+            self.rate = cached_rate_limit
+        else:
+            team = Team.objects.get(id=team_id)
+            if not team or not team.api_query_rate_limit:
+                return
+            self.rate = team.api_query_rate_limit
+            self.cache.set(rate_limit_cache_key, self.rate)
+
+        self.num_requests, self.duration = self.parse_rate(self.rate)
+
     def allow_request(self, request, view):
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
@@ -93,17 +117,20 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             return True
 
         try:
+            team_id = self.safely_get_team_id_from_view(view)
+            if team_id is not None and self.scope == HogQLQueryThrottle.scope:
+                self.load_team_rate_limit(team_id)
+
             request_would_be_allowed = super().allow_request(request, view)
             if request_would_be_allowed:
                 return True
 
-            team_id = self.safely_get_team_id_from_view(view)
             path = getattr(request, "path", None)
             if path:
                 path = path_by_team_pattern.sub("/api/projects/TEAM_ID/", path)
                 path = path_by_org_pattern.sub("/api/organizations/ORG_ID/", path)
 
-            if self.team_is_allowed_to_bypass_throttle(team_id):
+            if team_is_allowed_to_bypass_throttle(team_id):
                 statsd.incr(
                     "team_allowed_to_bypass_rate_limit_exceeded",
                     tags={"team_id": team_id, "path": path},
@@ -126,6 +153,9 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
                 )
                 RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=scope, path=path).inc()
 
+            return False
+        except Team.DoesNotExist as e:
+            capture_exception(e)
             return False
         except Exception as e:
             capture_exception(e)
@@ -158,10 +188,6 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             ident = self.get_ident(request)
 
         return self.cache_format % {"scope": self.scope, "ident": ident}
-
-    def team_is_allowed_to_bypass_throttle(self, team_id: Optional[int]) -> bool:
-        allow_list = get_team_allow_list(round(time.time() / 60))
-        return team_id is not None and str(team_id) in allow_list
 
 
 class DecideRateThrottle(BaseThrottle):
@@ -295,10 +321,27 @@ class AISustainedRateThrottle(UserRateThrottle):
     rate = "40/day"
 
 
+class EditorProxyBurstRateThrottle(UserRateThrottle):
+    scope = "editor_proxy_burst"
+    rate = "30/minute"
+
+
+class EditorProxySustainedRateThrottle(UserRateThrottle):
+    # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
+    # Intended to block slower but sustained bursts of requests, per user
+    scope = "editor_proxy_sustained"
+    rate = "500/hour"
+
+
 class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
     # Lower rate limit for HogQL queries
     scope = "query"
     rate = "120/hour"
+
+
+class APIQueriesThrottle(PersonalApiKeyRateThrottle):
+    scope = "query"
+    rate = "1200/hour"
 
 
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):
@@ -314,9 +357,33 @@ class UserAuthenticationThrottle(UserOrEmailRateThrottle):
         # only throttle non-GET requests
         if request.method == "GET":
             return True
+
+        # only throttle if attempting to change current password
+        if "current_password" not in request.data:
+            return True
+
         return super().allow_request(request, view)
 
 
 class UserEmailVerificationThrottle(UserOrEmailRateThrottle):
     scope = "user_email_verification"
     rate = "6/day"
+
+
+class SetupWizardAuthenticationRateThrottle(UserRateThrottle):
+    # Throttle class that is applied for authenticating the setup wizard
+    # This is more aggressive than other throttles because the wizard makes OpenAI calls
+    scope = "wizard_authentication"
+    rate = "20/day"
+
+
+class SetupWizardQueryRateThrottle(SimpleRateThrottle):
+    rate = "20/day"
+
+    # Throttle per wizard hash
+    def get_cache_key(self, request, view):
+        hash = request.headers.get("X-PostHog-Wizard-Hash")
+
+        if not hash:
+            return self.get_ident(request)
+        return f"throttle_wizard_query_{hash}"

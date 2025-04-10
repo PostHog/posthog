@@ -58,7 +58,7 @@ function EmailTemplaterForm({
                     {({ value }) => (
                         <>
                             <div className="absolute inset-0 p-2 flex items-end justify-center transition-opacity opacity-0 hover:opacity-100">
-                                <div className="opacity-50 bg-bg-light absolute inset-0" />
+                                <div className="opacity-50 bg-surface-primary absolute inset-0" />
                                 <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
                                     Click to modify content
                                 </LemonButton>

@@ -1,10 +1,9 @@
 import { IconCheckCircle, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
 import { useMemo } from 'react'
 
@@ -21,7 +20,7 @@ interface BillingProductAddonActionsProps {
 }
 
 export const BillingProductAddonActions = ({ addon, productRef }: BillingProductAddonActionsProps): JSX.Element => {
-    const { billing, redirectPath, billingError, timeTotalInSeconds, timeRemainingInSeconds } = useValues(billingLogic)
+    const { billing, billingError, timeTotalInSeconds, timeRemainingInSeconds } = useValues(billingLogic)
     const { currentAndUpgradePlans, billingProductLoading, trialLoading } = useValues(
         billingProductLogic({ product: addon, productRef })
     )
@@ -31,12 +30,9 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
         reportSurveyShown,
         setSurveyResponse,
         initiateProductUpgrade,
-        setTrialModalOpen,
         activateTrial,
         cancelTrial,
     } = useActions(billingProductLogic({ product: addon }))
-    const { featureFlags } = useValues(featureFlagLogic)
-
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
     const { prorationAmount, isProrated } = useMemo(
         () =>
@@ -48,21 +44,7 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
             }),
         [billing?.has_active_subscription, upgradePlan, timeRemainingInSeconds, timeTotalInSeconds]
     )
-
-    const trialExperiment = featureFlags[FEATURE_FLAGS.BILLING_TRIAL_FLOW]
-
-    const handleTrialActivation = (): void => {
-        if (trialExperiment === 'modal') {
-            // Modal - Show trial modal (default behavior)
-            setTrialModalOpen(true)
-        } else if (trialExperiment === 'control') {
-            // Direct - Activate trial immediately
-            activateTrial()
-        } else {
-            // No trial flow even without the feature flag
-            initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, redirectPath)
-        }
-    }
+    const isTrialEligible = !!addon.trial
 
     const renderSubscribedActions = (): JSX.Element | null => {
         if (addon.contact_support) {
@@ -112,12 +94,11 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
 
     const renderPurchaseActions = (): JSX.Element => {
         const showPricing = currentAndUpgradePlans?.upgradePlan?.flat_rate
-        const isTrialEligible = addon.trial && !!trialExperiment
 
         return (
             <>
                 {showPricing ? (
-                    <h4 className="leading-5 font-bold mb-0 space-x-0.5">
+                    <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5">
                         {isTrialEligible ? (
                             <span>{addon.trial?.length} day free trial</span>
                         ) : (
@@ -143,7 +124,7 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
                         loading={billingProductLoading === addon.type}
                         onClick={
                             isTrialEligible
-                                ? handleTrialActivation
+                                ? () => activateTrial()
                                 : () => initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, '')
                         }
                     >
@@ -171,10 +152,10 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
             return null
         }
 
-        if (addon.trial && trialExperiment) {
+        if (isTrialEligible) {
             return (
-                <p className="mt-2 text-xs text-muted text-right">
-                    You'll have {addon.trial.length} days to try it out. Then you'll be charged{' '}
+                <p className="mt-2 text-xs text-secondary text-right">
+                    You'll have {addon.trial?.length} days to try it out. Then you'll be charged{' '}
                     {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)}.
                 </p>
             )
@@ -182,7 +163,7 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
 
         if (isProrated) {
             return (
-                <p className="mt-2 text-xs text-muted text-right">
+                <p className="mt-2 text-xs text-secondary text-right">
                     Pay ~${prorationAmount} today (prorated) and
                     <br />
                     {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month thereafter.

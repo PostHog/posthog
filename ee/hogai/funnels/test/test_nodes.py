@@ -1,20 +1,32 @@
 from unittest.mock import patch
 
-from django.test import override_settings
+from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 
-from ee.hogai.funnels.nodes import FunnelGeneratorNode, FunnelsSchemaGeneratorOutput
+from ee.hogai.funnels.nodes import FunnelGeneratorNode, FunnelPlannerNode, FunnelsSchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from posthog.schema import (
     AssistantFunnelsQuery,
     HumanMessage,
     VisualizationMessage,
 )
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import BaseTest
 
 
-@override_settings(IN_UNIT_TESTING=True)
-class TestFunnelsGeneratorNode(ClickhouseTestMixin, APIBaseTest):
+class TestFunnelPlannerNode(BaseTest):
+    def test_funnels_planner_prompt_has_tools(self):
+        node = FunnelPlannerNode(self.team)
+        with patch.object(FunnelPlannerNode, "_model") as model_mock:
+
+            def assert_prompt(prompt):
+                self.assertIn("retrieve_event_properties", str(prompt))
+                return AIMessage(content="Thought.\nAction: abc")
+
+            model_mock.return_value = RunnableLambda(assert_prompt)
+            node.run(AssistantState(messages=[HumanMessage(content="Text")]), {})
+
+
+class TestFunnelsGeneratorNode(BaseTest):
     def setUp(self):
         super().setUp()
         self.schema = AssistantFunnelsQuery(series=[])
@@ -26,13 +38,17 @@ class TestFunnelsGeneratorNode(ClickhouseTestMixin, APIBaseTest):
                 lambda _: FunnelsSchemaGeneratorOutput(query=self.schema).model_dump()
             )
             new_state = node.run(
-                AssistantState(messages=[HumanMessage(content="Text")], plan="Plan"),
+                AssistantState(messages=[HumanMessage(content="Text")], plan="Plan", root_tool_insight_plan="question"),
                 {},
             )
             self.assertEqual(
                 new_state,
                 PartialAssistantState(
-                    messages=[VisualizationMessage(answer=self.schema, plan="Plan", id=new_state.messages[0].id)],
+                    messages=[
+                        VisualizationMessage(
+                            query="question", answer=self.schema, plan="Plan", id=new_state.messages[0].id
+                        )
+                    ],
                     intermediate_steps=[],
                     plan="",
                 ),

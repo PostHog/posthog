@@ -1,11 +1,11 @@
 import { IconChevronDown, IconClock, IconEllipsis } from '@posthog/icons'
-import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItem, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useCallback, useState } from 'react'
 
-import { DatabaseSchemaTable } from '~/queries/schema'
+import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
 
 import { DatabaseTableTree, TreeItemFolder, TreeItemLeaf, TreeTableItemLeaf } from './DatabaseTableTree'
 
@@ -14,11 +14,14 @@ export interface TreeRowProps {
     depth: number
     onClick?: (row: DatabaseSchemaTable) => void
     selected?: boolean
+    menuItems?: LemonMenuItem[]
 }
 
-export function TreeRow({ item }: TreeRowProps): JSX.Element {
+export function TreeRow({ item, menuItems }: TreeRowProps): JSX.Element {
+    const [isMenuOpen, setIsMenuOpen] = useState(false)
+
     return (
-        <li>
+        <li className={clsx('relative flex items-center', isMenuOpen && 'bg-surface-primary')}>
             <LemonButton
                 onClick={() => {
                     void copyToClipboard(item.name, item.name)
@@ -28,11 +31,18 @@ export function TreeRow({ item }: TreeRowProps): JSX.Element {
                 icon={item.icon ? <>{item.icon}</> : null}
                 className="font-mono"
             >
-                <span className="flex-1 flex justify-between">
+                <span className="flex-1 flex gap-2">
                     <span className="truncate">{item.name}</span>
-                    <span className="whitespace-nowrap">{item.type}</span>
+                    <span className="italic text-secondary">{item.type}</span>
                 </span>
             </LemonButton>
+            {menuItems && menuItems.length > 0 && (
+                <LemonMenu items={menuItems} onVisibilityChange={setIsMenuOpen}>
+                    <div className="absolute right-1 flex">
+                        <LemonButton size="small" noPadding icon={<IconEllipsis />} />
+                    </div>
+                </LemonMenu>
+            )}
         </li>
     )
 }
@@ -102,10 +112,10 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
         return ''
     }
 
-    const getIconColor = (): 'text-primary' | 'text-danger' | 'text-warning' | 'text-success' => {
+    const getIconColor = (): 'text-accent' | 'text-danger' | 'text-warning' | 'text-success' => {
         if (item.table?.type === 'materialized_view') {
             if (item.table.status === 'Running') {
-                return 'text-primary'
+                return 'text-accent'
             }
             if (item.table.status === 'Failed') {
                 return 'text-danger'
@@ -168,7 +178,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
                         ) : emptyLabel ? (
                             emptyLabel
                         ) : (
-                            <span className="text-muted">No tables found</span>
+                            <span className="text-secondary">No tables found</span>
                         )}
                     </div>
                 ))}

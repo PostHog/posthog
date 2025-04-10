@@ -22,7 +22,7 @@ type InsightLegendRowProps = {
 }
 
 export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX.Element {
-    const { cohorts } = useValues(cohortsModel)
+    const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const { insightProps, highlightedSeries } = useValues(insightLogic)
@@ -48,7 +48,7 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
     const formattedBreakdownValue = formatBreakdownLabel(
         item.breakdown_value,
         breakdownFilter,
-        cohorts.results,
+        allCohorts.results,
         formatPropertyValueForDisplay
     )
 
@@ -82,7 +82,7 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
                 />
             </div>
             {display === ChartDisplayType.ActionsPie && (
-                <div className="text-muted grow-0">
+                <div className="text-secondary grow-0">
                     {formatAggregationAxisValue(trendsFilter, item.aggregated_value)}
                 </div>
             )}

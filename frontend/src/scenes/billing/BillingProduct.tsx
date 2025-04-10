@@ -1,4 +1,4 @@
-import { IconCheckCircle, IconChevronDown, IconDocument, IconInfo, IconPlus } from '@posthog/icons'
+import { IconChevronDown, IconDocument, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -11,20 +11,19 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, humanFriendlyCurrency } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useRef } from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingTierType, ProductKey } from '~/types'
 
-import { convertLargeNumberToWords, getUpgradeProductLink, summarizeUsage } from './billing-utils'
+import { getUpgradeProductLink, summarizeUsage } from './billing-utils'
 import { BillingGauge } from './BillingGauge'
 import { BillingLimit } from './BillingLimit'
 import { billingLogic } from './billingLogic'
 import { BillingProductAddon } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
-import { PlanComparisonModal } from './PlanComparison'
+import { paymentEntryLogic } from './paymentEntryLogic'
 import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
@@ -35,55 +34,42 @@ export const getTierDescription = (
     interval: string
 ): string => {
     return i === 0
-        ? `First ${summarizeUsage(tiers[i].up_to)} ${product.unit}s / ${interval}`
+        ? tiers[i].up_to
+            ? `First ${summarizeUsage(tiers[i].up_to)} ${product.unit}s / ${interval}`
+            : `All ${product.unit}s`
         : tiers[i].up_to
         ? `${summarizeUsage(tiers?.[i - 1].up_to || null)} - ${summarizeUsage(tiers[i].up_to)}`
         : `> ${summarizeUsage(tiers?.[i - 1].up_to || null)}`
 }
 
-export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
+export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, redirectPath, isUnlicensedDebug, billingError } = useValues(billingLogic)
+    const { billing, redirectPath, isUnlicensedDebug } = useValues(billingLogic)
     const {
         hasCustomLimitSet,
         showTierBreakdown,
         billingGaugeItems,
         isPricingModalOpen,
-        isPlanComparisonModalOpen,
         currentAndUpgradePlans,
         surveyID,
         billingProductLoading,
+        isSessionReplayWithAddons,
     } = useValues(billingProductLogic({ product }))
     const {
         setShowTierBreakdown,
         toggleIsPricingModalOpen,
-        toggleIsPlanComparisonModalOpen,
         reportSurveyShown,
         setSurveyResponse,
         setBillingProductLoading,
     } = useActions(billingProductLogic({ product, productRef }))
-    const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { upgradePlan, currentPlan, downgradePlan } = currentAndUpgradePlans
-    const additionalFeaturesOnUpgradedPlan = upgradePlan
-        ? upgradePlan?.features?.filter(
-              (feature) =>
-                  !currentPlan?.features?.some((currentPlanFeature) => currentPlanFeature.name === feature.name)
-          )
-        : currentPlan?.features?.filter(
-              (feature) =>
-                  !downgradePlan?.features?.some((downgradePlanFeature) => downgradePlanFeature.name === feature.name)
-          ) || []
+    const { upgradePlan, currentPlan } = currentAndUpgradePlans
+
+    const { showPaymentEntryModal } = useActions(paymentEntryLogic)
 
     const upgradeToPlanKey = upgradePlan?.plan_key
     const currentPlanKey = currentPlan?.plan_key
-
-    // Note(@zach): The upgrade card will be removed when Subscribe to all products is fully rolled out
-    const showUpgradeCard =
-        (upgradePlan?.product_key !== 'platform_and_support' || product?.addons?.length === 0) &&
-        upgradePlan &&
-        billing?.subscription_level === 'custom'
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -96,6 +82,13 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         (!product.tiered && !product.free_allocation && !product.inclusion_only) ||
         (product.tiered && product.tiers?.length === 1 && product.tiers[0].unit_amount_usd === '0')
 
+    // If the feature flag `billing_hide_product_{product.type}` is true,
+    // don't show the product in the billing page.
+    const hideProductFlag = `billing_hide_product_${product.type}`
+    if (featureFlags[hideProductFlag] === true) {
+        return null
+    }
+
     return (
         <div
             className={clsx('flex flex-wrap max-w-300 pb-8', {
@@ -104,8 +97,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             ref={ref}
             data-attr={`billing-product-${product.type}`}
         >
-            <div className="border border-border rounded w-full bg-bg-light" ref={productRef}>
-                <div className="border-b border-border rounded-t bg-bg-3000 p-4">
+            <div className="border border-primary rounded w-full bg-surface-primary" ref={productRef}>
+                <div className="border-b border-primary rounded-t p-4">
                     <div className="flex gap-4 items-center justify-between">
                         {getProductIcon(product.name, product.icon_key, 'text-2xl')}
                         <div>
@@ -209,7 +202,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         <div className="grow">
                                             <div className="grow">
                                                 <BillingGauge items={billingGaugeItems} product={product} />
-                                                <FeatureFlagUsageNotice product={product} />
                                             </div>
                                             {/* TODO: rms: remove this notice after August 8 2024 */}
                                             {product.type == ProductKey.DATA_WAREHOUSE &&
@@ -243,9 +235,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 )}
                                                 <div className="grow">
                                                     <BillingGauge items={billingGaugeItems} product={product} />
-                                                    {!product.subscribed && (
-                                                        <FeatureFlagUsageNotice product={product} />
-                                                    )}
                                                 </div>
                                             </div>
                                             {product.subscribed ? (
@@ -260,14 +249,19 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         <div className="flex flex-col items-center">
                                                             <div className="font-bold text-3xl leading-7">
                                                                 {humanFriendlyCurrency(
-                                                                    parseFloat(product.current_amount_usd || '0') *
+                                                                    parseFloat(
+                                                                        isSessionReplayWithAddons
+                                                                            ? product.current_amount_usd_before_addons ||
+                                                                                  '0'
+                                                                            : product.current_amount_usd || '0'
+                                                                    ) *
                                                                         (1 -
                                                                             (billing?.discount_percent
                                                                                 ? billing.discount_percent / 100
                                                                                 : 0))
                                                                 )}
                                                             </div>
-                                                            <span className="text-xs text-muted">
+                                                            <span className="text-xs text-secondary">
                                                                 {capitalizeFirstLetter(
                                                                     billing?.billing_period?.interval || ''
                                                                 )}
@@ -284,7 +278,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                             } and the remaining time left in this billing period. This number updates once daily.`}
                                                         >
                                                             <div className="flex flex-col items-center justify-end">
-                                                                <div className="font-bold text-muted text-lg leading-5">
+                                                                <div className="font-bold text-secondary text-lg leading-5">
                                                                     {humanFriendlyCurrency(
                                                                         parseFloat(
                                                                             product.projected_amount_usd || '0'
@@ -295,7 +289,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                                     : 0))
                                                                     )}
                                                                 </div>
-                                                                <span className="text-xs text-muted">Projected</span>
+                                                                <span className="text-xs text-secondary">
+                                                                    Projected
+                                                                </span>
                                                             </div>
                                                         </Tooltip>
                                                     )}
@@ -311,7 +307,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     <div className="font-bold text-3xl leading-7">
                                                         {humanFriendlyCurrency(product.current_amount_usd)}
                                                     </div>
-                                                    <span className="text-xs text-muted">
+                                                    <span className="text-xs text-secondary">
                                                         per {billing?.billing_period?.interval || 'period'}
                                                     </span>
                                                 </div>
@@ -338,17 +334,33 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         <div>
                                             Add-ons are only available on paid plans. Upgrade to access these features.
                                         </div>
-                                        <LemonButton
-                                            className="shrink-0"
-                                            to={`/api/billing/activate?products=all_products:&redirect_path=${redirectPath}&intent_product=${product.type}`}
-                                            type="primary"
-                                            status="alt"
-                                            disableClientSideRouting
-                                            loading={!!billingProductLoading}
-                                            onClick={() => setBillingProductLoading(product.type)}
-                                        >
-                                            Upgrade now
-                                        </LemonButton>
+                                        {featureFlags[FEATURE_FLAGS.BILLING_PAYMENT_ENTRY_IN_APP] == 'test' ? (
+                                            <BillingUpgradeCTA
+                                                type="primary"
+                                                status="alt"
+                                                data-attr="billing-page-addon-cta-upgrade-cta"
+                                                disableClientSideRouting
+                                                loading={!!billingProductLoading}
+                                                onClick={() => showPaymentEntryModal()}
+                                            >
+                                                Upgrade now
+                                            </BillingUpgradeCTA>
+                                        ) : (
+                                            <BillingUpgradeCTA
+                                                to={getUpgradeProductLink({
+                                                    product,
+                                                    redirectPath,
+                                                })}
+                                                type="primary"
+                                                status="alt"
+                                                data-attr="billing-page-addon-cta-upgrade-cta"
+                                                disableClientSideRouting
+                                                loading={!!billingProductLoading}
+                                                onClick={() => setBillingProductLoading(product.type)}
+                                            >
+                                                Upgrade now
+                                            </BillingUpgradeCTA>
+                                        )}
                                     </div>
                                 </LemonBanner>
                             )}
@@ -371,126 +383,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                     )}
                 </div>
                 {!isTemporaryFreeProduct && <BillingLimit product={product} />}
-                {showUpgradeCard && (
-                    <div
-                        data-attr={`upgrade-card-${product.type}`}
-                        className={`border-t border-border p-8 flex justify-between ${
-                            !upgradePlan ? 'bg-success-highlight' : 'bg-warning-highlight'
-                        }`}
-                    >
-                        <div>
-                            {currentPlan && (
-                                <h4 className={`${!upgradePlan ? 'text-success' : 'text-warning-dark'}`}>
-                                    You're on the {currentPlan.name} plan for {product.name}.
-                                </h4>
-                            )}
-                            {additionalFeaturesOnUpgradedPlan?.length > 0 ? (
-                                <>
-                                    <p className="ml-0 max-w-200">Subscribe to get sweet features such as:</p>
-                                    <div>
-                                        {additionalFeaturesOnUpgradedPlan?.map((feature, i) => {
-                                            return (
-                                                i < 3 && (
-                                                    <div
-                                                        className="flex gap-x-2 items-center mb-2"
-                                                        key={'additional-features-' + product.type + i}
-                                                    >
-                                                        <IconCheckCircle className="text-success" />
-                                                        <Tooltip key={feature.key} title={feature.description}>
-                                                            <b>{feature.name} </b>
-                                                        </Tooltip>
-                                                    </div>
-                                                )
-                                            )
-                                        })}
-                                        {!billing?.has_active_subscription && (
-                                            <div className="flex gap-x-2 items-center mb-2">
-                                                <IconCheckCircle className="text-success" />
-                                                <Tooltip title="Multiple projects, Feature flags, Experiments, Integrations, Apps, and more">
-                                                    <b>Upgraded platform features</b>
-                                                </Tooltip>
-                                            </div>
-                                        )}
-                                        <div className="flex gap-x-2 items-center mb-2">
-                                            <IconCheckCircle className="text-success" />
-                                            <Link onClick={() => toggleIsPlanComparisonModalOpen()}>
-                                                <b>And more...</b>
-                                            </Link>
-                                        </div>
-                                    </div>
-                                </>
-                            ) : (
-                                <p className="ml-0 max-w-200">
-                                    You've got access to all the features we offer for {product.name}.
-                                </p>
-                            )}
-                            {upgradePlan?.tiers?.[0]?.unit_amount_usd &&
-                                parseInt(upgradePlan?.tiers?.[0].unit_amount_usd) === 0 && (
-                                    <p className="ml-0 mb-0 mt-4">
-                                        <b>
-                                            First {convertLargeNumberToWords(upgradePlan?.tiers?.[0].up_to, null)}{' '}
-                                            {product.unit}s free
-                                        </b>
-                                        , then just ${upgradePlan?.tiers?.[1]?.unit_amount_usd} per {product.unit} and{' '}
-                                        <Link onClick={() => toggleIsPlanComparisonModalOpen()}>volume discounts</Link>.
-                                    </p>
-                                )}
-                        </div>
-                        {upgradePlan && (
-                            <div className="ml-4">
-                                <div className="flex flex-wrap gap-x-2 gap-y-2">
-                                    <LemonButton
-                                        type="secondary"
-                                        onClick={() => toggleIsPlanComparisonModalOpen()}
-                                        className="grow"
-                                        center
-                                    >
-                                        Compare plans
-                                    </LemonButton>
-                                    {upgradePlan.contact_support ? (
-                                        <LemonButton
-                                            type="primary"
-                                            to="mailto:sales@posthog.com?subject=Enterprise%20plan%20request"
-                                        >
-                                            Get in touch
-                                        </LemonButton>
-                                    ) : (
-                                        upgradePlan.included_if !== 'has_subscription' &&
-                                        !upgradePlan.unit_amount_usd && (
-                                            <BillingUpgradeCTA
-                                                data-attr={`${product.type}-upgrade-cta`}
-                                                to={getUpgradeProductLink({
-                                                    product,
-                                                    redirectPath,
-                                                    includeAddons: false,
-                                                })}
-                                                type="primary"
-                                                icon={<IconPlus />}
-                                                disableClientSideRouting
-                                                loading={billingProductLoading === product.type}
-                                                disabledReason={billingError && billingError.message}
-                                                onClick={() => {
-                                                    reportBillingUpgradeClicked(product.type)
-                                                    setBillingProductLoading(product.type)
-                                                }}
-                                                className="grow"
-                                                center
-                                            >
-                                                Subscribe
-                                            </BillingUpgradeCTA>
-                                        )
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                        <PlanComparisonModal
-                            product={product}
-                            includeAddons={false}
-                            modalOpen={isPlanComparisonModalOpen}
-                            onClose={() => toggleIsPlanComparisonModalOpen()}
-                        />
-                    </div>
-                )}
+                <FeatureFlagUsageNotice product={product} />
             </div>
             <ProductPricingModal
                 modalOpen={isPricingModalOpen}
@@ -504,13 +397,15 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
 export const FeatureFlagUsageNotice = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     return product.type === 'feature_flags' ? (
-        <p className="mt-4 ml-0 text-sm text-muted italic">
-            <IconInfo className="mr-1" />
-            Questions? Here's{' '}
-            <Link to="https://posthog.com/docs/feature-flags/common-questions#billing--usage" className="italic">
-                how we calculate usage
-            </Link>{' '}
-            for feature flags.
-        </p>
+        <div className="p-4 px-8 pb-8 sm:pb-0 border-t border-border">
+            <p className="mt-0 ml-0 text-sm text-secondary italic">
+                <IconInfo className="mr-1" />
+                Questions? Here's{' '}
+                <Link to="https://posthog.com/docs/feature-flags/common-questions#billing--usage" className="italic">
+                    how we calculate usage
+                </Link>{' '}
+                for feature flags.
+            </p>
+        </div>
     ) : null
 }

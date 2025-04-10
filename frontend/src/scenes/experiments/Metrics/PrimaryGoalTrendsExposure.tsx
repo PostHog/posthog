@@ -52,7 +52,7 @@ export function PrimaryGoalTrendsExposure(): JSX.Element {
                 showNumericalPropsOnly={true}
                 {...commonActionFilterProps}
             />
-            <div className="mt-4 space-y-4">
+            <div className="mt-4 deprecated-space-y-4">
                 <TestAccountFilterSwitch
                     checked={hasFilters ? !!currentMetric.exposure_query?.filterTestAccounts : false}
                     onChange={(checked: boolean) => {

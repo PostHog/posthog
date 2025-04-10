@@ -1,37 +1,23 @@
 import datetime as dt
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from collections.abc import Callable, Generator, Iterable
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
 from enum import Enum, auto
 from itertools import chain
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Generic,
-    Literal,
-    Optional,
-    TypeVar,
-)
-from collections.abc import Callable, Iterable
-from urllib.parse import urlparse, parse_qs
-from uuid import UUID
-
-import tiktoken
-
-from posthog.models.utils import uuid7
+from typing import TYPE_CHECKING, Any, Generic, Literal, Optional, TypeVar
+from urllib.parse import parse_qs, urlparse
+from uuid import UUID, uuid4
 
 if TYPE_CHECKING:
     from posthog.demo.matrix.matrix import Cluster, Matrix
 
-llm_encoding = tiktoken.encoding_for_model("gpt-4o")
-
 # Refer to https://github.com/PostHog/posthog-ai-costs-app/tree/main/src/ai-cost-data for missing models
 LLM_COSTS_BY_MODEL = {
-    "gpt-4o": {
-        "prompt_token": 0.000005,
-        "completion_token": 0.000015,
-    },
+    "gpt-4o": {"prompt_token": 2.5 / 1e6, "completion_token": 10 / 1e6},
+    "gpt-4o-mini": {"prompt_token": 0.15 / 1e6, "completion_token": 0.6 / 1e6},
 }
 
 SP = TypeVar("SP", bound="SimPerson")
@@ -166,6 +152,83 @@ class SimServerClient(SimClient):
     def capture(self, event: str, properties: Optional[Properties] = None, *, distinct_id: str) -> None:
         self._capture_raw(event, properties, distinct_id=distinct_id)
 
+    def capture_ai_generation(
+        self,
+        *,
+        distinct_id: str,
+        input: list[dict],
+        output_content: str,
+        latency: float,
+        base_url: str = "https://api.openai.com/v1",
+        provider: str = "openai",
+        model: str = "gpt-4o",
+        trace_id: Optional[str] = None,
+        http_status: int = 200,
+    ):
+        """Capture an AI generation event."""
+        input_tokens = sum(len(self.matrix.gpt_4o_encoding.encode(message["content"])) for message in input)
+        output_tokens = len(self.matrix.gpt_4o_encoding.encode(output_content))
+        input_cost_usd = input_tokens * LLM_COSTS_BY_MODEL[model]["prompt_token"]
+        output_cost_usd = output_tokens * LLM_COSTS_BY_MODEL[model]["completion_token"]
+        self.capture(
+            "$ai_generation",
+            {
+                "$ai_base_url": base_url,
+                "$ai_provider": provider,
+                "$ai_model": model,
+                "$ai_http_status": http_status,
+                "$ai_input_tokens": input_tokens,
+                "$ai_output_tokens": output_tokens,
+                "$ai_input_cost_usd": input_cost_usd,
+                "$ai_output_cost_usd": output_cost_usd,
+                "$ai_total_cost_usd": input_cost_usd + output_cost_usd,
+                "$ai_input": input,
+                "$ai_output": {
+                    "choices": [
+                        {
+                            "content": output_content,
+                            "role": "assistant",
+                        }
+                    ]
+                },
+                "$ai_latency": latency,
+                "$ai_trace_id": trace_id or str(uuid4()),
+            },
+            distinct_id=distinct_id,
+        )
+
+    @contextmanager
+    def trace_ai(
+        self,
+        *,
+        distinct_id: str,
+        input_state: Any,
+        trace_id: Optional[str] = None,
+    ) -> Generator[tuple[str, Callable], None, None]:
+        """Capture an AI generation event."""
+        trace_id = trace_id or str(uuid4())
+        output_state = None
+
+        def set_trace_output(output: Any):
+            nonlocal output_state
+            if output_state is not None:
+                raise ValueError("Output already set for this trace")
+            output_state = output
+
+        try:
+            yield trace_id, set_trace_output
+        finally:
+            self.capture(
+                "$ai_trace",
+                {
+                    "$ai_input_state": input_state,
+                    "$ai_output_state": output_state,
+                    "$ai_span_name": "SpikeChain",
+                    "$ai_trace_id": trace_id,
+                },
+                distinct_id=distinct_id,
+            )
+
 
 class SimBrowserClient(SimClient):
     """A browser client for simulating client-side tracking."""
@@ -270,48 +333,6 @@ class SimBrowserClient(SimClient):
         self.person.advance_timer(self.person.cluster.random.uniform(0.02, 0.1))  # A page doesn't load instantly
         self.current_url = current_url
         self.capture(EVENT_PAGEVIEW, properties)
-
-    def capture_ai_generation(
-        self,
-        input: list[dict],
-        output_content: str,
-        latency: float,
-        base_url: str = "https://api.openai.com/v1",
-        provider: str = "openai",
-        model: str = "gpt-4o",
-        trace_id: Optional[str] = None,
-        http_status: int = 200,
-    ):
-        """Capture an AI generation event."""
-        input_tokens = sum(len(llm_encoding.encode(message["content"])) for message in input)
-        output_tokens = len(llm_encoding.encode(output_content))
-        input_cost_usd = input_tokens * LLM_COSTS_BY_MODEL[model]["prompt_token"]
-        output_cost_usd = output_tokens * LLM_COSTS_BY_MODEL[model]["completion_token"]
-        self.capture(
-            "$ai_generation",
-            {
-                "$ai_base_url": base_url,
-                "$ai_provider": provider,
-                "$ai_model": model,
-                "$ai_http_status": http_status,
-                "$ai_input_tokens": input_tokens,
-                "$ai_output_tokens": output_tokens,
-                "$ai_input_cost_usd": input_cost_usd,
-                "$ai_output_cost_usd": output_cost_usd,
-                "$ai_total_cost_usd": input_cost_usd + output_cost_usd,
-                "$ai_input": input,
-                "$ai_output": {
-                    "choices": [
-                        {
-                            "content": output_content,
-                            "role": "assistant",
-                        }
-                    ]
-                },
-                "$ai_latency": latency,
-                "$ai_trace_id": trace_id or str(uuid7()),
-            },
-        )
 
     def identify(self, distinct_id: Optional[str], set_properties: Optional[Properties] = None):
         """Identify person in active client. Similar to JS `posthog.identify()`.

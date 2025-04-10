@@ -1,23 +1,68 @@
+use core::str;
 use std::sync::Arc;
 
+use axum::async_trait;
 use common_types::ClickHouseEvent;
 use cymbal::{
     config::Config,
-    frames::RawFrame,
+    frames::{Frame, RawFrame},
     symbol_store::{
         caching::{Caching, SymbolSetCache},
-        sourcemap::SourcemapProvider,
-        Catalog,
+        chunk_id::OrChunkId,
+        sourcemap::{OwnedSourceMapCache, SourcemapProvider},
+        Catalog, Fetcher, Parser,
     },
     types::{RawErrProps, Stacktrace},
 };
 use httpmock::MockServer;
+use posthog_symbol_data::{read_symbol_data, SourceAndMap};
+use symbolic::sourcemapcache::SourcePosition;
 use tokio::sync::Mutex;
 
 const CHUNK_PATH: &str = "/static/chunk-PGUQKT6S.js";
 const MINIFIED: &[u8] = include_bytes!("../tests/static/chunk-PGUQKT6S.js");
 const MAP: &[u8] = include_bytes!("../tests/static/chunk-PGUQKT6S.js.map");
 const EXAMPLE_EXCEPTION: &str = include_str!("../tests/static/raw_ch_exception_list.json");
+
+struct NoOpChunkIdFetcher<P> {
+    inner: P,
+}
+
+#[async_trait]
+impl<P> Fetcher for NoOpChunkIdFetcher<P>
+where
+    P: Fetcher,
+    P::Ref: Send,
+{
+    type Ref = OrChunkId<P::Ref>;
+    type Fetched = P::Fetched;
+    type Err = P::Err;
+
+    async fn fetch(&self, team_id: i32, r: Self::Ref) -> Result<Self::Fetched, Self::Err> {
+        let r = match r {
+            OrChunkId::Inner(r) => r,
+            OrChunkId::ChunkId(_) => panic!("Unexpected chunk id"),
+            OrChunkId::Both { inner, id: _ } => inner,
+        };
+
+        self.inner.fetch(team_id, r).await
+    }
+}
+
+#[async_trait]
+impl<P> Parser for NoOpChunkIdFetcher<P>
+where
+    P: Parser,
+    P::Source: Send,
+{
+    type Source = P::Source;
+    type Set = P::Set;
+    type Err = P::Err;
+
+    async fn parse(&self, source: Self::Source) -> Result<Self::Set, Self::Err> {
+        self.inner.parse(source).await
+    }
+}
 
 #[tokio::test]
 async fn end_to_end_resolver_test() {
@@ -46,14 +91,14 @@ async fn end_to_end_resolver_test() {
     // We're going to pretend out stack consists exclusively of JS frames whose source
     // we have locally
     test_stack.retain(|s| {
-        let RawFrame::JavaScript(s) = s else {
+        let RawFrame::JavaScriptWeb(s) = s else {
             panic!("Expected a JavaScript frame")
         };
         s.source_url.as_ref().unwrap().contains(CHUNK_PATH)
     });
 
     for frame in test_stack.iter_mut() {
-        let RawFrame::JavaScript(frame) = frame else {
+        let RawFrame::JavaScriptWeb(frame) = frame else {
             panic!("Expected a JavaScript frame")
         };
         // Our test data contains our /actual/ source urls - we need to swap that to localhost
@@ -70,16 +115,41 @@ async fn end_to_end_resolver_test() {
         config.symbol_store_cache_max_bytes,
     )));
 
-    let catalog = Catalog::new(Caching::new(sourcemap, cache));
+    let wrapped = NoOpChunkIdFetcher { inner: sourcemap };
+
+    let catalog = Catalog::new(Caching::new(wrapped, cache));
 
     let mut resolved_frames = Vec::new();
     for frame in test_stack {
         resolved_frames.push(frame.resolve(exception.team_id, &catalog).await.unwrap());
     }
 
-    println!("{:?}", resolved_frames);
-
     // The use of the caching layer is tested here - we should only have hit the server once
     source_mock.assert_hits(1);
     map_mock.assert_hits(1);
+}
+
+#[tokio::test]
+async fn sourcemap_nulls_dont_go_on_frames() {
+    let content = "{\"colno\":15,\"filename\":\"irrelevant_for_test\",\"function\":\"?\",\"in_app\":true,\"lineno\":476,\"platform\":\"web:javascript\"}";
+    let frame: RawFrame = serde_json::from_str(content).unwrap();
+
+    let jsdata_bytes = include_bytes!("static/sourcemap_with_nulls.jsdata").to_vec();
+    let data: SourceAndMap = read_symbol_data(jsdata_bytes).unwrap();
+    let smc = OwnedSourceMapCache::from_source_and_map(data).unwrap();
+    let c = smc.get_smc();
+
+    let RawFrame::JavaScriptWeb(frame) = frame else {
+        panic!("Expected a JavaScript web frame")
+    };
+
+    let location = frame.location.clone().unwrap();
+
+    let token = c
+        .lookup(SourcePosition::new(location.line - 1, location.column))
+        .unwrap();
+
+    let res = Frame::from((&frame, token));
+
+    assert!(!res.source.unwrap().contains('\0'));
 }

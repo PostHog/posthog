@@ -16,6 +16,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { payGateMiniLogic } from 'lib/components/PayGateMini/payGateMiniLogic'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -24,8 +25,6 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { AvailableFeature } from '~/types'
 
 import { proxyLogic, ProxyRecord } from './proxyLogic'
-
-const MAX_PROXY_RECORDS = 3
 
 const statusText = {
     valid: 'live',
@@ -41,7 +40,9 @@ export function ManagedReverseProxy(): JSX.Element {
         scope: RestrictionScope.Organization,
     })
 
-    const maxRecordsReached = proxyRecords.length >= MAX_PROXY_RECORDS
+    const { featureAvailableOnOrg } = useValues(payGateMiniLogic({ feature: AvailableFeature.MANAGED_REVERSE_PROXY }))
+
+    const maxRecordsReached = proxyRecords.length >= (featureAvailableOnOrg?.limit || 0)
 
     const recordsWithMessages = proxyRecords.filter((record) => !!record.message)
 
@@ -61,7 +62,7 @@ export function ManagedReverseProxy(): JSX.Element {
                 return (
                     <div
                         className={clsx(
-                            'space-x-1',
+                            'deprecated-space-x-1',
                             status === 'valid'
                                 ? 'text-success'
                                 : status == 'erroring'
@@ -117,7 +118,7 @@ export function ManagedReverseProxy(): JSX.Element {
                                 },
                             ]}
                         >
-                            <LemonButton size="small" icon={<IconEllipsis className="text-muted" />} />
+                            <LemonButton size="small" icon={<IconEllipsis className="text-secondary" />} />
                         </LemonMenu>
                     )
                 )
@@ -127,7 +128,7 @@ export function ManagedReverseProxy(): JSX.Element {
 
     return (
         <PayGateMini feature={AvailableFeature.MANAGED_REVERSE_PROXY}>
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 {recordsWithMessages.map((r) => (
                     <LemonBanner type="warning" key={r.id}>
                         <LemonMarkdown>{`**${r.domain}**\n ${r.message}`}</LemonMarkdown>
@@ -144,7 +145,7 @@ export function ManagedReverseProxy(): JSX.Element {
                 {formState === 'collapsed' ? (
                     maxRecordsReached ? (
                         <LemonBanner type="info">
-                            There is a maximum of {MAX_PROXY_RECORDS} records allowed per organization
+                            There is a maximum of {featureAvailableOnOrg?.limit || 0} records allowed per organization.
                         </LemonBanner>
                     ) : (
                         <div className="flex">
@@ -190,9 +191,14 @@ function CreateRecordForm(): JSX.Element {
     const waitingRecords = proxyRecords.filter((r) => r.status === 'waiting')
 
     return (
-        <div className="bg-bg-light rounded border px-5 py-4 space-y-2">
+        <div className="bg-surface-primary rounded border px-5 py-4 deprecated-space-y-2">
             {formState == 'active' ? (
-                <Form logic={proxyLogic} formKey="createRecord" enableFormOnSubmit className="w-full space-y-2">
+                <Form
+                    logic={proxyLogic}
+                    formKey="createRecord"
+                    enableFormOnSubmit
+                    className="w-full deprecated-space-y-2"
+                >
                     <LemonField name="domain">
                         <LemonInput
                             autoFocus
@@ -225,7 +231,7 @@ function CreateRecordForm(): JSX.Element {
                         You need to set the following <b>CNAME</b> records in your DNS provider:
                     </div>
                     {waitingRecords.map((r) => (
-                        <div key={r.id} className="space-y-1">
+                        <div key={r.id} className="deprecated-space-y-1">
                             <span className="font-semibold">{r.domain}</span>
                             <CodeSnippet key={r.id} language={Language.HTTP}>
                                 {r.target_cname}

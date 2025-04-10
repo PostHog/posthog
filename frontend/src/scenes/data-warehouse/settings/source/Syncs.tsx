@@ -1,8 +1,8 @@
-import { TZLabel } from '@posthog/apps-common'
-import { LemonButton, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { TZLabel } from 'lib/components/TZLabel'
 
-import { ExternalDataJob } from '~/types'
+import { ExternalDataJob, ExternalDataJobStatus } from '~/types'
 
 import { dataWarehouseSourceSettingsLogic } from './dataWarehouseSourceSettingsLogic'
 import { LogsView } from './Logs'
@@ -38,13 +38,20 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
                 {
                     title: 'Status',
                     render: (_, job) => {
-                        return <LemonTag type={StatusTagSetting[job.status]}>{job.status}</LemonTag>
+                        const tagContent = (
+                            <LemonTag type={StatusTagSetting[job.status] || 'default'}>{job.status}</LemonTag>
+                        )
+                        return job.latest_error && job.status === ExternalDataJobStatus.Failed ? (
+                            <Tooltip title={job.latest_error}>{tagContent}</Tooltip>
+                        ) : (
+                            tagContent
+                        )
                     },
                 },
                 {
                     title: 'Rows synced',
                     render: (_, job) => {
-                        return job.rows_synced
+                        return job.rows_synced.toLocaleString()
                     },
                 },
                 {
@@ -70,7 +77,7 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
             footer={
                 <LemonButton
                     onClick={loadMoreJobs}
-                    type="secondary"
+                    type="tertiary"
                     fullWidth
                     center
                     disabledReason={!canLoadMoreJobs ? "There's nothing more to load" : undefined}

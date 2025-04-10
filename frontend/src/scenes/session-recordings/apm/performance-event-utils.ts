@@ -1,4 +1,4 @@
-import { eventWithTime } from '@rrweb/types'
+import { eventWithTime } from '@posthog/rrweb-types'
 import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
 import { humanizeBytes } from 'lib/utils'
 import { CapturedNetworkRequest } from 'posthog-js'

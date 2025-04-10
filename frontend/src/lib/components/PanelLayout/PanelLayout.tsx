@@ -1,17 +1,13 @@
-import { IconMinus } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { LemonMenu, LemonMenuItem, LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { useState } from 'react'
+import { PropsWithChildren } from 'react'
 
-type PanelContainerProps = {
-    children: React.ReactNode
+type PanelContainerProps = PropsWithChildren<{
     primary: boolean
     className?: string
     column?: boolean
-    title: string
-    header?: JSX.Element | null
-}
+}>
 
 interface SettingsMenuProps extends Omit<LemonMenuProps, 'items' | 'children'> {
     label?: string
@@ -33,11 +29,11 @@ type SettingsToggleProps = SettingsButtonProps & {
     active: boolean
 }
 
-function PanelLayout({ className, ...props }: Omit<PanelContainerProps, 'primary' | 'title'>): JSX.Element {
+function PanelLayout({ className, ...props }: Omit<PanelContainerProps, 'primary'>): JSX.Element {
     return <Container className={clsx(className, 'PanelLayout')} {...props} primary={false} />
 }
 
-function Container({ children, primary, className, column }: Omit<PanelContainerProps, 'title'>): JSX.Element {
+function Container({ children, primary, className, column }: PanelContainerProps): JSX.Element {
     return (
         <div
             className={clsx(
@@ -53,24 +49,30 @@ function Container({ children, primary, className, column }: Omit<PanelContainer
     )
 }
 
-function Panel({ children, primary, className, title, header }: Omit<PanelContainerProps, 'column'>): JSX.Element {
-    const [open, setOpen] = useState<boolean>(true)
-
+function Panel({ children, primary, className }: Omit<PanelContainerProps, 'column'>): JSX.Element {
     return (
-        <div className={clsx(primary && 'flex-1', 'border bg-bg-light rounded-sm', className)}>
-            <div
-                className={clsx(
-                    'flex flex-row w-full overflow-hidden bg-accent-3000 items-center justify-between',
-                    open && 'border-b'
-                )}
-            >
-                <span className="pl-1 font-medium">{title}</span>
-                <div className="flex font-light text-xs">
-                    {header}
-                    <SettingsButton onClick={() => setOpen(!open)} icon={<IconMinus />} />
-                </div>
-            </div>
-            {open ? children : null}
+        <div className={clsx(primary && 'flex-1', 'border bg-surface-primary rounded-xs', className)}>{children}</div>
+    )
+}
+
+export function PanelSettings({
+    children,
+    title,
+    border,
+}: PropsWithChildren<{
+    title?: string
+    border: 'bottom' | 'top'
+}>): JSX.Element {
+    return (
+        <div
+            className={clsx(
+                'flex flex-row w-full overflow-hidden bg-surface-primary items-center justify-between',
+                border === 'bottom' && 'border-b',
+                border === 'top' && 'border-t'
+            )}
+        >
+            {title && <span className="pl-1 font-medium">{title}</span>}
+            <div className="flex font-light text-xs">{children}</div>
         </div>
     )
 }
@@ -127,6 +129,7 @@ export function SettingsButton(props: SettingsButtonProps): JSX.Element {
 }
 
 PanelLayout.Panel = Panel
+PanelLayout.PanelSettings = PanelSettings
 PanelLayout.Container = Container
 PanelLayout.SettingsMenu = SettingsMenu
 PanelLayout.SettingsToggle = SettingsToggle

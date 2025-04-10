@@ -1,4 +1,4 @@
-import { IconFlask, IconRefresh } from '@posthog/icons'
+import { IconFlask } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -14,12 +14,12 @@ import {
 } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { AnimationType } from 'lib/animations/animations'
-import { Animation } from 'lib/components/Animation/Animation'
+import { InsightLabel } from 'lib/components/InsightLabel'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { useEffect, useState } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -28,12 +28,22 @@ import { Query } from '~/queries/Query/Query'
 import {
     ExperimentFunnelsQueryResponse,
     ExperimentTrendsQueryResponse,
+    FunnelsQuery,
     InsightQueryNode,
     InsightVizNode,
     NodeKind,
+    TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { Experiment, Experiment as ExperimentType, ExperimentIdType, InsightShortId } from '~/types'
+import {
+    ActionFilter,
+    AnyPropertyFilter,
+    Experiment,
+    Experiment as ExperimentType,
+    ExperimentIdType,
+    InsightShortId,
+} from '~/types'
 
+import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatus, getExperimentStatusColor } from '../experimentsLogic'
 import { getExperimentInsightColour } from '../utils'
@@ -52,6 +62,14 @@ export function VariantTag({
     className?: string
 }): JSX.Element {
     const { experiment, getIndexForVariant, metricResults } = useValues(experimentLogic({ experimentId }))
+
+    if (variantKey === EXPERIMENT_VARIANT_MULTIPLE) {
+        return (
+            <Tooltip title="This indicates a potential implementation issue where users are seeing multiple variants instead of a single consistent variant.">
+                <LemonTag type="danger">{variantKey}</LemonTag>
+            </Tooltip>
+        )
+    }
 
     if (!metricResults) {
         return <></>
@@ -84,7 +102,7 @@ export function VariantTag({
                 }}
             />
             <span
-                className={`ml-2 font-semibold truncate ${muted ? 'text-[var(--text-secondary-3000)]' : ''}`}
+                className={`ml-2 font-semibold truncate ${muted ? 'text-secondary' : ''}`}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
             >
@@ -184,7 +202,7 @@ export function ExploreButton({
             size={size}
             type="primary"
             icon={<IconAreaChart />}
-            to={urls.insightNew(undefined, undefined, query)}
+            to={urls.insightNew({ query })}
             targetBlank
         >
             Explore as Insight
@@ -200,14 +218,19 @@ export function ResultsHeader(): JSX.Element {
     return (
         <div className="flex">
             <div className="w-1/2">
-                <div className="inline-flex items-center space-x-2 mb-2">
+                <div className="inline-flex items-center deprecated-space-x-2 mb-2">
                     <h2 className="m-0 font-semibold text-lg">Results</h2>
                     <ResultsTag />
                 </div>
             </div>
 
             <div className="w-1/2 flex flex-col justify-end">
-                <div className="ml-auto">{result && <ExploreButton result={result} />}</div>
+                <div className="ml-auto">
+                    {/* TODO: Only show explore button if the metric is a trends or funnels query. Not supported yet with new query runner */}
+                    {result &&
+                        (result.kind === NodeKind.ExperimentTrendsQuery ||
+                            result.kind === NodeKind.ExperimentFunnelsQuery) && <ExploreButton result={result} />}
+                </div>
             </div>
         </div>
     )
@@ -238,8 +261,8 @@ export function EllipsisAnimation(): JSX.Element {
 export function ExperimentLoadingAnimation(): JSX.Element {
     return (
         <div className="flex flex-col flex-1 justify-center items-center">
-            <Animation type={AnimationType.LaptopHog} />
-            <div className="text-xs text-muted w-44">
+            <LoadingBar />
+            <div className="text-xs text-secondary w-44">
                 <span className="mr-1">Fetching experiment results</span>
                 <EllipsisAnimation />
             </div>
@@ -255,16 +278,13 @@ export function PageHeaderCustom(): JSX.Element {
         isExperimentStopped,
         isPrimaryMetricSignificant,
         isSingleVariantShipped,
-        featureFlags,
-        hasGoalSet,
+        hasPrimaryMetricSet,
         isCreatingExperimentDashboard,
     } = useValues(experimentLogic)
     const {
         launchExperiment,
         endExperiment,
         archiveExperiment,
-        loadMetricResults,
-        loadSecondaryMetricResults,
         createExposureCohort,
         openShipVariantModal,
         createExperimentDashboard,
@@ -283,7 +303,9 @@ export function PageHeaderCustom(): JSX.Element {
                                 data-attr="launch-experiment"
                                 onClick={() => launchExperiment()}
                                 disabledReason={
-                                    !hasGoalSet ? 'Add the main goal before launching the experiment' : undefined
+                                    !hasPrimaryMetricSet
+                                        ? 'Add at least one primary metric before launching the experiment'
+                                        : undefined
                                 }
                             >
                                 Launch
@@ -317,16 +339,6 @@ export function PageHeaderCustom(): JSX.Element {
                                 />
                                 <LemonDivider vertical />
                             </>
-                            <LemonButton
-                                type="secondary"
-                                onClick={() => {
-                                    loadMetricResults(true)
-                                    loadSecondaryMetricResults(true)
-                                }}
-                                data-attr="refresh-experiment"
-                                icon={<IconRefresh />}
-                                tooltip="Refresh experiment results"
-                            />
                             <ResetButton experimentId={experiment.id} />
                             {!experiment.end_date && (
                                 <LemonButton
@@ -337,7 +349,7 @@ export function PageHeaderCustom(): JSX.Element {
                                         LemonDialog.open({
                                             title: 'Stop this experiment?',
                                             content: (
-                                                <div className="text-sm text-muted">
+                                                <div className="text-sm text-secondary">
                                                     This action will end data collection. The experiment can be
                                                     restarted later if needed.
                                                 </div>
@@ -367,7 +379,7 @@ export function PageHeaderCustom(): JSX.Element {
                                         LemonDialog.open({
                                             title: 'Archive this experiment?',
                                             content: (
-                                                <div className="text-sm text-muted">
+                                                <div className="text-sm text-secondary">
                                                     This action will move the experiment to the archived tab. It can be
                                                     restored at any time.
                                                 </div>
@@ -391,22 +403,16 @@ export function PageHeaderCustom(): JSX.Element {
                             )}
                         </div>
                     )}
-                    {featureFlags[FEATURE_FLAGS.EXPERIMENT_MAKE_DECISION] &&
-                        isPrimaryMetricSignificant(0) &&
-                        !isSingleVariantShipped && (
-                            <>
-                                <Tooltip title="Choose a variant and roll it out to all users">
-                                    <LemonButton
-                                        type="primary"
-                                        icon={<IconFlask />}
-                                        onClick={() => openShipVariantModal()}
-                                    >
-                                        <b>Ship a variant</b>
-                                    </LemonButton>
-                                </Tooltip>
-                                <ShipVariantModal experimentId={experimentId} />
-                            </>
-                        )}
+                    {isPrimaryMetricSignificant(0) && !isSingleVariantShipped && (
+                        <>
+                            <Tooltip title="Choose a variant and roll it out to all users">
+                                <LemonButton type="primary" icon={<IconFlask />} onClick={() => openShipVariantModal()}>
+                                    <b>Ship a variant</b>
+                                </LemonButton>
+                            </Tooltip>
+                            <ShipVariantModal experimentId={experimentId} />
+                        </>
+                    )}
                 </>
             }
         />
@@ -453,7 +459,7 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
                 </div>
             }
         >
-            <div className="space-y-6">
+            <div className="deprecated-space-y-6">
                 <div className="text-sm">
                     This will roll out the selected variant to <b>100% of {aggregationTargetName}</b> and stop the
                     experiment.
@@ -471,7 +477,7 @@ export function ShipVariantModal({ experimentId }: { experimentId: Experiment['i
                                 experiment.parameters?.feature_flag_variants?.map(({ key }) => ({
                                     value: key,
                                     label: (
-                                        <div className="space-x-2 inline-flex">
+                                        <div className="deprecated-space-x-2 inline-flex">
                                             <VariantTag experimentId={experimentId} variantKey={key} />
                                         </div>
                                     ),
@@ -506,11 +512,18 @@ export const ResetButton = ({ experimentId }: { experimentId: ExperimentIdType }
             title: 'Reset this experiment?',
             content: (
                 <>
-                    <div className="text-sm text-muted">
-                        All data collected so far will be discarded and the experiment will go back to draft mode.
+                    <div className="text-sm text-secondary max-w-md">
+                        <p>
+                            The experiment start and end dates will be reset and the experiment will go back to draft
+                            mode.
+                        </p>
+                        <p>
+                            All events collected thus far will still exist, but won't be applied to the experiment
+                            unless you manually change the start date after launching the experiment again.
+                        </p>
                     </div>
                     {experiment.archived && (
-                        <div className="text-sm text-muted">Resetting will also unarchive the experiment.</div>
+                        <div className="text-sm text-secondary">Resetting will also unarchive the experiment.</div>
                     )}
                 </>
             ),
@@ -546,11 +559,64 @@ export function StatusTag({ experiment }: { experiment: ExperimentType }): JSX.E
 
 export function LoadingState(): JSX.Element {
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <LemonSkeleton className="w-1/3 h-4" />
             <LemonSkeleton />
             <LemonSkeleton />
             <LemonSkeleton className="w-2/3 h-4" />
         </div>
+    )
+}
+
+export function MetricDisplayTrends({ query }: { query: TrendsQuery | undefined }): JSX.Element {
+    const event = query?.series?.[0] as unknown as ActionFilter
+
+    if (!event) {
+        return <></>
+    }
+
+    return (
+        <>
+            <div className="mb-2">
+                <div className="flex mb-1">
+                    <b>
+                        <InsightLabel action={event} showCountedByTag={true} hideIcon showEventName />
+                    </b>
+                </div>
+                <div className="deprecated-space-y-1">
+                    {event.properties?.map((prop: AnyPropertyFilter) => (
+                        <PropertyFilterButton key={prop.key} item={prop} />
+                    ))}
+                </div>
+            </div>
+        </>
+    )
+}
+
+export function MetricDisplayFunnels({ query }: { query: FunnelsQuery }): JSX.Element {
+    return (
+        <>
+            {(query.series || []).map((event: any, idx: number) => (
+                <div key={idx} className="mb-2">
+                    <div className="flex mb-1">
+                        <div
+                            className="shrink-0 w-6 h-6 mr-2 font-bold text-center text-primary-alt border rounded"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ backgroundColor: 'var(--bg-table)' }}
+                        >
+                            {idx + 1}
+                        </div>
+                        <b>
+                            <InsightLabel action={event} hideIcon showEventName />
+                        </b>
+                    </div>
+                    <div className="deprecated-space-y-1">
+                        {event.properties?.map((prop: AnyPropertyFilter) => (
+                            <PropertyFilterButton key={prop.key} item={prop} />
+                        ))}
+                    </div>
+                </div>
+            ))}
+        </>
     )
 }

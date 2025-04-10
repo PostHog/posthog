@@ -1,6 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import FuseClass from 'fuse.js'
-import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -20,7 +20,7 @@ import {
     PluginType,
 } from '~/types'
 
-import { CDP_TEST_HIDDEN_FLAG } from '../hogfunctions/list/hogFunctionListLogic'
+import { shouldShowHogFunction } from '../hogfunctions/list/hogFunctionListLogic'
 import { hogFunctionTypeToPipelineStage } from '../hogfunctions/urls'
 import { pipelineAccessLogic } from '../pipelineAccessLogic'
 import {
@@ -75,6 +75,12 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
 
         updatePluginConfig: (pluginConfig: PluginConfigTypeNew) => ({ pluginConfig }),
         updateBatchExportConfig: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
+        openReorderTransformationsModal: true,
+        closeReorderTransformationsModal: true,
+        setTemporaryTransformationOrder: (tempOrder: Record<string, number>) => ({
+            tempOrder,
+        }),
+        saveTransformationsOrder: (newOrders: Record<number, number>) => ({ newOrders }),
     }),
     loaders(({ values, actions, props }) => ({
         plugins: [
@@ -147,9 +153,8 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             {} as Record<string, BatchExportConfiguration>,
             {
                 loadBatchExports: async () => {
-                    const results = await api.loadPaginatedResults<BatchExportConfiguration>(
-                        `api/projects/${values.currentProjectId}/batch_exports`
-                    )
+                    const response = await api.batchExports.list()
+                    const results = response.results
                     return Object.fromEntries(results.map((batchExport) => [batchExport.id, batchExport]))
                 },
                 toggleNodeBatchExport: async ({ destination, enabled }) => {
@@ -184,9 +189,19 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     const destinationTypes = siteDesinationsEnabled
                         ? props.types
                         : props.types.filter((type) => type !== 'site_destination')
-                    return (await api.hogFunctions.list(undefined, destinationTypes)).results
+                    return (
+                        await api.hogFunctions.list({
+                            types: destinationTypes,
+                            excludeKinds: ['messaging_campaign'],
+                        })
+                    ).results
                 },
-
+                saveTransformationsOrder: async ({ newOrders }) => {
+                    const response = await api.update(`api/projects/@current/hog_functions/rearrange`, {
+                        orders: newOrders,
+                    })
+                    return response
+                },
                 deleteNodeHogFunction: async ({ destination }) => {
                     if (destination.backend !== PipelineBackend.HogFunction) {
                         return values.hogFunctions
@@ -221,15 +236,30 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 },
             },
         ],
+        temporaryTransformationOrder: [
+            {} as Record<string, number>,
+            {
+                setTemporaryTransformationOrder: async ({ tempOrder }) => tempOrder,
+                closeReorderTransformationsModal: async () => ({}),
+            },
+        ],
     })),
+    reducers({
+        reorderTransformationsModalOpen: [
+            false as boolean,
+            {
+                openReorderTransformationsModal: () => true,
+                closeReorderTransformationsModal: () => false,
+                saveTransformationsOrder: () => false,
+            },
+        ],
+    }),
     selectors({
         paidHogFunctions: [
             (s) => [s.hogFunctions],
             (hogFunctions) => {
                 // Hide disabled functions and free functions. Shown in the "unsubscribe from data pipelines" modal.
-                return hogFunctions.filter(
-                    (hogFunction) => hogFunction.enabled && hogFunction.template?.status !== 'free'
-                )
+                return hogFunctions.filter((hogFunction) => hogFunction.enabled && !hogFunction.template?.free)
             },
         ],
         loading: [
@@ -256,7 +286,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 )
 
                 const filteredHogFunctions = hogFunctions.filter((hogFunction) => {
-                    if (hogFunction.name.includes(CDP_TEST_HIDDEN_FLAG) && !user?.is_impersonated && !user?.is_staff) {
+                    if (!shouldShowHogFunction(hogFunction, user)) {
                         return false
                     }
                     return true
@@ -344,12 +374,19 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     break
             }
         },
+        saveTransformationsOrderSuccess: () => {
+            actions.closeReorderTransformationsModal()
+            lemonToast.success('Transformation order updated successfully')
+        },
+        saveTransformationsOrderFailure: () => {
+            lemonToast.error('Failed to update transformation order')
+        },
     })),
 
     afterMount(({ actions, props }) => {
-        actions.loadPlugins()
-        actions.loadPluginConfigs()
         if (props.types.includes('destination')) {
+            actions.loadPlugins()
+            actions.loadPluginConfigs()
             actions.loadBatchExports()
         }
         actions.loadHogFunctions()

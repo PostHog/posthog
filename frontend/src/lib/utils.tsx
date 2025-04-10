@@ -1,8 +1,10 @@
 import * as Sentry from '@sentry/react'
+import crypto from 'crypto'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import posthog from 'posthog-js'
 import { CSSProperties } from 'react'
 
 import {
@@ -118,6 +120,14 @@ export function fromParams(): Record<string, any> {
     return fromParamsGivenUrl(window.location.search)
 }
 
+export function tryDecodeURIComponent(value: string): string {
+    try {
+        return decodeURIComponent(value)
+    } catch {
+        return value
+    }
+}
+
 /** Return percentage from number, e.g. 0.234 is 23.4%. */
 export function percentage(
     division: number,
@@ -161,6 +171,10 @@ export const selectStyle: Record<string, (base: Partial<CSSProperties>) => Parti
         ...base,
         padding: '2px 15px',
     }),
+}
+
+export function splitKebabCase(string: string): string {
+    return string.replace(/-/g, ' ')
 }
 
 export function capitalizeFirstLetter(string: string): string {
@@ -246,6 +260,10 @@ export const stickinessOperatorMap: Record<string, string> = {
     lte: 'At most (but at least once)',
 }
 
+export const cleanedPathOperatorMap: Record<string, string> = {
+    is_cleaned_path_exact: '= equals',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
     ...stickinessOperatorMap,
     ...dateTimeOperatorMap,
@@ -256,6 +274,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...durationOperatorMap,
     ...selectorOperatorMap,
     ...cohortOperatorMap,
+    ...cleanedPathOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
@@ -379,6 +398,20 @@ export function objectCleanWithEmpty<T extends Record<string | number | symbol, 
     return response
 }
 
+export const removeUndefinedAndNull = (obj: any): any => {
+    if (Array.isArray(obj)) {
+        return obj.map(removeUndefinedAndNull)
+    } else if (obj && typeof obj === 'object') {
+        return Object.entries(obj).reduce((acc, [key, value]) => {
+            if (value !== undefined && value !== null) {
+                acc[key] = removeUndefinedAndNull(value)
+            }
+            return acc
+        }, {} as Record<string, any>)
+    }
+    return obj
+}
+
 /** Returns "response" from: obj2 = { ...obj1, ...response }  */
 export function objectDiffShallow(obj1: Record<string, any>, obj2: Record<string, any>): Record<string, any> {
     const response: Record<string, any> = { ...obj2 }
@@ -450,22 +483,6 @@ export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIM
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
 
-/** Format currency from string with commas and a number of decimal places (defaults to 2). */
-export function humanFriendlyCurrency(d: string | undefined | number, precision: number = 2): string {
-    if (!d) {
-        d = '0.00'
-    }
-
-    let number: number
-    if (typeof d === 'string') {
-        number = parseFloat(d)
-    } else {
-        number = d
-    }
-
-    return `$${number.toLocaleString('en-US', { maximumFractionDigits: precision, minimumFractionDigits: precision })}`
-}
-
 export function humanFriendlyLargeNumber(d: number): string {
     if (isNaN(d)) {
         return 'NaN'
@@ -499,6 +516,22 @@ export function humanFriendlyLargeNumber(d: number): string {
         return `${prefix}${(d / thousand).toString()}K`
     }
     return `${prefix}${d}`
+}
+
+/** Format currency from string with commas and a number of decimal places (defaults to 2). */
+export function humanFriendlyCurrency(d: string | undefined | number, precision: number = 2): string {
+    if (!d) {
+        d = '0.00'
+    }
+
+    let number: number
+    if (typeof d === 'string') {
+        number = parseFloat(d)
+    } else {
+        number = d
+    }
+
+    return `$${number.toLocaleString('en-US', { maximumFractionDigits: precision, minimumFractionDigits: precision })}`
 }
 
 export const humanFriendlyMilliseconds = (timestamp: number | undefined): string | undefined => {
@@ -1009,16 +1042,18 @@ export function dateFromToText(dateFrom: string): string | undefined {
     return undefined
 }
 
-export function dateStringToComponents(date: string | null): {
+export type DateComponents = {
     amount: number
     unit: (typeof dateOptionsMap)[keyof typeof dateOptionsMap]
     clip: 'Start' | 'End'
-} | null {
+}
+
+export const isStringDateRegex = /^([-+]?)([0-9]*)([hdwmqy])(|Start|End)$/
+export function dateStringToComponents(date: string | null): DateComponents | null {
     if (!date) {
         return null
     }
-    const parseDate = /^([-+]?)([0-9]*)([hdwmqy])(|Start|End)$/
-    const matches = date.match(parseDate)
+    const matches = date.match(isStringDateRegex)
     if (!matches) {
         return null
     }
@@ -1026,6 +1061,40 @@ export function dateStringToComponents(date: string | null): {
     const amount = rawAmount ? parseInt(sign + rawAmount) : 0
     const unit = dateOptionsMap[rawUnit] || 'day'
     return { amount, unit, clip: clip as 'Start' | 'End' }
+}
+
+export function componentsToDayJs({ amount, unit, clip }: DateComponents, offset?: Dayjs): Dayjs {
+    const dayjsInstance = offset ?? dayjs()
+    let response: dayjs.Dayjs
+    switch (unit) {
+        case 'year':
+            response = dayjsInstance.add(amount, 'year')
+            break
+        case 'quarter':
+            response = dayjsInstance.add(amount * 3, 'month')
+            break
+        case 'month':
+            response = dayjsInstance.add(amount, 'month')
+            break
+        case 'week':
+            response = dayjsInstance.add(amount * 7, 'day')
+            break
+        case 'day':
+            response = dayjsInstance.add(amount, 'day')
+            break
+        case 'hour':
+            response = dayjsInstance.add(amount, 'hour')
+            break
+        default:
+            throw new UnexpectedNeverError(unit)
+    }
+
+    if (clip === 'Start') {
+        return response.startOf(unit)
+    } else if (clip === 'End') {
+        return response.endOf(unit)
+    }
+    return response
 }
 
 /** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs().startOf('day')` */
@@ -1037,39 +1106,9 @@ export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
     if (!dateComponents) {
         return null
     }
-
-    const { unit, amount, clip } = dateComponents
-    let response: dayjs.Dayjs
-
-    switch (unit) {
-        case 'year':
-            response = dayjs().add(amount, 'year')
-            break
-        case 'quarter':
-            response = dayjs().add(amount * 3, 'month')
-            break
-        case 'month':
-            response = dayjs().add(amount, 'month')
-            break
-        case 'week':
-            response = dayjs().add(amount * 7, 'day')
-            break
-        case 'day':
-            response = dayjs().add(amount, 'day')
-            break
-        case 'hour':
-            response = dayjs().add(amount, 'hour')
-            break
-        default:
-            throw new UnexpectedNeverError(unit)
-    }
-
-    if (clip === 'Start') {
-        return response.startOf(unit)
-    } else if (clip === 'End') {
-        return response.endOf(unit)
-    }
-    return response.startOf('day')
+    const offset: dayjs.Dayjs = dayjs().startOf('day')
+    const response = componentsToDayJs(dateComponents, offset)
+    return response
 }
 
 export const getDefaultInterval = (dateFrom: string | null, dateTo: string | null): IntervalType => {
@@ -1361,6 +1400,49 @@ export function pluralize(count: number, singular: string, plural?: string, incl
     return includeNumber ? `${humanFriendlyNumber(count)} ${form}` : form
 }
 
+const WORD_PLURALIZATION_RULES = [
+    [/s?$/i, 's'],
+    [/([^aeiou]ese)$/i, '$1'],
+    [/(ax|test)is$/i, '$1es'],
+    [/(alias|[^aou]us|t[lm]as|gas|ris)$/i, '$1es'],
+    [/(e[mn]u)s?$/i, '$1s'],
+    [/([^l]ias|[aeiou]las|[ejzr]as|[iu]am)$/i, '$1'],
+    [/(alumn|syllab|vir|radi|nucle|fung|cact|stimul|termin|bacill|foc|uter|loc|strat)(?:us|i)$/i, '$1i'],
+    [/(alumn|alg|vertebr)(?:a|ae)$/i, '$1ae'],
+    [/(seraph|cherub)(?:im)?$/i, '$1im'],
+    [/(her|at|gr)o$/i, '$1oes'],
+    [
+        /(agend|addend|millenni|dat|extrem|bacteri|desiderat|strat|candelabr|errat|ov|symposi|curricul|automat|quor)(?:a|um)$/i,
+        '$1a',
+    ],
+    [/(apheli|hyperbat|periheli|asyndet|noumen|phenomen|criteri|organ|prolegomen|hedr|automat)(?:a|on)$/i, '$1a'],
+    [/sis$/i, 'ses'],
+    [/(?:(kni|wi|li)fe|(ar|l|ea|eo|oa|hoo)f)$/i, '$1$2ves'],
+    [/([^aeiouy]|qu)y$/i, '$1ies'],
+    [/([^ch][ieo][ln])ey$/i, '$1ies'],
+    [/(x|ch|ss|sh|zz)$/i, '$1es'],
+    [/(matr|cod|mur|sil|vert|ind|append)(?:ix|ex)$/i, '$1ices'],
+    [/\b((?:tit)?m|l)(?:ice|ouse)$/i, '$1ice'],
+    [/(pe)(?:rson|ople)$/i, '$1ople'],
+    [/(child)(?:ren)?$/i, '$1ren'],
+    [/eaux$/i, '$0'],
+    [/m[ae]n$/i, 'men'],
+] as [RegExp, string][]
+
+export function wordPluralize(word: string): string {
+    let len = WORD_PLURALIZATION_RULES.length
+
+    // Iterate over the sanitization rules and use the first one to match.
+    while (len--) {
+        const [regex, replacement] = WORD_PLURALIZATION_RULES[len]
+        if (regex.test(word)) {
+            return word.replace(regex, replacement)
+        }
+    }
+
+    return word
+}
+
 const COMPACT_NUMBER_MAGNITUDES = ['', 'K', 'M', 'B', 'T', 'P', 'E', 'Z', 'Y']
 
 /** Return a number in a compact format, with a SI suffix if applicable.
@@ -1422,6 +1504,7 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
             .split(' ')
         return localeTimeStringParts[localeTimeStringParts.length - 1]
     } catch (e) {
+        posthog.captureException(e)
         Sentry.captureException(e)
         return null
     }
@@ -1501,6 +1584,48 @@ export function RGBToRGBA(rgb: string, a: number): string {
     return `rgba(${[r, g, b, a].join(',')})`
 }
 
+export function RGBToHSL(r: number, g: number, b: number): { h: number; s: number; l: number } {
+    // Convert RGB values to the range 0-1
+    r /= 255
+    g /= 255
+    b /= 255
+
+    // Find min and max values of r, g, b
+    const max = Math.max(r, g, b)
+    const min = Math.min(r, g, b)
+    const delta = max - min
+
+    // Calculate lightness
+    let h = 0,
+        s = 0
+    const l = (max + min) / 2
+
+    if (delta !== 0) {
+        // Calculate saturation
+        s = l < 0.5 ? delta / (max + min) : delta / (2 - max - min)
+
+        // Calculate hue
+        switch (max) {
+            case r:
+                h = ((g - b) / delta + (g < b ? 6 : 0)) % 6
+                break
+            case g:
+                h = (b - r) / delta + 2
+                break
+            case b:
+                h = (r - g) / delta + 4
+                break
+        }
+        h *= 60 // Convert hue to degrees
+    }
+
+    return {
+        h: Math.round(h),
+        s: Math.round(s * 100),
+        l: Math.round(l * 100),
+    }
+}
+
 export function lightenDarkenColor(hex: string, pct: number): string {
     /**
      * Returns a lightened or darkened color, similar to SCSS darken()
@@ -1522,24 +1647,23 @@ export function lightenDarkenColor(hex: string, pct: number): string {
     return `rgb(${[r, g, b].join(',')})`
 }
 
-/* Colors in hsl for gradation. */
-export const BRAND_BLUE_HSL: [number, number, number] = [228, 100, 56]
-export const PURPLE: [number, number, number] = [260, 88, 71]
-
 /**
  * Gradate color saturation based on its intended strength.
  * This is for visualizations where a data point's color depends on its value.
- * @param hsl The HSL color to gradate.
+ * @param color A HEX color to gradate.
  * @param strength The strength of the data point.
  * @param floor The minimum saturation. This preserves proportionality of strength, so doesn't just cut it off.
  */
 export function gradateColor(
-    hsl: [number, number, number],
+    color: string,
     strength: number,
     floor: number = 0
 ): `hsla(${number}, ${number}%, ${number}%, ${string})` {
+    const { r, g, b } = hexToRGB(color)
+    const { h, s, l } = RGBToHSL(r, g, b)
+
     const saturation = floor + (1 - floor) * strength
-    return `hsla(${hsl[0]}, ${hsl[1]}%, ${hsl[2]}%, ${saturation.toPrecision(3)})`
+    return `hsla(${h}, ${s}%, ${l}%, ${saturation.toPrecision(3)})`
 }
 
 export function toString(input?: any): string {
@@ -1894,4 +2018,51 @@ export function debounce<F extends (...args: Parameters<F>) => ReturnType<F>>(
         clearTimeout(timeout)
         timeout = setTimeout(() => func(...args), waitFor)
     }
+}
+
+export function interleaveArray<T1, T2>(arr: T1[], separator: T2): (T1 | T2)[] {
+    return arr.flatMap((item, index, _arr) => (_arr.length - 1 !== index ? [item, separator] : [item]))
+}
+
+/**
+ * Uses the non-standard `memory` extension available in Chromium based browsers to
+ * get JS heap metrics.
+ */
+export const getJSHeapMemory = (): {
+    js_heap_used_mb?: number
+    js_heap_total_mb?: number
+    js_heap_limit_mb?: number
+} => {
+    if ('memory' in window.performance) {
+        const memory = (window.performance as any).memory
+        return {
+            js_heap_used_mb: +(memory.usedJSHeapSize / 1024 / 1024).toFixed(2),
+            js_heap_total_mb: +(memory.totalJSHeapSize / 1024 / 1024).toFixed(2),
+            js_heap_limit_mb: +(memory.jsHeapSizeLimit / 1024 / 1024).toFixed(2),
+        }
+    }
+    return {}
+}
+
+interface PreviewFlagsV2Config {
+    rolloutPercentage: number
+    includedHashes?: Set<string>
+    excludedHashes?: Set<string>
+}
+
+export function shouldEnablePreviewFlagsV2(apiKey: string, config: PreviewFlagsV2Config): boolean {
+    const hashHex = crypto.createHash('sha1').update(`preview_flags_v2.${apiKey}`).digest('hex')
+
+    // Check explicit includes/excludes first
+    if (config.includedHashes && config.includedHashes.has(hashHex)) {
+        return true
+    }
+    if (config.excludedHashes && config.excludedHashes.has(hashHex)) {
+        return false
+    }
+
+    // For all other keys, use percentage rollout
+    // Use first 8 characters of hash for percentage calculation to avoid floating point precision issues
+    const normalizedHash = parseInt(hashHex.slice(0, 8), 16) / 0xffffffff
+    return normalizedHash <= config.rolloutPercentage / 100
 }

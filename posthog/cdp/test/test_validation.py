@@ -2,9 +2,27 @@ import json
 
 from inline_snapshot import snapshot
 
-from hogvm.python.operation import HOGQL_BYTECODE_VERSION
-from posthog.cdp.validation import validate_inputs, validate_inputs_schema
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
+from posthog.cdp.validation import InputsSchemaItemSerializer, MappingsSerializer
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+
+
+def validate_inputs(schema, inputs):
+    serializer = MappingsSerializer(
+        data={
+            "inputs_schema": schema,
+            "inputs": inputs,
+        },
+        context={"function_type": "destination"},
+    )
+    serializer.is_valid(raise_exception=True)
+    return serializer.validated_data["inputs"]
+
+
+def validate_inputs_schema(data):
+    serializer = InputsSchemaItemSerializer(data=data, many=True)
+    serializer.is_valid(raise_exception=True)
+    return serializer.validated_data
 
 
 def create_example_inputs_schema():
@@ -53,8 +71,22 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         inputs_schema = create_example_inputs_schema()
         assert validate_inputs_schema(inputs_schema) == snapshot(
             [
-                {"type": "string", "key": "url", "label": "Webhook URL", "required": True, "secret": False},
-                {"type": "json", "key": "payload", "label": "JSON Payload", "required": True, "secret": False},
+                {
+                    "type": "string",
+                    "key": "url",
+                    "label": "Webhook URL",
+                    "required": True,
+                    "secret": False,
+                    "hidden": False,
+                },
+                {
+                    "type": "json",
+                    "key": "payload",
+                    "label": "JSON Payload",
+                    "required": True,
+                    "secret": False,
+                    "hidden": False,
+                },
                 {
                     "type": "choice",
                     "key": "method",
@@ -67,8 +99,16 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                     ],
                     "required": True,
                     "secret": False,
+                    "hidden": False,
                 },
-                {"type": "dictionary", "key": "headers", "label": "Headers", "required": False, "secret": False},
+                {
+                    "type": "dictionary",
+                    "key": "headers",
+                    "label": "Headers",
+                    "required": False,
+                    "secret": False,
+                    "hidden": False,
+                },
             ]
         )
 
@@ -292,3 +332,67 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         validated = validate_inputs(inputs_schema, inputs)
         # Only A is present, so A=0
         assert validated["A"]["order"] == 0
+
+    def test_validate_inputs_no_bytcode_if_not_hog(self):
+        # A depends on a non-existing input X
+        # This should ignore X since it's not defined.
+        # So no error, but A has no real dependencies that matter.
+        inputs_schema = [
+            {"key": "A", "type": "string", "required": True, "templating": False},
+        ]
+        inputs = {
+            "A": {"value": "{inputs.X} + A"},
+        }
+
+        validated = validate_inputs(inputs_schema, inputs)
+        assert validated["A"].get("bytecode") is None
+        assert validated["A"].get("transpiled") is None
+        assert validated["A"].get("value") == "{inputs.X} + A"
+
+    def test_validate_inputs_with_secret_values(self):
+        inputs_schema = [
+            {"key": "secret_field", "type": "string", "required": True, "secret": True},
+        ]
+
+        existing_secret_inputs = {
+            "secret_field": {"value": "EXISTING_SECRET_VALUE", "order": 1},
+        }
+
+        for inputs, expected_result in [
+            (
+                {
+                    "secret_field": {},
+                },
+                {
+                    "secret_field": {"value": "EXISTING_SECRET_VALUE"},
+                },
+            ),
+            (
+                {
+                    "secret_field": {"value": "NEW_SECRET_VALUE"},
+                },
+                {
+                    "secret_field": {"value": "NEW_SECRET_VALUE"},
+                },
+            ),
+            (
+                {
+                    "secret_field": {"secret": True},
+                },
+                {
+                    "secret_field": {"value": "EXISTING_SECRET_VALUE"},
+                },
+            ),
+        ]:
+            serializer = MappingsSerializer(
+                data={
+                    "inputs_schema": inputs_schema,
+                    "inputs": inputs,
+                },
+                context={"function_type": "destination", "encrypted_inputs": existing_secret_inputs},
+            )
+            serializer.is_valid(raise_exception=True)
+            validated = serializer.validated_data["inputs"]
+
+            values_only = {k: {"value": v["value"]} for k, v in validated.items()}
+            assert values_only == expected_result

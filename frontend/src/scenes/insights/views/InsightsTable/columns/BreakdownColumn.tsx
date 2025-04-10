@@ -1,18 +1,11 @@
 import { Link } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { isURL } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { useState } from 'react'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownType } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { BreakdownFilter } from '~/queries/schema'
-
-import { resultCustomizationsModalLogic } from '../../../../../queries/nodes/InsightViz/resultCustomizationsModalLogic'
-import { CustomizationIcon } from './SeriesColumn'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
 
 interface BreakdownColumnTitleProps {
     breakdownFilter: BreakdownFilter
@@ -36,21 +29,11 @@ type BreakdownColumnItemProps = {
 }
 
 export function BreakdownColumnItem({ item, formatItemBreakdownLabel }: BreakdownColumnItemProps): JSX.Element {
-    const [isHovering, setIsHovering] = useState(false)
-    const { insightProps } = useValues(insightLogic)
-    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
-    const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
-
     const breakdownLabel = formatItemBreakdownLabel(item)
     const formattedLabel = stringWithWBR(breakdownLabel, 20)
 
     return (
-        <div
-            className={clsx('flex justify-between items-center', { 'cursor-pointer': hasInsightColors })}
-            onClick={hasInsightColors ? () => openModal(item) : undefined}
-            onMouseEnter={() => setIsHovering(true)}
-            onMouseLeave={() => setIsHovering(false)}
-        >
+        <div className="flex justify-between items-center">
             {breakdownLabel && (
                 <>
                     {isURL(breakdownLabel) ? (
@@ -62,8 +45,6 @@ export function BreakdownColumnItem({ item, formatItemBreakdownLabel }: Breakdow
                             {formattedLabel}
                         </div>
                     )}
-
-                    <CustomizationIcon isVisible={isHovering} />
                 </>
             )}
         </div>

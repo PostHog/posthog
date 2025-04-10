@@ -4,7 +4,6 @@ import { mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { Message, TopicPartitionOffset } from 'node-rdkafka'
 import path from 'path'
 
-import { waitForExpect } from '../../../../functional_tests/expectations'
 import { defaultConfig } from '../../../../src/config/config'
 import { SessionRecordingIngester } from '../../../../src/main/ingestion-queues/session-recording/session-recordings-consumer'
 import { Hub, PluginsServerConfig, Team } from '../../../../src/types'
@@ -32,6 +31,24 @@ async function deleteKeys(hub: Hub) {
     await deleteKeysWithPrefix(hub.redisPool, SESSION_RECORDING_REDIS_PREFIX)
 }
 
+const waitForExpect = async <T>(fn: () => T | Promise<T>, timeout = 10_000, interval = 1_000): Promise<T> => {
+    // Allows for running expectations that are expected to pass eventually.
+    // This is useful for, e.g. waiting for events to have been ingested into
+    // the database.
+
+    const start = Date.now()
+    while (true) {
+        try {
+            return await fn()
+        } catch (error) {
+            if (Date.now() - start > timeout) {
+                throw error
+            }
+            await new Promise((resolve) => setTimeout(resolve, interval))
+        }
+    }
+}
+
 const mockConsumer = {
     on: jest.fn(),
     offsetsStore: jest.fn(),
@@ -40,6 +57,22 @@ const mockConsumer = {
     isConnected: jest.fn(() => true),
     getMetadata: jest.fn(),
 }
+
+// Mock the Upload class
+jest.mock('@aws-sdk/lib-storage', () => {
+    return {
+        Upload: jest.fn().mockImplementation(({ params }) => {
+            const { Key } = params
+            if (Key.includes('throw')) {
+                throw new Error('Mocked error for key: ' + Key)
+            }
+            return {
+                done: jest.fn().mockResolvedValue(undefined),
+                abort: jest.fn().mockResolvedValue(undefined),
+            }
+        }),
+    }
+})
 
 jest.mock('../../../../src/kafka/batch-consumer', () => {
     return {
@@ -98,7 +131,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         await redisConn.del(CAPTURE_OVERFLOW_REDIS_KEY)
         await deleteKeys(hub)
 
-        ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage, consumeOverflow, redisConn)
+        ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage!, consumeOverflow, redisConn)
         await ingester.start()
 
         mockConsumer.assignments.mockImplementation(() => [createTP(0, consumedTopic), createTP(1, consumedTopic)])
@@ -139,6 +172,20 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
         )
     }
 
+    it('when there is an S3 error', async () => {
+        await ingester.consume(createIncomingRecordingMessage({ team_id: 2, session_id: 'sid1-throw' }))
+        await ingester.consume(createIncomingRecordingMessage({ team_id: 2, session_id: 'sid2' }))
+        ingester.partitionMetrics[1] = { lastMessageTimestamp: 1000000, offsetLag: 0 }
+
+        expect(Object.keys(ingester.sessions).length).toBe(2)
+        expect(ingester.sessions['2-sid1-throw']).toBeTruthy()
+        expect(ingester.sessions['2-sid2']).toBeTruthy()
+
+        await expect(() => ingester.flushAllReadySessions(noop)).rejects.toThrow(
+            'Failed to flush sessions. With 1 errors out of 2 sessions.'
+        )
+    })
+
     // disconnecting a producer is not safe to call multiple times
     // in order to let us test stopping the ingester elsewhere
     // in most tests we automatically stop the ingester during teardown
@@ -163,7 +210,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             const ingester = new SessionRecordingIngester(
                 config,
                 hub.postgres,
-                hub.objectStorage,
+                hub.objectStorage!,
                 consumeOverflow,
                 undefined
             )
@@ -178,7 +225,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             const ingester = new SessionRecordingIngester(
                 config,
                 hub.postgres,
-                hub.objectStorage,
+                hub.objectStorage!,
                 consumeOverflow,
                 undefined
             )
@@ -190,7 +237,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             await ingester.consume(event)
             await waitForExpect(() => {
                 expect(Object.keys(ingester.sessions).length).toBe(1)
-                expect(ingester.sessions['1-session_id_1']).toBeDefined()
+                expect(ingester.sessions['1-session_id_1']).toBeTruthy()
             })
         })
 
@@ -199,13 +246,13 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             await ingester.consume(createIncomingRecordingMessage({ team_id: 2, session_id: 'session_id_2' }))
 
             expect(Object.keys(ingester.sessions).length).toBe(2)
-            expect(ingester.sessions['2-session_id_1']).toBeDefined()
-            expect(ingester.sessions['2-session_id_2']).toBeDefined()
+            expect(ingester.sessions['2-session_id_1']).toBeTruthy()
+            expect(ingester.sessions['2-session_id_2']).toBeTruthy()
 
             await ingester.destroySessions([['2-session_id_1', ingester.sessions['2-session_id_1']]])
 
             expect(Object.keys(ingester.sessions).length).toBe(1)
-            expect(ingester.sessions['2-session_id_2']).toBeDefined()
+            expect(ingester.sessions['2-session_id_2']).toBeTruthy()
         })
 
         it('handles multiple incoming sessions', async () => {
@@ -215,8 +262,8 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             })
             await Promise.all([ingester.consume(event), ingester.consume(event2)])
             expect(Object.keys(ingester.sessions).length).toBe(2)
-            expect(ingester.sessions['1-session_id_1']).toBeDefined()
-            expect(ingester.sessions['1-session_id_2']).toBeDefined()
+            expect(ingester.sessions['1-session_id_1']).toBeTruthy()
+            expect(ingester.sessions['1-session_id_2']).toBeTruthy()
         })
 
         // This test is flaky and no-one has time to look into it https://posthog.slack.com/archives/C0460HY55M0/p1696437876690329
@@ -226,7 +273,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 session_id: sessionId,
             })
             await ingester.consume(event)
-            expect(ingester.sessions[`1-${sessionId}`]).toBeDefined()
+            expect(ingester.sessions[`1-${sessionId}`]).toBeTruthy()
             // Force the flush
             ingester.partitionMetrics[event.metadata.partition] = {
                 lastMessageTimestamp: Date.now() + defaultConfig.SESSION_RECORDING_MAX_BUFFER_AGE_SECONDS,
@@ -235,7 +282,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             await ingester.flushAllReadySessions(noop)
 
             await waitForExpect(() => {
-                expect(ingester.sessions[`1-${sessionId}`]).not.toBeDefined()
+                expect(ingester.sessions[`1-${sessionId}`]).not.toBeTruthy()
             }, 10000)
         })
 
@@ -425,11 +472,15 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                     session_replay_console_logs_events_ingester: 3,
                     session_replay_events_ingester: 3,
                 }
+
                 if (consumeOverflow) {
+                    // @ts-expect-error TODO: Fix underlying type, this field exists
                     expectedWaterMarks['session-recordings-blob-overflow'] = 1
                 } else {
+                    // @ts-expect-error TODO: Fix underlying type, this field exists
                     expectedWaterMarks['session-recordings-blob'] = 1
                 }
+
                 await expect(getPersistentWaterMarks()).resolves.toEqual(expectedWaterMarks)
 
                 // sid1 should be watermarked up until the 3rd message as it HAS been processed
@@ -468,7 +519,7 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
                 otherIngester = new SessionRecordingIngester(
                     config,
                     hub.postgres,
-                    hub.objectStorage,
+                    hub.objectStorage!,
                     consumeOverflow,
                     undefined
                 )

@@ -3,7 +3,8 @@ import { NotebookNodeType, PropertyDefinitionType } from '~/types'
 import { useActions, useValues } from 'kea'
 import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
-import { PersonIcon, TZLabel } from '@posthog/apps-common'
+import { PersonIcon } from 'scenes/persons/PersonDisplay'
+import { TZLabel } from 'lib/components/TZLabel'
 import { personLogic } from 'scenes/persons/personLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -11,7 +12,7 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { NotebookNodeProps } from '../Notebook/utils'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { useEffect } from 'react'
-import { PropertyIcon } from 'lib/components/PropertyIcon'
+import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import clsx from 'clsx'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { NotFound } from 'lib/components/NotFound'
@@ -86,7 +87,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
                                 </div>
                             }
                         >
-                            <PropertyIcon className="text-muted-alt" property={property} value={value} />
+                            <PropertyIcon className="text-secondary" property={property} value={value} />
                         </Tooltip>
                     )
                 })
@@ -122,7 +123,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
 
                         {person ? (
                             <div>
-                                <span className="text-muted">First seen:</span>{' '}
+                                <span className="text-secondary">First seen:</span>{' '}
                                 {person.created_at ? <TZLabel time={person.created_at} /> : 'unknown'}
                             </div>
                         ) : null}

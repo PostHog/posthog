@@ -1,4 +1,3 @@
-import { offset } from '@floating-ui/react'
 import {
     IconInfo,
     IconSparkles,
@@ -6,9 +5,8 @@ import {
     IconThumbsDownFilled,
     IconThumbsUp,
     IconThumbsUpFilled,
-    IconX,
 } from '@posthog/icons'
-import { LemonButton, LemonTable, Popover, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -16,17 +14,19 @@ import { dayjs } from 'lib/dayjs'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyNumber } from 'lib/utils'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { surveyDataProcessingLogic } from 'scenes/surveys/suveyDataProcessingLogic'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { StackedBar, StackedBarSegment } from 'scenes/surveys/components/StackedBar'
+import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, NPS_PROMOTER_LABEL } from 'scenes/surveys/constants'
+import { getResponseFieldWithId, NPSBreakdown } from 'scenes/surveys/utils'
 
-import { GraphType } from '~/types'
-import { InsightLogicProps, SurveyQuestionType } from '~/types'
+import { GraphType, InsightLogicProps, SurveyQuestionType } from '~/types'
 
 import {
     QuestionResultsReady,
@@ -36,7 +36,6 @@ import {
     SurveyRatingResults,
     SurveyRecurringNPSResults,
     SurveySingleChoiceResults,
-    SurveyUserStats,
 } from './surveyLogic'
 
 const insightProps: InsightLogicProps = {
@@ -47,151 +46,20 @@ const recurringNPSInsightProps: InsightLogicProps = {
     dashboardItemId: `new-survey-recurring-nps`,
 }
 
-const formatCount = (count: number, total: number): string => {
-    if ((count / total) * 100 < 3) {
-        return ''
-    }
-    return `${humanFriendlyNumber(count)}`
-}
+export function NPSStackedBar({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.Element {
+    const segments: StackedBarSegment[] = [
+        { count: npsBreakdown.promoters, label: NPS_PROMOTER_LABEL, colorClass: 'bg-success' },
+        { count: npsBreakdown.passives, label: NPS_PASSIVE_LABEL, colorClass: 'bg-warning' },
+        { count: npsBreakdown.detractors, label: NPS_DETRACTOR_LABEL, colorClass: 'bg-danger' },
+    ]
 
-export function UsersCount({ surveyUserStats }: { surveyUserStats: SurveyUserStats }): JSX.Element {
-    const { seen, dismissed, sent } = surveyUserStats
-    const total = seen + dismissed + sent
-    const labelTotal = total === 1 ? 'Unique user shown' : 'Unique users shown'
-    const labelSent = sent === 1 ? 'Response sent' : 'Responses sent'
-
-    return (
-        <div className="inline-flex mb-4">
-            <div>
-                <div className="text-4xl font-bold">{humanFriendlyNumber(total)}</div>
-                <div className="font-semibold text-muted-alt">{labelTotal}</div>
-            </div>
-            {sent > 0 && (
-                <div className="ml-10">
-                    <div className="text-4xl font-bold">{humanFriendlyNumber(sent)}</div>
-                    <div className="font-semibold text-muted-alt">{labelSent}</div>
-                </div>
-            )}
-        </div>
-    )
-}
-
-export function UsersStackedBar({ surveyUserStats }: { surveyUserStats: SurveyUserStats }): JSX.Element {
-    const { seen, dismissed, sent } = surveyUserStats
-
-    const total = seen + dismissed + sent
-    const seenPercentage = (seen / total) * 100
-    const dismissedPercentage = (dismissed / total) * 100
-    const sentPercentage = (sent / total) * 100
-
-    return (
-        <>
-            {total > 0 && (
-                <div className="mb-8">
-                    <div className="relative w-full mx-auto h-10 mb-4">
-                        {[
-                            {
-                                count: seen,
-                                label: 'Unanswered',
-                                classes: `rounded-l ${dismissed === 0 && sent === 0 ? 'rounded-r' : ''}`,
-                                style: { backgroundColor: '#1D4AFF', width: `${seenPercentage}%` },
-                            },
-                            {
-                                count: dismissed,
-                                label: 'Dismissed',
-                                classes: `${seen === 0 ? 'rounded-l' : ''} ${sent === 0 ? 'rounded-r' : ''}`,
-                                style: {
-                                    backgroundColor: '#E3A506',
-                                    width: `${dismissedPercentage}%`,
-                                    left: `${seenPercentage}%`,
-                                },
-                            },
-                            {
-                                count: sent,
-                                label: 'Sent',
-                                classes: `rounded-r ${seen === 0 && dismissed === 0 ? 'rounded-l' : ''}`,
-                                style: {
-                                    backgroundColor: '#529B08',
-                                    width: `${sentPercentage}%`,
-                                    left: `${seenPercentage + dismissedPercentage}%`,
-                                },
-                            },
-                        ].map(({ count, label, classes, style }) => (
-                            <Tooltip
-                                key={`survey-summary-chart-${label}`}
-                                title={`${label} surveys: ${count}`}
-                                delayMs={0}
-                                placement="top"
-                            >
-                                <div
-                                    className={`h-10 text-white text-center absolute cursor-pointer ${classes}`}
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={style}
-                                >
-                                    <span className="inline-flex font-semibold max-w-full px-1 truncate leading-10">
-                                        {formatCount(count, total)}
-                                    </span>
-                                </div>
-                            </Tooltip>
-                        ))}
-                    </div>
-                    <div className="w-full flex justify-center">
-                        <div className="flex items-center">
-                            {[
-                                { count: seen, label: 'Unanswered', style: { backgroundColor: '#1D4AFF' } },
-                                { count: dismissed, label: 'Dismissed', style: { backgroundColor: '#E3A506' } },
-                                { count: sent, label: 'Submitted', style: { backgroundColor: '#529B08' } },
-                            ].map(
-                                ({ count, label, style }) =>
-                                    count > 0 && (
-                                        <div key={`survey-summary-legend-${label}`} className="flex items-center mr-6">
-                                            {/* eslint-disable-next-line react/forbid-dom-props */}
-                                            <div className="w-3 h-3 rounded-full mr-2" style={style} />
-                                            <span className="font-semibold text-muted-alt">{`${label} (${(
-                                                (count / total) *
-                                                100
-                                            ).toFixed(1)}%)`}</span>
-                                        </div>
-                                    )
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-        </>
-    )
-}
-
-export function Summary({
-    surveyUserStats,
-    surveyUserStatsLoading,
-}: {
-    surveyUserStats: SurveyUserStats
-    surveyUserStatsLoading: boolean
-}): JSX.Element {
-    return (
-        <div className="mb-4 mt-2">
-            {surveyUserStatsLoading ? (
-                <LemonTable dataSource={[]} columns={[]} loading={true} />
-            ) : (
-                <>
-                    {!surveyUserStats ? null : (
-                        <>
-                            <UsersCount surveyUserStats={surveyUserStats} />
-                            <UsersStackedBar surveyUserStats={surveyUserStats} />
-                        </>
-                    )}
-                </>
-            )}
-        </div>
-    )
+    return <StackedBar segments={segments} />
 }
 
 export function RatingQuestionBarChart({
     questionIndex,
     surveyRatingResults,
     surveyRatingResultsReady,
-    iteration,
 }: {
     questionIndex: number
     surveyRatingResults: SurveyRatingResults
@@ -202,23 +70,22 @@ export function RatingQuestionBarChart({
     const { survey } = useValues(surveyLogic)
     const barColor = '#1d4aff'
     const question = survey.questions[questionIndex]
+    useEffect(() => {
+        loadSurveyRatingResults({ questionIndex })
+    }, [questionIndex, loadSurveyRatingResults])
     if (question.type !== SurveyQuestionType.Rating) {
         throw new Error(`Question type must be ${SurveyQuestionType.Rating}`)
     }
-    useEffect(() => {
-        loadSurveyRatingResults({ questionIndex, iteration })
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [questionIndex])
 
     return (
-        <div className="mb-4">
+        <div>
             {!surveyRatingResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveyRatingResults[questionIndex]?.total ? (
                 <></>
             ) : (
-                <div className="mb-8">
-                    <div className="font-semibold text-muted-alt">{`${
+                <div>
+                    <div className="font-semibold text-secondary">{`${
                         question.scale === 10
                             ? '0 - 10'
                             : question.scale === 7
@@ -270,8 +137,8 @@ export function RatingQuestionBarChart({
                         </div>
                     </div>
                     <div className="flex flex-row justify-between mt-1">
-                        <div className="text-muted-alt pl-10">{question.lowerBoundLabel}</div>
-                        <div className="text-muted-alt pr-10">{question.upperBoundLabel}</div>
+                        <div className="text-secondary pl-10">{question.lowerBoundLabel}</div>
+                        <div className="text-secondary pr-10">{question.upperBoundLabel}</div>
                     </div>
                 </div>
             )}
@@ -306,14 +173,14 @@ export function NPSSurveyResultsBarChart({
     }, [questionIndex])
 
     return (
-        <div className="mb-4">
+        <div>
             {!surveyRecurringNPSResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveyRecurringNPSResults[questionIndex]?.total ? (
                 <></>
             ) : (
-                <div className="mb-8">
-                    <div className="font-semibold text-muted-alt">{`${
+                <div>
+                    <div className="font-semibold text-secondary">{`${
                         question.scale === 10 ? '0 - 10' : '1 - 5'
                     } rating`}</div>
                     <div className="text-xl font-bold mb-2">NPS Scores over time for "{question.question}"</div>
@@ -403,15 +270,17 @@ export function SingleChoiceQuestionPieChart({
     }, [questionIndex])
 
     return (
-        <div className="mb-4">
+        <div>
             {!surveySingleChoiceResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveySingleChoiceResults[questionIndex]?.data.length ? (
                 <></>
             ) : (
-                <div className="mb-8">
-                    <div className="font-semibold text-muted-alt">Single choice</div>
-                    <div className="text-xl font-bold mb-2">{question.question}</div>
+                <div className="flex flex-col gap-2">
+                    <div>
+                        <div className="font-semibold text-secondary">Single choice</div>
+                        <div className="text-xl font-bold">{question.question}</div>
+                    </div>
                     <div className="h-80 overflow-y-auto border rounded pt-4 pb-2 flex">
                         <div className="relative h-full w-80">
                             <BindLogic logic={insightLogic} props={insightProps}>
@@ -467,9 +336,9 @@ export function SingleChoiceQuestionPieChart({
                                             // eslint-disable-next-line react/forbid-dom-props
                                             style={{ backgroundColor: colors[i % colors.length] }}
                                         />
-                                        <span className="font-semibold text-muted-alt max-w-48 truncate">{`${labels[i]}`}</span>
+                                        <span className="font-semibold text-secondary max-w-48 truncate">{`${labels[i]}`}</span>
                                         <span className="font-bold ml-1 truncate">{` ${percentage}% `}</span>
-                                        <span className="font-semibold text-muted-alt ml-1 truncate">{`(${count})`}</span>
+                                        <span className="font-semibold text-secondary ml-1 truncate">{`(${count})`}</span>
                                     </div>
                                 )
                             })}
@@ -514,14 +383,14 @@ export function MultipleChoiceQuestionBarChart({
     }, [surveyMultipleChoiceResults])
 
     return (
-        <div className="mb-4">
+        <div>
             {!surveyMultipleChoiceResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveyMultipleChoiceResults[questionIndex]?.data.length ? (
                 <></>
             ) : (
                 <div className="mb-8">
-                    <div className="font-semibold text-muted-alt">Multiple choice</div>
+                    <div className="font-semibold text-secondary">Multiple choice</div>
                     <div className="text-xl font-bold mb-2">{question.question}</div>
 
                     <div
@@ -578,7 +447,6 @@ export function OpenTextViz({
 }): JSX.Element {
     const { loadSurveyOpenTextResults } = useActions(surveyLogic)
     const { survey } = useValues(surveyLogic)
-    const surveyResponseField = questionIndex === 0 ? '$survey_response' : `$survey_response_${questionIndex}`
 
     const question = survey.questions[questionIndex]
     if (question.type !== SurveyQuestionType.Open) {
@@ -591,20 +459,20 @@ export function OpenTextViz({
     }, [questionIndex])
 
     return (
-        <div className="mb-4">
+        <div>
             {!surveyOpenTextResultsReady[questionIndex] ? (
                 <LemonTable dataSource={[]} columns={[]} loading={true} />
             ) : !surveyOpenTextResults[questionIndex]?.events.length ? (
-                <></>
+                <>no results for open text analysis</>
             ) : (
                 <>
                     <div className="flex flex-row justify-between items-center">
                         <Tooltip title="See all Open Text responses in the Events table at the bottom.">
                             <div className="inline-flex gap-1">
-                                <div className="font-semibold text-muted-alt">Open text</div>
+                                <div className="font-semibold text-secondary">Open text</div>
                                 <LemonDivider vertical className="my-1 mx-1" />
-                                <div className="font-semibold text-muted-alt">random selection</div>
-                                <IconInfo className="text-lg text-muted-alt shrink-0 ml-0.5 mt-0.5" />
+                                <div className="font-semibold text-secondary">random selection</div>
+                                <IconInfo className="text-lg text-secondary shrink-0 ml-0.5 mt-0.5" />
                             </div>
                         </Tooltip>
                         <ResponseSummariesButton questionIndex={questionIndex} />
@@ -618,14 +486,19 @@ export function OpenTextViz({
                                 properties: event.personProperties,
                             }
 
+                            const { idBasedKey, indexBasedKey } = getResponseFieldWithId(questionIndex, question?.id)
+                            const surveyResponse = idBasedKey
+                                ? event.properties[idBasedKey] ?? event.properties[indexBasedKey]
+                                : event.properties[indexBasedKey]
+
                             return (
                                 <div key={`open-text-${questionIndex}-${i}`} className="masonry-item border rounded">
                                     <div className="max-h-80 overflow-y-auto text-center italic font-semibold px-5 py-4">
-                                        {typeof event.properties[surveyResponseField] !== 'string'
-                                            ? JSON.stringify(event.properties[surveyResponseField])
-                                            : event.properties[surveyResponseField]}
+                                        {typeof surveyResponse !== 'string'
+                                            ? JSON.stringify(surveyResponse)
+                                            : surveyResponse}
                                     </div>
-                                    <div className="bg-bg-light items-center px-5 py-4 border-t rounded-b truncate w-full">
+                                    <div className="bg-surface-primary items-center px-5 py-4 border-t rounded-b truncate w-full">
                                         <PersonDisplay
                                             person={personProp}
                                             withIcon={true}
@@ -644,75 +517,55 @@ export function OpenTextViz({
 }
 
 function ResponseSummariesButton({ questionIndex }: { questionIndex: number | undefined }): JSX.Element {
-    const [popOverClosed, setPopOverClosed] = useState(false)
-
     const { summarize } = useActions(surveyLogic)
     const { responseSummary, responseSummaryLoading } = useValues(surveyLogic)
-    const { surveyDataProcessingAccepted, surveyDataProcessingRefused } = useValues(surveyDataProcessingLogic)
-    const { acceptSurveyDataProcessing, refuseSurveyDataProcessing } = useActions(surveyDataProcessingLogic)
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+    const [showConsentPopover, setShowConsentPopover] = useState(false)
 
-    const summarizeButton = (
-        <LemonButton
-            type="secondary"
-            data-attr="summarize-survey"
-            onClick={() => summarize({ questionIndex })}
-            disabledReason={
-                surveyDataProcessingRefused
-                    ? 'OpenAI processing refused'
-                    : responseSummaryLoading
-                    ? 'Let me think...'
-                    : responseSummary
-                    ? 'Already summarized'
-                    : undefined
-            }
-            icon={<IconSparkles />}
-        >
-            {responseSummaryLoading ? (
-                <>
-                    Let me think...
-                    <Spinner />
-                </>
-            ) : (
-                <>Summarize responses</>
-            )}
-        </LemonButton>
-    )
+    const summarizeQuestion = (): void => {
+        summarize({ questionIndex })
+    }
+
+    const handleSummarizeClick = (): void => {
+        if (!dataProcessingAccepted) {
+            setShowConsentPopover(true)
+        } else {
+            summarizeQuestion()
+        }
+    }
+
+    const handleDismissPopover = (): void => {
+        setShowConsentPopover(false)
+    }
+
     return (
         <FlaggedFeature flag={FEATURE_FLAGS.AI_SURVEY_RESPONSE_SUMMARY} match={true}>
-            {surveyDataProcessingAccepted ? (
-                summarizeButton
-            ) : (
-                <Popover
-                    overlay={
-                        <div className="mx-1.5 my 0.5 flex flex-col gap-1">
-                            <div className="flex justify-end">
-                                <LemonButton size="small" icon={<IconX />} onClick={() => setPopOverClosed(true)} />
-                            </div>
-                            <div>
-                                <p className="font-medium text-pretty mb-1.5">
-                                    Uses OpenAI services to analyze your survey responses,
-                                    <br />
-                                    This <em>can</em> include personal data of your users,
-                                    <br />
-                                    if they include it in their responses.
-                                    <br />
-                                    <em>Your data won't be used for training models.</em>
-                                </p>
-                            </div>
-                            <LemonButton type="secondary" size="small" onClick={() => acceptSurveyDataProcessing()}>
-                                Got it, I accept OpenAI processing survey data
-                            </LemonButton>
-                            <LemonButton type="secondary" size="small" onClick={() => refuseSurveyDataProcessing()}>
-                                No thanks, I don't want OpenAI processing survey data
-                            </LemonButton>
-                        </div>
+            {dataProcessingAccepted || !showConsentPopover ? (
+                <LemonButton
+                    type="secondary"
+                    data-attr="summarize-survey"
+                    onClick={handleSummarizeClick}
+                    disabledReason={
+                        responseSummaryLoading ? 'Let me think...' : responseSummary ? 'Already summarized' : undefined
                     }
-                    middleware={[offset(-12)]}
-                    showArrow
-                    visible={!popOverClosed && !surveyDataProcessingAccepted && !surveyDataProcessingRefused}
+                    icon={<IconSparkles />}
+                    loading={responseSummaryLoading}
                 >
-                    {summarizeButton}
-                </Popover>
+                    {responseSummaryLoading ? 'Let me think...' : 'Summarize responses'}
+                </LemonButton>
+            ) : (
+                <AIConsentPopoverWrapper showArrow onDismiss={handleDismissPopover}>
+                    <LemonButton
+                        type="secondary"
+                        data-attr="summarize-survey"
+                        onClick={handleSummarizeClick}
+                        disabledReason={dataProcessingApprovalDisabledReason || 'Data processing not accepted'}
+                        icon={<IconSparkles />}
+                        loading={responseSummaryLoading}
+                    >
+                        {responseSummaryLoading ? 'Let me think...' : 'Summarize responses'}
+                    </LemonButton>
+                </AIConsentPopoverWrapper>
             )}
         </FlaggedFeature>
     )

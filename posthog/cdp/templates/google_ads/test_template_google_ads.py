@@ -13,9 +13,8 @@ class TestTemplateGoogleAds(BaseHogFunctionTemplateTest):
             "oauth": {
                 "access_token": "oauth-1234",
             },
-            "developerToken": "developer-token1234",
-            "customerId": "123-123-1234",
-            "conversionActionId": "AW-123456789",
+            "customerId": "1231231234/5675675678",
+            "conversionActionId": "123456789",
             "gclid": "89y4thuergnjkd34oihroh3uhg39uwhgt9",
             "conversionDateTime": "2024-10-10 16:32:45+02:00",
             "currencyCode": "USD",
@@ -24,17 +23,16 @@ class TestTemplateGoogleAds(BaseHogFunctionTemplateTest):
         return inputs
 
     def test_function_works(self):
-        self.mock_fetch_response = lambda *args: {"status": 200, "body": {"ok": True}}  # type: ignore
         self.run_function(self._inputs())
         assert self.get_mock_fetch_calls()[0] == snapshot(
             (
-                "https://googleads.googleapis.com/v17/customers/1231231234:uploadClickConversions",
+                "https://googleads.googleapis.com/v18/customers/1231231234:uploadClickConversions",
                 {
                     "method": "POST",
                     "headers": {
                         "Authorization": "Bearer oauth-1234",
                         "Content-Type": "application/json",
-                        "developer-token": "developer-token1234",
+                        "login-customer-id": "5675675678",
                     },
                     "body": {
                         "conversions": [
@@ -46,7 +44,6 @@ class TestTemplateGoogleAds(BaseHogFunctionTemplateTest):
                             }
                         ],
                         "partialFailure": True,
-                        "validateOnly": True,
                     },
                 },
             )

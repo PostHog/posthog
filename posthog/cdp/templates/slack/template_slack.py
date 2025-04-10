@@ -2,11 +2,12 @@ from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, Hog
 
 
 template: HogFunctionTemplate = HogFunctionTemplate(
-    status="free",
+    status="stable",
+    free=True,
     type="destination",
     id="template-slack",
     name="Slack",
-    description="Sends a message to a slack channel",
+    description="Sends a message to a Slack channel",
     icon_url="/static/services/slack.png",
     category=["Customer Success"],
     hog="""
@@ -37,6 +38,7 @@ if (res.status != 200 or res.body.ok == false) {
             "label": "Slack workspace",
             "requiredScopes": "channels:read groups:read chat:write chat:write.customize",
             "secret": False,
+            "hidden": False,
             "required": True,
         },
         {
@@ -47,6 +49,7 @@ if (res.status != 200 or res.body.ok == false) {
             "label": "Channel to post to",
             "description": "Select the channel to post to (e.g. #general). The PostHog app must be installed in the workspace.",
             "secret": False,
+            "hidden": False,
             "required": True,
         },
         {
@@ -56,6 +59,7 @@ if (res.status != 200 or res.body.ok == false) {
             "default": ":hedgehog:",
             "required": False,
             "secret": False,
+            "hidden": False,
         },
         {
             "key": "username",
@@ -64,6 +68,7 @@ if (res.status != 200 or res.body.ok == false) {
             "default": "PostHog",
             "required": False,
             "secret": False,
+            "hidden": False,
         },
         {
             "key": "blocks",
@@ -96,6 +101,7 @@ if (res.status != 200 or res.body.ok == false) {
             ],
             "secret": False,
             "required": False,
+            "hidden": False,
         },
         {
             "key": "text",
@@ -105,6 +111,7 @@ if (res.status != 200 or res.body.ok == false) {
             "default": "*{person.name}* triggered event: '{event.event}'",
             "secret": False,
             "required": False,
+            "hidden": False,
         },
     ],
     sub_templates=[
@@ -197,6 +204,84 @@ if (res.status != 200 or res.body.ok == false) {
                 },
                 "text": {
                     "default": "*{person.properties.email}* {event.properties.activity} {event.properties.scope} {event.properties.item_id}",
+                },
+            },
+        ),
+        HogFunctionSubTemplate(
+            name="Post to Slack on issue created",
+            description="Post to a Slack channel when an issue is created",
+            id=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].id,
+            type=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].type,
+            filters=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].filters,
+            input_schema_overrides={
+                "blocks": {
+                    "default": [
+                        {"type": "header", "text": {"type": "plain_text", "text": "🔴 {event.properties.name}"}},
+                        {"type": "section", "text": {"type": "plain_text", "text": "New issue created"}},
+                        {"type": "section", "text": {"type": "mrkdwn", "text": "```{event.properties.description}```"}},
+                        {
+                            "type": "context",
+                            "elements": [
+                                {"type": "mrkdwn", "text": "Project: <{project.url}|{project.name}>"},
+                                {"type": "mrkdwn", "text": "Alert: <{source.url}|{source.name}>"},
+                            ],
+                        },
+                        {"type": "divider"},
+                        {
+                            "type": "actions",
+                            "elements": [
+                                {
+                                    "url": "{project.url}/error_tracking/{event.distinct_id}",
+                                    "text": {"text": "View Issue", "type": "plain_text"},
+                                    "type": "button",
+                                }
+                            ],
+                        },
+                    ],
+                    "hidden": True,
+                },
+                "text": {
+                    "default": "New issue created: {event.properties.name}",
+                    "hidden": True,
+                },
+            },
+        ),
+        HogFunctionSubTemplate(
+            name="Post to Slack on issue reopened",
+            description="Post to a Slack channel when an issue is reopened",
+            id=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].id,
+            type=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].type,
+            filters=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].filters,
+            input_schema_overrides={
+                "blocks": {
+                    "default": [
+                        {"type": "header", "text": {"type": "plain_text", "text": "🔄 {event.properties.name}"}},
+                        {"type": "section", "text": {"type": "plain_text", "text": "Issue reopened"}},
+                        {"type": "section", "text": {"type": "mrkdwn", "text": "```{event.properties.description}```"}},
+                        {
+                            "type": "context",
+                            "elements": [
+                                {"type": "mrkdwn", "text": "Project: <{project.url}|{project.name}>"},
+                                {"type": "mrkdwn", "text": "Alert: <{source.url}|{source.name}>"},
+                            ],
+                        },
+                        {"type": "divider"},
+                        {
+                            "type": "actions",
+                            "elements": [
+                                {
+                                    "url": "{project.url}/error_tracking/{event.distinct_id}",
+                                    "text": {"text": "View Issue", "type": "plain_text"},
+                                    "type": "button",
+                                }
+                            ],
+                        },
+                    ],
+                    "hidden": True,
+                },
+                "text": {
+                    "default": "Issue reopened: {event.properties.name}",
+                    "hidden": True,
                 },
             },
         ),

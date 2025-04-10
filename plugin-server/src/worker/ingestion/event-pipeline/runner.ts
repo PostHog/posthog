@@ -1,15 +1,17 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
 
+import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
-import { runInSpan } from '../../../sentry'
-import { Hub, PipelineEvent } from '../../../types'
+import { Hub, PipelineEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
-import { status } from '../../../utils/status'
+import { logger } from '../../../utils/logger'
+import { captureException } from '../../../utils/posthog'
+import { runInSpan } from '../../../utils/sentry'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
+import { cookielessServerHashStep } from './cookielessServerHashStep'
 import { createEventStep } from './createEventStep'
 import { emitEventStep } from './emitEventStep'
 import { extractHeatmapDataStep } from './extractHeatmapDataStep'
@@ -27,10 +29,11 @@ import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { produceExceptionSymbolificationEventStep } from './produceExceptionSymbolificationEventStep'
+import { transformEventStep } from './transformEventStep'
 
 export type EventPipelineResult = {
     // Promises that the batch handler should await on before committing offsets,
-    // contains the Kafka producer ACKs, to avoid blocking after every message.
+    // contains the Kafka producer ACKs and message promises, to avoid blocking after every message.
     ackPromises?: Array<Promise<void>>
     // Only used in tests
     // TODO: update to test for side-effects of running the pipeline rather than
@@ -53,11 +56,13 @@ export class EventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
+    hogTransformer: HogTransformerService | null
 
-    constructor(hub: Hub, event: PipelineEvent, eventProcessor: EventsProcessor) {
+    constructor(hub: Hub, event: PipelineEvent, hogTransformer: HogTransformerService | null = null) {
         this.hub = hub
         this.originalEvent = event
-        this.eventsProcessor = eventProcessor
+        this.eventsProcessor = new EventsProcessor(hub)
+        this.hogTransformer = hogTransformer
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {
@@ -116,9 +121,10 @@ export class EventPipelineRunner {
                 return this.registerLastStep('eventDisallowedStep', [event])
             }
             let result: EventPipelineResult
-            const eventWithTeam = await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)
-            if (eventWithTeam != null) {
-                result = await this.runEventPipelineSteps(eventWithTeam)
+            const { eventWithTeam, team } =
+                (await this.runStep(populateTeamDataStep, [this, event], event.team_id || -1)) ?? {}
+            if (eventWithTeam != null && team != null) {
+                result = await this.runEventPipelineSteps(eventWithTeam, team)
             } else {
                 result = this.registerLastStep('populateTeamDataStep', [event])
             }
@@ -127,10 +133,14 @@ export class EventPipelineRunner {
         } catch (error) {
             if (error instanceof StepErrorNoRetry) {
                 // At the step level we have chosen to drop these events and send them to DLQ
-                return { lastStep: error.step, args: [], error: error.message }
+                return {
+                    lastStep: error.step,
+                    args: [],
+                    error: error.message,
+                }
             } else {
                 // Otherwise rethrow, which leads to Kafka offsets not getting committed and retries
-                Sentry.captureException(error, {
+                captureException(error, {
                     tags: { pipeline_step: 'outside' },
                     extra: { originalEvent: this.originalEvent },
                 })
@@ -139,10 +149,11 @@ export class EventPipelineRunner {
         }
     }
 
-    async runEventPipelineSteps(event: PluginEvent): Promise<EventPipelineResult> {
+    async runEventPipelineSteps(event: PluginEvent, team: Team): Promise<EventPipelineResult> {
         const kafkaAcks: Promise<void>[] = []
 
         let processPerson = true // The default.
+
         // Set either at capture time, or in the populateTeamData step, if team-level opt-out is enabled.
         if (event.properties && '$process_person_profile' in event.properties) {
             const propValue = event.properties.$process_person_profile
@@ -215,21 +226,42 @@ export class EventPipelineRunner {
             return this.runHeatmapPipelineSteps(event, kafkaAcks)
         }
 
-        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event], event.team_id)
+        const [postCookielessEvent] = await this.runStep(cookielessServerHashStep, [this.hub, event], event.team_id)
+        if (postCookielessEvent == null) {
+            return this.registerLastStep('cookielessServerHashStep', [event], kafkaAcks)
+        }
+
+        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, postCookielessEvent], event.team_id)
+
         if (processedEvent == null) {
             // A plugin dropped the event.
-            return this.registerLastStep('pluginsProcessEventStep', [event], kafkaAcks)
+            return this.registerLastStep('pluginsProcessEventStep', [postCookielessEvent], kafkaAcks)
+        }
+
+        const { event: transformedEvent, messagePromises } = await this.runStep(
+            transformEventStep,
+            [processedEvent, this.hogTransformer],
+            event.team_id
+        )
+
+        // Add message promises to kafkaAcks
+        if (messagePromises) {
+            kafkaAcks.push(...messagePromises)
+        }
+
+        if (transformedEvent === null) {
+            return this.registerLastStep('transformEventStep', [processedEvent], kafkaAcks)
         }
 
         const [normalizedEvent, timestamp] = await this.runStep(
             normalizeEventStep,
-            [processedEvent, processPerson],
+            [transformedEvent, processPerson],
             event.team_id
         )
 
         const [postPersonEvent, person, personKafkaAck] = await this.runStep(
             processPersonsStep,
-            [this, normalizedEvent, timestamp, processPerson],
+            [this, normalizedEvent, team, timestamp, processPerson],
             event.team_id
         )
         kafkaAcks.push(personKafkaAck)
@@ -259,7 +291,7 @@ export class EventPipelineRunner {
             event.team_id
         )
 
-        if (event.event === '$exception' && !event.properties?.hasOwnProperty('$sentry_event_id')) {
+        if (event.event === '$exception') {
             const [exceptionAck] = await this.runStep(
                 produceExceptionSymbolificationEventStep,
                 [this, rawEvent],
@@ -276,7 +308,11 @@ export class EventPipelineRunner {
 
     registerLastStep(stepName: string, args: any[], ackPromises?: Array<Promise<void>>): EventPipelineResult {
         pipelineLastStepCounter.labels(stepName).inc()
-        return { ackPromises, lastStep: stepName, args }
+        return {
+            ackPromises,
+            lastStep: stepName,
+            args,
+        }
     }
 
     protected runStep<Step extends (...args: any[]) => any>(
@@ -329,8 +365,8 @@ export class EventPipelineRunner {
     }
 
     private async handleError(err: any, currentStepName: string, currentArgs: any, teamId: number, sentToDql: boolean) {
-        status.error('🔔', 'step_failed', { currentStepName, err })
-        Sentry.captureException(err, {
+        logger.error('🔔', 'step_failed', { currentStepName, err })
+        captureException(err, {
             tags: { team_id: teamId, pipeline_step: currentStepName },
             extra: { currentArgs, originalEvent: this.originalEvent },
         })
@@ -352,10 +388,10 @@ export class EventPipelineRunner {
                     teamId,
                     `plugin_server_ingest_event:${currentStepName}`
                 )
-                await this.hub.db.kafkaProducer!.queueMessage({ kafkaMessage: message, waitForAck: true })
+                await this.hub.db.kafkaProducer.queueMessages(message)
             } catch (dlqError) {
-                status.info('🔔', `Errored trying to add event to dead letter queue. Error: ${dlqError}`)
-                Sentry.captureException(dlqError, {
+                logger.info('🔔', `Errored trying to add event to dead letter queue. Error: ${dlqError}`)
+                captureException(dlqError, {
                     tags: { team_id: teamId },
                     extra: { currentStepName, currentArgs, originalEvent: this.originalEvent, err },
                 })

@@ -9,9 +9,10 @@ import requests
 import structlog
 from openpyxl import Workbook
 from django.http import QueryDict
-from sentry_sdk import capture_exception, push_scope
+from sentry_sdk import push_scope
 from requests.exceptions import HTTPError
 
+from posthog.exceptions_capture import capture_exception
 from posthog.api.services.query import process_query_dict
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.jwt import PosthogJwtAudience, encode_jwt

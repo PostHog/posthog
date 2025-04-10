@@ -50,7 +50,7 @@ export interface LemonModalProps {
      * some components need more fine control of the z-index
      * they can push a specific value to control their position in the stacking order
      */
-    zIndex?: '1061' | '1062' | '1066' | '1067' | '1068' | '1069'
+    zIndex?: '1161' | '1162' | '1166' | '1167' | '1168' | '1169'
 }
 
 export const LemonModalHeader = ({ children, className }: LemonModalInnerProps): JSX.Element => {

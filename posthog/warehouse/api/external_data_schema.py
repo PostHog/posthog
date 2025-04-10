@@ -1,31 +1,31 @@
-from rest_framework import serializers
+from typing import Any, Optional
+
 import structlog
 import temporalio
-from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING
-from posthog.temporal.data_imports.pipelines.bigquery import (
-    get_schemas as get_bigquery_schemas,
-    filter_incremental_fields as filter_bigquery_incremental_fields,
-)
-from posthog.warehouse.models import ExternalDataSchema, ExternalDataJob
-from typing import Optional, Any
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from rest_framework import viewsets, filters, status
-from posthog.api.utils import action
+from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from posthog.hogql.database.database import create_hogql_database
-from posthog.api.log_entries import LogEntryMixin
 
+from posthog.api.log_entries import LogEntryMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
+from posthog.hogql.database.database import create_hogql_database
+from posthog.temporal.data_imports.pipelines.bigquery import (
+    filter_incremental_fields as filter_bigquery_incremental_fields,
+    get_schemas as get_bigquery_schemas,
+)
+from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING
 from posthog.warehouse.data_load.service import (
+    cancel_external_data_workflow,
     external_data_workflow_exists,
     is_any_external_data_schema_paused,
-    sync_external_data_job_workflow,
     pause_external_data_schedule,
+    sync_external_data_job_workflow,
     trigger_external_data_workflow,
     unpause_external_data_schedule,
-    cancel_external_data_workflow,
 )
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
 from posthog.warehouse.models.external_data_schema import (
     filter_mssql_incremental_fields,
     filter_mysql_incremental_fields,
@@ -51,6 +51,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     incremental_field_type = serializers.SerializerMethodField(read_only=True)
     sync_frequency = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
+    sync_time_of_day = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ExternalDataSchema
@@ -68,6 +69,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "incremental_field",
             "incremental_field_type",
             "sync_frequency",
+            "sync_time_of_day",
         ]
 
         read_only_fields = [
@@ -107,7 +109,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         return SimpleTableSerializer(schema.table, context={"database": hogql_context}).data or None
 
     def get_sync_frequency(self, schema: ExternalDataSchema):
-        return sync_frequency_interval_to_sync_frequency(schema)
+        return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
+
+    def get_sync_time_of_day(self, schema: ExternalDataSchema):
+        return schema.sync_time_of_day
 
     def update(self, instance: ExternalDataSchema, validated_data: dict[str, Any]) -> ExternalDataSchema:
         data = self.context["request"].data
@@ -123,40 +128,40 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         validated_data["sync_type"] = sync_type
 
-        # Check whether we need a full table refresh
         trigger_refresh = False
-        if instance.sync_type is not None and sync_type is not None:
-            # If sync type changes
-            if instance.sync_type != sync_type:
-                trigger_refresh = True
-
-            # If sync type is incremental and the incremental field changes
-            if sync_type == ExternalDataSchema.SyncType.INCREMENTAL and instance.sync_type_config.get(
-                "incremental_field"
-            ) != data.get("incremental_field"):
-                trigger_refresh = True
-
         # Update the validated_data with incremental fields
-        if sync_type == "incremental":
+        if sync_type == ExternalDataSchema.SyncType.INCREMENTAL:
+            incremental_field_changed = (
+                instance.sync_type_config.get("incremental_field") != data.get("incremental_field")
+                or instance.sync_type_config.get("incremental_field_last_value") is None
+            )
+
             payload = instance.sync_type_config
             payload["incremental_field"] = data.get("incremental_field")
             payload["incremental_field_type"] = data.get("incremental_field_type")
-            payload["incremental_field_last_value"] = None
-            payload["incremental_field_last_value_v2"] = None
+
+            # If the incremental field has changed
+            if incremental_field_changed:
+                if instance.table is not None:
+                    # Get the max_value and set it on incremental_field_last_value
+                    max_value = instance.table.get_max_value_for_column(data.get("incremental_field"))
+                    if max_value:
+                        instance.update_incremental_field_last_value(max_value, save=False)
+                    else:
+                        # if we can't get the max value, reset the table
+                        payload["incremental_field_last_value"] = None
+                        trigger_refresh = True
 
             validated_data["sync_type_config"] = payload
         else:
-            payload = instance.sync_type_config
-            payload.pop("incremental_field", None)
-            payload.pop("incremental_field_type", None)
-            payload.pop("incremental_field_last_value", None)
-            payload.pop("incremental_field_last_value_v2", None)
-
-            validated_data["sync_type_config"] = payload
+            # No need to update sync_type_config for full refresh sync_type - it'll happen on the next sync
+            pass
 
         should_sync = validated_data.get("should_sync", None)
         sync_frequency = data.get("sync_frequency", None)
+        sync_time_of_day = data.get("sync_time_of_day", None)
         was_sync_frequency_updated = False
+        was_sync_time_of_day_updated = False
 
         if sync_frequency:
             sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
@@ -165,6 +170,12 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 was_sync_frequency_updated = True
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
                 instance.sync_frequency_interval = sync_frequency_interval
+
+        if sync_time_of_day is not None:
+            if sync_time_of_day != instance.sync_time_of_day:
+                was_sync_time_of_day_updated = True
+                validated_data["sync_time_of_day"] = sync_time_of_day
+                instance.sync_time_of_day = sync_time_of_day
 
         if should_sync is True and sync_type is None and instance.sync_type is None:
             raise ValidationError("Sync type must be set up first before enabling schema")
@@ -180,13 +191,13 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             if should_sync is True:
                 sync_external_data_job_workflow(instance, create=True)
 
-        if was_sync_frequency_updated:
+        if was_sync_frequency_updated or was_sync_time_of_day_updated:
             sync_external_data_job_workflow(instance, create=False)
 
         if trigger_refresh:
-            source: ExternalDataSource = instance.source
-            source.job_inputs.update({"reset_pipeline": True})
-            source.save()
+            instance.sync_type_config.update({"reset_pipeline": True})
+            validated_data["sync_type_config"].update({"reset_pipeline": True})
+
             trigger_external_data_workflow(instance)
 
         return super().update(instance, validated_data)
@@ -266,9 +277,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
         if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
             cancel_external_data_workflow(latest_running_job.workflow_id)
 
-        source: ExternalDataSource = instance.source
-        source.job_inputs.update({"reset_pipeline": True})
-        source.save()
+        instance.sync_type_config.update({"reset_pipeline": True})
 
         try:
             trigger_external_data_workflow(instance)
@@ -277,6 +286,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
 
         instance.status = ExternalDataSchema.Status.RUNNING
         instance.save()
+        return Response(status=status.HTTP_200_OK)
+
+    @action(methods=["DELETE"], detail=True)
+    def delete_data(self, request: Request, *args: Any, **kwargs: Any):
+        instance: ExternalDataSchema = self.get_object()
+        instance.delete_table()
+
         return Response(status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=True)
@@ -393,6 +409,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
                 private_key_id=private_key_id,
                 client_email=client_email,
                 token_uri=token_uri,
+                logger=logger,
             )
 
             columns = bq_schemas.get(instance.name, [])

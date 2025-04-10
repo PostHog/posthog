@@ -6,7 +6,6 @@ from posthog.api.element import ElementSerializer
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.models.element.element import chain_to_elements
 from posthog.schema import (
@@ -91,9 +90,6 @@ class SessionsTimelineQueryRunner(QueryRunner):
         return cast(ast.SelectQuery, select_query)
 
     def to_query(self) -> ast.SelectQuery:
-        if self.timings is None:
-            self.timings = HogQLTimings()
-
         with self.timings.measure("build_sessions_timeline_query"):
             select_query = parse_select(
                 """

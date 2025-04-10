@@ -1,0 +1,26 @@
+.rdg-cell {
+    font-size: 0.75rem;
+    border-block-end: 1px solid var(--border);
+    border-right: 0;
+}
+
+.rdg-row {
+    .hover-actions-cell {
+        opacity: 0;
+        transition: opacity 0.2s ease;
+    }
+
+    &:hover {
+        cursor: pointer;
+
+        .hover-actions-cell {
+            opacity: 1;
+        }
+    }
+}
+
+.RowDetailsModal {
+    .LemonTable__content table td {
+        max-width: 0;
+    }
+}

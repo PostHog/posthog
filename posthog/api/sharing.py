@@ -5,6 +5,7 @@ from urllib.parse import urlparse, urlunparse
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Q
+from django.shortcuts import render
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
 from loginas.utils import is_impersonated_session
@@ -19,6 +20,7 @@ from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.async_task_chain import task_chain_context
+from posthog.constants import AvailableFeature
 from posthog.models import SessionRecording, SharingConfiguration, Team, InsightViewed
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.dashboard import Dashboard
@@ -205,6 +207,11 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
         return response.Response(serializer.data)
 
 
+def custom_404_response(request):
+    """Returns a custom 404 page."""
+    return render(request, "shared_resource_404.html", status=404)
+
+
 class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """
     NOTE: This ViewSet takes care of multiple rendering cases:
@@ -243,10 +250,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
     @xframe_options_exempt
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Any:
-        resource = self.get_object()
+        try:
+            resource = self.get_object()
+        except NotFound:
+            resource = None
 
         if not resource:
-            raise NotFound()
+            return custom_404_response(self.request)
 
         embedded = "embedded" in request.GET or "/embedded/" in request.path
         context = {
@@ -302,9 +312,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         else:
             raise NotFound()
 
-        if "whitelabel" in request.GET and "white_labelling" in [
-            feature["key"] for feature in resource.team.organization.available_product_features
-        ]:
+        if "whitelabel" in request.GET and resource.team.organization.is_feature_available(
+            AvailableFeature.WHITE_LABELLING
+        ):
             exported_data.update({"whitelabel": True})
         if "noHeader" in request.GET:
             exported_data.update({"noHeader": True})
@@ -320,6 +330,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
         if request.GET.get("force_type"):
             exported_data["type"] = request.GET.get("force_type")
+
+        exported_data["rootClassName"] = f"export-type-'{exported_data.get('type', 'unknown')}"
 
         return render_template(
             "exporter.html",

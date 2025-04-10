@@ -1,6 +1,6 @@
 import './ImagePreview.scss'
 
-import { LemonButton, LemonDivider, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTabs, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
@@ -9,14 +9,17 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP, POSTHOG_EVENT_PROMOTED_PROPERTIES } from 'lib/taxonomy'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, isString } from 'lib/utils'
 import { AutocaptureImageTab, AutocapturePreviewImage, autocaptureToImage } from 'lib/utils/event-property-utls'
 import { useState } from 'react'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { eventPropertyFilteringLogic } from 'scenes/session-recordings/player/inspector/components/eventPropertyFilteringLogic'
 
+import { POSTHOG_EVENT_PROMOTED_PROPERTIES } from '~/taxonomy/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
+
 import { InspectorListItemEvent } from '../playerInspectorLogic'
+import { AIEventExpanded, AIEventSummary } from './AIEventItems'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
 
 export interface ItemEventProps {
@@ -65,6 +68,10 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
             <SummarizeWebVitals properties={item.data.properties} />
         ) : item.data.elements.length ? (
             <AutocapturePreviewImage elements={item.data.elements} />
+        ) : item.data.event === '$ai_generation' ||
+          item.data.event === '$ai_span' ||
+          item.data.event === '$ai_trace' ? (
+            <AIEventSummary event={item.data} />
         ) : null
 
     return (
@@ -79,10 +86,10 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
                         value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}
                         type={TaxonomicFilterGroupType.Events}
                     />
-                    {item.data.event === '$autocapture' ? <span className="text-muted-alt">(Autocapture)</span> : null}
+                    {item.data.event === '$autocapture' ? <span className="text-secondary">(Autocapture)</span> : null}
                 </div>
                 {subValue ? (
-                    <div className="text-muted-alt truncate" title={isString(subValue) ? subValue : undefined}>
+                    <div className="text-secondary truncate" title={isString(subValue) ? subValue : undefined}>
                         {subValue}
                     </div>
                 ) : null}
@@ -92,7 +99,20 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
 }
 
 export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
-    const [activeTab, setActiveTab] = useState<'properties' | 'flags' | 'image' | 'elements' | 'raw'>('properties')
+    // // Check if this is an LLM-related event
+    const isAIEvent =
+        item.data.event === '$ai_generation' || item.data.event === '$ai_span' || item.data.event === '$ai_trace'
+
+    const [activeTab, setActiveTab] = useState<
+        | 'properties'
+        | 'flags'
+        | 'image'
+        | 'elements'
+        | '$set_properties'
+        | '$set_once_properties'
+        | 'raw'
+        | 'conversation'
+    >(isAIEvent ? 'conversation' : 'properties')
 
     const insightUrl = insightUrlForEvent(item.data)
     const { filterProperties } = useValues(eventPropertyFilteringLogic)
@@ -101,33 +121,61 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
 
     const properties = {}
     const featureFlagProperties = {}
+    let setProperties = {}
+    let setOnceProperties = {}
 
     for (const key of Object.keys(item.data.properties)) {
         if (!CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] || !CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
             if (key.startsWith('$feature') || key === '$active_feature_flags') {
                 featureFlagProperties[key] = item.data.properties[key]
+            } else if (key === '$set') {
+                setProperties = item.data.properties[key]
+            } else if (key === '$set_once') {
+                setOnceProperties = item.data.properties[key]
             } else {
                 properties[key] = item.data.properties[key]
             }
         }
     }
 
+    // Get trace ID for linking to LLM trace view
+    const traceId = item.data.properties.$ai_trace_id
+    const traceUrl = traceId
+        ? `/llm-observability/traces/${traceId}${
+              item.data.id && item.data.event !== '$ai_trace' ? `?event=${item.data.id}` : ''
+          }`
+        : null
+
     return (
         <div data-attr="item-event" className="font-light w-full">
             <div className="px-2 py-1 text-xs border-t">
-                {insightUrl ? (
+                {insightUrl || traceUrl ? (
                     <>
-                        <div className="flex justify-end">
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                sideIcon={<IconOpenInNew />}
-                                data-attr="recordings-event-to-insights"
-                                to={insightUrl}
-                                targetBlank
-                            >
-                                Try out in Insights
-                            </LemonButton>
+                        <div className="flex justify-end gap-2">
+                            {insightUrl && (
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    sideIcon={<IconOpenInNew />}
+                                    data-attr="recordings-event-to-insights"
+                                    to={insightUrl}
+                                    targetBlank
+                                >
+                                    Try out in Insights
+                                </LemonButton>
+                            )}
+                            {traceUrl && (
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    sideIcon={<IconOpenInNew />}
+                                    data-attr="recordings-event-to-llm-trace"
+                                    to={traceUrl}
+                                    targetBlank
+                                >
+                                    View LLM Trace
+                                </LemonButton>
+                            )}
                         </div>
                         <LemonDivider dashed />
                     </>
@@ -179,11 +227,63 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                                           content: <AutocaptureImageTab elements={item.data.elements} />,
                                       }
                                     : null,
+                                // Add conversation tab for $ai_generation events
+                                isAIEvent
+                                    ? {
+                                          key: 'conversation',
+                                          label: 'Conversation',
+                                          content: <AIEventExpanded event={item.data} />,
+                                      }
+                                    : null,
+                                Object.keys(setProperties).length > 0
+                                    ? {
+                                          key: '$set_properties',
+                                          label: 'Person properties',
+                                          content: (
+                                              <SimpleKeyValueList
+                                                  item={setProperties}
+                                                  promotedKeys={promotedKeys}
+                                                  header={
+                                                      <p>
+                                                          Person properties sent with this event. Will replace any
+                                                          property value that may have been set on this person profile
+                                                          before now.{' '}
+                                                          <Link to="https://posthog.com/docs/getting-started/person-properties">
+                                                              Learn more
+                                                          </Link>
+                                                      </p>
+                                                  }
+                                              />
+                                          ),
+                                      }
+                                    : null,
+                                Object.keys(setOnceProperties).length > 0
+                                    ? {
+                                          key: '$set_once_properties',
+                                          label: 'Set once person properties',
+                                          content: (
+                                              <SimpleKeyValueList
+                                                  item={setOnceProperties}
+                                                  promotedKeys={promotedKeys}
+                                                  header={
+                                                      <p>
+                                                          "Set once" person properties sent with this event. Will
+                                                          replace any property value that have never been set on this
+                                                          person profile before now.{' '}
+                                                          <Link to="https://posthog.com/docs/getting-started/person-properties">
+                                                              Learn more
+                                                          </Link>
+                                                      </p>
+                                                  }
+                                              />
+                                          ),
+                                      }
+                                    : null,
                                 {
                                     key: 'raw',
                                     label: 'Raw',
                                     content: (
-                                        <pre className="text-xs text-muted-alt whitespace-pre-wrap">
+                                        <pre className="text-xs text-secondary whitespace-pre-wrap">
                                             {JSON.stringify(item.data.properties, null, 2)}
                                         </pre>
                                     ),
@@ -192,7 +292,7 @@ export function ItemEventDetail({ item }: ItemEventProps): JSX.Element {
                         />
                     )
                 ) : (
-                    <div className="text-muted-alt flex gap-1 items-center">
+                    <div className="text-secondary flex gap-1 items-center">
                         <Spinner textColored />
                         Loading...
                     </div>

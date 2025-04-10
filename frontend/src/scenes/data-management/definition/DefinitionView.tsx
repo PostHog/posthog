@@ -1,17 +1,18 @@
-import { TZLabel } from '@posthog/apps-common'
-import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { IconBadge, IconEye } from '@posthog/icons'
+import { IconHide } from '@posthog/icons'
+import { LemonDivider, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { getFilterLabel } from 'lib/taxonomy'
 import { useMemo } from 'react'
 import { definitionLogic, DefinitionLogicProps } from 'scenes/data-management/definition/definitionLogic'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
@@ -22,7 +23,8 @@ import { urls } from 'scenes/urls'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator, PropertyDefinition, ReplayTabs } from '~/types'
+import { getFilterLabel } from '~/taxonomy/helpers'
+import { FilterLogicalOperator, PropertyDefinition, PropertyDefinitionVerificationStatus, ReplayTabs } from '~/types'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -32,25 +34,68 @@ export const scene: SceneExport = {
     }),
 }
 
+type StatusProps = {
+    tagType: LemonTagType
+    label: string
+    icon: React.ReactNode
+    tooltip: string
+}
+
+const getStatusProps = (isProperty: boolean): Record<PropertyDefinitionVerificationStatus, StatusProps> => ({
+    verified: {
+        tagType: 'success',
+        label: 'Verified',
+        icon: <IconBadge />,
+        tooltip: `This ${
+            isProperty ? 'property' : 'event'
+        } is verified and can be used in filters and other selection components.`,
+    },
+    hidden: {
+        tagType: 'danger',
+        label: 'Hidden',
+        icon: <IconHide />,
+        tooltip: `This ${
+            isProperty ? 'property' : 'event'
+        } is hidden and will not appear in filters and other selection components.`,
+    },
+    visible: {
+        tagType: 'default',
+        label: 'Visible',
+        icon: <IconEye />,
+        tooltip: `This ${
+            isProperty ? 'property' : 'event'
+        } is visible and can be used in filters and other selection components.`,
+    },
+})
+
 export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     const logic = definitionLogic(props)
     const { definition, definitionLoading, definitionMissing, hasTaxonomyFeatures, singular, isEvent, isProperty } =
         useValues(logic)
     const { deleteDefinition } = useActions(logic)
 
-    const memoizedQuery = useMemo(
-        () => ({
+    const memoizedQuery = useMemo(() => {
+        const columnsToUse =
+            'default_columns' in definition && !!definition.default_columns?.length
+                ? definition.default_columns
+                : defaultDataTableColumns(NodeKind.EventsQuery)
+
+        return {
             kind: NodeKind.DataTableNode,
             source: {
                 kind: NodeKind.EventsQuery,
-                select: defaultDataTableColumns(NodeKind.EventsQuery),
+                select: columnsToUse,
                 event: definition.name,
             },
             full: true,
             showEventFilter: false,
-        }),
-        [definition.name]
-    )
+            showPersistentColumnConfigurator: true,
+            context: {
+                type: 'event_definition',
+                eventDefinitionId: definition.id,
+            },
+        }
+    }, [definition])
 
     if (definitionLoading) {
         return <SpinnerOverlay sceneLevel />
@@ -59,6 +104,10 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     if (definitionMissing) {
         return <NotFound object="event" />
     }
+
+    const definitionStatus = definition.verified ? 'verified' : definition.hidden ? 'hidden' : 'visible'
+
+    const statusProps = getStatusProps(isProperty)
 
     return (
         <>
@@ -110,12 +159,12 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                                             : TaxonomicFilterGroupType.EventProperties
                                                     )}
                                                 </strong>{' '}
-                                                will no longer appear in selectors. Associated data will remain
-                                                in the database.
+                                                will no longer appear in selectors. Associated data will remain in the
+                                                database.
                                             </p>
                                             <p>
-                                                This definition will be recreated if the {singular} is ever seen again
-                                                in the event stream.
+                                                This definition will be recreated if the ${singular} is ever seen again
+                                                in the event stream.
                                             </p>
                                         </>
                                     ),
@@ -151,7 +200,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                 }
             />
 
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 {definition.description || isProperty || hasTaxonomyFeatures ? (
                     <EditableField
                         multiline
@@ -174,8 +223,8 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                 />
 
                 <UserActivityIndicator at={definition.updated_at} by={definition.updated_by} />
-                <div className="flex flex-wrap items-center gap-2 text-muted-alt">
-                    <div>Raw event name:</div>
+                <div className="flex flex-wrap items-center gap-2 text-secondary">
+                    <div>{isProperty ? 'Property' : 'Event'} name:</div>
                     <LemonTag className="font-mono">{definition.name}</LemonTag>
                 </div>
             </div>
@@ -199,6 +248,20 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     </div>
                 )}
 
+                {definitionStatus && (
+                    <div className="flex-1 flex flex-col">
+                        <h5>Verification status</h5>
+                        <div>
+                            <Tooltip title={statusProps[definitionStatus].tooltip}>
+                                <LemonTag type={statusProps[definitionStatus].tagType}>
+                                    {statusProps[definitionStatus].icon}
+                                    {statusProps[definitionStatus].label}
+                                </LemonTag>
+                            </Tooltip>
+                        </div>
+                    </div>
+                )}
+
                 {isProperty && (
                     <div className="flex-1 flex flex-col">
                         <h5>Property type</h5>
@@ -218,6 +281,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                     <p>Get notified via Slack, webhooks or more whenever this event is captured.</p>
 
                     <LinkedHogFunctions
+                        logicKey="event-definitions"
                         type="destination"
                         filters={{
                             events: [
