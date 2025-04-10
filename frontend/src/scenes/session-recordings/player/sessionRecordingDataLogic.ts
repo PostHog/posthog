@@ -64,7 +64,8 @@ import { throttleCapture } from './snapshot-processing/throttle-capturing'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
-const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for.
+const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for session linked events.
+const FIVE_MINUTES_IN_MS = 5 * 60 * 1000 // +- before and after start and end of a recording to query for events related by person.
 const DEFAULT_REALTIME_POLLING_MILLIS = 3000
 const DEFAULT_V2_POLLING_INTERVAL_MS = 10000
 
@@ -442,8 +443,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     let relatedEventsQuery = hogql`
                             SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
                             FROM events
-                            WHERE timestamp > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
-                              AND timestamp < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
+                            WHERE timestamp > ${start.subtract(FIVE_MINUTES_IN_MS, 'ms')}
+                              AND timestamp < ${end.add(FIVE_MINUTES_IN_MS, 'ms')}
                               AND (empty($session_id) OR isNull($session_id)) AND properties.$lib != 'web'
                         `
                     if (person?.uuid) {

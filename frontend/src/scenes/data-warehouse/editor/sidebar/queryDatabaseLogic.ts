@@ -12,10 +12,10 @@ import {
 } from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQuery, DataWarehouseViewLink } from '~/types'
 
-import { dataWarehouseJoinsLogic } from '../external/dataWarehouseJoinsLogic'
-import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
-import { viewLinkLogic } from '../viewLinkLogic'
-import type { editorSceneLogicType } from './editorSceneLogicType'
+import { dataWarehouseJoinsLogic } from '../../external/dataWarehouseJoinsLogic'
+import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
+import { viewLinkLogic } from '../../viewLinkLogic'
+import type { queryDatabaseLogicType } from './queryDatabaseLogicType'
 
 const isDataWarehouseTable = (
     table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery
@@ -39,10 +39,9 @@ const isJoined = (field: DatabaseSchemaField): boolean => {
     return field.type === 'view' || field.type === 'lazy_table'
 }
 
-export const editorSceneLogic = kea<editorSceneLogicType>([
-    path(['scenes', 'data-warehouse', 'editor', 'editorSceneLogic']),
+export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
+    path(['scenes', 'data-warehouse', 'editor', 'queryDatabaseLogic']),
     actions({
-        setSidebarOverlayOpen: (isOpen: boolean) => ({ isOpen }),
         selectSchema: (schema: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery) => ({
             schema,
         }),
@@ -66,13 +65,6 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         ],
     })),
     reducers({
-        sidebarOverlayOpen: [
-            false,
-            {
-                setSidebarOverlayOpen: (_, { isOpen }) => isOpen,
-                selectSchema: (_, { schema }) => schema !== null,
-            },
-        ],
         selectedSchema: [
             null as DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery | null,
             {
