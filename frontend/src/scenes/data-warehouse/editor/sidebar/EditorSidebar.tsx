@@ -3,6 +3,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import posthog from 'posthog-js'
 import { useEffect, useMemo } from 'react'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
@@ -100,7 +101,10 @@ export const EditorSidebar = ({
             <div className="w-full">
                 <LemonTabs
                     activeKey={activeTab}
-                    onChange={setActiveTab}
+                    onChange={(key) => {
+                        posthog.capture('sql-editor-side-tab-change', { tab: key, oldTab: activeTab })
+                        setActiveTab(key)
+                    }}
                     tabs={tabs}
                     size="small"
                     barClassName="flex justify-center h-10 items-center"

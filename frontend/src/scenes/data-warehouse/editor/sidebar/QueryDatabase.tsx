@@ -11,7 +11,7 @@ import { Sidebar } from '~/layout/navigation-3000/components/Sidebar'
 import { SidebarNavbarItem } from '~/layout/navigation-3000/types'
 
 import { editorSceneLogic } from '../editorSceneLogic'
-import { queryDatabaseLogic } from '../queryDatabaseLogic'
+import { queryDatabaseLogic } from './queryDatabaseLogic'
 
 export const QueryDatabase = ({ isOpen }: { isOpen: boolean }): JSX.Element => {
     const navBarItem: SidebarNavbarItem = {

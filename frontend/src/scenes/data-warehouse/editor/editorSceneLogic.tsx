@@ -24,7 +24,7 @@ import { DataWarehouseSourceIcon, mapUrlToProvider } from '../settings/DataWareh
 import { viewLinkLogic } from '../viewLinkLogic'
 import type { editorSceneLogicType } from './editorSceneLogicType'
 import { multitabEditorLogic } from './multitabEditorLogic'
-import { queryDatabaseLogic } from './queryDatabaseLogic'
+import { queryDatabaseLogic } from './sidebar/queryDatabaseLogic'
 
 const dataWarehouseTablesfuse = new Fuse<DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable>([], {
     keys: [{ name: 'name', weight: 2 }],

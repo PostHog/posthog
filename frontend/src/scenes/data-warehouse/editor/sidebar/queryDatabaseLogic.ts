@@ -12,9 +12,9 @@ import {
 } from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQuery, DataWarehouseViewLink } from '~/types'
 
-import { dataWarehouseJoinsLogic } from '../external/dataWarehouseJoinsLogic'
-import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
-import { viewLinkLogic } from '../viewLinkLogic'
+import { dataWarehouseJoinsLogic } from '../../external/dataWarehouseJoinsLogic'
+import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
+import { viewLinkLogic } from '../../viewLinkLogic'
 import type { queryDatabaseLogicType } from './queryDatabaseLogicType'
 
 const isDataWarehouseTable = (
