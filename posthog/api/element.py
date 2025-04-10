@@ -128,28 +128,17 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         else:
             return response.Response(serialized_elements)
 
-    def _events_filter(self, request) -> tuple[Literal["$autocapture", "$rageclick"], ...]:
-        event_to_filter: tuple[Literal["$autocapture", "$rageclick"], ...] = ()
-        # when multiple includes are sent expects them as separate parameters
-        # e.g. ?include=a&include=b
-        events_to_include = request.query_params.getlist("include", [])
+    def _events_filter(self, request) -> tuple[Literal["$autocapture", "$rageclick", "$dead_click"], ...]:
+        SUPPORTED_EVENTS = {"$autocapture", "$rageclick", "$dead_click"}
+        events_to_include = set(request.query_params.getlist("include", []))
 
         if not events_to_include:
-            # sensible default when not provided
-            event_to_filter += ("$autocapture",)
-            event_to_filter += ("$rageclick",)
-        else:
-            if "$rageclick" in events_to_include:
-                events_to_include.remove("$rageclick")
-                event_to_filter += ("$rageclick",)
+            return tuple(SUPPORTED_EVENTS)
 
-            if "$autocapture" in events_to_include:
-                events_to_include.remove("$autocapture")
-                event_to_filter += ("$autocapture",)
+        if not events_to_include.issubset(SUPPORTED_EVENTS):
+            raise ValidationError("Only $autocapture, $rageclick, and $dead_click are supported.")
 
-            if events_to_include:
-                raise ValidationError("Only $autocapture and $rageclick are supported for now.")
-        return event_to_filter
+        return tuple(events_to_include)
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
