@@ -39,13 +39,12 @@ func (ts *Stats) keepStats(statsChan chan CountEvent) {
 	for event := range statsChan {
 		ts.Counter.Increment()
 		token := event.Token
-		if store, ok := ts.Store[token]; !ok {
+		store, ok := ts.Store[token]
+		if !ok {
 			store = expirable.NewLRU[string, noSpaceType](0, nil, COUNTER_TTL)
-			store.Add(event.DistinctID, noSpaceType{})
 			ts.Store[token] = store
-		} else {
-			ts.Store[token].Add(event.DistinctID, noSpaceType{})
 		}
+		store.Add(event.DistinctID, noSpaceType{})
 
 		ts.GlobalStore.Add(event.DistinctID, noSpaceType{})
 		handledEvents.Inc()
