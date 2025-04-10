@@ -564,7 +564,37 @@ class TestPathsV2PathsPerActorAndSessionAsTupleQuery(SharedSetup):
             ],
         )
 
-        # - Combines the timestamp and path item arrays into an array of tuples, including the previous step's timestamp.
-        # - Compares the two timestamps with the session interval to split the array into sessions.
+    def test_filters_out_duplicated_steps_within_a_session(self):
+        _ = journeys_for(
+            team=self.team,
+            events_by_person={
+                "person1": [
+                    {"event": "event1", "timestamp": "2023-02-10 08:00:00"},
+                    {"event": "event1", "timestamp": "2023-02-11 09:00:00"},  # duplicated
+                    {"event": "event2", "timestamp": "2023-02-12 10:00:00"},
+                    {"event": "event3", "timestamp": "2023-03-10 15:00:00"},
+                    {"event": "event3", "timestamp": "2023-03-11 16:00:00"},  # duplicated
+                    {"event": "event4", "timestamp": "2023-03-12 17:00:00"},
+                ],
+            },
+        )
+
+        query = PathsV2Query(dateRange=DateRange(date_from="-10w"), pathsV2Filter=PathsV2Filter(collapseEvents=True))
+        with freeze_time("2023-03-13T12:00:00Z"):
+            query_runner = self._get_query_runner(query=query)
+            paths_per_actor_and_session_as_tuple_query = query_runner._paths_per_actor_and_session_as_tuple_query()
+            response = execute_hogql_query(query=paths_per_actor_and_session_as_tuple_query, team=self.team)
+            rows = rows_as_dicts(response)
+
+        query = PathsV2Query()
+
+        self.assertEqual(
+            rows[0]["filtered_paths_array_per_session"],
+            [
+                (datetime(2023, 2, 10, 8, 0, tzinfo=pytz.UTC), "event1", None),
+                (datetime(2023, 2, 12, 10, 0, tzinfo=pytz.UTC), "event2", datetime(2023, 2, 11, 9, 0, tzinfo=pytz.UTC)),
+            ],
+        )
+
+        # - Adds dropoffs
         # - Keeps only the first `max_steps` steps of each session.
-        # - Flattens the sessions, annotated by a session index.
