@@ -1,5 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconBolt, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -16,6 +16,7 @@ import { multitabEditorLogic } from './multitabEditorLogic'
 import { OutputPane } from './OutputPane'
 import { QueryPane } from './QueryPane'
 import { QueryTabs } from './QueryTabs'
+import { editorSidebarLogic, EditorSidebarTab } from './sidebar/editorSidebarLogic'
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -44,6 +45,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
+    const { setActiveTab } = useActions(editorSidebarLogic)
 
     const isMaterializedView = !!editingView?.status
 
@@ -100,13 +102,31 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         icon={<IconDownload />}
                         type="tertiary"
                         size="xsmall"
+                        id={`sql-editor-query-window-update-${isMaterializedView ? 'materialize' : 'view'}`}
                     >
                         {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
                     </LemonButton>
                 ) : (
-                    <LemonButton onClick={() => saveAsView()} icon={<IconDownload />} type="tertiary" size="xsmall">
-                        Save as view
-                    </LemonButton>
+                    <>
+                        <LemonButton
+                            onClick={() => saveAsView()}
+                            icon={<IconDownload />}
+                            type="tertiary"
+                            size="xsmall"
+                            id="sql-editor-query-window-save-as-view"
+                        >
+                            Save as view
+                        </LemonButton>
+                        <LemonButton
+                            onClick={() => setActiveTab(EditorSidebarTab.QueryInfo)}
+                            icon={<IconBolt />}
+                            type="tertiary"
+                            size="xsmall"
+                            id="sql-editor-query-window-materialize"
+                        >
+                            Materialize
+                        </LemonButton>
+                    </>
                 )}
             </div>
             <QueryPane
