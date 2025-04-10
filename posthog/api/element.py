@@ -20,23 +20,6 @@ ELEMENT_STATS_TIME_HISTOGRAM = Histogram(
     "How long does it take to get element stats?",
 )
 
-ELEMENT_STATS_PARSING_TIME_HISTOGRAM = Histogram(
-    "element_stats_parsing_time_seconds",
-    "How long does it take to parse element stats?",
-)
-
-ELEMENT_STATS_SERIALIZE_TIME_HISTOGRAM = Histogram(
-    "element_stats_serialize_time_seconds",
-    "How long does it take to serialize element stats?",
-)
-
-DISTINCT_CHAIN_IN_RESPONSE_HISTOGRAM = Histogram(
-    "element_stats_distinct_chain_in_response",
-    "How many distinct chains are in the response?",
-    # default page is 10_000
-    buckets=(1, 10, 100, 1000, 2000, 4000, 6000, 8000, 10000),
-)
-
 
 class ElementSerializer(serializers.ModelSerializer):
     class Meta:
@@ -52,6 +35,13 @@ class ElementSerializer(serializers.ModelSerializer):
             "attributes",
             "order",
         ]
+
+
+class ElementStatsSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    hash = serializers.CharField(allow_null=True)
+    type = serializers.CharField()
+    elements = ElementSerializer(many=True)
 
 
 class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -129,29 +119,19 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     },
                 )
 
-            with timer("serialize_elements"):
-                distinct_chains = set()
-                serialized_elements = []
-                for elements in result[:limit]:
-                    distinct_chains.add(elements[0])  # Add the chain to our set
-                    with ELEMENT_STATS_PARSING_TIME_HISTOGRAM.time():
-                        parsed_chain = chain_to_elements(elements[0])
-
-                    parsed_elements = []
-                    with ELEMENT_STATS_SERIALIZE_TIME_HISTOGRAM.time():
-                        for element in parsed_chain:
-                            serialized = ElementSerializer(element).data
-                            parsed_elements.append(serialized)
-
-                    element_data = {
+            with timer("prepare_for_serialization"):
+                elements_data = [
+                    {
                         "count": elements[1],
                         "hash": None,
                         "type": elements[2],
-                        "elements": parsed_elements,
+                        "elements": chain_to_elements(elements[0]),
                     }
-                    serialized_elements.append(element_data)
+                    for elements in result[:limit]
+                ]
 
-            DISTINCT_CHAIN_IN_RESPONSE_HISTOGRAM.observe(len(distinct_chains))
+            with timer("serialize_elements"):
+                serialized_elements = ElementStatsSerializer(elements_data, many=True).data
 
             has_next = len(result) == limit + 1
             next_url = format_query_params_absolute_url(request, offset + limit) if has_next else None
