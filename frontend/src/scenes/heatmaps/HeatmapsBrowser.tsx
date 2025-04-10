@@ -199,6 +199,7 @@ export function ViewportChooser(): JSX.Element {
             <LemonSegmentedButton
                 onChange={setIframeWidth}
                 value={widthOverride ? widthOverride : undefined}
+                data-attr="viewport-chooser"
                 options={[
                     {
                         value: 320,

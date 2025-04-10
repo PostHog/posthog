@@ -86,7 +86,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         stopTrackingLoading: true,
         setReplayIframeData: (replayIframeData: ReplayIframeData | null) => ({ replayIframeData }),
         setReplayIframeDataURL: (url: string | null) => ({ url }),
-        setWidthOverride: (width: number | null) => ({ width }),
     }),
 
     loaders(({ values }) => ({
