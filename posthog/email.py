@@ -11,13 +11,13 @@ from django.db import transaction
 from django.template.loader import get_template
 from django.utils import timezone
 from django.utils.module_loading import import_string
-from exceptions import capture_exception
 from decimal import Decimal
 import requests
 
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
 from posthog.tasks.utils import CeleryQueue
+from posthog.exceptions import capture_exception
 
 
 def inline_css(value: str) -> str:

@@ -1,4 +1,3 @@
-import * as Sentry from '@sentry/react'
 import crypto from 'crypto'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
@@ -1505,7 +1504,6 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
         return localeTimeStringParts[localeTimeStringParts.length - 1]
     } catch (e) {
         posthog.captureException(e)
-        Sentry.captureException(e)
         return null
     }
 }
