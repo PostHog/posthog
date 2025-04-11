@@ -7506,7 +7506,9 @@ class FunnelsFilter(BaseModel):
     funnelFromStep: Optional[int] = None
     funnelOrderType: Optional[StepOrderValue] = StepOrderValue.ORDERED
     funnelStepReference: Optional[FunnelStepReference] = FunnelStepReference.TOTAL
-    funnelToStep: Optional[int] = None
+    funnelToStep: Optional[int] = Field(
+        default=None, description="To select the range of steps for trends & time to convert funnels, 0-indexed"
+    )
     funnelVizType: Optional[FunnelVizType] = FunnelVizType.STEPS
     funnelWindowInterval: Optional[int] = 14
     funnelWindowIntervalUnit: Optional[FunnelConversionWindowTimeUnit] = FunnelConversionWindowTimeUnit.DAY

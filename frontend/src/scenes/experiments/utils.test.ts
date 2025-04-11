@@ -19,11 +19,9 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     ChartDisplayType,
-    EntityType,
     ExperimentMetricMathType,
     FeatureFlagFilters,
     FeatureFlagType,
-    InsightType,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
@@ -35,7 +33,6 @@ import {
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
     filterToMetricConfig,
-    getMinimumDetectableEffect,
     getViewRecordingFilters,
     metricToFilter,
     metricToQuery,
@@ -67,96 +64,6 @@ describe('utils', () => {
             expect(percentageDistribution(19)).toEqual([6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5])
             expect(percentageDistribution(20)).toEqual([5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5])
         })
-    })
-
-    it('Funnel experiment returns correct MDE', async () => {
-        const metricType = InsightType.FUNNELS
-        const trendResults = [
-            {
-                action: {
-                    id: '$pageview',
-                    type: 'events' as EntityType,
-                    order: 0,
-                    name: '$pageview',
-                    custom_name: null,
-                    math: 'total',
-                    math_group_type_index: null,
-                },
-                aggregated_value: 0,
-                label: '$pageview',
-                count: 0,
-                data: [],
-                labels: [],
-                days: [],
-            },
-        ]
-
-        let conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(1)
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 1 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(1)
-
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.01 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(1)
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.99 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(1)
-
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.1 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(5)
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.9 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(5)
-
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.3 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(3)
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.7 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(3)
-
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.2 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(4)
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.8 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(4)
-
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.5 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(5)
-    })
-
-    it('Trend experiment returns correct MDE', async () => {
-        const metricType = InsightType.TRENDS
-        const conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0 }
-        const trendResults = [
-            {
-                action: {
-                    id: '$pageview',
-                    type: 'events' as EntityType,
-                    order: 0,
-                    name: '$pageview',
-                    custom_name: null,
-                    math: 'total',
-                    math_group_type_index: null,
-                },
-                aggregated_value: 0,
-                label: '$pageview',
-                count: 0,
-                data: [],
-                labels: [],
-                days: [],
-            },
-        ]
-
-        trendResults[0].count = 0
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(100)
-
-        trendResults[0].count = 200
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(100)
-
-        trendResults[0].count = 201
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(20)
-
-        trendResults[0].count = 1001
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(5)
-
-        trendResults[0].count = 20000
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(5)
     })
 
     it('transforms filters for a winning variant', async () => {
@@ -681,7 +588,7 @@ describe('metricToFilter', () => {
                     math_property: undefined,
                     math_hogql: undefined,
                     properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
-                    kind: NodeKind.EventsNode,
+                    kind: NodeKind.ActionsNode,
                 },
             ],
             data_warehouse: [],
@@ -709,8 +616,8 @@ describe('metricToFilter', () => {
             actions: [],
             data_warehouse: [
                 {
-                    kind: NodeKind.EventsNode,
-                    id: 'mysql_payments',
+                    kind: NodeKind.ExperimentDataWarehouseNode,
+                    id: undefined,
                     name: 'mysql_payments',
                     type: 'data_warehouse',
                     timestamp_field: 'timestamp',
@@ -719,6 +626,7 @@ describe('metricToFilter', () => {
                     math: ExperimentMetricMathType.TotalCount,
                     math_property: undefined,
                     math_hogql: undefined,
+                    properties: undefined,
                 },
             ],
         })
@@ -768,7 +676,7 @@ describe('filterToMetricConfig', () => {
         const action = {
             id: '8',
             name: 'jan-16-running payment action',
-            kind: 'EventsNode',
+            kind: NodeKind.ActionsNode,
             type: 'actions',
             math: 'total',
             properties: [

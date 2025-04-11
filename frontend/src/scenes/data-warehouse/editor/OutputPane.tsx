@@ -390,7 +390,7 @@ export function OutputPane(): JSX.Element {
                     {activeTab === OutputTab.Results && (
                         <LemonButton
                             disabledReason={!hasColumns ? 'No results to visualize' : undefined}
-                            type="primary"
+                            type="secondary"
                             onClick={() => setActiveTab(OutputTab.Visualization)}
                         >
                             Visualize
