@@ -329,7 +329,7 @@ class TestTaxonomyAgentPlannerToolsNode(ClickhouseTestMixin, APIBaseTest):
                     messages=[AssistantToolCallMessage(content="help", tool_call_id="1")], root_tool_call_id="", plan=""
                 ),
             ),
-            "root",
+            "end",
         )
 
     def test_node_terminates_after_max_iterations(self):

@@ -77,7 +77,7 @@ class TestInkeepProvider(TestCase):
         self.assertEqual(len(responses), 1)
         error_response = json.loads(responses[0].split("data: ")[1])
         self.assertEqual(error_response["type"], "error")
-        self.assertEqual(error_response["error"], "Inkeep API error: API Error")
+        self.assertEqual(error_response["error"], "Inkeep API error")
 
     @patch("openai.OpenAI")
     def test_stream_response_unexpected_error(self, mock_openai):
@@ -91,7 +91,7 @@ class TestInkeepProvider(TestCase):
         self.assertEqual(len(responses), 1)
         error_response = json.loads(responses[0].split("data: ")[1])
         self.assertEqual(error_response["type"], "error")
-        self.assertEqual(error_response["error"], "Unexpected error: Unexpected Error")
+        self.assertEqual(error_response["error"], "Unexpected error")
 
     @patch("openai.OpenAI")
     def test_stream_response_empty_response(self, mock_openai):

@@ -68,7 +68,7 @@ class TestCodestralProvider(TestCase):
         # Since the provider doesn't have explicit error handling yet,
         # we expect the error to propagate
         self.assertEqual(len(responses), 1)
-        self.assertEqual(responses[0], 'data: {"type": "error", "error": "API Error"}\n\n')
+        self.assertEqual(responses[0], 'data: {"type": "error", "error": "Codestral API error"}\n\n')
 
     @patch("mistralai.Mistral")
     def test_stream_fim_response_empty_response(self, mock_mistral):
