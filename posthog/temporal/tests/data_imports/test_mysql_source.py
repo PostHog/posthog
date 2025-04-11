@@ -26,7 +26,6 @@ import datetime as dt
 import operator
 import os
 import random
-import string
 import uuid
 
 import pymysql
@@ -206,7 +205,6 @@ def mysql_partition_table(mysql_connection, partition_table_name, partition_tabl
         """)
 
         for _ in range(partition_table_rows):
-            value = "".join(random.choice(string.ascii_lowercase) for _ in range(10))
             value = random.randint(0, 2**32 - 1)
             cursor.execute(
                 f"INSERT INTO {partition_table_name} (value) VALUES ({value})",
