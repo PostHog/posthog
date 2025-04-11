@@ -114,6 +114,7 @@ const errorTrackingQueryResponse: ErrorTrackingQueryResponse = {
     ].map(({ occurrences, sessions, users, ...props }) => ({
         ...props,
         last_seen: '2024-07-07T00:00:00.000000-00:00',
+        library: 'web',
         aggregations: {
             occurrences: occurrences,
             sessions: sessions,

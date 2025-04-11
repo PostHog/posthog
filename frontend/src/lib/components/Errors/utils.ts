@@ -12,7 +12,7 @@ export function stacktraceHasInAppFrames(stacktrace: ErrorTrackingException['sta
     return stacktrace?.frames?.some(({ in_app }) => in_app) ?? false
 }
 
-export function getRuntimeFromLib(lib: string): ErrorTrackingRuntime {
+export function getRuntimeFromLib(lib?: string | null): ErrorTrackingRuntime {
     switch (lib) {
         case 'posthog-python':
             return 'python'
