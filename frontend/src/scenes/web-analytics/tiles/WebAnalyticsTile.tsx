@@ -47,6 +47,7 @@ import {
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
 
+import { ErrorTrackingButton } from '../CrossSellButtons/ErrorTrackingButton'
 import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
 import { ReplayButton } from '../CrossSellButtons/ReplayButton'
 import { pageReportsLogic } from '../pageReportsLogic'
@@ -423,6 +424,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
                             value={value}
                         />
                         <HeatmapButton breakdownBy={breakdownBy} value={value} />
+                        <ErrorTrackingButton breakdownBy={breakdownBy} value={value} />
                     </div>
                 )
             },

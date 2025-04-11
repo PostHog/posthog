@@ -1778,38 +1778,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     !conversionGoal
                         ? {
                               kind: 'query',
-                              title: 'Frustrated Pages',
-                              tileId: TileId.FRUSTRATED_PAGES,
-                              layout: {
-                                  colSpanClassName: 'md:col-span-2',
-                              },
-                              query: {
-                                  full: true,
-                                  kind: NodeKind.DataTableNode,
-                                  source: {
-                                      kind: NodeKind.WebStatsTableQuery,
-                                      breakdownBy: WebStatsBreakdown.FrustrationMetrics,
-                                      dateRange,
-                                      filterTestAccounts,
-                                      properties: webAnalyticsFilters,
-                                      compareFilter,
-                                  },
-                                  embedded: true,
-                                  showActions: true,
-                              },
-                              insightProps: createInsightProps(TileId.FRUSTRATED_PAGES, 'table'),
-                              canOpenModal: true,
-                              canOpenInsight: true,
-                              docs: {
-                                  title: 'Frustrated Pages',
-                                  description:
-                                      'See which pages are causing frustration by monitoring rage clicks, dead clicks, and errors.',
-                              },
-                          }
-                        : null,
-                    !conversionGoal
-                        ? {
-                              kind: 'query',
                               tileId: TileId.RETENTION,
                               title: 'Retention',
                               layout: {
@@ -1962,6 +1930,40 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           </div>
                                       </>
                                   ),
+                              },
+                          }
+                        : null,
+                    !conversionGoal
+                        ? {
+                              kind: 'query',
+                              title: 'Frustrated Pages',
+                              tileId: TileId.FRUSTRATED_PAGES,
+                              layout: {
+                                  colSpanClassName: 'md:col-span-2',
+                              },
+                              query: {
+                                  full: true,
+                                  kind: NodeKind.DataTableNode,
+                                  source: {
+                                      kind: NodeKind.WebStatsTableQuery,
+                                      breakdownBy: WebStatsBreakdown.FrustrationMetrics,
+                                      dateRange,
+                                      filterTestAccounts,
+                                      properties: webAnalyticsFilters,
+                                      compareFilter,
+                                      limit: 10,
+                                  },
+                                  embedded: true,
+                                  showActions: true,
+                                  hiddenColumns: ['views'],
+                              },
+                              insightProps: createInsightProps(TileId.FRUSTRATED_PAGES, 'table'),
+                              canOpenModal: true,
+                              canOpenInsight: false,
+                              docs: {
+                                  title: 'Frustrated Pages',
+                                  description:
+                                      'See which pages are causing frustration by monitoring rage clicks, dead clicks, and errors.',
                               },
                           }
                         : null,

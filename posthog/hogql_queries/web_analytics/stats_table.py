@@ -317,7 +317,6 @@ ON counts.breakdown_value = bounce.breakdown_value
             # Base selects, always returns the breakdown value, and the total number of visitors
             selects = [
                 ast.Alias(alias="context.columns.breakdown_value", expr=self._processed_breakdown_value()),
-                self._period_comparison_tuple("filtered_pageview_count", "context.columns.views", "sum"),
                 self._period_comparison_tuple("rage_clicks_count", "context.columns.rage_clicks", "sum"),
                 self._period_comparison_tuple("dead_clicks_count", "context.columns.dead_clicks", "sum"),
                 self._period_comparison_tuple("errors_count", "context.columns.errors", "sum"),
