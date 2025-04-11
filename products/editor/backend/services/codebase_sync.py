@@ -124,16 +124,25 @@ class CodebaseSyncService:
         # Empty string as the schema for this field is non-nullable.
         self.branch = branch or ""
 
-    def sync(self, tree: list[ArtifactNode]) -> list[str]:
+    def sync(self, client_tree: list[ArtifactNode]) -> list[str]:
         """
         Sync the server tree with the client tree.
 
         Returns:
             List of artifact ids (file hashes) that were diverging.
         """
-        if not tree:
+        if not client_tree:
             return []
 
+        server_tree = self._retrieve_server_tree()
+
+        # handle new codebase
+        if not server_tree:
+            return self._sync_new_tree(client_tree)
+        else:
+            return self._sync_existing_tree(client_tree, server_tree)
+
+    def _retrieve_server_tree(self) -> list[CodebaseTreeResponseItem]:
         query_runner = CodebaseTreeQueryRunner(
             query=CodebaseTreeQuery(
                 userId=self.user.id,
@@ -146,12 +155,7 @@ class CodebaseSyncService:
         response = query_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         if not isinstance(response, CachedCodebaseTreeQueryResponse):
             raise ValueError("Failed to load the synced tree.")
-
-        # handle new codebase
-        if not response.results:
-            return self._sync_new_tree(tree)
-        else:
-            return self._sync_existing_tree(tree, response.results)
+        return response.results
 
     def _sync_existing_tree(
         self, client_tree_nodes: list[SerializedArtifact], server_nodes: list[CodebaseTreeResponseItem]

@@ -37,7 +37,7 @@ def insert_embeddings(
     file_path: str,
     embeddings: EmbeddingResult,
 ):
-    query = "INSERT INTO codebase_embeddings (team_id, user_id, codebase_id, artifact_id, chunk_id, vector, properties) VALUES"
+    query = "INSERT INTO codebase_embeddings (team_id, user_id, codebase_id, artifact_id, chunk_id, vector, properties) VALUES "
     args = {
         "team_id": team_id,
         "user_id": user_id,
