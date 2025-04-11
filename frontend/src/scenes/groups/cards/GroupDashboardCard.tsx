@@ -18,10 +18,13 @@ function GroupDetailDashboard({
     groupData: Group
 }): JSX.Element {
     const { groupTypeName } = useValues(groupLogic)
-    const { setProperties } = useActions(dashboardLogic({ id: groupTypeDetailDashboard }))
+    const { setProperties, setLoadLayoutFromServerOnPreview } = useActions(
+        dashboardLogic({ id: groupTypeDetailDashboard })
+    )
 
     useEffect(() => {
         if (groupTypeDetailDashboard && groupData) {
+            setLoadLayoutFromServerOnPreview(true)
             setProperties([
                 {
                     type: PropertyFilterType.EventMetadata,
