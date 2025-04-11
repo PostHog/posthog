@@ -52,7 +52,7 @@ export const ErrorTrackingButton = ({ breakdownBy, value }: ErrorTrackingButtonP
                 void addProductIntentForCrossSell({
                     from: ProductKey.WEB_ANALYTICS,
                     to: ProductKey.ERROR_TRACKING,
-                    intent_context: ProductIntentContext.WEB_ANALYTICS_FRUSTRATED_PAGES,
+                    intent_context: ProductIntentContext.WEB_ANALYTICS_FRUSTRATING_PAGES,
                 })
             }}
         />
