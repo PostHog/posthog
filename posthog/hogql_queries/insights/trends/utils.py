@@ -29,6 +29,7 @@ def get_properties_chain(
         return [*breakdown_field.split(".")]
 
     if breakdown_type == "data_warehouse_person_property":
-        return ["person", *breakdown_field.split(".")]
+        parts = breakdown_field.rsplit(".", maxsplit=1)
+        return ["person", *parts]
 
     return ["properties", breakdown_field]
