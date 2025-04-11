@@ -62,8 +62,10 @@ class CodebaseTreeQueryRunner(QueryRunner):
                     argMax(DISTINCT artifact_id, version) AS synced_artifact_id
                 FROM
                     codebase_embeddings
-                WHERE
+                PREWHERE
                     is_deleted = 0 AND user_id = {user_id} AND codebase_id = {codebase_id}
+                GROUP BY
+                    artifact_id
             ) AS embeddings
             ON
                 codebase_catalog.artifact_id = embeddings.synced_artifact_id

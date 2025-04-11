@@ -36,19 +36,21 @@ class CodebaseSyncSerializer(serializers.Serializer):
     branch = serializers.CharField(required=False)
 
 
+class CodebaseSyncResponseSerializer(serializers.Serializer):
+    diverging_files = serializers.ListField(child=serializers.CharField())
+
+
 class CodebaseArtifactSerializer(serializers.Serializer):
     id = serializers.CharField()
     type = serializers.ChoiceField(choices=["file", "dir"])
-    parent_id = serializers.CharField(required=False)
-    branch = serializers.CharField(required=False)
     path = serializers.CharField()
     content = serializers.CharField(max_length=4_000_000)  # Roughly 1 million tokens.
 
 
 class CodebaseSyncViewset(TeamAndOrgViewSetMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     scope_object = "editor_artifacts"
-    scope_object_read_actions = ["sync"]
-    scope_object_write_actions = ["sync_artifact"]
+    scope_object_read_actions = []
+    scope_object_write_actions = ["sync", "upload_artifact"]
 
     queryset = Codebase.objects.all()
 
@@ -60,7 +62,7 @@ class CodebaseSyncViewset(TeamAndOrgViewSetMixin, mixins.CreateModelMixin, views
     def get_serializer_class(self):
         if self.action == "sync":
             return CodebaseSyncSerializer
-        if self.action == "sync_artifact":
+        if self.action == "upload_artifact":
             return CodebaseArtifactSerializer
         return CodebaseSerializer
 
@@ -71,11 +73,11 @@ class CodebaseSyncViewset(TeamAndOrgViewSetMixin, mixins.CreateModelMixin, views
         serializer.is_valid(raise_exception=True)
         validated_data = serializer.validated_data
         service = CodebaseSyncService(self.team, cast(User, request.user), codebase, validated_data.get("branch"))
-        leaf_nodes_to_sync = service.sync(validated_data["tree"])
-        return Response(leaf_nodes_to_sync)
+        diverging_files = service.sync(validated_data["tree"])
+        return Response(CodebaseSyncResponseSerializer({"diverging_files": diverging_files}).data)
 
-    @action(detail=True, methods=["POST"], url_path="artifact/sync")
-    def sync_artifact(self, request: Request, *args, **kwargs):
+    @action(detail=True, methods=["POST"])
+    def upload_artifact(self, request: Request, *args, **kwargs):
         codebase: Codebase = self.get_object()
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -85,9 +87,7 @@ class CodebaseSyncViewset(TeamAndOrgViewSetMixin, mixins.CreateModelMixin, views
             self.team.id,
             cast(User, request.user).id,
             codebase.id,
-            branch=validated_data.get("branch"),
             artifact_id=validated_data["id"],
-            parent_artifact_id=validated_data.get("parent_id"),
             file_path=validated_data["path"],
             file_content=validated_data["content"],
         )

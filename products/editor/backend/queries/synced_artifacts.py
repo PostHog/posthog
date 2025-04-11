@@ -49,6 +49,8 @@ class SyncedArtifactsQueryRunner(QueryRunner):
                 codebase_embeddings
             WHERE
                 is_deleted = 0 AND user_id = {user_id} AND codebase_id = {codebase_id} AND artifact_id IN {artifact_ids}
+            GROUP BY
+                artifact_id
             """,
             placeholders={
                 "user_id": ast.Constant(value=self.query.userId),

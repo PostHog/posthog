@@ -125,6 +125,12 @@ class CodebaseSyncService:
         self.branch = branch or ""
 
     def sync(self, tree: list[ArtifactNode]) -> list[str]:
+        """
+        Sync the server tree with the client tree.
+
+        Returns:
+            List of artifact ids (file hashes) that were diverging.
+        """
         if not tree:
             return []
 
