@@ -458,39 +458,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             }
         }, 100)
 
-        // Add mutation observer
-        const observer = new MutationObserver((mutations) => {
-            const elements = values.countedElements.map((e) => e.element)
-
-            // Check affected elements
-            const changedElements = new Set<HTMLElement>()
-            mutations.forEach((mutation) => {
-                elements.forEach((element) => {
-                    if (mutation.target === element || mutation.target.contains(element)) {
-                        changedElements.add(element)
-                    }
-                })
-            })
-
-            // Update metrics for changed elements
-            changedElements.forEach((element) => {
-                const visible = isElementVisible(element)
-                const rect = element.getBoundingClientRect()
-                actions.updateElementMetrics(element, visible, rect)
-            })
-        })
-
-        // Start observing
-        observer.observe(document.body, {
-            attributes: true,
-            childList: true,
-            subtree: true,
-            characterData: true,
-        })
-
-        // Store for cleanup
-        cache.observer = observer
-
         // we bundle the whole app with the toolbar, which means we don't need ES5 support
         // so we can use IntersectionObserver
         // eslint-disable-next-line compat/compat
