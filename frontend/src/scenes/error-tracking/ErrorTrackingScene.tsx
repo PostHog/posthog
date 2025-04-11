@@ -174,7 +174,8 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                 </Link>
                 <div className="line-clamp-1 text-secondary">{record.description}</div>
                 <div className="line-clamp-1 text-secondary italic">
-                    {record.function} in {sourceDisplay(record.source)}
+                    {record.function}
+                    {record.source ? <> in {sourceDisplay(record.source)}</> : <></>}
                 </div>
                 <div className="flex gap-1 items-center text-secondary">
                     <StatusIndicator size="xsmall" status={record.status} />
