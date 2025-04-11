@@ -27,7 +27,7 @@ const configWithSentry = (config: Partial<PostHogConfig>): Partial<PostHogConfig
 export function loadPostHogJS(): void {
     if (window.JS_POSTHOG_API_KEY) {
         const PREVIEW_FLAGS_V2_CONFIG = {
-            rolloutPercentage: 1,
+            rolloutPercentage: 20,
             includedHashes: new Set(['593cb24f9928bab39ec383c06c908481880d5099']),
         }
 
