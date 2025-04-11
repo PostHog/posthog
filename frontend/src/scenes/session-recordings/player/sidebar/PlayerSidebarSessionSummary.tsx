@@ -62,7 +62,6 @@ function SessionSummary(): JSX.Element {
     })
 
     return (
-        // TODO Change with a proper limited instead of manual rem
         <div className="flex flex-col xl:max-w-96">
             {sessionSummary ? (
                 <>
