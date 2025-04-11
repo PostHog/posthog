@@ -94,7 +94,9 @@ class SessionSummaryPromptData:
         raw_session_metadata = raw_session_metadata.copy()  # Avoid mutating the original
         for ef in ("distinct_id", "viewed", "recording_duration", "storage", "ongoing"):
             raw_session_metadata.pop(ef, None)
-        # Assuming start/end times are always present
+        # Start/end times should be always present
+        if "start_time" not in raw_session_metadata or "end_time" not in raw_session_metadata:
+            raise ValueError(f"start_time and end_time are required in session metadata: {raw_session_metadata}")
         start_time = prepare_datetime(raw_session_metadata["start_time"])
         end_time = prepare_datetime(raw_session_metadata["end_time"])
         return SessionSummaryMetadata(

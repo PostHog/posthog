@@ -13,7 +13,7 @@ def load_session_recording_events_from_csv(file_path: str) -> tuple[list[str], l
     with open(file_path) as f:
         reader = csv.reader(f)
         headers = next(reader)
-        # Ensure chronolical order of the events
+        # Ensure chronological order of the events
         timestamp_index = get_column_index(headers, "timestamp")
         if not timestamp_index:
             raise ValueError("Timestamp column not found in the CSV")

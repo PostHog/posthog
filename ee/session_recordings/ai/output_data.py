@@ -137,6 +137,10 @@ def enrich_raw_session_summary_with_events_meta(
             enriched_key_event["milliseconds_since_start"] = ms_since_start
         # Add full URL of the event page
         current_url = event_mapping_data[current_url_index]
+        if not current_url:
+            raise ValueError(
+                f"Current URL not found for event_id {event_id} when summarizing session_id {session_id}: {event_mapping_data}"
+            )
         full_current_url = current_url and url_mapping_reversed.get(current_url)
         if full_current_url:
             enriched_key_event["current_url"] = full_current_url
@@ -150,7 +154,7 @@ def enrich_raw_session_summary_with_events_meta(
         if event_type:
             enriched_key_event["event_type"] = event_type
         enriched_key_events.append(enriched_key_event)
-    # Ensure chronolical order of the events
+    # Ensure chronological order of the events
     enriched_key_events.sort(key=lambda x: x["milliseconds_since_start"])
     # Validate the enriched content against the schema
     summary_to_enrich = dict(raw_session_summary.data)
