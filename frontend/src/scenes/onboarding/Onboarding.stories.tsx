@@ -40,7 +40,7 @@ const meta: Meta = {
                 '/api/organizations/:organization_id/pipeline_transformations/': plugins,
             },
             patch: {
-                '/api/environments/@current/add_product_intent/': {},
+                '/api/projects/@current/add_product_intent/': {},
             },
         }),
     ],

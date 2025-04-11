@@ -5,7 +5,7 @@ describe('ReloadInsight component', () => {
     })
 
     it('saves the query to the URL and localStorage, and reloads it when prompted', () => {
-        cy.intercept('POST', /api\/environments\/\d+\/query\//).as('loadNewQueryInsight')
+        cy.intercept('POST', /api\/projects\/\d+\/query\//).as('loadNewQueryInsight')
 
         // Visit the new insight creation page
         cy.visit('/insights/new')

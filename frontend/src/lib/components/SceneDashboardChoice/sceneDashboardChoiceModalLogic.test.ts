@@ -33,7 +33,7 @@ describe('sceneDashboardChoiceModalLogic', () => {
                 },
             },
             patch: {
-                '/api/environments/:team': (req) => {
+                '/api/projects/:team': (req) => {
                     const data = req.body as any
                     return [
                         200,

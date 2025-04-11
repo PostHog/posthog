@@ -100,7 +100,7 @@ class Command(BaseCommand):
             days_past=options["days_past"],
             days_future=options["days_future"],
             n_clusters=options["n_clusters"],
-            group_type_index_offset=GroupTypeMapping.objects.filter(project_id=existing_team.project_id).count()
+            group_type_index_offset=GroupTypeMapping.objects.filter(team_id=existing_team.id).count()
             if existing_team
             else 0,
         )

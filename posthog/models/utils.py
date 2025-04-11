@@ -39,7 +39,7 @@ class UUIDT(uuid.UUID):
     to UUID v4 (as the complete randomness of v4 makes its indexing performance suboptimal),
     and to UUID v1 (as despite being time-based it can't be used practically for sorting by generation time).
 
-    Order can be messed up if system clock is changed or if more than 65 536 IDs are generated per millisecond
+    Order can be messed up if system clock is changed or if more than 65 536 IDs are generated per millisecond
     (that's over 5 trillion events per day), but it should be largely safe to assume that these are time-sortable.
 
     Anatomy:

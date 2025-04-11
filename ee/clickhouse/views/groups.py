@@ -44,9 +44,7 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args, **kwargs):
         for row in cast(list[dict], request.data):
-            instance = GroupTypeMapping.objects.get(
-                project_id=self.team.project_id, group_type_index=row["group_type_index"]
-            )
+            instance = GroupTypeMapping.objects.get(team_id=self.team.id, group_type_index=row["group_type_index"])
             serializer = self.get_serializer(instance, data=row)
             serializer.is_valid(raise_exception=True)
             serializer.save()
@@ -57,7 +55,7 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets
     def create_detail_dashboard(self, request: request.Request, **kw):
         try:
             group_type_mapping = GroupTypeMapping.objects.get(
-                project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
+                team_id=self.team.id, group_type_index=request.data["group_type_index"]
             )
         except GroupTypeMapping.DoesNotExist:
             raise NotFound(detail="Group type not found")
@@ -77,7 +75,7 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets
     def set_default_columns(self, request: request.Request, **kw):
         try:
             group_type_mapping = GroupTypeMapping.objects.get(
-                project_id=self.team.project_id, group_type_index=request.data["group_type_index"]
+                team_id=self.team.id, group_type_index=request.data["group_type_index"]
             )
         except GroupTypeMapping.DoesNotExist:
             raise NotFound(detail="Group type not found")
@@ -210,7 +208,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                     )
             try:
                 group_type_mapping = GroupTypeMapping.objects.get(
-                    project_id=self.team.project_id, group_type_index=group.group_type_index
+                    team_id=self.team.id, group_type_index=group.group_type_index
                 )
             except GroupTypeMapping.DoesNotExist:
                 raise NotFound()
@@ -301,7 +299,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                     )
             try:
                 group_type_mapping = GroupTypeMapping.objects.get(
-                    project_id=self.team.project_id, group_type_index=group.group_type_index
+                    team_id=self.team.id, group_type_index=group.group_type_index
                 )
             except GroupTypeMapping.DoesNotExist:
                 raise NotFound()

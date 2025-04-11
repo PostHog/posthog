@@ -140,6 +140,13 @@ class TeamManager(models.Manager):
                 if name := kwargs.get("name"):
                     project_kwargs["name"] = name
                 kwargs["project"] = Project.objects.db_manager(self.db).create(id=kwargs["id"], **project_kwargs)
+            else:
+                # NOTE: Interim code until we remove Project - we fill the parent_team_id field
+                project_id = kwargs.get("project_id", kwargs.get("project").id)
+
+                if project_id != kwargs["id"]:
+                    kwargs["parent_team_id"] = project_id
+
             return super().create(**kwargs)
 
     def get_team_from_token(self, token: Optional[str]) -> Optional["Team"]:
@@ -568,6 +575,47 @@ class Team(UUIDClassicModel):
                 )
             )
         return User.objects.filter(is_active=True, id__in=user_ids_queryset)
+
+    @property
+    def root_name(self) -> str:
+        # The "project" name is always derived from the root
+        name = self.root_team.name
+        parts = name.split(">>")
+
+        if len(parts) == 2:
+            return parts[0].strip()
+
+        return name
+
+    @property
+    def environment_name(self) -> str:
+        # The "environment" name is optional and is whatever is after the split indicator.
+        parts = self.name.split(">>")
+
+        if len(parts) == 2:
+            return parts[1].strip()
+
+        return self.name
+
+    @property
+    def root_team(self) -> "Team":
+        return self.parent_team if self.parent_team else self
+
+    @property
+    def root_team_id(self) -> int:
+        return self.parent_team_id if self.parent_team_id else self.id
+
+    @property
+    def child_teams(self) -> QuerySet["Team"]:
+        if self.parent_team_id:
+            # This team is a child team, so it has no child teams
+            return Team.objects.none()
+
+        return Team.objects.filter(parent_team_id=self.id)
+
+    @property
+    def all_teams(self) -> QuerySet["Team"]:
+        return [self, *list(self.child_teams)]
 
     def __str__(self):
         if self.name:

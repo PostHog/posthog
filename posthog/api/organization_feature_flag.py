@@ -65,7 +65,7 @@ class OrganizationFeatureFlagView(
 
         # Fetch the flag to copy
         try:
-            flag_to_copy = FeatureFlag.objects.get(key=feature_flag_key, team__project_id=from_project)
+            flag_to_copy = FeatureFlag.objects.get(key=feature_flag_key, team_id=from_project)
         except FeatureFlag.DoesNotExist:
             return Response({"error": "Feature flag to copy does not exist."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -81,7 +81,7 @@ class OrganizationFeatureFlagView(
 
         for target_project_id in target_project_ids:
             # Target project does not exist
-            target_team = Team.objects.filter(project_id=target_project_id).first()
+            target_team = Team.objects.filter(id=target_project_id).first()
             if target_team is None:
                 failed_projects.append(
                     {
@@ -109,7 +109,7 @@ class OrganizationFeatureFlagView(
 
                     # search in destination project by name
                     destination_cohort = Cohort.objects.filter(
-                        name=original_cohort.name, team__project_id=target_project_id, deleted=False
+                        name=original_cohort.name, team_id=target_project_id, deleted=False
                     ).first()
 
                     # create new cohort in the destination project
@@ -181,7 +181,7 @@ class OrganizationFeatureFlagView(
             }
 
             existing_flag = FeatureFlag.objects.filter(
-                key=feature_flag_key, team__project_id=target_project_id, deleted=False
+                key=feature_flag_key, team_id=target_project_id, deleted=False
             ).first()
             # Update existing flag
             if existing_flag:

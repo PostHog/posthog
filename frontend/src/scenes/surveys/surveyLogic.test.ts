@@ -229,7 +229,7 @@ describe('multiple choice survey logic', () => {
                 '/api/projects/:team/surveys/responses_count': () => [200, {}],
             },
             post: {
-                '/api/environments/:team_id/query/': () => [
+                '/api/projects/:team_id/query/': () => [
                     200,
                     {
                         results: [
@@ -279,7 +279,7 @@ describe('single choice survey logic', () => {
                 '/api/projects/:team/surveys/responses_count': () => [200, {}],
             },
             post: {
-                '/api/environments/:team_id/query/': () => [
+                '/api/projects/:team_id/query/': () => [
                     200,
                     {
                         results: [
@@ -329,7 +329,7 @@ describe('multiple choice survey with open choice logic', () => {
                 '/api/projects/:team/surveys/responses_count': () => [200, {}],
             },
             post: {
-                '/api/environments/:team_id/query/': () => [
+                '/api/projects/:team_id/query/': () => [
                     200,
                     {
                         results: [
@@ -379,7 +379,7 @@ describe('single choice survey with open choice logic', () => {
                 '/api/projects/:team/surveys/responses_count': () => [200, {}],
             },
             post: {
-                '/api/environments/:team_id/query/': () => [
+                '/api/projects/:team_id/query/': () => [
                     200,
                     {
                         results: [

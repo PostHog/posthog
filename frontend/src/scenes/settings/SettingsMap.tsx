@@ -2,7 +2,6 @@ import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
 import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -69,9 +68,7 @@ import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences
 import { OrganizationLogo } from './organization/OrgLogo'
 import { RoleBasedAccess } from './organization/Permissions/RoleBasedAccess'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
-import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
-import { ProjectDisplayName } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
@@ -85,8 +82,8 @@ import { UserDetails } from './user/UserDetails'
 export const SETTINGS_MAP: SettingSection[] = [
     // ENVIRONMENT
     {
-        level: 'environment',
-        id: 'environment-details',
+        level: 'project',
+        id: 'project-details',
         title: 'General',
         settings: [
             {
@@ -117,8 +114,8 @@ export const SETTINGS_MAP: SettingSection[] = [
         ],
     },
     {
-        level: 'environment',
-        id: 'environment-autocapture',
+        level: 'project',
+        id: 'project-autocapture',
         title: 'Autocapture & heatmaps',
 
         settings: [
@@ -150,8 +147,8 @@ export const SETTINGS_MAP: SettingSection[] = [
         ],
     },
     {
-        level: 'environment',
-        id: 'environment-product-analytics',
+        level: 'project',
+        id: 'project-product-analytics',
         title: 'Product analytics',
         settings: [
             {
@@ -228,8 +225,8 @@ export const SETTINGS_MAP: SettingSection[] = [
         ],
     },
     {
-        level: 'environment',
-        id: 'environment-web-analytics',
+        level: 'project',
+        id: 'project-web-analytics',
         title: 'Web analytics',
         settings: [
             {
@@ -274,8 +271,8 @@ export const SETTINGS_MAP: SettingSection[] = [
         ],
     },
     {
-        level: 'environment',
-        id: 'environment-replay',
+        level: 'project',
+        id: 'project-replay',
         title: 'Session replay',
         settings: [
             {
@@ -313,8 +310,8 @@ export const SETTINGS_MAP: SettingSection[] = [
         ],
     },
     {
-        level: 'environment',
-        id: 'environment-surveys',
+        level: 'project',
+        id: 'project-surveys',
         title: 'Surveys',
         settings: [
             {
@@ -325,8 +322,8 @@ export const SETTINGS_MAP: SettingSection[] = [
         ],
     },
     {
-        level: 'environment',
-        id: 'environment-feature-flags',
+        level: 'project',
+        id: 'project-feature-flags',
         title: 'Feature flags',
         settings: [
             {
@@ -337,8 +334,8 @@ export const SETTINGS_MAP: SettingSection[] = [
         ],
     },
     {
-        level: 'environment',
-        id: 'environment-error-tracking',
+        level: 'project',
+        id: 'project-error-tracking',
         title: 'Error tracking',
         settings: [
             {
@@ -371,8 +368,8 @@ export const SETTINGS_MAP: SettingSection[] = [
         ],
     },
     {
-        level: 'environment',
-        id: 'environment-max',
+        level: 'project',
+        id: 'project-max',
         title: 'Max AI',
         flag: 'ARTIFICIAL_HOG',
         settings: [
@@ -387,8 +384,8 @@ export const SETTINGS_MAP: SettingSection[] = [
         ],
     },
     {
-        level: 'environment',
-        id: 'environment-integrations',
+        level: 'project',
+        id: 'project-integrations',
         title: 'Integrations',
         settings: [
             {
@@ -420,48 +417,14 @@ export const SETTINGS_MAP: SettingSection[] = [
         ],
     },
     {
-        level: 'environment',
-        id: 'environment-access-control',
+        level: 'project',
+        id: 'project-access-control',
         title: 'Access control',
         settings: [
             {
-                id: 'environment-access-control',
+                id: 'project-access-control',
                 title: 'Access control',
                 component: <TeamAccessControl />,
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-danger-zone',
-        title: 'Danger zone',
-        settings: [
-            {
-                id: 'project-move',
-                title: 'Move project',
-                flag: '!ENVIRONMENTS',
-                component: <ProjectMove />, // There isn't EnvironmentMove yet
-                allowForTeam: () =>
-                    (organizationLogic.findMounted()?.values.currentOrganization?.teams.length ?? 0) > 1,
-            },
-            {
-                id: 'environment-delete',
-                title: 'Delete environment',
-                component: <TeamDangerZone />,
-            },
-        ],
-    },
-
-    // PROJECT - just project-details and project-danger-zone
-    {
-        level: 'project',
-        id: 'project-details',
-        title: 'General',
-        settings: [
-            {
-                id: 'display-name',
-                title: 'Display name',
-                component: <ProjectDisplayName />,
             },
         ],
     },
@@ -473,14 +436,12 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'project-move',
                 title: 'Move project',
-                component: <ProjectMove />,
-                allowForTeam: () =>
-                    (organizationLogic.findMounted()?.values.currentOrganization?.teams.length ?? 0) > 1,
+                component: <ProjectMove />, // There isn't EnvironmentMove yet
             },
             {
                 id: 'project-delete',
                 title: 'Delete project',
-                component: <ProjectDangerZone />,
+                component: <TeamDangerZone />,
             },
         ],
     },

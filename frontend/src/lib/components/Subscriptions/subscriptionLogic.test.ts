@@ -29,8 +29,8 @@ describe('subscriptionLogic', () => {
     beforeEach(async () => {
         useMocks({
             get: {
-                '/api/environments/:team/subscriptions': { count: 1, results: [fixtureSubscriptionResponse(1)] },
-                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1),
+                '/api/projects/:team/subscriptions': { count: 1, results: [fixtureSubscriptionResponse(1)] },
+                '/api/projects/:team/subscriptions/1': fixtureSubscriptionResponse(1),
                 '/api/projects/:team/integrations': { count: 0, results: [] },
             },
         })

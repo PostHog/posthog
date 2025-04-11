@@ -395,8 +395,7 @@ def render_template(
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
-        from posthog.api.project import ProjectSerializer
-        from posthog.api.shared import TeamPublicSerializer
+        from posthog.api.shared import TeamPublicSerializer, ProjectSerializer
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
         from posthog.rbac.user_access_control import UserAccessControl
@@ -405,7 +404,6 @@ def render_template(
 
         posthog_app_context = {
             "current_user": None,
-            "current_project": None,
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": "$pageview",

@@ -116,11 +116,9 @@ class FunnelBase(ABC):
         team, breakdown = self.context.team, self.context.breakdown
 
         if isinstance(breakdown, list):
-            cohorts = Cohort.objects.filter(
-                team__project_id=team.project_id, pk__in=[b for b in breakdown if b != "all"]
-            )
+            cohorts = Cohort.objects.filter(team_id=team.id, pk__in=[b for b in breakdown if b != "all"])
         else:
-            cohorts = Cohort.objects.filter(team__project_id=team.project_id, pk=breakdown)
+            cohorts = Cohort.objects.filter(team_id=team.id, pk=breakdown)
 
         return list(cohorts)
 
@@ -345,7 +343,7 @@ class FunnelBase(ABC):
             action_id = step.event
             type = "events"
         else:
-            action = Action.objects.get(pk=step.id, team__project_id=self.context.team.project_id)
+            action = Action.objects.get(pk=step.id, team_id=self.context.team.id)
             name = action.name
             action_id = step.id
             type = "actions"
@@ -718,7 +716,7 @@ class FunnelBase(ABC):
 
         if isinstance(entity, ActionsNode) or isinstance(entity, FunnelExclusionActionsNode):
             # action
-            action = Action.objects.get(pk=int(entity.id), team__project_id=self.context.team.project_id)
+            action = Action.objects.get(pk=int(entity.id), team_id=self.context.team.id)
             event_expr = action_to_expr(action)
         elif isinstance(entity, DataWarehouseNode):
             raise ValidationError(

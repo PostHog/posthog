@@ -6,8 +6,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AccountPopoverOverlay } from '~/layout/navigation/TopBar/AccountPopover'
 
 export function MinimalNavigation(): JSX.Element {

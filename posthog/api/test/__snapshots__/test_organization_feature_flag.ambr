@@ -181,10 +181,9 @@
          "posthog_featureflag"."is_remote_configuration",
          "posthog_featureflag"."has_encrypted_payloads"
   FROM "posthog_featureflag"
-  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
-         AND "posthog_team"."project_id" = 99999)
+         AND "posthog_featureflag"."team_id" = 99999)
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.13
@@ -2433,8 +2432,7 @@
   '''
   SELECT (true) AS "flag_X_condition_0"
   FROM "posthog_person"
-  INNER JOIN "posthog_team" ON ("posthog_person"."team_id" = "posthog_team"."id")
-  WHERE "posthog_team"."project_id" = 99999
+  WHERE "posthog_person"."team_id" = 99999
   LIMIT 10
   '''
 # ---

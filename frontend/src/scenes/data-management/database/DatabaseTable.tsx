@@ -68,7 +68,7 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
                         fullWidth
                         onClick={() => {
                             void deleteWithUndo({
-                                endpoint: `environments/${currentTeamId}/warehouse_view_link`,
+                                endpoint: `projects/${currentTeamId}/warehouse_view_link`,
                                 object: {
                                     id: join.id,
                                     name: `${join.field_name} on ${join.source_table_name}`,

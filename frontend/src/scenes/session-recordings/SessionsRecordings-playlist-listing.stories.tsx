@@ -23,7 +23,7 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/session_recording_playlists': recordingPlaylists,
-                '/api/environments/:team_id/session_recordings': (req) => {
+                '/api/projects/:team_id/session_recordings': (req) => {
                     const version = req.url.searchParams.get('version')
                     return [
                         200,
@@ -36,7 +36,7 @@ const meta: Meta = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query': recordingEventsJson,
+                '/api/projects/:team_id/query': recordingEventsJson,
             },
         }),
     ],

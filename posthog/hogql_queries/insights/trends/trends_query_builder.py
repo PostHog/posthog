@@ -769,7 +769,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         # Actions
         if isinstance(self.series, ActionsNode):
             try:
-                action = Action.objects.get(pk=int(self.series.id), team__project_id=self.team.project_id)
+                action = Action.objects.get(pk=int(self.series.id), team_id=self.team.id)
                 return action_to_expr(action)
             except Action.DoesNotExist:
                 # If an action doesn't exist, we want to return no events

@@ -89,11 +89,11 @@ class OrganizationInviteManager:
                 continue
 
             for access in invite.private_project_access:
-                project_id = access["id"]
-                if project_id not in combined_access or access["level"] > combined_access[project_id]:
-                    combined_access[project_id] = access["level"]
+                team_id = access["id"]
+                if team_id not in combined_access or access["level"] > combined_access[team_id]:
+                    combined_access[team_id] = access["level"]
 
-        return [{"id": project_id, "level": level} for project_id, level in combined_access.items()]
+        return [{"id": team_id, "level": level} for team_id, level in combined_access.items()]
 
     @staticmethod
     def delete_existing_invites(organization_id: UUID | str, target_email: str) -> None:

@@ -90,7 +90,9 @@ class EventDefinitionViewSet(
         search = self.request.GET.get("search", None)
         search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
 
-        params = {"project_id": self.project_id, "is_posthog_event": "$%", **search_kwargs}
+        # TRICKY: We started writing these things to project_id - what we actually want to to do is use the team_id and ensure it
+        # is always set as the root team id but that needs some ingestion changes
+        params = {"project_id": self.team_id, "is_posthog_event": "$%", **search_kwargs}
         order_expressions = [self._ordering_params_from_request()]
 
         ingestion_taxonomy_is_available = self.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)
@@ -142,11 +144,11 @@ class EventDefinitionViewSet(
         ):
             from ee.models.event_definition import EnterpriseEventDefinition
 
-            enterprise_event = EnterpriseEventDefinition.objects.filter(id=id, team__project_id=self.project_id).first()
+            enterprise_event = EnterpriseEventDefinition.objects.filter(id=id, team_id=self.team_id).first()
             if enterprise_event:
                 return enterprise_event
 
-            non_enterprise_event = EventDefinition.objects.get(id=id, team__project_id=self.project_id)
+            non_enterprise_event = EventDefinition.objects.get(id=id, team_id=self.team_id)
             new_enterprise_event = EnterpriseEventDefinition(
                 eventdefinition_ptr_id=non_enterprise_event.id, description=""
             )
@@ -154,7 +156,7 @@ class EventDefinitionViewSet(
             new_enterprise_event.save()
             return new_enterprise_event
 
-        return EventDefinition.objects.get(id=id, team__project_id=self.project_id)
+        return EventDefinition.objects.get(id=id, team_id=self.team_id)
 
     def get_serializer_class(self) -> type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class

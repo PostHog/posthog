@@ -95,7 +95,7 @@ class MultipleInCohortResolver(TraversingVisitor):
 
             if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
                 int_cohorts = Cohort.objects.filter(
-                    id=int(arg.value), team__project_id=self.context.project_id, deleted=False
+                    id=int(arg.value), team_id=self.context.team_id, deleted=False
                 ).values_list("id", "is_static", "version")
                 if len(int_cohorts) == 1:
                     if node.op == ast.CompareOperationOp.NotInCohort:
@@ -110,9 +110,9 @@ class MultipleInCohortResolver(TraversingVisitor):
                 raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
 
             if isinstance(arg.value, str):
-                str_cohorts = Cohort.objects.filter(
-                    name=arg.value, team__project_id=self.context.project_id
-                ).values_list("id", "is_static", "version")
+                str_cohorts = Cohort.objects.filter(name=arg.value, team_id=self.context.team_id).values_list(
+                    "id", "is_static", "version"
+                )
                 if len(str_cohorts) == 1:
                     if node.op == ast.CompareOperationOp.NotInCohort:
                         raise QueryError("NOT IN COHORT is not supported by this cohort mode")
@@ -288,9 +288,9 @@ class InCohortResolver(TraversingVisitor):
             from posthog.models import Cohort
 
             if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
-                cohorts = Cohort.objects.filter(
-                    id=int(arg.value), team__project_id=self.context.project_id
-                ).values_list("id", "is_static", "version", "name")
+                cohorts = Cohort.objects.filter(id=int(arg.value), team_id=self.context.team_id).values_list(
+                    "id", "is_static", "version", "name"
+                )
                 if len(cohorts) == 1:
                     self.context.add_notice(
                         start=arg.start,
@@ -311,7 +311,7 @@ class InCohortResolver(TraversingVisitor):
 
             if isinstance(arg.value, str):
                 cohorts2 = Cohort.objects.filter(
-                    name=arg.value, team__project_id=self.context.project_id, deleted=False
+                    name=arg.value, team_id=self.context.team_id, deleted=False
                 ).values_list("id", "is_static", "version")
                 if len(cohorts2) == 1:
                     self.context.add_notice(

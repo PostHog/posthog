@@ -20,7 +20,7 @@ const meta: Meta<typeof FunnelPropertyCorrelationTable> = {
     decorators: [
         mswDecorator({
             post: {
-                'api/environments/:team_id/insights/funnel/correlation/': funnelCorrelation,
+                'api/projects/:team_id/insights/funnel/correlation/': funnelCorrelation,
             },
         }),
         taxonomicFilterMocksDecorator,

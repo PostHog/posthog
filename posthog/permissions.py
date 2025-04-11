@@ -259,6 +259,7 @@ class SharingTokenPermission(BasePermission):
 
         if isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
             try:
+                # TODO: Ensure this works with nested teams
                 view.team  # noqa: B018
                 if request.successful_authenticator.sharing_configuration.team != view.team:
                     return False
@@ -492,10 +493,9 @@ class AccessControlPermission(ScopeBasePermission):
         # as well as enforcing any global restrictions (e.g. generically only editing of a flag is allowed)
 
         # Check if the endpoint requires a current team to be set on the user
-        if hasattr(view, "param_derived_from_user_current_team"):
-            if view.param_derived_from_user_current_team in ("team_id", "project_id"):
-                if request.user.current_team_id is None:
-                    raise AuthenticationFailed("This endpoint requires a current project to be set on your account.")
+        if getattr(view, "derive_current_team_from_user_only", False):
+            if request.user.current_team_id is None:
+                raise AuthenticationFailed("This endpoint requires a current project to be set on your account.")
 
         uac = self._get_user_access_control(request, view)
         scope_object = self._get_scope_object(request, view)
