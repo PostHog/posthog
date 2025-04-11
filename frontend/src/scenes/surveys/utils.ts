@@ -291,3 +291,7 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
 
     return hasValidFilter ? `AND ${filterExpression}` : ''
 }
+
+export function isSurveyRunning(survey: Survey): boolean {
+    return !!(survey.start_date && !survey.end_date)
+}

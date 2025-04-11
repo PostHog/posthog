@@ -44,6 +44,7 @@ import {
     calculateNpsScore,
     createAnswerFilterHogQLExpression,
     getResponseFieldWithId,
+    isSurveyRunning,
     sanitizeHTML,
     sanitizeSurveyAppearance,
     sanitizeSurveyDisplayConditions,
@@ -1099,7 +1100,7 @@ export const surveyLogic = kea<surveyLogicType>([
         isSurveyRunning: [
             (s) => [s.survey],
             (survey: Survey): boolean => {
-                return !!(survey.start_date && !survey.end_date)
+                return isSurveyRunning(survey)
             },
         ],
         surveyUsesLimit: [
