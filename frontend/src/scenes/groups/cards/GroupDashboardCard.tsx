@@ -35,7 +35,7 @@ function GroupDetailDashboard({
                 },
             ])
         }
-    }, [groupTypeDetailDashboard, groupData, groupTypeName, setProperties])
+    }, [groupTypeDetailDashboard, groupData, groupTypeName, setProperties, setLoadLayoutFromServerOnPreview])
 
     return <Dashboard id={groupTypeDetailDashboard.toString()} placement={DashboardPlacement.Group} />
 }
