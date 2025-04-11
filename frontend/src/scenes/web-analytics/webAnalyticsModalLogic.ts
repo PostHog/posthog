@@ -100,7 +100,7 @@ export const webAnalyticsModalLogic = kea<webAnalyticsModalLogicType>([
                 }
 
                 if (tile.kind === 'tabs') {
-                    const tab = tile.tabs.find((t: any) => t.id === tabId)
+                    const tab = tile.tabs.find((t) => t.id === tabId)
                     if (!tab) {
                         return null
                     }

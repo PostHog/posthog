@@ -21,13 +21,13 @@ export const getNewInsightUrlFactory = (tiles: WebAnalyticsTile[]) => {
             return query
         }
 
-        const tile = tiles.find((t: any) => t.tileId === tileId)
+        const tile = tiles.find((t) => t.tileId === tileId)
         if (!tile) {
             return undefined
         }
 
         if (tile.kind === 'tabs') {
-            const tab = tile.tabs.find((t: any) => t.id === tabId)
+            const tab = tile.tabs.find((t) => t.id === tabId)
             if (!tab) {
                 return undefined
             }
