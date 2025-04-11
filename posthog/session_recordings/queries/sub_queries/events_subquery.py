@@ -68,6 +68,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             where=self._where_predicates(),
             having=self._having_predicates(),
             group_by=[ast.Field(chain=["$session_id"])],
+            order_by=[ast.OrderExpr(expr=ast.Call(name="min", args=[ast.Field(chain="timestamp")]), order="DESC")],
         )
 
     def get_query_for_session_id_matching(self) -> ast.SelectQuery | ast.SelectSetQuery | None:
