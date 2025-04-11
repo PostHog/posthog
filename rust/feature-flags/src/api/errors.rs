@@ -63,6 +63,10 @@ pub enum FlagError {
     CohortDependencyCycle(String),
     #[error("Person not found")]
     PersonNotFound,
+    #[error("Person properties not found")]
+    PropertiesNotInCache,
+    #[error("Static cohort matches not cached")]
+    StaticCohortMatchesNotCached,
     #[error(transparent)]
     CookielessError(#[from] CookielessManagerError),
 }
@@ -179,6 +183,12 @@ impl IntoResponse for FlagError {
             }
             FlagError::PersonNotFound => {
                 (StatusCode::BAD_REQUEST, "Person not found. Please check your distinct_id and try again.".to_string())
+            }
+            FlagError::PropertiesNotInCache => {
+                (StatusCode::BAD_REQUEST, "Person properties not found. Please check your distinct_id and try again.".to_string())
+            }
+            FlagError::StaticCohortMatchesNotCached => {
+                (StatusCode::BAD_REQUEST, "Static cohort matches not cached. Please check your distinct_id and try again.".to_string())
             }
             FlagError::CookielessError(err) => {
                 match err {

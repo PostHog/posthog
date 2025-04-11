@@ -194,9 +194,15 @@ class RevenueAnalyticsRevenueView(SavedQuery):
             ),
         )
 
+        if not source.prefix:
+            name = f"stripe.revenue_view"
+        else:
+            prefix = source.prefix.strip("_")
+            name = f"stripe.{prefix}.revenue_view"
+
         return RevenueAnalyticsRevenueView(
             id=str(table.id),
-            name=f"stripe_{source.prefix or source.id}_revenue",
+            name=name,
             query=query.to_hogql(),
             fields=FIELDS,
         )

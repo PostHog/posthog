@@ -71,16 +71,15 @@ class MaxToolsViewSet(GenericViewSet):
     renderer_classes = [JSONRenderer, ServerSentEventRenderer]
     throttle_classes = [AIBurstRateThrottle, AISustainedRateThrottle]
 
-    def safely_get_queryset(self, queryset):
-        # Only allow access to conversations created by the current user
-        return queryset.filter(user=self.request.user)
-
     @action(detail=False, methods=["POST"], url_path="insights")
     def insights_tool_call(self, request: Request, *args, **kwargs):
         serializer = InsightsToolCallSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         project_id = serializer.validated_data["project_id"]
-        self.team = Team.objects.get(id=project_id)
+        try:
+            self.team = Team.objects.get(id=project_id)
+        except Team.DoesNotExist:
+            raise serializers.ValidationError("Team does not exist")
         conversation = self.get_queryset().create(user=request.user, team=self.team, type=Conversation.Type.TOOL_CALL)
         assistant = Assistant(
             self.team,
