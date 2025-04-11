@@ -1,4 +1,4 @@
-import React, { CSSProperties } from 'react'
+import React, { CSSProperties, MouseEvent } from 'react'
 import { Transition } from 'react-transition-group'
 import { ENTERED, ENTERING, EXITED, EXITING, UNMOUNTED } from 'react-transition-group/Transition'
 import useResizeObserver from 'use-resize-observer'
@@ -8,15 +8,17 @@ export function Collapsible({
     isExpanded,
     className,
     minHeight = 0,
+    onClick,
 }: {
     children: React.ReactNode
     isExpanded: boolean
     className?: string
     minHeight?: string | number
+    onClick?: (e: MouseEvent) => void
 }): JSX.Element {
     const { height: contentHeight, ref: contentRef } = useResizeObserver({ box: 'border-box' })
     return (
-        <div aria-expanded={isExpanded}>
+        <div aria-expanded={isExpanded} onClick={onClick}>
             <Transition in={isExpanded} timeout={200}>
                 {(status) => (
                     <div
