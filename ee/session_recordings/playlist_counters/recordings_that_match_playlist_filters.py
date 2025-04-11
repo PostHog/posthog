@@ -18,6 +18,8 @@ from posthog.schema import (
     PropertyOperator,
     PropertyFilterType,
     RecordingPropertyFilter,
+    RecordingOrder,
+    Direction,
 )
 from django.db.models import F, Q
 from django.utils import timezone
@@ -87,7 +89,8 @@ DEFAULT_RECORDING_FILTERS = {
             "operator": PropertyOperator.GT,
         }
     ],
-    "order": "start_time",
+    "order": RecordingOrder.START_TIME,
+    "direction": Direction.DESC,
 }
 
 
@@ -160,7 +163,8 @@ def convert_legacy_filters_to_universal_filters(filters: Optional[dict[str, Any]
                 }
             ],
         },
-        "order": DEFAULT_RECORDING_FILTERS["order"],
+        "order": RecordingOrder.START_TIME,
+        "direction": Direction.DESC,
     }
 
 
@@ -207,6 +211,7 @@ def convert_filters_to_recordings_query(playlist: SessionRecordingPlaylist) -> R
 
     # Get order and duration filter
     order = filters.get("order")
+    direction = filters.get("direction")
     duration_filters = filters.get("duration", [])
     if duration_filters and len(duration_filters) > 0:
         having_predicates.append(asRecordingPropertyFilter(duration_filters[0]))
@@ -252,6 +257,7 @@ def convert_filters_to_recordings_query(playlist: SessionRecordingPlaylist) -> R
         # Construct the RecordingsQuery
         return RecordingsQuery(
             order=order,
+            direction=direction,
             date_from=filters.get("date_from"),
             date_to=filters.get("date_to"),
             properties=properties,
