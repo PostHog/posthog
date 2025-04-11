@@ -24,8 +24,8 @@ describe('workerTasks.runEventPipeline()', () => {
     beforeAll(async () => {
         hub = await createHub()
         redis = await hub.redisPool.acquire()
-        await hub.postgres.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_OTHER_TABLES_QUERY, undefined, '') // Need to clear the DB to avoid unique constraint violations on ids
         await hub.postgres.query(PostgresUse.PERSONS_WRITE, POSTGRES_DELETE_PERSON_TABLES_QUERY, undefined, '') // Need to clear the DB to avoid unique constraint violations on ids
+        await hub.postgres.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_OTHER_TABLES_QUERY, undefined, '') // Need to clear the DB to avoid unique constraint violations on ids
         process.env = { ...OLD_ENV } // Make a copy
     })
 

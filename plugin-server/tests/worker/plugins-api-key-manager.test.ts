@@ -19,16 +19,16 @@ describe('PluginsApiKeyManager', () => {
             TASK_TIMEOUT: 1,
         })
         await hub.db.postgres.query(
-            PostgresUse.COMMON_WRITE,
-            POSTGRES_DELETE_OTHER_TABLES_QUERY,
-            [],
-            'truncateTablesTest'
-        )
-        await hub.db.postgres.query(
             PostgresUse.PERSONS_WRITE,
             POSTGRES_DELETE_PERSON_TABLES_QUERY,
             [],
             'truncatePersonTablesTest'
+        )
+        await hub.db.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            POSTGRES_DELETE_OTHER_TABLES_QUERY,
+            [],
+            'truncateTablesTest'
         )
         await hub.db.redisExpire(`plugins-api-key-manager/${ORG_ID_1}`, 0)
         await hub.db.redisExpire(`plugins-api-key-manager/${ORG_ID_2}`, 0)
