@@ -430,11 +430,6 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             },
             align: 'right',
         },
-        aggregation_value: {
-            renderTitle: () => null,
-            render: () => null,
-            align: 'right',
-        },
     },
 }
 
