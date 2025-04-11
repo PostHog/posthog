@@ -55,6 +55,8 @@ runs:
 
         - name: Set up BuildPulse CLI
           uses: buildpulse/setup-buildx-action@v3 # v1
+          with:
+            buildpulse-builder: bp-docker-builder-x64-32x
 
         - name: Configure AWS credentials
           if: ${{ inputs.push-image == 'true' }}
