@@ -213,6 +213,7 @@ class Assistant:
                 "trace_id": self._trace_id,
                 "distinct_id": self._user.distinct_id if self._user else None,
                 "contextual_tools": self._contextual_tools,
+                "team_id": self._team.id,
             },
         }
         return config

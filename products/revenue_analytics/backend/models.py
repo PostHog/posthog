@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     pass
 
 STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER = "Charge"
+STRIPE_CHARGE_SUCCEEDED_STATUS = "succeeded"
 
 # Stripe represents most currencies with integer amounts multiplied by 100,
 # since most currencies have its smallest unit as 1/100 of their base unit
@@ -58,8 +59,6 @@ FIELDS: dict[str, FieldOrTable] = {
     "currency": StringDatabaseField(name="currency"),
     "amount": DecimalDatabaseField(name="amount"),
 }
-
-STRIPE_CHARGE_SUCCEEDED_STATUS = "succeeded"
 
 
 class RevenueAnalyticsRevenueView(SavedQuery):
