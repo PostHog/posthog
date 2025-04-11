@@ -24,8 +24,12 @@ interface QueryPaneProps {
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
     const { queryPaneHeight, queryPaneResizerProps } = useValues(editorSizingLogic)
-    const { setSuggestedQueryInput, onAcceptSuggestedQueryInput, onRejectSuggestedQueryInput } =
-        useActions(multitabEditorLogic)
+    const {
+        setSuggestedQueryInput,
+        onAcceptSuggestedQueryInput,
+        onRejectSuggestedQueryInput,
+        reportAIQueryPromptOpen,
+    } = useActions(multitabEditorLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -80,6 +84,9 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                 setSuggestedQueryInput(toolOutput)
                             }}
                             suggestions={[]}
+                            onMaxOpen={() => {
+                                reportAIQueryPromptOpen()
+                            }}
                         >
                             <div className="relative" />
                         </MaxTool>

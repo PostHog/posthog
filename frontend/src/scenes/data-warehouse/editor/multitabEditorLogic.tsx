@@ -29,6 +29,7 @@ import {
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID, sizeOfInBytes } from '../utils'
+import { editorSceneLogic } from './editorSceneLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
 import { ViewEmptyState } from './ViewLoadingState'
@@ -94,6 +95,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             ],
             outputPaneLogic,
             ['setActiveTab'],
+            editorSceneLogic,
+            ['reportAIQueryPrompted', 'reportAIQueryAccepted', 'reportAIQueryRejected', 'reportAIQueryPromptOpen'],
         ],
     })),
     actions(({ values }) => ({
@@ -292,6 +295,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
         },
         onAcceptSuggestedQueryInput: () => {
+            actions.reportAIQueryAccepted()
             actions.setQueryInput(values.suggestedQueryInput)
             // CLUDGE: suggestedQueryInput purges monaco model so we need to re-create it
             if (props.monaco && values.activeModelUri) {
@@ -305,6 +309,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.setSuggestedQueryInput('')
         },
         onRejectSuggestedQueryInput: () => {
+            actions.reportAIQueryRejected()
             actions.setSuggestedQueryInput('')
             // CLUDGE: suggestedQueryInput purges monaco model so we need to re-create it
             if (props.monaco && values.activeModelUri) {
