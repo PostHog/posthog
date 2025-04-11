@@ -1189,26 +1189,24 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 }}
             >
                 {mode === 'table' && tableViewKeys && (
-                    <div className="px-1">
-                        <div
-                            className="grid gap-2 pl-8 pr-[calc(var(--button-height-base)+var(--button-padding-x-base))] py-2"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                gridTemplateColumns: `repeat(${tableViewKeys.headers.length}, minmax(100px, 265px))`,
-                            }}
-                        >
-                            {/* Headers */}
-                            {tableViewKeys.headers.map((header, index) => (
-                                <div
-                                    key={header.key}
-                                    className={cn('text-secondary font-bold text-xs uppercase flex gap-2', {
-                                        'pl-px': index === 0,
-                                    })}
-                                >
-                                    <span>{header.title}</span>
-                                </div>
-                            ))}
-                        </div>
+                    <div
+                        className="grid items-center gap-2 pl-8 pr-[calc(var(--button-height-base)+var(--button-padding-x-base))] px-1 overflow-hidden transition-[height] duration-200 starting:h-0 h-[30px]"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{
+                            gridTemplateColumns: `repeat(${tableViewKeys.headers.length}, minmax(100px, 265px))`,
+                        }}
+                    >
+                        {/* Headers */}
+                        {tableViewKeys.headers.map((header, index) => (
+                            <div
+                                key={header.key}
+                                className={cn('text-secondary font-bold text-xs uppercase flex gap-2', {
+                                    'pl-px': index === 0,
+                                })}
+                            >
+                                <span>{header.title}</span>
+                            </div>
+                        ))}
                     </div>
                 )}
 

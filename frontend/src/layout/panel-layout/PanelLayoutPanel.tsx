@@ -18,7 +18,7 @@ interface PanelLayoutPanelProps {
 }
 
 const panelLayoutPanelVariants = cva({
-    base: 'flex flex-col max-h-screen min-h-screen relative border-r border-primary',
+    base: 'flex flex-col max-h-screen min-h-screen relative border-r border-primary transition-[width] duration-100 prefers-reduced-motion:transition-none',
     variants: {
         projectTreeMode: {
             tree: 'w-[var(--project-panel-width)]',
