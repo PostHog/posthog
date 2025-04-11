@@ -75,6 +75,16 @@ class TestErrorTracking(APIBaseTest):
         assert response.status_code == 308
         assert response.json() == {"issue_id": str(merged_issue.id)}
 
+    def test_issue_fingerprint_does_not_redirect_when_not_merged(self):
+        issue = self.create_issue(fingerprints=["fingerprint"])
+
+        # with fingerprint hint
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/issue/{issue.id}?fingerprint=fingerprint",
+        )
+        assert response.status_code == 200
+        assert response.json().get("id") == str(issue.id)
+
     @freeze_time("2025-01-01")
     def test_issue_fetch(self):
         issue = self.create_issue(["fingerprint"])

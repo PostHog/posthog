@@ -128,6 +128,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
     let team = flag_service
         .get_team_from_cache_or_pg(&verified_token)
         .await?;
+
     let team_id = team.id;
     let project_id = team.project_id;
 
@@ -300,8 +301,7 @@ pub fn decode_request(
 
 /// Evaluates all requested feature flags in the provided context, returning a [`FlagsResponse`].
 pub async fn evaluate_feature_flags(context: FeatureFlagEvaluationContext) -> FlagsResponse {
-    let group_type_mapping_cache =
-        GroupTypeMappingCache::new(context.project_id, context.reader.clone());
+    let group_type_mapping_cache = GroupTypeMappingCache::new(context.project_id);
 
     let mut matcher = FeatureFlagMatcher::new(
         context.distinct_id,
@@ -616,13 +616,16 @@ mod tests {
         let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
         let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team in pg");
         let flag = FeatureFlag {
             name: Some("Test Flag".to_string()),
             id: 1,
             key: "test_flag".to_string(),
             active: true,
             deleted: false,
-            team_id: 1,
+            team_id: team.id,
             filters: FlagFilters {
                 groups: vec![FlagGroupType {
                     properties: Some(vec![PropertyFilter {
@@ -652,8 +655,8 @@ mod tests {
         person_properties.insert("country".to_string(), json!("US"));
 
         let evaluation_context = FeatureFlagEvaluationContext {
-            team_id: 1,
-            project_id: 1,
+            team_id: team.id,
+            project_id: team.project_id,
             distinct_id: "user123".to_string(),
             feature_flags: feature_flag_list,
             reader,
@@ -666,6 +669,8 @@ mod tests {
         };
 
         let result = evaluate_feature_flags(evaluation_context).await;
+
+        println!("result: {:?}", result);
 
         assert!(!result.errors_while_computing_flags);
         assert!(result.flags.contains_key("test_flag"));
@@ -686,6 +691,10 @@ mod tests {
         let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
 
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team in pg");
+
         // Create a feature flag with conditions that will cause an error
         let flags = vec![FeatureFlag {
             name: Some("Error Flag".to_string()),
@@ -693,7 +702,7 @@ mod tests {
             key: "error-flag".to_string(),
             active: true,
             deleted: false,
-            team_id: 1,
+            team_id: team.id,
             filters: FlagFilters {
                 groups: vec![FlagGroupType {
                     // Reference a non-existent cohort
@@ -722,8 +731,8 @@ mod tests {
 
         // Set up evaluation context
         let evaluation_context = FeatureFlagEvaluationContext {
-            team_id: 1,
-            project_id: 1,
+            team_id: team.id,
+            project_id: team.project_id,
             distinct_id: "user123".to_string(),
             feature_flags: feature_flag_list,
             reader,
