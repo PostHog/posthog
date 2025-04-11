@@ -73,7 +73,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         }),
         enableHeatmap: true,
         disableHeatmap: true,
-        toggleClickmapsEnabled: (enabled?: boolean) => ({ enabled }),
+        toggleClickmapsEnabled: (enabled: boolean) => ({ enabled }),
         setSamplingFactor: (samplingFactor: number) => ({ samplingFactor }),
         loadMoreElementStats: true,
         setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
@@ -104,9 +104,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         ],
         clickmapsEnabled: [
             false,
-            { persist: true },
             {
-                toggleClickmapsEnabled: (state, { enabled }) => (enabled === undefined ? !state : enabled),
+                toggleClickmapsEnabled: (_, { enabled }) => enabled,
             },
         ],
         samplingFactor: [
@@ -381,11 +380,15 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         setHref: ({ href }) => {
-            actions.setDataHref(href)
+            if (values.heatmapEnabled) {
+                actions.setDataHref(href)
+            }
             actions.maybeLoadClickmap()
         },
         setWildcardHref: ({ href }) => {
-            actions.setDataHref(href)
+            if (values.heatmapEnabled) {
+                actions.setDataHref(href)
+            }
             actions.maybeLoadClickmap()
         },
         setCommonFilters: () => {

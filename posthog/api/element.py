@@ -1,4 +1,3 @@
-from functools import lru_cache
 from typing import Literal
 
 from prometheus_client import Histogram
@@ -38,9 +37,11 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
-@lru_cache(maxsize=5000)
-def serialise_elements_chain(elements_chain: str) -> list[dict]:
-    return [ElementSerializer(element).data for element in chain_to_elements(elements_chain)]
+class ElementStatsSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    hash = serializers.CharField(allow_null=True)
+    type = serializers.CharField()
+    elements = ElementSerializer(many=True)
 
 
 class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -118,16 +119,19 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     },
                 )
 
-            with timer("serialize_elements"):
-                serialized_elements = [
+            with timer("prepare_for_serialization"):
+                elements_data = [
                     {
                         "count": elements[1],
                         "hash": None,
                         "type": elements[2],
-                        "elements": serialise_elements_chain(elements[0]),
+                        "elements": chain_to_elements(elements[0]),
                     }
                     for elements in result[:limit]
                 ]
+
+            with timer("serialize_elements"):
+                serialized_elements = ElementStatsSerializer(elements_data, many=True).data
 
             has_next = len(result) == limit + 1
             next_url = format_query_params_absolute_url(request, offset + limit) if has_next else None
