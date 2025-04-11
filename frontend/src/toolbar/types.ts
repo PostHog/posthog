@@ -66,6 +66,7 @@ export interface ElementWithMetadata {
     deadclickCount?: number
     position?: number
     apparentZIndex?: number
+    visible?: boolean
 }
 
 export interface ActionElementWithMetadata extends ElementWithMetadata {
