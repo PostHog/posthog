@@ -44,7 +44,7 @@ class SyncedArtifactsQueryRunner(QueryRunner):
         return parse_select(
             """
             SELECT
-                argMax(DISTINCT artifact_id, version) AS artifact_id
+                argMax(DISTINCT artifact_id, version) AS synced_artifact_id
             FROM
                 codebase_embeddings
             WHERE
@@ -55,7 +55,6 @@ class SyncedArtifactsQueryRunner(QueryRunner):
             placeholders={
                 "user_id": ast.Constant(value=self.query.userId),
                 "codebase_id": ast.Constant(value=self.query.codebaseId),
-                "branch": ast.Constant(value=self.query.branch),
                 "artifact_ids": ast.Array(
                     exprs=[ast.Constant(value=artifact_id) for artifact_id in self.query.artifactIds]
                 ),

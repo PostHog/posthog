@@ -43,11 +43,6 @@ from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DICTIONARY_SQL,
     CHANNEL_DEFINITION_TABLE_SQL,
 )
-from posthog.models.exchange_rate.sql import (
-    EXCHANGE_RATE_DATA_BACKFILL_SQL,
-    EXCHANGE_RATE_DICTIONARY_SQL,
-    EXCHANGE_RATE_TABLE_SQL,
-)
 from posthog.models.cohort.sql import (
     CREATE_COHORTPEOPLE_TABLE_SQL,
 )
@@ -66,6 +61,11 @@ from posthog.models.event.sql import (
     KAFKA_EVENTS_RECENT_TABLE_JSON_SQL,
     KAFKA_EVENTS_TABLE_JSON_SQL,
     WRITABLE_EVENTS_TABLE_SQL,
+)
+from posthog.models.exchange_rate.sql import (
+    EXCHANGE_RATE_DATA_BACKFILL_SQL,
+    EXCHANGE_RATE_DICTIONARY_SQL,
+    EXCHANGE_RATE_TABLE_SQL,
 )
 from posthog.models.group.sql import (
     GROUPS_TABLE_MV_SQL,
@@ -139,6 +139,8 @@ from posthog.session_recordings.sql.session_replay_event_v2_test_sql import (
     SESSION_REPLAY_EVENTS_V2_TEST_KAFKA_TABLE_SQL,
     SESSION_REPLAY_EVENTS_V2_TEST_MV_SQL,
 )
+from products.editor.backend.models.catalog import CODEBASE_CATALOG_TABLE_SQL
+from products.editor.backend.models.embeddings import CODEBASE_EMBEDDINGS_TABLE_SQL
 
 CREATE_MERGETREE_TABLE_QUERIES = (
     LOG_ENTRIES_TABLE_SQL,
@@ -168,6 +170,8 @@ CREATE_MERGETREE_TABLE_QUERIES = (
     RAW_SESSIONS_TABLE_SQL,
     HEATMAPS_TABLE_SQL,
     PG_EMBEDDINGS_TABLE_SQL,
+    CODEBASE_CATALOG_TABLE_SQL,
+    CODEBASE_EMBEDDINGS_TABLE_SQL,
 )
 CREATE_DISTRIBUTED_TABLE_QUERIES = (
     WRITABLE_EVENTS_TABLE_SQL,

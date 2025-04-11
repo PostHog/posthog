@@ -85,6 +85,15 @@ class TestCodebaseSync(ClickhouseTestMixin, BaseTest):
     def test_sync_new_codebase_with_existing_artifacts(self):
         pass
 
+    def test_sync_new_codebase_verifies_tree(self):
+        """Broken tree should raise an error."""
+        client_tree = [
+            {"id": "root", "type": "dir", "parent_id": None},
+            {"id": "dir", "type": "dir", "parent_id": "root2"},
+        ]
+        with self.assertRaises(ValueError):
+            self.service.sync(client_tree)
+
     def test_sync_replaces_leaf_node(self):
         """
         Root
@@ -97,8 +106,8 @@ class TestCodebaseSync(ClickhouseTestMixin, BaseTest):
             [
                 {"id": "root", "type": "dir", "parent_id": None},
                 {"id": "dir", "type": "dir", "parent_id": "root"},
-                {"id": "file_1", "type": "file", "parent_id": "dir_1"},
-                {"id": "file_2", "type": "file", "parent_id": "dir_1"},
+                {"id": "file_1", "type": "file", "parent_id": "dir"},
+                {"id": "file_2", "type": "file", "parent_id": "dir"},
             ]
         )
 

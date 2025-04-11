@@ -4,6 +4,8 @@ from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.client import sync_execute
 from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_parallel
+from products.editor.backend.models.catalog import TRUNCATE_CODEBASE_CATALOG_TABLE_SQL
+from products.editor.backend.models.embeddings import TRUNCATE_CODEBASE_EMBEDDINGS_TABLE_SQL
 
 
 def create_clickhouse_tables():
@@ -116,6 +118,8 @@ def reset_clickhouse_tables():
         TRUNCATE_RAW_SESSIONS_TABLE_SQL(),
         TRUNCATE_HEATMAPS_TABLE_SQL(),
         TRUNCATE_PG_EMBEDDINGS_TABLE_SQL(),
+        TRUNCATE_CODEBASE_CATALOG_TABLE_SQL(),
+        TRUNCATE_CODEBASE_EMBEDDINGS_TABLE_SQL(),
     ]
 
     # Drop created Kafka tables because some tests don't expect it.

@@ -194,6 +194,9 @@ class CodebaseSyncService:
         return list(files_to_sync)
 
     def _sync_new_tree(self, client_tree_nodes: list[SerializedArtifact]) -> list[str]:
+        # Verify tree first
+        ArtifactNode.build_tree(client_tree_nodes)
+
         self._insert_catalog_nodes(client_tree_nodes, [])
         leaf_nodes = {node["id"] for node in client_tree_nodes if node["type"] == "file"}
 
