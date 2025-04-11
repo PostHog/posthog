@@ -1,4 +1,5 @@
 import { IconMegaphone } from '@posthog/icons'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '../../frontend/src/types'
@@ -59,6 +60,7 @@ export const manifest: ProductManifest = {
             path: `Broadcast`,
             type: 'hog_function/broadcast',
             href: () => urls.messagingBroadcastNew(),
+            flag: FEATURE_FLAGS.MESSAGING,
         },
     ],
 }

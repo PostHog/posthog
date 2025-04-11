@@ -127,6 +127,7 @@ export type SettingId =
     | 'core-memory'
     | 'payments-webhooks'
     | 'payments-payouts'
+    | 'customization-irl'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

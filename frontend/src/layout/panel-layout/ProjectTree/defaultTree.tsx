@@ -62,17 +62,17 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
             href: () => urls.survey('new'),
         },
         {
-            path: `Data source`,
+            path: `Source`,
             type: 'hog_function/source',
             href: () => urls.pipelineNodeNew(PipelineStage.Source),
         },
         {
-            path: `Data destination`,
+            path: `Destination`,
             type: 'hog_function/destination',
             href: () => urls.pipelineNodeNew(PipelineStage.Destination),
         },
         {
-            path: `Data transformation`,
+            path: `Transformation`,
             type: 'hog_function/transformation',
             href: () => urls.pipelineNodeNew(PipelineStage.Transformation),
         },
@@ -118,7 +118,7 @@ export const getDefaultTreeExplore = (groupNodes: FileSystemImport[]): FileSyste
         {
             path: 'Data management/Revenue',
             icon: <IconHandMoney />,
-            href: () => urls.revenue(),
+            href: () => urls.revenueSettings(),
             flag: FEATURE_FLAGS.WEB_REVENUE_TRACKING,
         },
         {
@@ -163,7 +163,6 @@ export const getDefaultTreeExplore = (groupNodes: FileSystemImport[]): FileSyste
             path: 'Error tracking',
             icon: <IconWarning />,
             href: () => urls.errorTracking(),
-            flag: FEATURE_FLAGS.ERROR_TRACKING,
         },
         {
             path: 'Heatmaps',

@@ -1,11 +1,11 @@
 import {
     IconAI,
     IconArrowUpRight,
-    IconCoffee,
     IconCursorClick,
     IconDashboard,
     IconDatabase,
     IconGraph,
+    IconGroups,
     IconHandMoney,
     IconHome,
     IconLive,
@@ -15,6 +15,7 @@ import {
     IconNotebook,
     IconPeople,
     IconPieChart,
+    IconPiggyBank,
     IconPlug,
     IconPlusSmall,
     IconRewindPlay,
@@ -36,7 +37,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, isNotNil } from 'lib/utils'
 import React from 'react'
-import { editorSidebarLogic } from 'scenes/data-warehouse/editor/editorSidebarLogic'
+import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -499,8 +500,9 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             ? {
                                   identifier: Scene.Groups,
                                   label: 'B2B analytics',
-                                  icon: <IconCoffee />,
+                                  icon: <IconGroups />,
                                   to: urls.groups(0),
+                                  tag: 'alpha' as const,
                                   sideAction:
                                       groupTypes.size > 1 && !showGroupsIntroductionPage
                                           ? {
@@ -520,15 +522,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                                 },
                                             }
                                           : undefined,
-                              }
-                            : null,
-                        featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
-                            ? {
-                                  identifier: 'LLMObservability',
-                                  label: 'LLM observability',
-                                  icon: <IconAI />,
-                                  to: urls.llmObservabilityDashboard(),
-                                  tag: 'beta' as const,
                               }
                             : null,
                         {
@@ -577,24 +570,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                 },
                             },
                         },
-                        featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
-                            ? {
-                                  identifier: Scene.ErrorTracking,
-                                  label: 'Error tracking',
-                                  icon: <IconWarning />,
-                                  to: urls.errorTracking(),
-                                  tag: 'beta' as const,
-                              }
-                            : null,
-                        featureFlags[FEATURE_FLAGS.HEATMAPS_UI]
-                            ? {
-                                  identifier: Scene.Heatmaps,
-                                  label: 'Heatmaps',
-                                  icon: <IconCursorClick />,
-                                  to: isUsingSidebar ? undefined : urls.heatmaps(),
-                                  tag: 'alpha' as const,
-                              }
-                            : null,
                         {
                             identifier: Scene.FeatureFlags,
                             label: 'Feature flags',
@@ -616,17 +591,32 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.surveys(),
                         },
                         {
-                            identifier: 'EarlyAccessFeatures',
+                            identifier: Scene.EarlyAccessFeatures,
                             label: 'Early access features',
                             icon: <IconRocket />,
                             to: urls.earlyAccessFeatures(),
+                        },
+                        featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
+                            ? {
+                                  identifier: 'LLMObservability',
+                                  label: 'LLM observability',
+                                  icon: <IconAI />,
+                                  to: urls.llmObservabilityDashboard(),
+                                  tag: 'beta' as const,
+                              }
+                            : null,
+                        {
+                            identifier: Scene.ErrorTracking,
+                            label: 'Error tracking',
+                            icon: <IconWarning />,
+                            to: urls.errorTracking(),
                         },
                         {
                             identifier: Scene.SQLEditor,
                             label: 'SQL editor',
                             icon: <IconServer />,
                             to: urls.sqlEditor(),
-                            logic: editorSidebarLogic,
+                            logic: editorSceneLogic,
                         },
                         hasOnboardedAnyProduct
                             ? {
@@ -634,6 +624,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   label: 'Data pipelines',
                                   icon: <IconPlug />,
                                   to: urls.pipeline(),
+                              }
+                            : null,
+                        featureFlags[FEATURE_FLAGS.HEATMAPS_UI]
+                            ? {
+                                  identifier: Scene.Heatmaps,
+                                  label: 'Heatmaps',
+                                  icon: <IconCursorClick />,
+                                  to: isUsingSidebar ? undefined : urls.heatmaps(),
+                                  tag: 'alpha' as const,
                               }
                             : null,
                         featureFlags[FEATURE_FLAGS.MESSAGING] && hasOnboardedAnyProduct
@@ -652,6 +651,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   icon: <IconHandMoney />,
                                   to: urls.paymentsOverview(),
                                   tag: 'alpha' as const,
+                              }
+                            : null,
+                        featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]
+                            ? {
+                                  identifier: Scene.RevenueAnalytics,
+                                  label: 'Revenue analytics',
+                                  icon: <IconPiggyBank />,
+                                  to: urls.revenueAnalytics(),
+                                  tag: 'beta' as const,
                               }
                             : null,
                     ].filter(isNotNil) as NavbarItem[],

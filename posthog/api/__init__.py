@@ -4,6 +4,7 @@ from rest_framework_extensions.routers import NestedRegistryItem
 import products.early_access_features.backend.api as early_access_feature
 import products.payments.backend.webhooks as payments
 import products.payments.backend.api as payments_api
+import products.editor.backend.api as editorApi
 from posthog.api import data_color_theme, metalytics, project, wizard
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
@@ -90,6 +91,7 @@ router.register(
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plugin_configs")
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
+router.register(r"llm_proxy", editorApi.LLMProxyViewSet, "llm_proxy")
 
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")

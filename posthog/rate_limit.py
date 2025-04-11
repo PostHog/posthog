@@ -321,6 +321,18 @@ class AISustainedRateThrottle(UserRateThrottle):
     rate = "40/day"
 
 
+class EditorProxyBurstRateThrottle(UserRateThrottle):
+    scope = "editor_proxy_burst"
+    rate = "30/minute"
+
+
+class EditorProxySustainedRateThrottle(UserRateThrottle):
+    # Throttle class that's very aggressive and is used specifically on endpoints that hit OpenAI
+    # Intended to block slower but sustained bursts of requests, per user
+    scope = "editor_proxy_sustained"
+    rate = "500/hour"
+
+
 class HogQLQueryThrottle(PersonalApiKeyRateThrottle):
     # Lower rate limit for HogQL queries
     scope = "query"

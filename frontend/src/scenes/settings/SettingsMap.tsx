@@ -1,4 +1,4 @@
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 import { Payouts, Webhooks } from 'products/payments/frontend/scenes/settings/PaymentSettings'
 import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
@@ -38,7 +38,6 @@ import { OtherIntegrations } from './environment/OtherIntegrations'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
 import { RevenueBaseCurrencySettings } from './environment/RevenueBaseCurrencySettings'
-import { SessionRecordingIngestionSettings } from './environment/SessionRecordingIngestionSettings'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
@@ -306,11 +305,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ReplayTriggers />,
             },
             {
-                id: 'replay-ingestion',
-                title: 'Ingestion controls',
-                component: <SessionRecordingIngestionSettings />,
-            },
-            {
                 id: 'replay-ai-config',
                 title: 'AI recording summary',
                 component: <ReplayAISettings />,
@@ -346,7 +340,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-error-tracking',
         title: 'Error tracking',
-        flag: 'ERROR_TRACKING',
         settings: [
             {
                 id: 'error-tracking-exception-autocapture',
@@ -381,7 +374,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'core-memory',
                 title: 'Memory',
                 description:
-                    'Max automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don’t want Max to remember, you can edit or remove them below.',
+                    "Max automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don't want Max to remember, you can edit or remove them below.",
                 component: <MaxMemorySettings />,
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
             },
@@ -661,6 +654,19 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'hedgehog-mode',
                 title: 'Hedgehog mode',
                 component: <HedgehogModeSettings />,
+            },
+            {
+                id: 'customization-irl',
+                title: 'Customization IRL',
+                component: (
+                    <div>
+                        Grab some{' '}
+                        <Link to="https://posthog.com/merch" target="_blank">
+                            PostHog merch
+                        </Link>{' '}
+                        to customize yourself outside of the app
+                    </div>
+                ),
             },
         ],
     },
