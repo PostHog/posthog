@@ -436,11 +436,11 @@ def create_hogql_database(
                 .prefetch_related(Prefetch("schemas", queryset=ExternalDataSchema.objects.prefetch_related("table")))
             )
 
-        for stripe_source in stripe_sources:
-            with timings.measure(f"for_schema_source_{stripe_source.prefix or stripe_source.id}"):
+        with timings.measure("for_schema_source"):
+            for stripe_source in stripe_sources:
                 view = RevenueAnalyticsRevenueView.for_schema_source(stripe_source)
                 if view is not None:
-                    views[f"stripe_{stripe_source.prefix or stripe_source.id}_revenue"] = view
+                    views[view.name] = view
 
     def define_mappings(store: dict[str, Table], get_table: Callable):
         if warehouse_modifier.table_name not in store:
