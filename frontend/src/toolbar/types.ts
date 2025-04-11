@@ -43,6 +43,7 @@ export interface CountedHTMLElement {
     type: '$autocapture' | '$rageclick' | '$dead_click'
     // whether the browser reports this element as visible
     visible?: boolean
+    rect?: ElementRect
 }
 
 export interface ElementRect {
