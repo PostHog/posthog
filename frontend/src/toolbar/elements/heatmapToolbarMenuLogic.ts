@@ -474,7 +474,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
     }),
     beforeUnmount(({ cache }) => {
         clearInterval(cache.scrollCheckTimer)
-        cache.observer?.disconnect()
         cache.intersectionObserver?.disconnect()
     }),
 ])
