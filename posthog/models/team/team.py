@@ -250,11 +250,14 @@ class Team(UUIDClassicModel):
     ingested_event = models.BooleanField(default=False)
     autocapture_opt_out = models.BooleanField(null=True, blank=True)
     autocapture_web_vitals_opt_in = models.BooleanField(null=True, blank=True)
-    autocapture_web_vitals_allowed_metrics = models.JSONField(null=True, blank=True)
+    autocapture_web_vitals_allowed_metrics: ArrayField = ArrayField(
+        models.TextField(null=True, blank=True), default=list, blank=True, null=True
+    )
     autocapture_exceptions_opt_in = models.BooleanField(null=True, blank=True)
     autocapture_exceptions_errors_to_ignore = models.JSONField(null=True, blank=True)
     person_processing_opt_out = models.BooleanField(null=True, default=False)
     session_recording_opt_in = models.BooleanField(default=False)
+    flags_require_confirmation = models.BooleanField(default=False)
     session_recording_sample_rate = models.DecimalField(
         # will store a decimal between 0 and 1 allowing up to 2 decimal places
         null=True,
@@ -346,7 +349,8 @@ class Team(UUIDClassicModel):
     # Switches _most_ queries to using distinct_id as aggregator instead of person_id
     @property
     def aggregate_users_by_distinct_id(self) -> bool:
-        return str(self.pk) in get_list(get_instance_setting("AGGREGATE_BY_DISTINCT_IDS_TEAMS"))
+        enabled_teams = get_list(get_instance_setting("AGGREGATE_BY_DISTINCT_IDS_TEAMS"))
+        return str(self.pk) in enabled_teams or "all" in enabled_teams
 
     # This correlation_config is intended to be used initially for
     # `excluded_person_property_names` but will be used as a general config

@@ -618,6 +618,8 @@ export interface TeamType extends TeamBasicType {
     product_intents?: ProductIntentType[]
     default_data_theme?: number
     flags_persistence_default: boolean
+    flags_require_confirmation: boolean
+    session_recording_version: string
 }
 
 export interface ProductIntentType {

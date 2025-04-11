@@ -70,7 +70,8 @@ import {
 import { AnalysisTab } from './FeatureFlagAnalysisTab'
 import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
-import { featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
+import { FeatureFlagConfirmationModal } from './FeatureFlagConfirmationModal'
+import { changesRequireConfirmation, featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
@@ -116,6 +117,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         setActiveTab,
     } = useActions(featureFlagLogic)
 
+    const { currentTeam } = useValues(teamLogic)
+    const flagsRequireConfirmation = currentTeam?.flags_require_confirmation ?? false
+
     const { earlyAccessFeaturesList } = useValues(featureFlagLogic)
 
     const { tags } = useValues(tagsModel)
@@ -125,6 +129,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
+
+    // State for feature flag confirmation modal
+    const [flagChanges, setFlagChanges] = useState<string[]>([])
+    const [showSaveConfirmModal, setShowSaveConfirmModal] = useState(false)
 
     const isNewFeatureFlag = id === 'new' || id === undefined
 
@@ -248,7 +256,31 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         })
     }
 
-    return (
+    // Handler for Save button clicks
+    const handleSaveClick = (e: React.MouseEvent): void => {
+        // Only prevent default if we need to show confirmation
+        if (!isNewFeatureFlag && flagsRequireConfirmation) {
+            const originalFeatureFlag = featureFlagLogic.findMounted({ id: props.id })?.values.originalFeatureFlag
+
+            if (originalFeatureFlag) {
+                const { requiresConfirmation, changes } = changesRequireConfirmation(
+                    originalFeatureFlag,
+                    featureFlag,
+                    flagsRequireConfirmation
+                )
+
+                if (requiresConfirmation) {
+                    e.preventDefault() // Prevent form submission
+                    setFlagChanges(changes)
+                    setShowSaveConfirmModal(true)
+                }
+                // If no confirmation needed, let the normal form submission happen
+            }
+        }
+        // For new flags or when confirmation not required, let normal form submission occur
+    }
+
+    const renderFlag = (): JSX.Element => (
         <>
             <div className="feature-flag">
                 {isNewFeatureFlag || isEditingFlag ? (
@@ -281,17 +313,20 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         type="primary"
                                         data-attr="save-feature-flag"
                                         htmlType="submit"
-                                        form="feature-flag"
+                                        onClick={handleSaveClick}
                                     >
-                                        Save
+                                        <span>Save</span>
                                     </LemonButton>
                                 </div>
                             }
                         />
                         {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
                             <LemonBanner type="warning">
-                                This feature flag is linked to an experiment. Edit settings here only for advanced
-                                functionality. If unsure, go back to{' '}
+                                <span>
+                                    This feature flag is linked to an experiment. Edit settings here only for advanced
+                                    functionality. If unsure, go back to
+                                </span>
+                                <span> </span>
                                 <Link to={urls.experiment(featureFlag.experiment_set[0])}>
                                     the experiment creation screen.
                                 </Link>
@@ -311,8 +346,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     target="_blank"
                                                     targetBlankIcon
                                                 >
-                                                    {' '}
-                                                    affect the persistence of your flag
+                                                    <span> affect the persistence of your flag</span>
                                                 </Link>
                                             </span>
                                         ) : undefined
@@ -374,7 +408,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <LemonCheckbox
                                                 id="flag-enabled-checkbox"
                                                 label="Enable feature flag"
-                                                onChange={() => onChange(!value)}
+                                                onChange={() => {
+                                                    // Simply update the value, don't show confirmation immediately
+                                                    // Confirmation will happen when saving the form
+                                                    onChange(!value)
+                                                }}
                                                 checked={value}
                                                 dataAttr="feature-flag-enabled-checkbox"
                                             />
@@ -479,9 +517,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 type="primary"
                                 data-attr="save-feature-flag"
                                 htmlType="submit"
-                                form="feature-flag"
+                                onClick={handleSaveClick}
                             >
-                                Save
+                                <span>Save</span>
                             </LemonButton>
                         </div>
                     </Form>
@@ -582,12 +620,13 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                                 ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
                                                                 : (featureFlag.features?.length || 0) > 0
                                                                 ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                                                : (featureFlag.experiment_set?.length || 0) > 0
-                                                                ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
                                                                 : null
                                                         }
                                                     >
-                                                        {featureFlag.deleted ? 'Restore' : 'Delete'} feature flag
+                                                        <span>
+                                                            <span>{featureFlag.deleted ? 'Restore' : 'Delete'}</span>
+                                                            <span> feature flag</span>
+                                                        </span>
                                                     </AccessControlledLemonButton>
                                                 </>
                                             }
@@ -620,7 +659,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 editFeatureFlag(true)
                                             }}
                                         >
-                                            Edit
+                                            <span>Edit</span>
                                         </AccessControlledLemonButton>
                                     </div>
                                 </>
@@ -628,13 +667,17 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         />
                         {earlyAccessFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
                             <LemonBanner type="info">
-                                This feature flag is assigned to an early access feature in the{' '}
+                                <span>This feature flag is assigned to an early access feature in the </span>
                                 <LemonTag type="default" className="uppercase">
                                     Concept
-                                </LemonTag>{' '}
-                                stage. All users who register interest will be assigned this feature flag. Gate your
-                                code behind a different feature flag if you'd like to keep it hidden, and then switch
-                                your code to this feature flag when you're ready to release to your early access users.
+                                </LemonTag>
+                                <span>
+                                    {' '}
+                                    stage. All users who register interest will be assigned this feature flag. Gate your
+                                    code behind a different feature flag if you'd like to keep it hidden, and then
+                                    switch your code to this feature flag when you're ready to release to your early
+                                    access users.
+                                </span>
                             </LemonBanner>
                         )}
                         <LemonTabs
@@ -645,6 +688,30 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     </>
                 )}
             </div>
+        </>
+    )
+
+    return (
+        <>
+            {renderFlag()}
+            {/* Show only the save confirmation modal for significant changes */}
+            {showSaveConfirmModal && (
+                <FeatureFlagConfirmationModal
+                    isOpen={showSaveConfirmModal}
+                    featureFlag={featureFlag}
+                    changes={flagChanges}
+                    onConfirm={() => {
+                        setShowSaveConfirmModal(false)
+                        // Get the form directly and submit it
+                        document
+                            .getElementById('feature-flag')
+                            ?.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))
+                    }}
+                    onCancel={() => {
+                        setShowSaveConfirmModal(false)
+                    }}
+                />
+            )}
         </>
     )
 }
@@ -703,9 +770,10 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
                 <>
                     {!hasEnrichedAnalytics && !enrichAnalyticsNoticeAcknowledged && (
                         <LemonBanner type="info" className="mb-3" onClose={() => closeEnrichAnalyticsNotice()}>
-                            Get richer insights automatically by{' '}
+                            <span>Get richer insights automatically by</span>
+                            <span> </span>
                             <Link to="https://posthog.com/docs/libraries/js#enriched-analytics" target="_blank">
-                                enabling enriched analytics for flags{' '}
+                                <span>enabling enriched analytics for flags</span>
                             </Link>
                         </LemonBanner>
                     )}

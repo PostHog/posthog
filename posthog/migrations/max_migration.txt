@@ -1,1 +1,1 @@
-0709_alter_integration_kind
+0710_alter_team_autocapture_web_vitals_allowed_metrics

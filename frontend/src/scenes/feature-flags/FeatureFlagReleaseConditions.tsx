@@ -21,6 +21,8 @@ import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
+import { useState } from 'react'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -32,6 +34,7 @@ import {
     featureFlagReleaseConditionsLogic,
     FeatureFlagReleaseConditionsLogicProps,
 } from './FeatureFlagReleaseConditionsLogic'
+import { FeatureFlagRolloutConfirmationModal } from './FeatureFlagRolloutConfirmationModal'
 
 function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): JSX.Element {
     if (property.type === 'cohort') {
@@ -126,8 +129,23 @@ export function FeatureFlagReleaseConditions({
     } = useActions(releaseConditionsLogic)
 
     const { showGroupsOptions, groupTypes, aggregationLabel } = useValues(groupsModel)
-    const { earlyAccessFeaturesList, hasEarlyAccessFeatures, featureFlagKey, nonEmptyVariants } =
+    const { earlyAccessFeaturesList, hasEarlyAccessFeatures, featureFlagKey, nonEmptyVariants, featureFlag } =
         useValues(featureFlagLogic)
+
+    const { currentTeam } = useValues(teamLogic)
+    const flagsRequireConfirmation = currentTeam?.flags_require_confirmation ?? false
+
+    // State for rollout condition confirmation modal
+    const [confirmRolloutModalVisible, setConfirmRolloutModalVisible] = useState(false)
+    const [pendingRolloutUpdate, setPendingRolloutUpdate] = useState<{
+        callback: () => void
+    } | null>(null)
+
+    // Wrapper for any function that modifies rollout conditions
+    const withConfirmation = (callback: () => void): (() => void) => {
+        // Don't require confirmation for rollout changes - these are relatively minor adjustments
+        return callback
+    }
 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
@@ -211,20 +229,20 @@ export function FeatureFlagReleaseConditions({
                                     icon={<IconCopy />}
                                     noPadding
                                     tooltip="Duplicate condition set"
-                                    onClick={() => duplicateConditionSet(index)}
+                                    onClick={withConfirmation(() => duplicateConditionSet(index))}
                                 />
                                 {!isEarlyAccessFeatureCondition(group) &&
                                     (filterGroups.length > 1 || showTrashIconWithOneCondition) && (
                                         <LemonButton
                                             icon={<IconTrash />}
                                             noPadding
-                                            tooltip="Remove condition set"
-                                            onClick={() => {
+                                            tooltip="Delete condition set"
+                                            onClick={withConfirmation(() => {
                                                 removeConditionSet(index)
                                                 if (filterGroups.length === 1) {
                                                     removedLastConditionCallback?.()
                                                 }
-                                            }}
+                                            })}
                                         />
                                     )}
                             </div>
@@ -281,7 +299,9 @@ export function FeatureFlagReleaseConditions({
                                 propertyFilters={group?.properties}
                                 logicalRowDivider
                                 addText="Add condition"
-                                onChange={(properties) => updateConditionSet(index, undefined, properties)}
+                                onChange={(properties) => {
+                                    withConfirmation(() => updateConditionSet(index, undefined, properties))()
+                                }}
                                 taxonomicGroupTypes={taxonomicGroupTypes}
                                 taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                 hasRowOperator={false}
@@ -338,7 +358,7 @@ export function FeatureFlagReleaseConditions({
                                 <LemonSlider
                                     value={group.rollout_percentage !== null ? group.rollout_percentage : 100}
                                     onChange={(value) => {
-                                        updateConditionSet(index, value)
+                                        withConfirmation(() => updateConditionSet(index, value, undefined))()
                                     }}
                                     min={0}
                                     max={100}
@@ -351,7 +371,9 @@ export function FeatureFlagReleaseConditions({
                                         type="number"
                                         className="ml-2 mr-1.5 max-w-30"
                                         onChange={(value): void => {
-                                            updateConditionSet(index, value === undefined ? 0 : value)
+                                            withConfirmation(() =>
+                                                updateConditionSet(index, value === undefined ? 0 : value)
+                                            )()
                                         }}
                                         value={group.rollout_percentage !== null ? group.rollout_percentage : 100}
                                         min={0}
@@ -420,7 +442,11 @@ export function FeatureFlagReleaseConditions({
                                             placeholder="Select variant"
                                             allowClear={true}
                                             value={group.variant}
-                                            onChange={(value) => updateConditionSet(index, undefined, undefined, value)}
+                                            onChange={(value) => {
+                                                withConfirmation(() =>
+                                                    updateConditionSet(index, undefined, undefined, value)
+                                                )()
+                                            }}
                                             options={featureFlagVariants.map((variant) => ({
                                                 label: variant.key,
                                                 value: variant.key,
@@ -592,9 +618,33 @@ export function FeatureFlagReleaseConditions({
                 )}
             </div>
             {!readOnly && (
-                <LemonButton type="secondary" className="mt-0 w-max" onClick={addConditionSet} icon={<IconPlus />}>
-                    Add condition set
-                </LemonButton>
+                <div className="mb-4">
+                    <LemonButton
+                        type="secondary"
+                        onClick={withConfirmation(() => addConditionSet())}
+                        icon={<IconPlus />}
+                        data-attr="feature-flag-add-condition-set"
+                    >
+                        Add condition set
+                    </LemonButton>
+                </div>
+            )}
+            {!readOnly && id && id !== 'new' && flagsRequireConfirmation && featureFlag && (
+                <FeatureFlagRolloutConfirmationModal
+                    isOpen={confirmRolloutModalVisible}
+                    featureFlag={featureFlag}
+                    onConfirm={() => {
+                        if (pendingRolloutUpdate?.callback) {
+                            pendingRolloutUpdate.callback()
+                        }
+                        setConfirmRolloutModalVisible(false)
+                        setPendingRolloutUpdate(null)
+                    }}
+                    onCancel={() => {
+                        setConfirmRolloutModalVisible(false)
+                        setPendingRolloutUpdate(null)
+                    }}
+                />
             )}
         </>
     )

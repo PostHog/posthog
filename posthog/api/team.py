@@ -99,6 +99,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "heatmaps_opt_in",
             "capture_dead_clicks",
             "flags_persistence_default",
+            "flags_require_confirmation",
         ]
         read_only_fields = fields
 
@@ -148,6 +149,7 @@ TEAM_CONFIG_FIELDS = (
     "surveys_opt_in",
     "heatmaps_opt_in",
     "flags_persistence_default",
+    "flags_require_confirmation",
     "capture_dead_clicks",
     "default_data_theme",
     "revenue_tracking_config",
