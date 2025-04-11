@@ -78,219 +78,222 @@ body[theme=light] {
     --secondary-3000-button-border-hover: #d40b76;
 }`
 
-const LUMON_THEME = `:root {
-    --radius: 0px;
-    --font-mono: 'Courier New', Courier, monospace;
+const LUMON_THEME = /* === Import Input Sans Font from Google Fonts === */
+@import url('https://fonts.googleapis.com/css2?family=Input+Sans:wght@300;400;500;600&display=swap');
 
-    --lumon-blue: #93C4FF;
-    --lumon-bg: #000000;
-    --glow: 0 0 10px rgba(147, 196, 255, 0.25);
-    --bloom: 0 0 25px rgba(147, 196, 255, 0.5);
-    --monkey-glow: 0 0 20px rgba(243, 210, 0, 0.5);
+/* === Override default variables === */
+:root {
+    --color-background: #000920; /* Deep dark blue background */
+    --color-primary: #00e5ff;   /* Brighter cyan-blue color */
+    --color-accent: #9fefff;    /* Lighter accent color */
+    --font-mono: "Courier New", monospace;
+    --font-main: "Input Sans", sans-serif; /* Use Input Sans for the font */
 }
 
-/* === Base Body Styling === */
-body,
-body[theme='dark'] {
-    background: var(--lumon-bg);
-    color: var(--lumon-blue);
-    font-family: var(--font-mono);
-    text-shadow: var(--glow), var(--monkey-glow);
-    position: relative;
+/* === Base body and layout styles === */
+body {
+    font-family: var(--font-main) !important; /* Apply Input Sans to the body */
+    background-color: var(--color-background) !important;
+    color: var(--color-primary) !important;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 100%;
+    margin: 0;
     overflow: hidden;
-    filter: contrast(1.8) brightness(1.4) saturate(1.3);
-    animation: flicker 0.2s infinite, glow 0.4s ease infinite;
+    text-shadow: 0 0 10px var(--color-primary), 0 0 20px var(--color-primary); /* Glowing text */
+    animation: flicker 8s infinite, distort 6s infinite; /* Slowed down flicker and distortion */
 }
 
-@keyframes flicker {
-    0%, 100% { opacity: 0.98; }
-    50% { opacity: 1; }
-    25%, 75% { opacity: 0.96; }
-}
-
-@keyframes glow {
-    0% { text-shadow: 0 0 10px rgba(147, 196, 255, 0.3), 0 0 20px rgba(147, 196, 255, 0.5); }
-    50% { text-shadow: 0 0 20px rgba(147, 196, 255, 0.5), 0 0 40px rgba(147, 196, 255, 0.7); }
-    100% { text-shadow: 0 0 10px rgba(147, 196, 255, 0.3), 0 0 20px rgba(147, 196, 255, 0.5); }
-}
-
-/* === CRT Rounded Tube Shadow === */
-body::before {
-    content: '';
+/* === CRT screen effects === */
+body:before {
+    content: "";
     position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 9996;
-    background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQMAAAAl21bKAAAABlBMVEUAAAD///+l2Z/dAAAACklEQVQI12NgAAAAAgAB4iG8MwAAAABJRU5ErkJggg==');
-    background-size: 1px 1px;
-    opacity: 0.4;
-    image-rendering: pixelated;
-    mix-blend-mode: overlay;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #0a192f;
+    box-shadow: inset 0 0 150px rgba(0, 60, 120, 0.5), inset 0 0 50px rgba(0, 30, 60, 0.5); /* Vignette effect */
+    z-index: -999;
 }
 
-body::before.overlay {
-    content: '';
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 9998;
-    border-radius: 5% / 3%;
-    background:
-        radial-gradient(circle at center, rgba(147, 196, 255, 0.04), transparent 70%) no-repeat center,
-        linear-gradient(to right, rgba(255,255,255,0.04) 0%, transparent 20%, transparent 80%, rgba(255,255,255,0.04) 100%);
-    box-shadow:
-        inset 0 0 300px rgba(0, 0, 0, 0.75),
-        inset 0 0 800px rgba(0, 0, 0, 0.6);
-    mix-blend-mode: overlay;
-}
-
-/* === Scanlines Overlay === */
+/* Scanlines effect */
 body::after {
-    content: '';
+    content: "";
     position: fixed;
-    inset: 0;
-    pointer-events: none;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(to bottom, rgba(0, 229, 255, 0.1) 50%, rgba(0, 0, 0, 0.5) 50%);
+    background-size: 100% 2px;
     z-index: 9999;
-    background: repeating-linear-gradient(
-        to bottom,
-        rgba(255, 255, 255, 0.03) 0px,
-        rgba(255, 255, 255, 0.03) 2px,
-        transparent 2px,
-        transparent 4px
-    );
-    mix-blend-mode: overlay;
-    animation: scanline-glide 0.75s linear infinite;
-    opacity: 0.25;
-}
-
-@keyframes scanline-glide {
-    0% { background-position: 0 0; }
-    100% { background-position: 0 100%; }
-}
-
-/* === Pixelation Overlay (separate layer) === */
-html::before {
-    content: '';
-    position: fixed;
-    inset: 0;
     pointer-events: none;
-    z-index: 9997;
-    background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQMAAAAl21bKAAAABlBMVEUAAAD///+l2Z/dAAAACklEQVQI12NgAAAAAgAB4iG8MwAAAABJRU5ErkJggg==');
-    background-size: 1px 1px;
-    opacity: 0.3;
-    image-rendering: pixelated;
-    mix-blend-mode: overlay;
+    opacity: 0.72; /* Dialed back opacity for slightly less noticeable lines */
 }
 
-/* === Global Font + Color Rules === */
-* {
-    font-family: var(--font-mono) !important;
-    color: var(--lumon-blue) !important;
-    border-color: var(--lumon-blue) !important;
-    text-shadow:
-        var(--glow),
-        -0.25px 0 rgba(255, 0, 0, 0.3),
-        0.25px 0 rgba(0, 0, 255, 0.3);
+/* === Fill colors for the graph's areas === */
+.LineGraph .graph-area {
+    fill: rgba(0, 229, 255, 0.15) !important;  /* Light cyan-blue fill */
 }
 
-/* === Button Styling === */
-button,
-input[type="button"],
-input[type="submit"],
-a,
-[class*="btn"],
-[class*="Button"],
-[class*="button-primitive"],
-[class*="LemonButton"],
-[class*="ant-btn"],
-[class*="group/button-primitive"],
+/* === Graph lines === */
+.LineGraph .graph-line {
+    stroke: var(--color-primary) !important; /* Cyan-blue for graph lines */
+}
+
+/* === Axis lines === */
+.LineGraph .graph-axis {
+    stroke: rgba(0, 229, 255, 0.6) !important;  /* Brighter cyan-blue for axis lines */
+}
+
+/* === Grid lines === */
+.LineGraph .graph-grid {
+    stroke: rgba(0, 229, 255, 0.1) !important;  /* Faint cyan-blue grid lines */
+}
+
+/* === Annotations and Badges === */
+.AnnotationsBadge {
+    background-color: rgba(13, 42, 73, 0.8) !important; /* Dark cyan-blue background for badges */
+    color: var(--color-primary) !important;  /* Cyan-blue text */
+    border: 1px solid rgba(0, 229, 255, 0.3) !important;  /* Accent cyan-blue borders */
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.2) !important;  /* Subtle glowing effect */
+    transition: all 0.3s ease !important;  /* Smooth transition for hover effects */
+}
+
+/* Hover effects for Annotation Badges */
+.AnnotationsBadge:hover {
+    background-color: rgba(20, 66, 114, 0.9) !important;  /* Lighter hover background */
+    border-color: var(--color-primary) !important;
+    box-shadow: 0 0 20px rgba(0, 229, 255, 0.4) !important;  /* Brighter glow on hover */
+    color: #000920 !important;  /* Change text to black for contrast on hover */
+}
+
+/* === Button Style for Graph Annotations === */
+.LemonBadge {
+    background-color: rgba(13, 42, 73, 0.8) !important;  /* Matching badge background */
+    border: 1px solid rgba(0, 229, 255, 0.3) !important;
+}
+
+/* === Apply uppercase and color transformation to the LemonButton content === */
+.LemonButton__content {
+    text-transform: uppercase !important; /* Ensure all button text is in uppercase */
+    color: var(--color-primary) !important;  /* Set the text color to cyan-blue */
+}
+
+/* === Apply uppercase and color transformation for LemonButton span === */
+.LemonButton__chrome {
+    color: var(--color-primary) !important;  /* Make sure the span color is also set to cyan-blue */
+}
+
+/* === Make Text on Buttons All Caps using ::after for LemonButton */
 .LemonButton > span::after {
-    background: var(--lumon-bg) !important;
-    color: var(--lumon-blue) !important;
-    border: 1px solid var(--lumon-blue) !important;
-    border-radius: var(--radius);
-    font-weight: bold;
-    text-transform: uppercase;
+    content: attr(data-text); /* Ensures the content is respected */
+    text-transform: uppercase !important; /* Make text all caps */
+    display: inline-block; /* Ensure the text behaves as a block-level element */
+}
+
+/* === Uppercase Text and Color for button-primitive class === */
+.button-primitive .truncate {
+    text-transform: uppercase !important; /* Make text uppercase */
+    color: var(--color-primary) !important;  /* Ensure text color is cyan-blue */
+}
+
+/* === Uppercase Text and Color for button-primitive content === */
+.button-primitive > a .truncate {
+    text-transform: uppercase !important; /* Make text uppercase */
+    color: var(--color-primary) !important;  /* Ensure text color is cyan-blue */
+}
+
+/* === Tooltip or Badge Hover Text === */
+.AnnotationsBadge span {
+    font-size: 0.9rem;
+    color: var(--color-primary) !important;
+}
+
+/* === SVG Icons in Badges === */
+.LemonIcon {
+    fill: var(--color-primary) !important; /* Make icons cyan-blue */
+    transition: fill 0.3s ease;
+}
+
+/* === Graph Legends and Tooltips === */
+.InsightVizDisplay__content .Tooltip {
+    background-color: rgba(0, 29, 58, 0.8) !important;  /* Dark cyan background for tooltips */
+    color: var(--color-primary) !important;  /* Cyan-blue text */
+    border: 1px solid rgba(0, 229, 255, 0.3) !important;  /* Accent cyan-blue borders */
+}
+
+/* === Graph Ticks and Labels === */
+.LineGraph .graph-tick {
+    fill: var(--color-primary) !important; /* Cyan-blue tick marks */
+}
+
+/* === Blinking cursor effect for badges (if necessary) */
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}
+
+.Header_Header__GCJdR h1::after {
+    content: "_";
+    animation: blink 1s infinite;
+    color: var(--color-primary);
+    font-weight: normal;
+}
+
+/* === Flicker animation - Slowed down */
+@keyframes flicker {
+    0% { opacity: 1.0; }
+    10% { opacity: 0.9; }
+    20% { opacity: 1.0; }
+    30% { opacity: 1.0; }
+    40% { opacity: 0.95; }
+    50% { opacity: 1.0; }
+    60% { opacity: 1.0; }
+    70% { opacity: 0.97; }
+    80% { opacity: 1.0; }
+    100% { opacity: 1.0; }
+}
+
+/* Subtle horizontal distortion like an old CRT */
+@keyframes distort {
+    0% { transform: translateX(0); }
+    5% { transform: translateX(-0.5px); }
+    10% { transform: translateX(0.5px); }
+    15% { transform: translateX(0); }
+    100% { transform: translateX(0); }
+}
+
+/* === Link Button Style === */
+.Link {
+    background-color: rgba(13, 42, 73, 0.8) !important;  /* Matching background */
+    border: 1px solid rgba(0, 229, 255, 0.3) !important;  /* Cyan-blue borders */
+    color: var(--color-primary) !important;  /* Cyan-blue text */
+    text-transform: uppercase !important;  /* Ensure text is in uppercase */
+    padding: 10px 20px; /* Adjust padding for a better look */
+    font-family: var(--font-main) !important; /* Apply Input Sans font */
+    font-weight: 600;  /* Make text bold */
+    transition: all 0.3s ease !important;  /* Smooth transition */
     cursor: pointer;
-    box-shadow: var(--glow);
-    transition: all 0.2s ease;
 }
 
-button:hover,
-input[type="button"]:hover,
-input[type="submit"]:hover,
-a:hover,
-[class*="btn"]:hover,
-[class*="Button"]:hover,
-[class*="button-primitive"]:hover,
-[class*="LemonButton"]:hover,
-[class*="ant-btn"]:hover,
-[class*="group/button-primitive"]:hover {
-    background: var(--lumon-blue) !important;
-    color: var(--lumon-bg) !important;
-    border-color: var(--lumon-blue) !important;
-    box-shadow: var(--bloom) !important;
+/* === Hover Effects for Link Button === */
+.Link:hover {
+    background-color: rgba(20, 66, 114, 0.9) !important;  /* Lighter hover background */
+    border-color: var(--color-primary) !important;
+    box-shadow: 0 0 20px rgba(0, 229, 255, 0.4) !important;  /* Glowing effect */
+    color: #000920 !important;  /* Change text to black for contrast */
 }
 
-button:hover *,
-a:hover *,
-[class*="btn"]:hover *,
-[class*="Button"]:hover *,
-[class*="button-primitive"]:hover *,
-[class*="LemonButton"]:hover *,
-[class*="ant-btn"]:hover * {
-    color: var(--lumon-bg) !important;
-    fill: var(--lumon-bg) !important;
+/* === Focus Effect for Link Button === */
+.Link:focus {
+    outline: none;  /* Remove default focus outline */
+    box-shadow: 0 0 10px rgba(0, 229, 255, 0.6) !important;  /* Glowing border on focus */
 }
-
-[class*="warning"],
-[class*="highlight"],
-[class*="yellow"] {
-    background: var(--lumon-bg) !important;
-    color: var(--lumon-blue) !important;
-    border-color: var(--lumon-blue) !important;
-}
-
-[class*="__content"],
-[class*="__label"],
-[class*="__icon"],
-button span,
-button div,
-a span,
-a div,
-.LemonButton > span::after {
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-    color: inherit !important;
-}
-
-button svg,
-a svg,
-[class*="btn"] svg,
-[class*="Button"] svg,
-[class*="button-primitive"] svg,
-[class*="LemonButton"] svg,
-[class*="ant-btn"] svg {
-    fill: currentColor !important;
-    color: inherit !important;
-    filter: drop-shadow(var(--glow));
-    width: 16px;
-    height: 16px;
-}
-
-a:not([class*="button"]):not([class*="btn"]) {
-    color: var(--lumon-blue);
-    border-bottom: 1px solid transparent;
-    transition: 0.2s ease;
-}
-
-a:not([class*="button"]):not([class*="btn"]):hover {
-    background: var(--lumon-blue);
-    color: var(--lumon-bg);
-    box-shadow: var(--glow);
-    border-bottom: none;
-}`
 
 export function CustomCssScene(): JSX.Element {
     const { persistedCustomCss, previewingCustomCss } = useValues(themeLogic)
