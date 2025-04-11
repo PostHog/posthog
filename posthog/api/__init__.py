@@ -437,6 +437,7 @@ router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "as
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 router.register("debug_ch_queries/", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
 router.register(r"payments", payments.StripeWebhookViewSet, "payments")
+router.register(r"payments/payment_intents", payments_api.PaymentIntentViewSet, "payments_payment_intents")
 
 
 from posthog.api.action import ActionViewSet  # noqa: E402

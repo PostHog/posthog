@@ -483,3 +483,232 @@ def payments_balance_transactions(request: Request, transaction_id=None):
 
     # Method not allowed
     return Response({"error": f"Method {request.method} not allowed"}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+
+class StripePaymentIntentSerializer(serializers.Serializer):
+    """Serializer for Stripe payment intent operations"""
+
+    amount = serializers.IntegerField(required=True)
+    currency = serializers.CharField(required=True)
+    description = serializers.CharField(required=False, allow_blank=True)
+    metadata = serializers.DictField(required=False)
+    payment_method = serializers.CharField(required=False)
+    receipt_email = serializers.CharField(required=False, allow_blank=True)
+    confirm = serializers.BooleanField(required=False)
+    confirmation_method = serializers.CharField(required=False)
+    customer = serializers.CharField(required=False)
+    statement_descriptor = serializers.CharField(required=False, allow_blank=True)
+    statement_descriptor_suffix = serializers.CharField(required=False, allow_blank=True)
+    setup_future_usage = serializers.CharField(required=False)
+    off_session = serializers.BooleanField(required=False)
+    automatic_payment_methods = serializers.DictField(required=False)
+
+
+class PaymentIntentViewSet(viewsets.ViewSet):
+    scope_object_read_actions = ["list", "retrieve", "cancel", "confirm", "capture"]
+    scope_object_write_actions = ["create", "partial_update"]
+    """ViewSet for handling Stripe payment intent operations"""
+
+    def _initialize_stripe(self):
+        """Initialize Stripe with the API key from settings"""
+        stripe.api_key = STRIPE_API_KEY
+
+    def _handle_stripe_error(self, e: stripe.error.StripeError) -> Response:
+        """Handle Stripe errors and return appropriate responses"""
+        logger.error(f"Stripe error: {str(e)}")
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    def list(self, request: Request, parent_lookup_project_id=None) -> Response:
+        """
+        List all payment intents from Stripe
+        GET /payments/payment_intents/
+        """
+        self._initialize_stripe()
+
+        try:
+            params = {}
+
+            # Handle pagination params
+            if "limit" in request.query_params:
+                params["limit"] = int(request.query_params.get("limit"))
+
+            if "starting_after" in request.query_params:
+                params["starting_after"] = request.query_params.get("starting_after")
+
+            if "ending_before" in request.query_params:
+                params["ending_before"] = request.query_params.get("ending_before")
+
+            # Handle customer filtering
+            if "customer" in request.query_params:
+                params["customer"] = request.query_params.get("customer")
+
+            payment_intents = stripe.PaymentIntent.list(**params)
+            return Response(payment_intents)
+
+        except stripe.error.StripeError as e:
+            return self._handle_stripe_error(e)
+
+    def retrieve(self, request: Request, pk=None) -> Response:
+        """
+        Retrieve a specific payment intent from Stripe
+        GET /payments/payment_intents/:id
+        """
+        if not pk:
+            return Response({"error": "Payment Intent ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        self._initialize_stripe()
+
+        try:
+            params = {}
+            # Handle client_secret if provided
+            if "client_secret" in request.query_params:
+                params["client_secret"] = request.query_params.get("client_secret")
+
+            payment_intent = stripe.PaymentIntent.retrieve(pk, **params)
+            return Response(payment_intent)
+        except stripe.error.StripeError as e:
+            return self._handle_stripe_error(e)
+
+    def create(self, request: Request) -> Response:
+        """
+        Create a new payment intent in Stripe
+        POST /payments/payment_intents/
+        """
+        serializer = StripePaymentIntentSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        self._initialize_stripe()
+
+        try:
+            payment_intent = stripe.PaymentIntent.create(**serializer.validated_data)
+            return Response(payment_intent, status=status.HTTP_201_CREATED)
+        except stripe.error.StripeError as e:
+            return self._handle_stripe_error(e)
+
+    def partial_update(self, request: Request, pk=None) -> Response:
+        """
+        Update an existing payment intent in Stripe
+        PATCH /payments/payment_intents/:id
+        """
+        if not pk:
+            return Response({"error": "Payment Intent ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = StripePaymentIntentSerializer(data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        self._initialize_stripe()
+
+        try:
+            payment_intent = stripe.PaymentIntent.modify(pk, **serializer.validated_data)
+            return Response(payment_intent)
+        except stripe.error.StripeError as e:
+            return self._handle_stripe_error(e)
+
+    def cancel(self, request: Request, pk=None) -> Response:
+        """
+        Cancel a payment intent in Stripe
+        POST /payments/payment_intents/:id/cancel
+        """
+        if not pk:
+            return Response({"error": "Payment Intent ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        self._initialize_stripe()
+
+        try:
+            cancellation_reason = request.data.get("cancellation_reason")
+            params = {}
+            if cancellation_reason:
+                params["cancellation_reason"] = cancellation_reason
+
+            payment_intent = stripe.PaymentIntent.cancel(pk, **params)
+            return Response(payment_intent)
+        except stripe.error.StripeError as e:
+            return self._handle_stripe_error(e)
+
+    def confirm(self, request: Request, pk=None) -> Response:
+        """
+        Confirm a payment intent in Stripe
+        POST /payments/payment_intents/:id/confirm
+        """
+        if not pk:
+            return Response({"error": "Payment Intent ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        self._initialize_stripe()
+
+        try:
+            payment_intent = stripe.PaymentIntent.confirm(pk, **request.data)
+            return Response(payment_intent)
+        except stripe.error.StripeError as e:
+            return self._handle_stripe_error(e)
+
+    def capture(self, request: Request, pk=None) -> Response:
+        """
+        Capture a payment intent in Stripe
+        POST /payments/payment_intents/:id/capture
+        """
+        if not pk:
+            return Response({"error": "Payment Intent ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        self._initialize_stripe()
+
+        try:
+            payment_intent = stripe.PaymentIntent.capture(pk, **request.data)
+            return Response(payment_intent)
+        except stripe.error.StripeError as e:
+            return self._handle_stripe_error(e)
+
+
+# Direct API routes for payments/payment_intents
+@csrf_exempt
+def payments_payment_intents(request: Request, payment_intent_id=None, action=None):
+    """
+    Handle RESTful operations on Stripe payment intents
+    - GET /payments/payment_intents/ - List all payment intents
+    - GET /payments/payment_intents/:id - Get a specific payment intent
+    - POST /payments/payment_intents/ - Create a new payment intent
+    - PATCH /payments/payment_intents/:id - Update a payment intent
+    - POST /payments/payment_intents/:id/cancel - Cancel a payment intent
+    - POST /payments/payment_intents/:id/confirm - Confirm a payment intent
+    - POST /payments/payment_intents/:id/capture - Capture a payment intent
+    """
+    payment_intent_view = PaymentIntentViewSet()
+
+    # Handle specific actions on payment intent
+    if payment_intent_id and action:
+        if request.method == "POST":
+            if action == "cancel":
+                return payment_intent_view.cancel(request, pk=payment_intent_id)
+            elif action == "confirm":
+                return payment_intent_view.confirm(request, pk=payment_intent_id)
+            elif action == "capture":
+                return payment_intent_view.capture(request, pk=payment_intent_id)
+            else:
+                return Response({"error": f"Action {action} not supported"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            {"error": f"Method {request.method} not allowed for action {action}"},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    # Handle basic CRUD operations
+    if request.method == "GET":
+        if payment_intent_id:
+            # Get specific payment intent
+            return payment_intent_view.retrieve(request, pk=payment_intent_id)
+        else:
+            # List all payment intents
+            return payment_intent_view.list(request)
+
+    elif request.method == "POST":
+        # Create a new payment intent
+        return payment_intent_view.create(request)
+
+    elif request.method == "PATCH":
+        # Update a payment intent
+        if not payment_intent_id:
+            return Response({"error": "Payment Intent ID is required for updates"}, status=status.HTTP_400_BAD_REQUEST)
+        return payment_intent_view.partial_update(request, pk=payment_intent_id)
+
+    # Method not allowed
+    return Response({"error": f"Method {request.method} not allowed"}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
