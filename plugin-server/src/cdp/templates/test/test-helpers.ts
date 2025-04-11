@@ -135,6 +135,10 @@ export class TemplateTester {
     }
 
     async invoke(_inputs: Record<string, any>, _globals?: DeepPartialHogFunctionInvocationGlobals) {
+        if (this.template.mapping_templates) {
+            throw new Error('Mapping templates found. Use invokeMappings instead.')
+        }
+
         const compiledInputs = await this.compileInputs(_inputs)
         const globals = this.createGlobals(_globals)
 
@@ -166,11 +170,11 @@ export class TemplateTester {
     }
 
     async invokeMappings(_inputs: Record<string, any>, _globals?: DeepPartialHogFunctionInvocationGlobals) {
-        const compiledInputs = await this.compileInputs(_inputs)
-
         if (!this.template.mapping_templates) {
-            return []
+            throw new Error('No mapping templates found')
         }
+
+        const compiledInputs = await this.compileInputs(_inputs)
 
         const compiledMappingInputs = this.template.mapping_templates.map((mapping) => ({
             ...mapping,
