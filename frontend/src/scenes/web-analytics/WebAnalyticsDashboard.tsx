@@ -40,6 +40,7 @@ import { QuerySchema } from '~/queries/schema/schema-general'
 import { ProductKey } from '~/types'
 
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
+import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
     const { tiles: tilesFromProps, compact = false } = props
@@ -75,7 +76,7 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
 const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
     const { query, title, layout, insightProps, control, showIntervalSelect, docs } = tile
 
-    const { openModal } = useActions(webAnalyticsLogic)
+    const { openModal } = useActions(webAnalyticsModalLogic)
     const { getNewInsightUrl } = useValues(webAnalyticsLogic)
 
     const buttonsRow = [
@@ -145,7 +146,6 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
 const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
     const { layout } = tile
 
-    const { openModal } = useActions(webAnalyticsLogic)
     const { getNewInsightUrl } = useValues(webAnalyticsLogic)
 
     return (
@@ -179,7 +179,6 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                 docs: tab.docs,
             }))}
             tileId={tile.tileId}
-            openModal={openModal}
             getNewInsightUrl={getNewInsightUrl}
         />
     )
@@ -211,7 +210,6 @@ export const WebTabs = ({
     activeTabId,
     tabs,
     setActiveTabId,
-    openModal,
     getNewInsightUrl,
     tileId,
 }: {
@@ -228,13 +226,13 @@ export const WebTabs = ({
         docs: LearnMorePopoverProps | undefined
     }[]
     setActiveTabId: (id: string) => void
-    openModal: (tileId: TileId, tabId: string) => void
     getNewInsightUrl: (tileId: TileId, tabId: string) => string | undefined
     tileId: TileId
 }): JSX.Element => {
     const activeTab = tabs.find((t) => t.id === activeTabId)
     const newInsightUrl = getNewInsightUrl(tileId, activeTabId)
 
+    const { openModal } = useActions(webAnalyticsModalLogic)
     const { setTileVisualization } = useActions(webAnalyticsLogic)
     const { tileVisualizations } = useValues(webAnalyticsLogic)
     const visualization = tileVisualizations[tileId]
