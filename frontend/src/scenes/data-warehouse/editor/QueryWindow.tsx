@@ -130,6 +130,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 )}
             </div>
             <QueryPane
+                // key={`editor-${suggestedQueryInput ? 'diff' : 'regular'}`}
                 originalValue={suggestedQueryInput && suggestedQueryInput != queryInput ? queryInput ?? ' ' : undefined}
                 queryInput={suggestedQueryInput && suggestedQueryInput != queryInput ? suggestedQueryInput : queryInput}
                 sourceQuery={sourceQuery.source}

@@ -297,25 +297,65 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         onAcceptSuggestedQueryInput: () => {
             actions.reportAIQueryAccepted()
             actions.setQueryInput(values.suggestedQueryInput)
-            // CLUDGE: suggestedQueryInput purges monaco model so we need to re-create it
+
+            // Re-create the model to prevent it from being purged
             if (props.monaco && values.activeModelUri) {
-                const newModel = props.monaco.editor.createModel(
-                    values.suggestedQueryInput,
-                    'hogQL',
-                    values.activeModelUri.uri
-                )
-                props.editor?.setModel(newModel)
+                const existingModel = props.monaco.editor.getModel(values.activeModelUri.uri)
+                if (!existingModel) {
+                    const newModel = props.monaco.editor.createModel(
+                        values.suggestedQueryInput,
+                        'hogQL',
+                        values.activeModelUri.uri
+                    )
+
+                    const mountedCodeEditorLogic =
+                        codeEditorLogic.findMounted() ||
+                        codeEditorLogic({
+                            key: props.key,
+                            query: values.suggestedQueryInput,
+                            language: 'hogQL',
+                        })
+
+                    initModel(newModel, mountedCodeEditorLogic)
+                    props.editor?.setModel(newModel)
+                } else {
+                    props.editor?.setModel(existingModel)
+                }
             }
+
             actions.setSuggestedQueryInput('')
+            actions.updateState(true)
         },
         onRejectSuggestedQueryInput: () => {
             actions.reportAIQueryRejected()
-            actions.setSuggestedQueryInput('')
-            // CLUDGE: suggestedQueryInput purges monaco model so we need to re-create it
+
+            // Re-create the model to prevent it from being purged
             if (props.monaco && values.activeModelUri) {
-                const newModel = props.monaco.editor.createModel(values.queryInput, 'hogQL', values.activeModelUri.uri)
-                props.editor?.setModel(newModel)
+                const existingModel = props.monaco.editor.getModel(values.activeModelUri.uri)
+                if (!existingModel) {
+                    const newModel = props.monaco.editor.createModel(
+                        values.queryInput,
+                        'hogQL',
+                        values.activeModelUri.uri
+                    )
+
+                    const mountedCodeEditorLogic =
+                        codeEditorLogic.findMounted() ||
+                        codeEditorLogic({
+                            key: props.key,
+                            query: values.queryInput,
+                            language: 'hogQL',
+                        })
+
+                    initModel(newModel, mountedCodeEditorLogic)
+                    props.editor?.setModel(newModel)
+                } else {
+                    props.editor?.setModel(existingModel)
+                }
             }
+
+            actions.setSuggestedQueryInput('')
+            actions.updateState(true)
         },
         editView: ({ query, view }) => {
             const maybeExistingTab = values.allTabs.find((tab) => tab.view?.id === view.id)
