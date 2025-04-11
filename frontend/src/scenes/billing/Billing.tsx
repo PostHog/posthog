@@ -163,7 +163,7 @@ export function Billing(): JSX.Element {
                 </LemonBanner>
             ) : null}
 
-            {(showBillingSummary || showCreditCTAHero || showBillingHero) && (
+            {(showBillingSummary || showCreditCTAHero || showBillingHero) && !!size && (
                 <div
                     className={clsx(
                         'flex gap-6 max-w-300',
