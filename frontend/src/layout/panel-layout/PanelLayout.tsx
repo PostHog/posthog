@@ -120,7 +120,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
         projectTreeMode,
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { showLayoutPanel, showLayoutNavBar, clearActivePanelIdentifier, setMainContentRef } =
+    const { showLayoutPanel, showLayoutNavBar, clearActivePanelIdentifier, setMainContentRef, setProjectTreeMode } =
         useActions(panelLayoutLogic)
     useMountedLogic(projectTreeLogic)
 
@@ -170,6 +170,15 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                         showLayoutNavBar(false)
                         showLayoutPanel(false)
                         clearActivePanelIdentifier()
+                    }}
+                    className="z-[var(--z-layout-navbar-overlay)] fixed inset-0 w-screen h-screen"
+                />
+            )}
+            {projectTreeMode === 'table' && (
+                <div
+                    onClick={() => {
+                        // On mobile, hide the navbar and panel when the overlay is clicked
+                        setProjectTreeMode('tree')
                     }}
                     className="z-[var(--z-layout-navbar-overlay)] fixed inset-0 w-screen h-screen"
                 />

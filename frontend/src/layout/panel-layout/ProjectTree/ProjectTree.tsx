@@ -66,15 +66,18 @@ export function ProjectTree(): JSX.Element {
                 {
                     key: 'name',
                     title: 'Name',
+                    tooltip: (value: string) => value,
                 },
                 {
                     key: 'record.created_at',
-                    title: 'Created',
+                    title: 'Created at',
                     formatFunction: (value: string) => dayjs(value).format('MMM D, YYYY'),
+                    tooltip: (value: string) => dayjs(value).format('MMM D, YYYY HH:mm:ss'),
                 },
                 {
                     key: 'record.created_by.first_name',
                     title: 'Created by',
+                    tooltip: (value: string) => value,
                 },
             ],
         }),
@@ -301,7 +304,7 @@ export function ProjectTree(): JSX.Element {
                 onItemChecked={onItemChecked}
                 checkedItemCount={checkedItemCountNumeric}
                 onNodeClick={(node) => {
-                    if (!isLayoutPanelPinned) {
+                    if (!isLayoutPanelPinned || projectTreeMode === 'table') {
                         clearActivePanelIdentifier()
                         showLayoutPanel(false)
                     }

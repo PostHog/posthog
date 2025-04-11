@@ -19,6 +19,7 @@ import {
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { SideAction } from '../LemonButton'
 import { Spinner } from '../Spinner/Spinner'
+import { Tooltip } from '../Tooltip/Tooltip'
 import { TreeNodeDisplayIcon, TreeNodeDisplayIconWrapper, TreeNodeDraggable, TreeNodeDroppable } from './LemonTreeUtils'
 
 export type TreeDataItem = {
@@ -69,6 +70,8 @@ export type TreeTableViewKeys = {
         title: string
         /** Format function for the column */
         formatFunction?: (value: any) => string
+        /** Tooltip function for the column */
+        tooltip?: string | ((value: any) => string)
     }>
 }
 
@@ -211,10 +214,37 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
         return (
             <ul className={cn('list-none m-0 p-0', className)} role="group">
-                {data.map((item) => {
+                {data.map((item, index) => {
                     const displayName = item.displayName ?? item.name
                     const isFolder = item.record?.type === 'folder'
                     const isEmptyFolder = item.type === 'empty-folder'
+
+                    // If table mode, renders: "tree item: Name: My App Dashboard, Created at: Mar 28, 2025, Created by: Adam etc"
+                    // If empty folder, renders: "empty folder"
+                    // If tree mode, renders: "tree item: My App Dashboard"
+                    const ariaLabel =
+                        mode === 'table' && tableViewKeys
+                            ? `tree item: ${tableViewKeys?.headers
+                                  .map((header) => {
+                                      const value = header.key
+                                          .split('.')
+                                          .reduce((obj, key) => (obj as any)?.[key], item)
+                                      const formattedValue = header.formatFunction
+                                          ? header.formatFunction(value)
+                                          : value
+                                      // Add null/undefined check and handle object values properly
+                                      const displayValue =
+                                          formattedValue === null || formattedValue === undefined
+                                              ? ''
+                                              : typeof formattedValue === 'object'
+                                              ? JSON.stringify(formattedValue)
+                                              : String(formattedValue)
+                                      return `${header.title}: ${displayValue}`
+                                  })
+                                  .join(', ')}`
+                            : isEmptyFolder
+                            ? 'empty folder'
+                            : `tree item: ${typeof item.name === 'string' ? item.name : 'item'}`
 
                     if (item.type === 'separator') {
                         return (
@@ -254,7 +284,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         <ContextMenuTrigger asChild>
                                             <ButtonGroupPrimitive
                                                 fullWidth
-                                                className="group/lemon-tree-button-group relative"
+                                                className="group/lemon-tree-button-group relative h-[var(--button-height-base)]"
                                                 groupVariant="side-action-group"
                                             >
                                                 {/* The contents of this <TreeNodeDisplayIconWrapper> are positioned absolutely, so to give the effect it's inside the button */}
@@ -288,7 +318,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                                 isContextMenuOpenForItem === item.id,
                                                             'bg-fill-button-tertiary-active': getItemActiveState(item),
                                                             'pl-13': enableMultiSelection,
-                                                            'pl-10 pointer-events-none cursor-default': isEmptyFolder,
+                                                            'pl-4 italic text-tertiary pointer-events-none cursor-default h-[var(--button-height-base)]':
+                                                                isEmptyFolder,
                                                             'group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover cursor-pointer':
                                                                 !isEmptyFolder,
                                                         }
@@ -297,7 +328,11 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     active={getItemActiveState(item)}
                                                     menuItem
                                                     sideActionLeft
-                                                    tooltip={isDragging || isEmptyFolder ? undefined : displayName}
+                                                    tooltip={
+                                                        isDragging || isEmptyFolder || mode === 'table'
+                                                            ? undefined
+                                                            : displayName
+                                                    }
                                                     tooltipPlacement="right"
                                                     disabled={isEmptyFolder}
                                                     tabIndex={isEmptyFolder ? -1 : 0}
@@ -314,25 +349,24 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                               )
                                                             : undefined
                                                     }
+                                                    aria-level={depth + 1}
+                                                    aria-setsize={data.length} // TODO: somehow get all loaded items length here in children
+                                                    aria-posinset={index + 1}
+                                                    aria-selected={selectedId === item.id}
+                                                    aria-disabled={!!item.disabledReason}
+                                                    aria-haspopup={!!itemContextMenu?.(item)}
+                                                    aria-roledescription="tree item"
+                                                    aria-rolemap={`item-${item.id}`}
+                                                    aria-label={ariaLabel}
                                                 >
-                                                    {/* This is a hack to make the button have a left padding since we use important on all tailwind classes */}
-                                                    {depth !== 0 && !isEmptyFolder && (
+                                                    {/* Spacer to offset button padding */}
+                                                    {depth !== 0 && (
                                                         <div
                                                             className="h-full bg-transparent pointer-events-none flex-shrink-0"
                                                             // -6 is to offset button padding (to match folder lines)
                                                             // eslint-disable-next-line react/forbid-dom-props
                                                             style={{
                                                                 width: `${DEPTH_OFFSET - 6}px`,
-                                                            }}
-                                                        />
-                                                    )}
-
-                                                    {!isEmptyFolder && (
-                                                        <div
-                                                            className="absolute size-5 pointer-events-none h-[var(--button-height-base)] flex-shrink-0"
-                                                            // eslint-disable-next-line react/forbid-dom-props
-                                                            style={{
-                                                                width: `${DEPTH_OFFSET + 5}px`,
                                                             }}
                                                         />
                                                     )}
@@ -363,34 +397,24 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     ) : (
                                                         <span
                                                             className={cn('truncate', {
-                                                                'font-semibold': isFolder,
                                                                 'w-full': mode === 'table',
-                                                                'flex flex-row gap-2': mode === 'table',
+                                                                'grid gap-2': mode === 'table',
                                                             })}
                                                             // eslint-disable-next-line react/forbid-dom-props
                                                             style={{
                                                                 gridTemplateColumns:
                                                                     mode === 'table'
-                                                                        ? `repeat(${tableViewKeys?.headers.length}, minmax(100px, 1fr))`
+                                                                        ? `repeat(${tableViewKeys?.headers.length}, minmax(100px, 265px))`
                                                                         : undefined,
                                                             }}
                                                         >
-                                                            {displayName}
-
-                                                            {mode === 'table' &&
-                                                                tableViewKeys?.headers.map((header) => {
+                                                            {mode === 'table' ? (
+                                                                tableViewKeys?.headers.map((header, index) => {
                                                                     return (
-                                                                        <span key={header.key} className="truncate">
-                                                                            {depth !== 0 && !isEmptyFolder && (
-                                                                                <div
-                                                                                    className="h-full bg-transparent pointer-events-none flex-shrink-0"
-                                                                                    // -6 is to offset button padding (to match folder lines)
-                                                                                    // eslint-disable-next-line react/forbid-dom-props
-                                                                                    style={{
-                                                                                        width: `${DEPTH_OFFSET - 6}px`,
-                                                                                    }}
-                                                                                />
-                                                                            )}
+                                                                        <span
+                                                                            key={header.key}
+                                                                            className="truncate text-left"
+                                                                        >
                                                                             {(() => {
                                                                                 const value = header.key
                                                                                     .split('.')
@@ -399,13 +423,52 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                                                             (obj as any)?.[key],
                                                                                         item
                                                                                     )
-                                                                                return header.formatFunction
-                                                                                    ? header.formatFunction(value)
-                                                                                    : value
+                                                                                return (
+                                                                                    <Tooltip
+                                                                                        title={
+                                                                                            typeof header.tooltip ===
+                                                                                            'function'
+                                                                                                ? header.tooltip(value)
+                                                                                                : header.tooltip
+                                                                                        }
+                                                                                        placement="top-start"
+                                                                                    >
+                                                                                        <span
+                                                                                            className={cn({
+                                                                                                'font-normal':
+                                                                                                    index !== 0 &&
+                                                                                                    !isEmptyFolder,
+                                                                                                'font-semibold':
+                                                                                                    index === 0 &&
+                                                                                                    (isFolder ||
+                                                                                                        (isFolder &&
+                                                                                                            !isEmptyFolder)),
+                                                                                                'opacity-0':
+                                                                                                    index !== 0 &&
+                                                                                                    isEmptyFolder,
+                                                                                            })}
+                                                                                        >
+                                                                                            {header.formatFunction
+                                                                                                ? header.formatFunction(
+                                                                                                      value
+                                                                                                  )
+                                                                                                : value}
+                                                                                        </span>
+                                                                                    </Tooltip>
+                                                                                )
                                                                             })()}
                                                                         </span>
                                                                     )
-                                                                })}
+                                                                })
+                                                            ) : (
+                                                                <span
+                                                                    className={cn('truncate', {
+                                                                        'font-semibold': isFolder && !isEmptyFolder,
+                                                                    })}
+                                                                >
+                                                                    {displayName}
+                                                                </span>
+                                                            )}
                                                         </span>
                                                     )}
                                                 </ButtonPrimitive>
@@ -523,6 +586,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             onItemChecked,
             checkedItemCount,
             emptySpaceContextMenu,
+            tableViewKeys,
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
@@ -1124,6 +1188,30 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     setIsDragging(false)
                 }}
             >
+                {mode === 'table' && tableViewKeys && (
+                    <div className="px-1">
+                        <div
+                            className="grid gap-2 pl-8 pr-[calc(var(--button-height-base)+var(--button-padding-x-base))] py-2"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                gridTemplateColumns: `repeat(${tableViewKeys.headers.length}, minmax(100px, 265px))`,
+                            }}
+                        >
+                            {/* Headers */}
+                            {tableViewKeys.headers.map((header, index) => (
+                                <div
+                                    key={header.key}
+                                    className={cn('text-secondary font-bold text-xs uppercase flex gap-2', {
+                                        'pl-px': index === 0,
+                                    })}
+                                >
+                                    <span>{header.title}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 <ScrollableShadows
                     ref={containerRef}
                     direction="vertical"
@@ -1139,6 +1227,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         <LemonTreeNode
                             data={data}
                             mode={mode}
+                            tableViewKeys={tableViewKeys}
                             selectedId={selectedId}
                             handleClick={handleClick}
                             expandedItemIds={expandedItemIdsState}
