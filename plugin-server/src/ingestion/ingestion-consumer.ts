@@ -78,7 +78,7 @@ export class IngestionConsumer {
     private tokensToDrop: string[] = []
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
-    private tokensToForceOverflow: string[] = []
+    private tokenDistinctIdsToForceOverflow: string[] = []
 
     constructor(
         private hub: Hub,
@@ -103,7 +103,9 @@ export class IngestionConsumer {
         this.tokenDistinctIdsToSkipPersons = hub.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
         )
-        this.tokensToForceOverflow = hub.INGESTION_FORCE_OVERFLOW_TOKENS.split(',').filter((x) => !!x)
+        this.tokenDistinctIdsToForceOverflow = hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(
+            (x) => !!x
+        )
         this.testingTopic = overrides.INGESTION_CONSUMER_TESTING_TOPIC ?? hub.INGESTION_CONSUMER_TESTING_TOPIC
 
         this.name = `ingestion-consumer-${this.topic}`
@@ -225,8 +227,8 @@ export class IngestionConsumer {
                 }
 
                 const eventKey = `${event.token}:${event.distinct_id}`
-                // Check if this token is in the force overflow list
-                const shouldForceOverflow = event.token && this.tokensToForceOverflow.includes(event.token)
+                // Check if this token or token:distnict_id is in the force overflow list
+                const shouldForceOverflow = this.shouldForceOverflow(event.token, event.distinct_id)
 
                 // Check the rate limiter and emit to overflow if necessary
                 const isBelowRateLimit = this.overflowRateLimiter.consume(eventKey, 1, message.timestamp)
@@ -466,6 +468,14 @@ export class IngestionConsumer {
             (token && distinctId && this.tokenDistinctIdsToSkipPersons.includes(`${token}:${distinctId}`))
         )
     }
+
+    private shouldForceOverflow(token?: string, distinctId?: string) {
+        return (
+            (token && this.tokenDistinctIdsToForceOverflow.includes(token)) ||
+            (token && distinctId && this.tokenDistinctIdsToForceOverflow.includes(`${token}:${distinctId}`))
+        )
+    }
+
     private overflowEnabled() {
         return (
             !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
