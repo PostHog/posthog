@@ -1572,6 +1572,9 @@ export enum WebAnalyticsOrderByFields {
     UniqueConversions = 'UniqueConversions',
     ConversionRate = 'ConversionRate',
     ConvertingUsers = 'ConvertingUsers',
+    RageClicks = 'RageClicks',
+    DeadClicks = 'DeadClicks',
+    Errors = 'Errors',
 }
 export type WebAnalyticsOrderBy = [WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]
 interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
@@ -1641,6 +1644,7 @@ export enum WebStatsBreakdown {
     City = 'City',
     Timezone = 'Timezone',
     Language = 'Language',
+    FrustrationMetrics = 'FrustrationMetrics',
 }
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
     kind: NodeKind.WebStatsTableQuery

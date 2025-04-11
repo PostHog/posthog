@@ -341,6 +341,8 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$timezone', type: PropertyFilterType.Event }
         case WebStatsBreakdown.Language:
             return { key: '$geoip_language', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.FrustrationMetrics:
+            return { key: '$current_url', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
             return undefined
         default:
@@ -1776,6 +1778,38 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     !conversionGoal
                         ? {
                               kind: 'query',
+                              title: 'Frustrated Pages',
+                              tileId: TileId.FRUSTRATED_PAGES,
+                              layout: {
+                                  colSpanClassName: 'md:col-span-2',
+                              },
+                              query: {
+                                  full: true,
+                                  kind: NodeKind.DataTableNode,
+                                  source: {
+                                      kind: NodeKind.WebStatsTableQuery,
+                                      breakdownBy: WebStatsBreakdown.FrustrationMetrics,
+                                      dateRange,
+                                      filterTestAccounts,
+                                      properties: webAnalyticsFilters,
+                                      compareFilter,
+                                  },
+                                  embedded: true,
+                                  showActions: true,
+                              },
+                              insightProps: createInsightProps(TileId.FRUSTRATED_PAGES, 'table'),
+                              canOpenModal: true,
+                              canOpenInsight: true,
+                              docs: {
+                                  title: 'Frustrated Pages',
+                                  description:
+                                      'See which pages are causing frustration by monitoring rage clicks, dead clicks, and errors.',
+                              },
+                          }
+                        : null,
+                    !conversionGoal
+                        ? {
+                              kind: 'query',
                               tileId: TileId.RETENTION,
                               title: 'Retention',
                               layout: {
@@ -1928,50 +1962,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           </div>
                                       </>
                                   ),
-                              },
-                          }
-                        : null,
-                    !conversionGoal
-                        ? {
-                              kind: 'query',
-                              title: 'Frustrated Pages',
-                              tileId: TileId.FRUSTRATED_PAGES,
-                              layout: {
-                                  colSpanClassName: 'md:col-span-2',
-                              },
-                              query: {
-                                  full: true,
-                                  kind: NodeKind.DataTableNode,
-                                  source: {
-                                      kind: NodeKind.HogQLQuery,
-                                      query: `SELECT properties.$current_url AS page,
-                                            countIf(event = '$rageclick') AS rage_clicks,
-                                            countIf(event = '$dead_click') AS dead_clicks,
-                                            countIf(event = '$exception') AS errors,
-                                            page AS cross_sell
-                                        FROM events
-                                        WHERE (event = '$rageclick' OR event = '$dead_click' OR event = '$exception')
-                                            AND properties.$current_url IS NOT NULL
-                                            AND properties.$current_url != ''
-                                        GROUP BY page
-                                        HAVING rage_clicks > 0 OR dead_clicks > 0 OR errors > 0
-                                        ORDER BY (rage_clicks + dead_clicks + errors) DESC
-                                        `,
-                                      values: {
-                                          date_from: dateRange.date_from,
-                                          date_to: dateRange.date_to,
-                                      },
-                                  },
-                                  embedded: true,
-                                  showActions: true,
-                              },
-                              insightProps: createInsightProps(TileId.FRUSTRATED_PAGES, 'table'),
-                              canOpenModal: true,
-                              canOpenInsight: true,
-                              docs: {
-                                  title: 'Frustrated Pages',
-                                  description:
-                                      'See which pages are causing frustration by monitoring rage clicks, dead clicks, and errors.',
                               },
                           }
                         : null,

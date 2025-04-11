@@ -17029,7 +17029,10 @@
                 "TotalConversions",
                 "UniqueConversions",
                 "ConversionRate",
-                "ConvertingUsers"
+                "ConvertingUsers",
+                "RageClicks",
+                "DeadClicks",
+                "Errors"
             ],
             "type": "string"
         },
@@ -17461,7 +17464,8 @@
                 "Region",
                 "City",
                 "Timezone",
-                "Language"
+                "Language",
+                "FrustrationMetrics"
             ],
             "type": "string"
         },
