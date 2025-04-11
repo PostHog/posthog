@@ -59,7 +59,6 @@ from . import (
     scheduled_change,
     search,
     sharing,
-    startups,
     survey,
     tagged_item,
     team,
@@ -645,5 +644,3 @@ register_grandfathered_environment_nested_viewset(
     "environment_data_modeling_jobs",
     ["team_id"],
 )
-
-router.register(r"startups", startups.StartupsViewSet, "startups")
