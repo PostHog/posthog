@@ -579,11 +579,8 @@ GROUP BY session_id, breakdown_value
             case WebStatsBreakdown.LANGUAGE:
                 return ast.Field(chain=["properties", "$browser_language"])
             case WebStatsBreakdown.TIMEZONE:
-                # Get the difference between the UNIX timestamp at UTC and the UNIX timestamp at the event's timezone
-                # Value is in milliseconds, turn it to hours, works even for fractional timezone offsets (I'm looking at you, Australia)
-                return parse_expr(
-                    "if(or(isNull(properties.$timezone), empty(properties.$timezone), properties.$timezone == 'Etc/Unknown'), NULL, (toUnixTimestamp64Milli(parseDateTimeBestEffort(assumeNotNull(toString(timestamp, properties.$timezone)))) - toUnixTimestamp64Milli(parseDateTimeBestEffort(assumeNotNull(toString(timestamp, 'UTC'))))) / 3600000)"
-                )
+                # Value is in minutes, turn it to hours, works even for fractional timezone offsets (I'm looking at you, Australia)
+                return parse_expr("toFloat(properties.$timezone_offset) / 60")
             case _:
                 raise NotImplementedError("Breakdown not implemented")
 

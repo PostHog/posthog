@@ -195,6 +195,35 @@ class TestSavedQuery(APIBaseTest):
             self.assertEqual(response.status_code, 200)
             mock_delete_saved_query_schedule.assert_called_once_with(saved_query["id"])
 
+    def test_update_with_types(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        saved_query = response.json()
+
+        with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {
+                    "name": "event_view",
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select event as event from events LIMIT 100",
+                    },
+                    "types": [["event", "Nullable(String)"]],
+                },
+            )
+
+            mock_get_columns.assert_not_called()
+
     def test_delete_with_existing_schedule(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_queries/",

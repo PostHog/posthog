@@ -1,4 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -20,7 +20,7 @@ import { Persons } from './tabs/Persons'
 export type PersonsManagementTab = {
     key: string
     url: string
-    label: string
+    label: string | JSX.Element
     content: any
     buttons?: any
 }
@@ -77,7 +77,23 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                             </LemonButton>
                         ),
                     },
-                    ...(featureFlags[FEATURE_FLAGS.B2B_ANALYTICS] ? [] : groupTabs),
+                    ...(featureFlags[FEATURE_FLAGS.B2B_ANALYTICS]
+                        ? [
+                              {
+                                  key: 'groups',
+                                  label: (
+                                      <div className="flex items-center gap-1">
+                                          <span>Groups → B2B analytics</span>
+                                          <LemonTag type="completion" size="small">
+                                              alpha
+                                          </LemonTag>
+                                      </div>
+                                  ),
+                                  url: urls.groups(0),
+                                  content: null,
+                              },
+                          ]
+                        : groupTabs),
                 ]
             },
         ],

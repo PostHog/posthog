@@ -173,11 +173,6 @@ CONSTANCE_CONFIG = {
         "Used to enable Sentry error tracking in PostHog",
         str,
     ),
-    "HEATMAP_SAMPLE_N": (
-        get_from_env("HEATMAP_SAMPLE_N", 2_000_000, type_cast=int),
-        "The number of rows that the heatmap query tries to sample.",
-        int,
-    ),
     "REDIRECT_APP_TO_US": (
         get_from_env("REDIRECT_APP_TO_US", False, type_cast=str_to_bool),
         "Temporary option to redirect all app traffic from app.posthog.com to us.posthog.com.",
@@ -217,7 +212,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
     "SENTRY_AUTH_TOKEN",
     "SENTRY_ORGANIZATION",
-    "HEATMAP_SAMPLE_N",
     "REDIRECT_APP_TO_US",
 )
 

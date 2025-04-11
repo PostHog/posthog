@@ -19,10 +19,11 @@ import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
+import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { ActivityScope, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType } from '~/types'
+import { ActivityScope, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
 
 import {
     NPS_DETRACTOR_LABEL,
@@ -33,6 +34,7 @@ import {
     NPS_PROMOTER_VALUES,
     SURVEY_EVENT_NAME,
 } from './constants'
+import { SurveysDisabledBanner } from './SurveySettings'
 import {
     MultipleChoiceQuestionBarChart,
     NPSStackedBar,
@@ -40,14 +42,13 @@ import {
     OpenTextViz,
     RatingQuestionBarChart,
     SingleChoiceQuestionPieChart,
-    Summary,
 } from './surveyViewViz'
-
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading } = useValues(surveyLogic)
     const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey, duplicateSurvey } =
         useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
+    const { showSurveysDisabledBanner } = useValues(surveysLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
 
@@ -155,6 +156,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                     <LemonButton
                                         type="primary"
                                         data-attr="launch-survey"
+                                        disabledReason={
+                                            showSurveysDisabledBanner && survey.type !== SurveyType.API
+                                                ? 'Please enable surveys in the banner below before launching'
+                                                : undefined
+                                        }
                                         onClick={() => {
                                             LemonDialog.open({
                                                 title: 'Launch this survey?',
@@ -258,6 +264,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             </>
                         }
                     />
+                    <SurveysDisabledBanner />
                     <LemonTabs
                         activeKey={tabKey}
                         onChange={(key) => setTabKey(key)}
@@ -327,8 +334,6 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         survey,
         dataTableQuery,
         surveyLoading,
-        surveyUserStats,
-        surveyUserStatsLoading,
         surveyRatingResults,
         surveyRatingResultsReady,
         surveyRecurringNPSResults,
@@ -353,7 +358,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                     <Spinner />
                 </div>
             )}
-            <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
+            <SurveyStatsSummary />
             {survey.questions.map((question, i) => {
                 if (question.type === SurveyQuestionType.Rating) {
                     return (
