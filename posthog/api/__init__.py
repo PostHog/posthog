@@ -2,7 +2,7 @@ from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
 import products.early_access_features.backend.api as early_access_feature
-import products.editor.backend.api as editorApi
+import products.editor.backend.api as editor
 from posthog.api import data_color_theme, metalytics, project, wizard
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
@@ -17,7 +17,6 @@ from posthog.warehouse.api import (
     table,
     view_link,
 )
-from products.editor.backend.api.codebase_sync import CodebaseSyncViewset
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -90,7 +89,7 @@ router.register(
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plugin_configs")
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
-router.register(r"llm_proxy", editorApi.LLMProxyViewSet, "llm_proxy")
+router.register(r"llm_proxy", editor.LLMProxyViewSet, "llm_proxy")
 
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
@@ -646,4 +645,4 @@ register_grandfathered_environment_nested_viewset(
     ["team_id"],
 )
 
-projects_router.register(r"codebases", CodebaseSyncViewset, "codebases", ["project_id"])
+projects_router.register(r"codebases", editor.CodebaseSyncViewset, "codebases", ["project_id"])
