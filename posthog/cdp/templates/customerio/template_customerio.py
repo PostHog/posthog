@@ -23,7 +23,7 @@ if (empty(inputs.identifier_value) or empty(inputs.identifier_key)) {
     return
 }
 
-let identifiers := {
+let identifiers := {
     inputs.identifier_key: inputs.identifier_value
 }
 
@@ -71,6 +71,37 @@ let res := fetch(f'https://{inputs.host}/api/v2/entity', {
 
 if (res.status >= 400) {
     throw Error(f'Error from customer.io api: {res.status}: {res.body}');
+}
+
+// Handle profile merging for identify events
+if (inputs.enable_profile_merging and action == 'identify' and not empty(event.properties.$anon_distinct_id)) {
+    // Check if using the correct identifier type and value
+    if (inputs.identifier_key != 'id') {
+        throw Error(f'Profile merging is only supported when using "ID" as the identifier type. Current identifier type is "{inputs.identifier_key}". Either change your identifier type to "ID" or disable profile merging.')
+    }
+    let primaryId := event.distinct_id
+    let secondaryId := event.properties.$anon_distinct_id
+
+    if (not empty(primaryId) and not empty(secondaryId)) {
+        let mergeRes := fetch(f'https://{inputs.host}/api/v2/entity', {
+            'method': 'POST',
+            'headers': {
+                'User-Agent': 'PostHog Customer.io App',
+                'Authorization': f'Basic {base64Encode(f'{inputs.site_id}:{inputs.token}')}',
+                'Content-Type': 'application/json'
+            },
+            'body': {
+                'type': 'person',
+                'action': 'merge',
+                'primary': { 'id': primaryId },
+                'secondary': { 'id': secondaryId }
+            }
+        })
+
+        if (mergeRes.status >= 400) {
+            throw Error(f'Error from customer.io merge api: {mergeRes.status}: {mergeRes.body}');
+        }
+    }
 }
 
 """.strip(),
@@ -186,6 +217,15 @@ if (res.status >= 400) {
             "required": True,
         },
         {
+            "key": "enable_profile_merging",
+            "type": "boolean",
+            "label": "Enable profile merging",
+            "description": "Only useful when using 'ID' as your identifier type with event.distinct_id as the identifier value. When enabled, merges anonymous profiles into identified profiles in Customer.io during identify events.",
+            "default": False,
+            "secret": False,
+            "required": False,
+        },
+        {
             "key": "attributes",
             "type": "dictionary",
             "label": "Attribute mapping",
@@ -263,6 +303,7 @@ class TemplateCustomerioMigrator(HogFunctionTemplateMigrator):
             "identifier_value": {"value": "{person.properties.email}" if identify_by_email else "{event.distinct_id}"},
             "include_all_properties": {"value": True},
             "attributes": {"value": {}},
+            "enable_profile_merging": {"value": False},
         }
 
         return hf
