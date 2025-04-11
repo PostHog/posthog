@@ -58,8 +58,9 @@ def _failed_get_llm_summary(
 def get_raw_llm_session_summary(
     rendered_summary_template: str, user: User, allowed_event_ids: list[str], session_id: str
 ):
-    # Get the LLM response
+    # TODO: Pre-filling LLM response usually improves the format of the response, test if it's needed here
     # assistant_start_text = "```yaml\nsummary: "
+    # Get the LLM response
     try:
         llm_response = call_llm(input_prompt=rendered_summary_template, user_key=user.pk)
     # Retry on OpenAI errors that make sense to retry

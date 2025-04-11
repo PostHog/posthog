@@ -1,16 +1,16 @@
 from datetime import datetime
+from pathlib import Path
 
 import structlog
 from ee.session_recordings.ai.llm import get_raw_llm_session_summary
 from ee.session_recordings.ai.output_data import enrich_raw_session_summary_with_events_meta
 from ee.session_recordings.ai.prompt_data import SessionSummaryPromptData
-from ee.session_recordings.session_summary.utils import shorten_url
+from ee.session_recordings.session_summary.utils import load_custom_template, shorten_url
 from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.api.activity_log import ServerTimingsGathered
 from posthog.models import User, Team
 from posthog.session_recordings.models.session_recording import SessionRecording
-from django.template.loader import get_template
 
 
 logger = structlog.get_logger(__name__)
@@ -56,9 +56,11 @@ class ReplaySummarizer:
         # Render all templates
         # TODO Optimize prompt (reduce input count, simplify instructions, focus on quality of the summary)
         # One of the solutions could be to chain prompts to focus on events/tags/importance one by one, to avoid overloading the main prompt
-        summary_template = get_template(f"session_summaries/single-replay_base-prompt.djt")
-        summary_example = get_template(f"session_summaries/single-replay_example.yml").render()
-        rendered_summary_prompt = summary_template.render(
+        template_dir = Path(__file__).parent / "templates"
+        summary_example = load_custom_template(template_dir, f"single-replay_example.yml")
+        summary_prompt = load_custom_template(
+            template_dir,
+            f"single-replay_base-prompt.djt",
             {
                 "EVENTS_COLUMNS": prompt_data.columns,
                 "EVENTS_DATA": prompt_data.results,
@@ -66,9 +68,9 @@ class ReplaySummarizer:
                 "URL_MAPPING": short_url_mapping_reversed,
                 "WINDOW_ID_MAPPING": window_mapping_reversed,
                 "SUMMARY_EXAMPLE": summary_example,
-            }
+            },
         )
-        return rendered_summary_prompt
+        return summary_prompt
 
     def summarize_recording(self):
         timer = ServerTimingsGathered()
