@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "0709_remove_foreign_key_constraints_from_person_models")]
+    dependencies = [("posthog", "0708_add_trigger_match_type")]
 
     operations = [
         migrations.AlterField(

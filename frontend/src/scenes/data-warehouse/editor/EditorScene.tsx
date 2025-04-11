@@ -66,7 +66,7 @@ export function EditorScene(): JSX.Element {
     })
 
     const { queryInput, sourceQuery, dataLogicKey } = useValues(logic)
-    const { setSourceQuery } = useActions(logic)
+    const { setSourceQuery, setResponse } = useActions(logic)
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
         key: dataLogicKey,
@@ -88,6 +88,9 @@ export function EditorScene(): JSX.Element {
         dataNodeCollectionId: dataLogicKey,
         variablesOverride: undefined,
         autoLoad: false,
+        onData: (data) => {
+            setResponse(data ?? null)
+        },
     }
 
     const { loadData } = useActions(dataNodeLogic(dataNodeLogicProps))
