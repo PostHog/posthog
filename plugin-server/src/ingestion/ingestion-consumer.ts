@@ -227,7 +227,7 @@ export class IngestionConsumer {
                 }
 
                 const eventKey = `${event.token}:${event.distinct_id}`
-                // Check if this token is in the force overflow list
+                // Check if this token or token:distnict_id is in the force overflow list
                 const shouldForceOverflow = this.shouldForceOverflow(event.token, event.distinct_id)
 
                 // Check the rate limiter and emit to overflow if necessary
@@ -470,7 +470,10 @@ export class IngestionConsumer {
     }
 
     private shouldForceOverflow(token?: string, distinctId?: string) {
-        return token && distinctId && this.tokenDistinctIdsToForceOverflow.includes(`${token}:${distinctId}`)
+        return (
+            (token && this.tokenDistinctIdsToForceOverflow.includes(token)) ||
+            (token && distinctId && this.tokenDistinctIdsToForceOverflow.includes(`${token}:${distinctId}`))
+        )
     }
 
     private overflowEnabled() {
