@@ -5296,6 +5296,7 @@ class ErrorTrackingIssue(BaseModel):
     first_seen: datetime
     id: str
     last_seen: datetime
+    library: Optional[str] = None
     name: Optional[str] = None
     status: Status
 
