@@ -1,8 +1,13 @@
 import { LemonTable } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 
 import { PaymentsTabs } from '../../components/PaymentsTabs'
+import { paymentsProductsLogic } from './paymentsProductsLogic'
 
 export function PaymentsProductsScene(): JSX.Element {
+    const logic = paymentsProductsLogic()
+    const { products } = useValues(logic)
+
     return (
         <>
             <PaymentsTabs />
@@ -10,7 +15,7 @@ export function PaymentsProductsScene(): JSX.Element {
             <LemonTable
                 columns={[
                     {
-                        dataIndex: 'product_id',
+                        dataIndex: 'id',
                         title: 'Product ID',
                     },
                     {
@@ -18,28 +23,15 @@ export function PaymentsProductsScene(): JSX.Element {
                         title: 'Name',
                     },
                     {
-                        dataIndex: 'price',
+                        dataIndex: 'default_price',
                         title: 'Price',
                     },
                     {
-                        dataIndex: 'status',
+                        dataIndex: 'active',
                         title: 'Status',
                     },
                 ]}
-                dataSource={[
-                    {
-                        product_id: 'phpr_prod_1',
-                        name: 'Product 1',
-                        price: 100,
-                        status: 'active',
-                    },
-                    {
-                        product_id: 'phpr_prod_2',
-                        name: 'Product 2',
-                        price: 200,
-                        status: 'inactive',
-                    },
-                ]}
+                dataSource={products}
             />
         </>
     )

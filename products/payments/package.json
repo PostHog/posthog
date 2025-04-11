@@ -9,5 +9,8 @@
         "kea-loaders": "*",
         "kea-router": "*",
         "react": "*"
+    },
+    "dependencies": {
+        "posthog-js": "1.235.5"
     }
 }

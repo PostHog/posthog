@@ -31,6 +31,7 @@ PRODUCTS_APPS = [
     "products.early_access_features",
     "products.editor",
     "products.revenue_analytics",
+    "products.payments",
 ]
 
 INSTALLED_APPS = [
@@ -60,9 +61,6 @@ INSTALLED_APPS = [
     # 'two_factor.plugins.phonenumber',  # <- if you want phone number capability.
     # 'two_factor.plugins.email',  # <- if you want email capability.
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
-    "products.early_access_features",  # TODO: add this automatically
-    "products.editor",
-    "products.payments",
 ]
 
 MIDDLEWARE = [

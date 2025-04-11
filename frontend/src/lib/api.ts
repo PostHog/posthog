@@ -756,6 +756,19 @@ class ApiRequest {
         return this.earlyAccessFeatures(teamId).addPathComponent(id)
     }
 
+    // # Payments
+    public payments(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('payments')
+    }
+
+    public paymentsProducts(teamId?: TeamType['id']): ApiRequest {
+        return this.payments(teamId).addPathComponent('products')
+    }
+
+    public paymentsProduct(productId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.paymentsProducts(teamId).addPathComponent(productId)
+    }
+
     // # Surveys
     public surveys(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('surveys')
@@ -2579,6 +2592,21 @@ const api = {
         },
         async list(): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
             return await new ApiRequest().earlyAccessFeatures().get()
+        },
+    },
+
+    payments: {
+        async listProducts(): Promise<any> {
+            return await new ApiRequest().paymentsProducts().get()
+        },
+        async getProduct(productId: string): Promise<any> {
+            return await new ApiRequest().paymentsProduct(productId).get()
+        },
+        async createProduct(data: Partial<any>): Promise<any> {
+            return await new ApiRequest().paymentsProducts().create({ data })
+        },
+        async updateProduct(productId: string, data: Partial<any>): Promise<any> {
+            return await new ApiRequest().paymentsProduct(productId).update({ data })
         },
     },
 
