@@ -12,7 +12,7 @@ describe('webhook template', () => {
     })
 
     it('should invoke the function', async () => {
-        const responses = await tester.invoke(
+        const response = await tester.invoke(
             {
                 url: 'https://example.com?v={event.properties.$lib_version}',
                 debug: false,
@@ -25,9 +25,6 @@ describe('webhook template', () => {
                 },
             }
         )
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
@@ -54,13 +51,10 @@ describe('webhook template', () => {
     })
 
     it('should log details of given', async () => {
-        const responses = await tester.invoke({
+        let response = await tester.invoke({
             url: 'https://example.com?v={event.properties.$lib_version}',
             debug: true,
         })
-
-        expect(responses.length).toBe(1)
-        let response = responses[0]
 
         expect(response.error).toBeUndefined()
         expect(response.logs.filter((l) => l.level === 'info').map((l) => l.message)).toMatchInlineSnapshot(`
@@ -69,7 +63,6 @@ describe('webhook template', () => {
             ]
         `)
 
-        response = responses[0]
         response = tester.invokeFetchResponse(response.invocation, {
             response: { status: 200, headers: {} },
             body: '{"message": "Hello, world!"}',
