@@ -1,116 +1,124 @@
-from datetime import datetime, UTC
+from datetime import datetime
+from typing import Any
+from unittest.mock import MagicMock, patch
 
-from dateutil.parser import isoparse
-
-from ee.session_recordings.session_summary.summarize_session import (
-    format_dates,
-    simplify_window_id,
-    deduplicate_urls,
-    collapse_sequence_of_events,
-    SessionSummaryPromptData,
-)
-from posthog.test.base import BaseTest
+import pytest
+from ee.session_recordings.ai.output_data import RawSessionSummarySerializer
+from ee.session_recordings.ai.prompt_data import SessionSummaryPromptData
+from ee.session_recordings.session_summary.summarize_session import ReplaySummarizer
+from posthog.models import Team, User
+from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 
-class TestSummarizeSessions(BaseTest):
-    def test_format_dates_as_millis_since_start(self) -> None:
-        processed = format_dates(
-            SessionSummaryPromptData(
-                columns=["event", "timestamp"],
-                results=[
-                    ["$pageview", isoparse("2021-01-01T00:00:00Z")],
-                    ["$pageview", isoparse("2021-01-01T00:00:01Z")],
-                    ["$pageview", isoparse("2021-01-01T00:00:02Z")],
-                ],
-            ),
-            datetime(2021, 1, 1, 0, 0, 0, tzinfo=UTC),
-        )
-        assert processed.columns == ["event", "milliseconds_since_start"]
-        assert processed.results == [["$pageview", 0], ["$pageview", 1000], ["$pageview", 2000]]
+@pytest.fixture
+def mock_recording() -> MagicMock:
+    recording = MagicMock(spec=SessionRecording)
+    recording.session_id = "test_session_id"
+    return recording
 
-    def test_simplify_window_id(self) -> None:
-        processed = simplify_window_id(
-            SessionSummaryPromptData(
-                columns=["event", "timestamp", "$window_id"],
-                results=[
-                    ["$pageview-1-1", isoparse("2021-01-01T00:00:00Z"), "window-the-first"],
-                    ["$pageview-1-2", isoparse("2021-01-01T00:00:01Z"), "window-the-first"],
-                    ["$pageview-2-1", isoparse("2021-01-01T00:00:02Z"), "window-the-second"],
-                    ["$pageview-4-1", isoparse("2021-01-01T00:00:02Z"), "window-the-fourth"],
-                    ["$pageview-3-1", isoparse("2021-01-01T00:00:02Z"), "window-the-third"],
-                    ["$pageview-1-3", isoparse("2021-01-01T00:00:02Z"), "window-the-first"],
-                ],
-            )
-        )
 
-        assert processed.columns == ["event", "timestamp", "$window_id"]
-        assert processed.results == [
-            ["$pageview-1-1", isoparse("2021-01-01T00:00:00Z"), 1],
-            ["$pageview-1-2", isoparse("2021-01-01T00:00:01Z"), 1],
-            ["$pageview-2-1", isoparse("2021-01-01T00:00:02Z"), 2],
-            # window the fourth has index 3...
-            # in reality these are mapping from UUIDs
-            # and this apparent switch of number wouldn't stand out
-            ["$pageview-4-1", isoparse("2021-01-01T00:00:02Z"), 3],
-            ["$pageview-3-1", isoparse("2021-01-01T00:00:02Z"), 4],
-            ["$pageview-1-3", isoparse("2021-01-01T00:00:02Z"), 1],
-        ]
+@pytest.fixture
+def mock_user() -> MagicMock:
+    user = MagicMock(spec=User)
+    return user
 
-    def test_collapse_sequence_of_events(self) -> None:
-        processed = collapse_sequence_of_events(
-            SessionSummaryPromptData(
-                columns=["event", "timestamp", "$window_id"],
-                results=[
-                    # these collapse because they're a sequence
-                    ["$pageview", isoparse("2021-01-01T00:00:00Z"), 1],
-                    ["$pageview", isoparse("2021-01-01T01:00:00Z"), 1],
-                    ["$pageview", isoparse("2021-01-01T02:00:00Z"), 1],
-                    ["$pageview", isoparse("2021-01-01T03:00:00Z"), 1],
-                    # these don't collapse because they're different windows
-                    ["$autocapture", isoparse("2021-01-01T00:00:00Z"), 1],
-                    ["$autocapture", isoparse("2021-01-01T01:00:00Z"), 2],
-                    # these don't collapse because they're not a sequence
-                    ["$a", isoparse("2021-01-01T01:00:00Z"), 2],
-                    ["$b", isoparse("2021-01-01T01:00:00Z"), 2],
-                    ["$c", isoparse("2021-01-01T01:00:00Z"), 2],
-                ],
-            )
-        )
-        assert processed.columns == ["event", "timestamp", "$window_id", "event_repetition_count"]
-        assert processed.results == [
-            ["$pageview", isoparse("2021-01-01T00:00:00Z"), 1, 4],
-            ["$autocapture", isoparse("2021-01-01T00:00:00Z"), 1, None],
-            ["$autocapture", isoparse("2021-01-01T01:00:00Z"), 2, None],
-            ["$a", isoparse("2021-01-01T01:00:00Z"), 2, None],
-            ["$b", isoparse("2021-01-01T01:00:00Z"), 2, None],
-            ["$c", isoparse("2021-01-01T01:00:00Z"), 2, None],
-        ]
 
-    def test_deduplicate_ids(self) -> None:
-        processed = deduplicate_urls(
-            SessionSummaryPromptData(
-                columns=["event", "$current_url"],
-                results=[
-                    ["$pageview-one", "https://example.com/one"],
-                    ["$pageview-two", "https://example.com/two"],
-                    ["$pageview-one", "https://example.com/one"],
-                    ["$pageview-one", "https://example.com/one"],
-                    ["$pageview-two", "https://example.com/two"],
-                    ["$pageview-three", "https://example.com/three"],
-                ],
-            )
-        )
-        assert processed.columns == ["event", "$current_url"]
-        assert processed.results == [
-            ["$pageview-one", "url_1"],
-            ["$pageview-two", "url_2"],
-            ["$pageview-one", "url_1"],
-            ["$pageview-one", "url_1"],
-            ["$pageview-two", "url_2"],
-            ["$pageview-three", "url_3"],
-        ]
-        assert processed.url_mapping == {
-            "https://example.com/one": "url_1",
-            "https://example.com/two": "url_2",
-            "https://example.com/three": "url_3",
-        }
+@pytest.fixture
+def mock_team() -> MagicMock:
+    team = MagicMock(spec=Team)
+    return team
+
+
+@pytest.fixture
+def summarizer(mock_recording, mock_user, mock_team) -> ReplaySummarizer:
+    return ReplaySummarizer(mock_recording, mock_user, mock_team)
+
+
+@pytest.fixture
+def mock_prompt_data(
+    mock_raw_metadata, mock_raw_events, mock_recording
+) -> tuple[SessionSummaryPromptData, dict[str, list[Any]]]:
+    prompt_data = SessionSummaryPromptData()
+    raw_columns = [
+        "event",
+        "timestamp",
+        "elements_chain_href",
+        "elements_chain_texts",
+        "elements_chain_elements",
+        "$window_id",
+        "$current_url",
+        "$event_type",
+    ]
+    events_mapping = prompt_data.load_session_data(
+        mock_raw_events, mock_raw_metadata, raw_columns, mock_recording.session_id
+    )
+    return prompt_data, events_mapping
+
+
+class TestReplaySummarizer:
+    def test_summarize_recording_success(
+        self, summarizer, mock_raw_metadata, mock_raw_events, mock_prompt_data, mock_chat_completion
+    ):
+        """
+        Basic test to ensure the operations are called in the correct order.
+        Most of the mocked functions are tested in other test modules.
+        """
+        prompt_data, events_mapping = mock_prompt_data
+
+        # Mock dependencies
+        with (
+            patch.object(
+                ReplaySummarizer, "_get_session_metadata", return_value=mock_raw_metadata
+            ) as mock_get_metadata,
+            patch.object(
+                ReplaySummarizer,
+                "_get_session_events",
+                return_value=(mock_prompt_data[0].columns, mock_raw_events),
+            ) as mock_get_events,
+            patch(
+                "ee.session_recordings.session_summary.summarize_session.SessionSummaryPromptData"
+            ) as mock_prompt_data_class,
+            patch(
+                "ee.session_recordings.session_summary.summarize_session.get_raw_llm_session_summary"
+            ) as mock_get_summary,
+            patch(
+                "ee.session_recordings.session_summary.summarize_session.enrich_raw_session_summary_with_events_meta"
+            ) as mock_enrich_summary,
+        ):
+            # Mock prompt data
+            mock_prompt_instance = MagicMock()
+            mock_prompt_instance.columns = prompt_data.columns
+            mock_prompt_instance.url_mapping = prompt_data.url_mapping
+            mock_prompt_instance.window_id_mapping = prompt_data.window_id_mapping
+            mock_prompt_instance.metadata.start_time = datetime(2025, 4, 1, 11, 13, 33, 315000)
+            # Return the mocked events mapping
+            mock_prompt_instance.load_session_data.return_value = events_mapping
+            mock_prompt_data_class.return_value = mock_prompt_instance
+            # Setup mock summary
+            mock_summary = RawSessionSummarySerializer({"summary": "test", "key_events": []})
+            mock_get_summary.return_value = mock_summary
+            mock_enrich_summary.return_value = mock_summary
+            result = summarizer.summarize_recording()
+            # Verify all mocks were called correctly
+            mock_get_metadata.assert_called_once_with("test_session_id", summarizer.team)
+            mock_get_events.assert_called_once_with("test_session_id", mock_raw_metadata, summarizer.team)
+            mock_prompt_instance.load_session_data.assert_called_once()
+            mock_get_summary.assert_called_once()
+            mock_enrich_summary.assert_called_once()
+            # Verify result structure
+            assert "content" in result
+            assert "timings" in result
+            assert result["content"] == {"summary": "test", "key_events": []}
+
+    def test_summarize_recording_no_metadata(self, summarizer):
+        with patch.object(SessionReplayEvents, "get_metadata", return_value=None):
+            with pytest.raises(
+                ValueError, match=f"no session metadata found for session_id {summarizer.recording.session_id}"
+            ):
+                summarizer.summarize_recording()
+
+    def test_summarize_recording_no_events(self, summarizer, mock_raw_metadata):
+        with patch.object(SessionReplayEvents, "get_events", return_value=(None, None)):
+            with pytest.raises(ValueError, match=f"no events found for session_id {summarizer.recording.session_id}"):
+                summarizer.summarize_recording()
