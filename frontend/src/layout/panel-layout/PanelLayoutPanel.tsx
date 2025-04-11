@@ -57,7 +57,7 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
             <nav
                 className={cn(
                     panelLayoutPanelVariants({
-                        projectTreeMode: projectTreeMode as 'tree' | 'table',
+                        projectTreeMode: projectTreeMode,
                         isLayoutNavCollapsed,
                     })
                 )}

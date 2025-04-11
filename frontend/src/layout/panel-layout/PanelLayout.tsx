@@ -78,7 +78,7 @@ const panelLayoutStyles = cva({
             isLayoutNavCollapsed: false,
             projectTreeMode: 'table',
             // The panel in table mode is positioned absolutely, so we need to set the width to the navbar width
-            className: 'w-[var(--project-navbar-width]',
+            className: 'w-[calc(var(--project-navbar-width)+var(--project-panel-width))]',
         },
         {
             isMobileLayout: false,
@@ -87,7 +87,7 @@ const panelLayoutStyles = cva({
             isLayoutNavCollapsed: true,
             projectTreeMode: 'table',
             // The panel in table mode is positioned absolutely, so we need to set the width to the navbar width (collapsed)
-            className: 'w-[var(--project-navbar-width-collapsed)]',
+            className: 'w-[calc(var(--project-navbar-width-collapsed)+var(--project-panel-width))]',
         },
         // Navbar (collapsed)
         {
@@ -177,7 +177,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
             {projectTreeMode === 'table' && (
                 <div
                     onClick={() => {
-                        // On mobile, hide the navbar and panel when the overlay is clicked
+                        // Return to tree mode when clicking outside the table view
                         setProjectTreeMode('tree')
                     }}
                     className="z-[var(--z-layout-navbar-overlay)] fixed inset-0 w-screen h-screen"

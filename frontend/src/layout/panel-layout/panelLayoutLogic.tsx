@@ -115,7 +115,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             },
         ],
         projectTreeMode: [
-            'tree',
+            'tree' as TreeMode,
             {
                 setProjectTreeMode: (_, { mode }) => mode,
             },
