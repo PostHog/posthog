@@ -769,6 +769,22 @@ class ApiRequest {
         return this.paymentsProducts(teamId).addPathComponent(productId)
     }
 
+    public paymentsPrices(teamId?: TeamType['id']): ApiRequest {
+        return this.payments(teamId).addPathComponent('prices')
+    }
+
+    public paymentsPrice(priceId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.paymentsPrices(teamId).addPathComponent(priceId)
+    }
+
+    public paymentsBalanceTransactions(teamId?: TeamType['id']): ApiRequest {
+        return this.payments(teamId).addPathComponent('balance_transactions')
+    }
+
+    public paymentsBalanceTransaction(transactionId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.paymentsBalanceTransactions(teamId).addPathComponent(transactionId)
+    }
+
     // # Surveys
     public surveys(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('surveys')
@@ -2607,6 +2623,27 @@ const api = {
         },
         async updateProduct(productId: string, data: Partial<any>): Promise<any> {
             return await new ApiRequest().paymentsProduct(productId).update({ data })
+        },
+        async listPrices(): Promise<any> {
+            return await new ApiRequest().paymentsPrices().get()
+        },
+        async getPrice(priceId: string): Promise<any> {
+            return await new ApiRequest().paymentsPrice(priceId).get()
+        },
+        async createPrice(data: Partial<any>): Promise<any> {
+            return await new ApiRequest().paymentsPrices().create({ data })
+        },
+        async updatePrice(priceId: string, data: Partial<any>): Promise<any> {
+            return await new ApiRequest().paymentsPrice(priceId).update({ data })
+        },
+        async deletePrice(priceId: string): Promise<any> {
+            return await new ApiRequest().paymentsPrice(priceId).delete()
+        },
+        async listBalanceTransactions(): Promise<any> {
+            return await new ApiRequest().paymentsBalanceTransactions().get()
+        },
+        async getBalanceTransaction(transactionId: string): Promise<any> {
+            return await new ApiRequest().paymentsBalanceTransaction(transactionId).get()
         },
     },
 

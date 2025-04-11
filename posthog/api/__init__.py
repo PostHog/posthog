@@ -203,6 +203,20 @@ projects_router.register(
     ["project_id"],
 )
 
+projects_router.register(
+    r"payments/prices",
+    payments_api.PriceViewSet,
+    "project_payments_prices",
+    ["project_id"],
+)
+
+projects_router.register(
+    r"payments/balance_transactions",
+    payments_api.BalanceTransactionViewSet,
+    "project_payments_balance_transactions",
+    ["project_id"],
+)
+
 environment_dashboards_router, legacy_project_dashboards_router = register_grandfathered_environment_nested_viewset(
     r"dashboards", dashboard.DashboardsViewSet, "environment_dashboards", ["team_id"]
 )

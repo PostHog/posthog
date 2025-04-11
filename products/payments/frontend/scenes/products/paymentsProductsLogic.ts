@@ -9,6 +9,7 @@ export const paymentsProductsLogic = kea<paymentsProductsLogicType>([
     props({}),
     actions(() => ({
         loadProducts: true,
+        loadPrices: true,
         setProducts: (products: any) => ({ products }),
         setPrices: (prices: any) => ({ prices }),
     })),
@@ -37,9 +38,19 @@ export const paymentsProductsLogic = kea<paymentsProductsLogicType>([
                 posthog.captureException(e, { posthog_feature: 'payments_products' })
             }
         },
-        loadPrices: async () => {},
+        loadPrices: async () => {
+            try {
+                const response = await api.payments.listPrices()
+                if (response.data) {
+                    actions.setPrices(response.data)
+                }
+            } catch (e) {
+                posthog.captureException(e, { posthog_feature: 'payments_prices' })
+            }
+        },
     })),
     afterMount(({ actions }) => {
         actions.loadProducts()
+        actions.loadPrices()
     }),
 ])

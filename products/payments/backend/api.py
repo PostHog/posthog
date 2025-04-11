@@ -235,3 +235,251 @@ def payments_products(request: Request, product_id=None):
 
     # Method not allowed
     return Response({"error": f"Method {request.method} not allowed"}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+
+class StripePriceSerializer(serializers.Serializer):
+    """Serializer for Stripe price operations"""
+
+    currency = serializers.CharField(required=True)
+    unit_amount = serializers.IntegerField(required=True)
+    active = serializers.BooleanField(required=False)
+    metadata = serializers.DictField(required=False)
+    nickname = serializers.CharField(required=False, allow_blank=True)
+    product = serializers.CharField(required=True)
+    recurring = serializers.DictField(required=False)
+    tax_behavior = serializers.CharField(required=False)
+
+
+class PriceViewSet(viewsets.ViewSet):
+    """ViewSet for handling Stripe price operations"""
+
+    def _initialize_stripe(self):
+        """Initialize Stripe with the API key from settings"""
+        stripe.api_key = STRIPE_API_KEY
+
+    def _handle_stripe_error(self, e: stripe.error.StripeError) -> Response:
+        """Handle Stripe errors and return appropriate responses"""
+        logger.error(f"Stripe error: {str(e)}")
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    def list(self, request: Request, parent_lookup_project_id=None) -> Response:
+        """
+        List all prices from Stripe
+        GET /payments/prices/
+        """
+        self._initialize_stripe()
+
+        try:
+            params = {}
+
+            # Handle pagination params
+            if "limit" in request.query_params:
+                params["limit"] = int(request.query_params.get("limit"))
+
+            if "starting_after" in request.query_params:
+                params["starting_after"] = request.query_params.get("starting_after")
+
+            if "ending_before" in request.query_params:
+                params["ending_before"] = request.query_params.get("ending_before")
+
+            prices = stripe.Price.list(**params)
+            return Response(prices)
+
+        except stripe.error.StripeError as e:
+            return self._handle_stripe_error(e)
+
+    def retrieve(self, request: Request, pk=None) -> Response:
+        """
+        Retrieve a specific price from Stripe
+        GET /payments/prices/:id
+        """
+        if not pk:
+            return Response({"error": "Price ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        self._initialize_stripe()
+
+        try:
+            price = stripe.Price.retrieve(pk)
+            return Response(price)
+        except stripe.error.StripeError as e:
+            return self._handle_stripe_error(e)
+
+    def create(self, request: Request) -> Response:
+        """
+        Create a new price in Stripe
+        POST /payments/prices/
+        """
+        serializer = StripePriceSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        self._initialize_stripe()
+
+        try:
+            price = stripe.Price.create(**serializer.validated_data)
+            return Response(price, status=status.HTTP_201_CREATED)
+        except stripe.error.StripeError as e:
+            return self._handle_stripe_error(e)
+
+    def partial_update(self, request: Request, pk=None) -> Response:
+        """
+        Update an existing price in Stripe
+        PATCH /payments/prices/:id
+        """
+        if not pk:
+            return Response({"error": "Price ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = StripePriceSerializer(data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        self._initialize_stripe()
+
+        try:
+            price = stripe.Price.modify(pk, **serializer.validated_data)
+            return Response(price)
+        except stripe.error.StripeError as e:
+            return self._handle_stripe_error(e)
+
+    def destroy(self, request: Request, pk=None) -> Response:
+        """
+        Delete a price from Stripe
+        DELETE /payments/prices/:id
+        """
+        if not pk:
+            return Response({"error": "Price ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        self._initialize_stripe()
+
+        try:
+            deleted = stripe.Price.delete(pk)
+            return Response(deleted)
+        except stripe.error.StripeError as e:
+            return self._handle_stripe_error(e)
+
+
+# Direct API routes for payments/prices
+@csrf_exempt
+def payments_prices(request: Request, price_id=None):
+    """
+    Handle RESTful operations on Stripe prices
+    - GET /payments/prices/ - List all prices
+    - GET /payments/prices/:id - Get a specific price
+    - POST /payments/prices/ - Create a new price
+    - PATCH /payments/prices/:id - Update a price
+    - DELETE /payments/prices/:id - Delete a price
+    """
+    price_view = PriceViewSet()
+
+    if request.method == "GET":
+        if price_id:
+            # Get specific price
+            return price_view.retrieve(request, pk=price_id)
+        else:
+            # List all prices
+            return price_view.list(request)
+
+    elif request.method == "POST":
+        # Create a new price
+        return price_view.create(request)
+
+    elif request.method == "PATCH":
+        # Update a price
+        if not price_id:
+            return Response({"error": "Price ID is required for updates"}, status=status.HTTP_400_BAD_REQUEST)
+        return price_view.partial_update(request, pk=price_id)
+
+    elif request.method == "DELETE":
+        # Delete a price
+        if not price_id:
+            return Response({"error": "Price ID is required for deletion"}, status=status.HTTP_400_BAD_REQUEST)
+        return price_view.destroy(request, pk=price_id)
+
+    # Method not allowed
+    return Response({"error": f"Method {request.method} not allowed"}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+
+class StripeBalanceTransactionSerializer(serializers.Serializer):
+    """Serializer for Stripe balance transaction operations"""
+
+    currency = serializers.CharField(required=True)
+    amount = serializers.IntegerField(required=True)
+    description = serializers.CharField(required=False, allow_blank=True)
+    metadata = serializers.DictField(required=False)
+
+
+class BalanceTransactionViewSet(viewsets.ViewSet):
+    """ViewSet for handling Stripe balance transaction operations"""
+
+    def _initialize_stripe(self):
+        """Initialize Stripe with the API key from settings"""
+        stripe.api_key = STRIPE_API_KEY
+
+    def _handle_stripe_error(self, e: stripe.error.StripeError) -> Response:
+        """Handle Stripe errors and return appropriate responses"""
+        logger.error(f"Stripe error: {str(e)}")
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    def list(self, request: Request, parent_lookup_project_id=None) -> Response:
+        """
+        List all balance transactions from Stripe
+        GET /payments/balance_transactions/
+        """
+        self._initialize_stripe()
+
+        try:
+            params = {}
+
+            # Handle pagination params
+            if "limit" in request.query_params:
+                params["limit"] = int(request.query_params.get("limit"))
+
+            if "starting_after" in request.query_params:
+                params["starting_after"] = request.query_params.get("starting_after")
+
+            if "ending_before" in request.query_params:
+                params["ending_before"] = request.query_params.get("ending_before")
+
+            balance_transactions = stripe.BalanceTransaction.list(**params)
+            return Response(balance_transactions)
+
+        except stripe.error.StripeError as e:
+            return self._handle_stripe_error(e)
+
+    def retrieve(self, request: Request, pk=None) -> Response:
+        """
+        Retrieve a specific balance transaction from Stripe
+        GET /payments/balance_transactions/:id
+        """
+        if not pk:
+            return Response({"error": "Transaction ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        self._initialize_stripe()
+
+        try:
+            balance_transaction = stripe.BalanceTransaction.retrieve(pk)
+            return Response(balance_transaction)
+        except stripe.error.StripeError as e:
+            return self._handle_stripe_error(e)
+
+
+# Direct API routes for payments/balance_transactions
+@csrf_exempt
+def payments_balance_transactions(request: Request, transaction_id=None):
+    """
+    Handle RESTful operations on Stripe balance transactions
+    - GET /payments/balance_transactions/ - List all transactions
+    - GET /payments/balance_transactions/:id - Get a specific transaction
+    """
+    transaction_view = BalanceTransactionViewSet()
+
+    if request.method == "GET":
+        if transaction_id:
+            # Get specific transaction
+            return transaction_view.retrieve(request, pk=transaction_id)
+        else:
+            # List all transactions
+            return transaction_view.list(request)
+
+    # Method not allowed
+    return Response({"error": f"Method {request.method} not allowed"}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
