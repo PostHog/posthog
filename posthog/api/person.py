@@ -380,12 +380,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             OpenApiParameter(
                 "distinct_ids",
                 OpenApiTypes.OBJECT,
-                description="A list of distinct IDs, up to 100 of them. We'll delete all persons associated with those distinct IDs.",
+                description="A list of distinct IDs, up to 1000 of them. We'll delete all persons associated with those distinct IDs.",
             ),
             OpenApiParameter(
                 "ids",
                 OpenApiTypes.OBJECT,
-                description="A list of PostHog person IDs, up to 100 of them. We'll delete all the persons listed.",
+                description="A list of PostHog person IDs, up to 1000 of them. We'll delete all the persons listed.",
             ),
         ],
     )
