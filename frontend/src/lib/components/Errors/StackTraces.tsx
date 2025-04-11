@@ -1,6 +1,6 @@
 import './StackTraces.scss'
 
-import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
+import { LemonBadge, LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -131,26 +131,31 @@ function Trace({
                 header: (
                     <div className="flex flex-1 justify-between items-center">
                         <div className="flex flex-wrap gap-x-1">
-                            <span>{source}</span>
                             {resolved_name ? (
-                                <div className="flex gap-x-1">
-                                    <span className="text-secondary">in</span>
+                                <div className="flex">
                                     <span>{resolved_name}</span>
                                 </div>
                             ) : null}
-                            {line ? (
-                                <div className="flex gap-x-1">
-                                    <span className="text-secondary">@</span>
-                                    <span>
-                                        {line}
-                                        {column && `:${column}`}
-                                    </span>
-                                </div>
-                            ) : null}
+                            <div className="flex font-light text-xs">
+                                <span>{source}</span>
+                                {line ? (
+                                    <>
+                                        <span className="text-secondary">@</span>
+                                        <span>
+                                            {line}
+                                            {column && `:${column}`}
+                                        </span>
+                                    </>
+                                ) : null}
+                            </div>
                         </div>
                         <div className="flex gap-x-1 items-center">
                             {part && <FingerprintRecordPartDisplay part={part} />}
-                            {in_app && <LemonTag>In App</LemonTag>}
+                            {in_app && (
+                                <Tooltip title="Non-library frame">
+                                    <LemonBadge size="small" status="warning" />
+                                </Tooltip>
+                            )}
                             {!resolved && (
                                 <Tooltip title={resolve_failure}>
                                     <LemonTag>Unresolved</LemonTag>
