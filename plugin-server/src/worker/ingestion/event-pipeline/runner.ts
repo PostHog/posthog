@@ -300,7 +300,7 @@ export class EventPipelineRunner {
             kafkaAcks.push(exceptionAck)
             return this.registerLastStep('produceExceptionSymbolificationEventStep', [rawEvent], kafkaAcks)
         } else {
-            const [clickhouseAck] = await this.runStep(emitEventStep, [this, rawEvent], event.team_id)
+            const [clickhouseAck] = await this.runStep(emitEventStep, [this, rawEvent, team], event.team_id)
             kafkaAcks.push(clickhouseAck)
             return this.registerLastStep('emitEventStep', [rawEvent], kafkaAcks)
         }

@@ -19,6 +19,7 @@ import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
 import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
+import { HookCommander } from '../../worker/ingestion/hooks'
 import { OrganizationManager } from '../../worker/ingestion/organization-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { RustyHook } from '../../worker/rusty-hook'
@@ -29,7 +30,6 @@ import { getObjectStorage } from '../object_storage'
 import { TeamManagerLazy } from '../team-manager-lazy'
 import { UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
-import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { Celery } from './celery'
 import { DB } from './db'
 import { PostgresRouter } from './postgres'
@@ -131,7 +131,6 @@ export async function createHub(
     const teamManager = new TeamManager(postgres, teamManagerLazy)
     const organizationManager = new OrganizationManager(postgres, teamManager, teamManagerLazy)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
-    const rootAccessManager = new RootAccessManager(db)
     const rustyHook = new RustyHook(serverConfig)
 
     const actionManager = new ActionManager(postgres, serverConfig)
@@ -139,6 +138,20 @@ export async function createHub(
     const groupTypeManager = new GroupTypeManager(postgres, teamManager)
 
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
+
+    const appMetrics = new AppMetrics(
+        kafkaProducer,
+        serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
+        serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
+    )
+    const hookCommander = new HookCommander(
+        postgres,
+        teamManager,
+        organizationManager,
+        rustyHook,
+        appMetrics,
+        serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS
+    )
 
     const hub: Omit<Hub, 'legacyOneventCompareService'> = {
         ...serverConfig,
@@ -164,7 +177,6 @@ export async function createHub(
         teamManagerLazy,
         organizationManager,
         pluginsApiKeyManager,
-        rootAccessManager,
         rustyHook,
         actionMatcher,
         actionManager,
@@ -174,11 +186,8 @@ export async function createHub(
         eventsToSkipPersonsProcessingByToken: createEventsToDropByToken(
             process.env.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID
         ),
-        appMetrics: new AppMetrics(
-            kafkaProducer,
-            serverConfig.APP_METRICS_FLUSH_FREQUENCY_MS,
-            serverConfig.APP_METRICS_FLUSH_MAX_QUEUE_SIZE
-        ),
+        appMetrics,
+        hookCommander,
         encryptedFields: new EncryptedFields(serverConfig),
         celery: new Celery(serverConfig),
         cookielessManager,

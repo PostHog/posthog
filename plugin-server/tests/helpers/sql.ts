@@ -8,7 +8,6 @@ import {
     PluginAttachmentDB,
     PluginConfig,
     PluginsServerConfig,
-    ProjectId,
     PropertyOperator,
     RawAction,
     RawOrganization,
@@ -288,7 +287,7 @@ export async function getTeams(hub: Hub): Promise<Team[]> {
         'fetchAllTeams'
     )
     for (const row of selectResult.rows) {
-        row.project_id = parseInt(row.project_id as unknown as string) as ProjectId
+        row.root_team_id = (row as any).parent_team_id ?? row.id
     }
     return selectResult.rows
 }
@@ -345,38 +344,24 @@ export const createOrganization = async (pg: PostgresRouter) => {
 
 export const createTeam = async (
     pg: PostgresRouter,
-    projectOrOrganizationId: ProjectId | string,
-    token?: string
+    organizationId: string,
+    overrides?: Partial<Team & { parent_team_id?: TeamId }>
 ): Promise<TeamId> => {
     // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
     const id = Math.round(Math.random() * 1000000000)
-    let organizationId: string
-    let projectId: ProjectId
-    if (typeof projectOrOrganizationId === 'number') {
-        projectId = projectOrOrganizationId
-        organizationId = await pg
-            .query<{ organization_id: string }>(
-                PostgresUse.COMMON_READ,
-                'SELECT organization_id FROM posthog_project WHERE id = $1',
-                [projectId],
-                'fetchOrganizationId'
-            )
-            .then((result) => result.rows[0].organization_id)
-    } else {
-        projectId = id as ProjectId
-        organizationId = projectOrOrganizationId
-        await insertRow(pg, 'posthog_project', {
-            // Every team (aka environment) must be a child of a project
-            id,
-            organization_id: organizationId,
-            name: 'TEST PROJECT',
-            created_at: new Date().toISOString(),
-        })
-    }
+
+    await insertRow(pg, 'posthog_project', {
+        // Every team (aka environment) must be a child of a project
+        id,
+        organization_id: organizationId,
+        name: 'TEST PROJECT',
+        created_at: new Date().toISOString(),
+    })
+
     await insertRow(pg, 'posthog_team', {
         id,
         organization_id: organizationId,
-        project_id: projectId,
+        project_id: id,
         app_urls: [],
         name: 'TEST PROJECT',
         event_names: [],
@@ -394,12 +379,13 @@ export const createTeam = async (
         plugins_opt_in: false,
         opt_out_capture: false,
         is_demo: false,
-        api_token: token ?? new UUIDT().toString(),
+        api_token: new UUIDT().toString(),
         test_account_filters: [],
         timezone: 'UTC',
         data_attributes: ['data-attr'],
         person_display_name_properties: [],
         access_control: false,
+        ...overrides,
     })
     return id
 }

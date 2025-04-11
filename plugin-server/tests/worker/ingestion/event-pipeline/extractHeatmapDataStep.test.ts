@@ -1,5 +1,5 @@
 import { KafkaProducerWrapper, TopicMessage } from '../../../../src/kafka/producer'
-import { ISOTimestamp, PreIngestionEvent, ProjectId } from '../../../../src/types'
+import { ISOTimestamp, PreIngestionEvent } from '../../../../src/types'
 import { parseJSON } from '../../../../src/utils/json-parse'
 import { cloneObject } from '../../../../src/utils/utils'
 import { extractHeatmapDataStep } from '../../../../src/worker/ingestion/event-pipeline/extractHeatmapDataStep'
@@ -123,7 +123,6 @@ const preIngestionEvent: PreIngestionEvent = {
     },
     timestamp: '2024-04-17T12:06:46.861Z' as ISOTimestamp,
     teamId: 1,
-    projectId: 1 as ProjectId,
 }
 
 describe('extractHeatmapDataStep()', () => {

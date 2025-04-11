@@ -1,12 +1,13 @@
 import { Properties } from '@posthog/plugin-scaffold'
 
-import { ProjectId, Team } from '../types'
+import { Team } from '../types'
 import { PostgresRouter, PostgresUse } from './db/postgres'
 import { LazyLoader } from './lazy-loader'
 import { captureTeamEvent } from './posthog'
 
-type RawTeam = Omit<Team, 'availableFeatures'> & {
+type RawTeam = Omit<Team, 'availableFeatures' | 'root_team_id'> & {
     available_product_features: { key: string; name: string }[]
+    parent_team_id: number
 }
 
 export class TeamManagerLazy {
@@ -108,7 +109,7 @@ export class TeamManagerLazy {
             PostgresUse.COMMON_READ,
             `SELECT 
                 t.id,
-                t.project_id,
+                t.parent_team_id,
                 t.uuid,
                 t.organization_id,
                 t.name,
@@ -132,11 +133,12 @@ export class TeamManagerLazy {
         )
 
         return result.rows.reduce((acc, row) => {
-            const { available_product_features, ...teamPartial } = row
-            const team = {
+            const { available_product_features, parent_team_id, ...teamPartial } = row
+            const team: Team = {
                 ...teamPartial,
-                // NOTE: The postgres lib loads the bigint as a string, so we need to cast it to a ProjectId
-                project_id: Number(teamPartial.project_id) as ProjectId,
+                // NOTE: The root team_id is a helper to make it easier to work with the team data
+                // It is either the parent_team_id or the team's id if not set.
+                root_team_id: parent_team_id ?? teamPartial.id,
                 available_features: available_product_features?.map((f) => f.key) || [],
             }
             // We assign to the cache both ID and api_token as keys

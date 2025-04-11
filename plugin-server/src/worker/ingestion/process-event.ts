@@ -11,10 +11,8 @@ import {
     Person,
     PersonMode,
     PreIngestionEvent,
-    ProjectId,
-    RawKafkaEvent,
+    RawClickHouseEvent,
     Team,
-    TeamId,
     TimestampFormat,
 } from '../../types'
 import { DB, GroupId } from '../../utils/db/db'
@@ -167,10 +165,10 @@ export class EventsProcessor {
 
         if (processPerson) {
             // Adds group_0 etc values to properties
-            properties = await addGroupProperties(team.id, team.project_id, properties, this.groupTypeManager)
+            properties = await addGroupProperties(team, properties, this.groupTypeManager)
 
             if (event === '$groupidentify') {
-                await this.upsertGroup(team.id, team.project_id, properties, timestamp)
+                await this.upsertGroup(team, properties, timestamp)
             }
         }
 
@@ -181,7 +179,6 @@ export class EventsProcessor {
             properties,
             timestamp: timestamp.toISO() as ISOTimestamp,
             teamId: team.id,
-            projectId: team.project_id,
         }
     }
 
@@ -196,8 +193,8 @@ export class EventsProcessor {
         return res
     }
 
-    createEvent(preIngestionEvent: PreIngestionEvent, person: Person, processPerson: boolean): RawKafkaEvent {
-        const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
+    createEvent(preIngestionEvent: PreIngestionEvent, person: Person, processPerson: boolean): RawClickHouseEvent {
+        const { eventUuid: uuid, event, teamId, distinctId, properties, timestamp } = preIngestionEvent
 
         let elementsChain = ''
         try {
@@ -236,13 +233,12 @@ export class EventsProcessor {
             personMode = 'propertyless'
         }
 
-        const rawEvent: RawKafkaEvent = {
+        const rawEvent: RawClickHouseEvent = {
             uuid,
             event: safeClickhouseString(event),
             properties: JSON.stringify(properties ?? {}),
             timestamp: castTimestampOrNow(timestamp, TimestampFormat.ClickHouse),
             team_id: teamId,
-            project_id: projectId,
             distinct_id: safeClickhouseString(distinctId),
             elements_chain: safeClickhouseString(elementsChain),
             created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse),
@@ -255,12 +251,20 @@ export class EventsProcessor {
         return rawEvent
     }
 
-    emitEvent(rawEvent: RawKafkaEvent): Promise<void> {
+    emitEvent(rawEvent: RawClickHouseEvent, team: Team): Promise<void> {
+        // NOTE: We add extra properties to the produced event as the prop-defs service needs them
+        const kafkaEvent: RawClickHouseEvent & { project_id: number; root_project_id: number } = {
+            ...rawEvent,
+            // NOTE: project_id will be removed once the service is updated using the new root_project_id
+            project_id: team.root_team_id,
+            root_project_id: team.root_team_id,
+        }
+
         return this.kafkaProducer
             .produce({
                 topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 key: rawEvent.uuid,
-                value: Buffer.from(JSON.stringify(rawEvent)),
+                value: Buffer.from(JSON.stringify(kafkaEvent)),
             })
             .catch(async (error) => {
                 // Some messages end up significantly larger than the original
@@ -276,24 +280,18 @@ export class EventsProcessor {
             })
     }
 
-    private async upsertGroup(
-        teamId: TeamId,
-        projectId: ProjectId,
-        properties: Properties,
-        timestamp: DateTime
-    ): Promise<void> {
+    private async upsertGroup(team: Team, properties: Properties, timestamp: DateTime): Promise<void> {
         if (!properties['$group_type'] || !properties['$group_key']) {
             return
         }
 
         const { $group_type: groupType, $group_key: groupKey, $group_set: groupPropertiesToSet } = properties
-        const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(teamId, projectId, groupType)
+        const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(team, groupType)
 
         if (groupTypeIndex !== null) {
             await upsertGroup(
                 this.db,
-                teamId,
-                projectId,
+                team.id,
                 groupTypeIndex,
                 groupKey.toString(),
                 groupPropertiesToSet || {},
@@ -325,7 +323,7 @@ export class EventsProcessor {
                 const { $group_type: groupType, $group_set: groupPropertiesToSet } = properties
                 if (groupType != null && groupPropertiesToSet != null) {
                     // This "fetch" is side-effecty, it inserts a group-type and assigns an index if one isn't found
-                    promises.push(this.groupTypeManager.fetchGroupTypeIndex(team.id, team.project_id, groupType))
+                    promises.push(this.groupTypeManager.fetchGroupTypeIndex(team, groupType))
                 }
             }
 

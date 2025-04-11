@@ -812,14 +812,16 @@ describe('DB', () => {
     describe('fetchTeam()', () => {
         it('fetches a team by id', async () => {
             const organizationId = await createOrganization(db.postgres)
-            const teamId = await createTeam(db.postgres, organizationId, 'token1')
+            const teamId = await createTeam(db.postgres, organizationId, {
+                api_token: 'token1',
+            })
 
             const fetchedTeam = await hub.db.fetchTeam(teamId)
             expect(fetchedTeam).toEqual({
                 anonymize_ips: false,
                 api_token: 'token1',
                 id: teamId,
-                project_id: teamId as Team['project_id'],
+                root_team_id: teamId,
                 ingested_event: true,
                 name: 'TEST PROJECT',
                 organization_id: organizationId,
@@ -844,14 +846,16 @@ describe('DB', () => {
     describe('fetchTeamByToken()', () => {
         it('fetches a team by token', async () => {
             const organizationId = await createOrganization(db.postgres)
-            const teamId = await createTeam(db.postgres, organizationId, 'token2')
+            const teamId = await createTeam(db.postgres, organizationId, {
+                api_token: 'token2',
+            })
 
             const fetchedTeam = await hub.db.fetchTeamByToken('token2')
             expect(fetchedTeam).toEqual({
                 anonymize_ips: false,
                 api_token: 'token2',
                 id: teamId,
-                project_id: teamId as Team['project_id'],
+                root_team_id: teamId,
                 ingested_event: true,
                 name: 'TEST PROJECT',
                 organization_id: organizationId,

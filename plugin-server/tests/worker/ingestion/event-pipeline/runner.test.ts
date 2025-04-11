@@ -8,8 +8,7 @@ import {
     Person,
     PipelineEvent,
     PreIngestionEvent,
-    ProjectId,
-    RawKafkaEvent,
+    RawClickHouseEvent,
     Team,
 } from '../../../../src/types'
 import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
@@ -85,7 +84,6 @@ const preIngestionEvent: PreIngestionEvent = {
     eventUuid: 'uuid1',
     distinctId: 'my_id',
     teamId: 2,
-    projectId: 1 as ProjectId,
     timestamp: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
     event: '$pageview',
     properties: {},
@@ -95,7 +93,7 @@ const preIngestionEvent: PreIngestionEvent = {
     ip: '127.0.0.1',
 }
 
-const createdEvent: RawKafkaEvent = {
+const createdEvent: RawClickHouseEvent = {
     created_at: '2024-11-18 14:54:33.606' as ClickHouseTimestamp,
     distinct_id: 'my_id',
     elements_chain: '',
@@ -103,7 +101,6 @@ const createdEvent: RawKafkaEvent = {
     person_created_at: '2024-11-18 14:54:33' as ClickHouseTimestamp,
     person_mode: 'full',
     person_properties: '{}',
-    project_id: 1 as ProjectId,
     properties: '{}',
     team_id: 2,
     timestamp: '2020-02-23 02:15:00.000' as ClickHouseTimestamp,

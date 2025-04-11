@@ -1,10 +1,10 @@
-import { RawKafkaEvent } from '../../../types'
+import { RawClickHouseEvent } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { EventPipelineRunner } from './runner'
 
 export function produceExceptionSymbolificationEventStep(
     runner: EventPipelineRunner,
-    event: RawKafkaEvent
+    event: RawClickHouseEvent
 ): Promise<[Promise<void>]> {
     const ack = runner.hub.kafkaProducer
         .queueMessages({

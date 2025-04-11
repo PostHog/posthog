@@ -5,7 +5,7 @@ import { Counter } from 'prom-client'
 import { defaultConfig } from '../../config/config'
 import { ONE_MINUTE } from '../../config/constants'
 import { TeamIDWithConfig } from '../../main/ingestion-queues/session-recording/session-recordings-consumer'
-import { PipelineEvent, ProjectId, Team, TeamId } from '../../types'
+import { PipelineEvent, Team, TeamId } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
@@ -177,12 +177,12 @@ export class TeamManager {
 }
 
 export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Promise<Team | null> {
-    const selectResult = await client.query<Team>(
+    const selectResult = await client.query<Team & { parent_team_id?: Team['id'] | null }>(
         PostgresUse.COMMON_READ,
         `
             SELECT
                 id,
-                project_id,
+                parent_team_id,
                 uuid,
                 organization_id,
                 name,
@@ -206,19 +206,21 @@ export async function fetchTeam(client: PostgresRouter, teamId: Team['id']): Pro
     if (selectResult.rows.length === 0) {
         return null
     }
-    // pg returns int8 as a string, since it can be larger than JS's max safe integer,
-    // but this is not a problem for project_id, which is a long long way from that limit.
-    selectResult.rows[0].project_id = Number(selectResult.rows[0].project_id) as ProjectId
+
+    // NOTE: The root team_id is a helper to make it easier to work with the team data
+    // It is either the parent_team_id or the team's id if not set.
+    selectResult.rows[0].root_team_id = selectResult.rows[0].parent_team_id ?? selectResult.rows[0].id
+    delete selectResult.rows[0].parent_team_id
     return selectResult.rows[0]
 }
 
 export async function fetchTeamByToken(client: PostgresRouter, token: string): Promise<Team | null> {
-    const selectResult = await client.query<Team>(
+    const selectResult = await client.query<Team & { parent_team_id?: Team['id'] | null }>(
         PostgresUse.COMMON_READ,
         `
             SELECT
                 id,
-                project_id,
+                parent_team_id,
                 uuid,
                 organization_id,
                 name,
@@ -243,9 +245,11 @@ export async function fetchTeamByToken(client: PostgresRouter, token: string): P
     if (selectResult.rows.length === 0) {
         return null
     }
-    // pg returns int8 as a string, since it can be larger than JS's max safe integer,
-    // but this is not a problem for project_id, which is a long long way from that limit.
-    selectResult.rows[0].project_id = Number(selectResult.rows[0].project_id) as ProjectId
+
+    // NOTE: The root team_id is a helper to make it easier to work with the team data
+    // It is either the parent_team_id or the team's id if not set.
+    selectResult.rows[0].root_team_id = selectResult.rows[0].parent_team_id ?? selectResult.rows[0].id
+    delete selectResult.rows[0].parent_team_id
     return selectResult.rows[0]
 }
 

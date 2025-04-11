@@ -3,22 +3,17 @@ import {
     ClickHouseTimestamp,
     ClickHouseTimestampSecondPrecision,
     Hub,
-    ProjectId,
-    RawKafkaEvent,
+    RawClickHouseEvent,
+    Team,
 } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { parseJSON } from '../../../src/utils/json-parse'
-import { ActionManager } from '../../../src/worker/ingestion/action-manager'
-import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
-import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
-import { HookCommander } from '../../../src/worker/ingestion/hooks'
-import { OrganizationManager } from '../../../src/worker/ingestion/organization-manager'
-import { resetTestDatabase } from '../../helpers/sql'
+import { getFirstTeam, resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/logger')
 
-const kafkaEvent: RawKafkaEvent = {
+const kafkaEvent: RawClickHouseEvent = {
     event: '$pageview',
     properties: JSON.stringify({
         $ip: '127.0.0.1',
@@ -30,7 +25,6 @@ const kafkaEvent: RawKafkaEvent = {
     elements_chain: '',
     timestamp: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
     team_id: 2,
-    project_id: 2 as ProjectId,
     distinct_id: 'my_id',
     created_at: '2020-02-23 02:15:00.00' as ClickHouseTimestamp,
     person_id: 'F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC',
@@ -41,11 +35,14 @@ const kafkaEvent: RawKafkaEvent = {
 
 describe('eachMessageWebhooksHandlers', () => {
     let hub: Hub
+    let team: Team
 
     beforeEach(async () => {
         hub = await createHub()
+        hub.actionManager['ready'] = true
         console.warn = jest.fn() as any
         await resetTestDatabase()
+        team = await getFirstTeam(hub)
 
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
@@ -84,27 +81,15 @@ describe('eachMessageWebhooksHandlers', () => {
     })
 
     it('calls runWebhooksHandlersEventPipeline', async () => {
-        const actionManager = new ActionManager(hub.postgres, hub)
-        const actionMatcher = new ActionMatcher(hub.postgres, actionManager)
-        const hookCannon = new HookCommander(
-            hub.postgres,
-            hub.teamManager,
-            hub.organizationManager,
-            hub.rustyHook,
-            hub.appMetrics,
-            hub.EXTERNAL_REQUEST_TIMEOUT_MS
-        )
-        const groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager)
-        await groupTypeManager.insertGroupType(2, 2 as ProjectId, 'organization', 0)
+        await hub.groupTypeManager.insertGroupType(team, 'organization', 0)
 
-        const organizationManager = new OrganizationManager(hub.postgres, hub.teamManager)
-        organizationManager['availableProductFeaturesCache'].set(2, [
+        hub.organizationManager['availableProductFeaturesCache'].set(2, [
             [{ name: 'Group Analytics', key: 'group_analytics' }],
             Date.now(),
         ])
 
-        actionManager['ready'] = true
-        actionManager['actionCache'] = {
+        hub.actionManager['ready'] = true
+        hub.actionManager['actionCache'] = {
             2: {
                 1: {
                     id: 1,
@@ -138,17 +123,10 @@ describe('eachMessageWebhooksHandlers', () => {
             },
         }
 
-        const matchSpy = jest.spyOn(actionMatcher, 'match')
-        const postWebhookSpy = jest.spyOn(hookCannon.rustyHook, 'enqueueIfEnabledForTeam')
+        const matchSpy = jest.spyOn(hub.actionMatcher, 'match')
+        const postWebhookSpy = jest.spyOn(hub.hookCommander.rustyHook, 'enqueueIfEnabledForTeam')
 
-        await eachMessageWebhooksHandlers(
-            kafkaEvent,
-            actionMatcher,
-            hookCannon,
-            groupTypeManager,
-            organizationManager,
-            hub.postgres
-        )
+        await eachMessageWebhooksHandlers(hub, kafkaEvent)
 
         // NOTE: really it would be nice to verify that fire has been called
         // on hookCannon, but that would require a little more setup, and it
@@ -172,7 +150,6 @@ describe('eachMessageWebhooksHandlers', () => {
               "person_created_at": "2020-02-20T02:15:00.000Z",
               "person_id": "F99FA0A1-E0C2-4CFE-A09A-4C3C4327A4CC",
               "person_properties": {},
-              "projectId": 2,
               "properties": {
                 "$groups": {
                   "organization": "org_posthog",

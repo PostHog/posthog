@@ -1,4 +1,4 @@
-import { Person, PreIngestionEvent, RawKafkaEvent } from '../../../types'
+import { Person, PreIngestionEvent, RawClickHouseEvent } from '../../../types'
 import { EventPipelineRunner } from './runner'
 
 export function createEventStep(
@@ -6,6 +6,6 @@ export function createEventStep(
     event: PreIngestionEvent,
     person: Person,
     processPerson: boolean
-): RawKafkaEvent {
+): RawClickHouseEvent {
     return runner.eventsProcessor.createEvent(event, person, processPerson)
 }

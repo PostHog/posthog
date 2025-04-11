@@ -71,7 +71,7 @@ describe('TeamManager()', () => {
                   "organization_id": "<REPLACED-UUID-1>",
                   "person_display_name_properties": [],
                   "person_processing_opt_out": null,
-                  "project_id": 2,
+                  "root_team_id": 2,
                   "session_recording_opt_in": true,
                   "slack_incoming_webhook": null,
                   "timezone": "UTC",
