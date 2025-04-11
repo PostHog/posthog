@@ -708,6 +708,10 @@ mod tests {
             .await
             .expect("Failed to insert team in pg");
 
+        insert_person_for_team_in_pg(reader.clone(), team.id, "user123".to_string(), None)
+            .await
+            .expect("Failed to insert person");
+
         // Create a feature flag with conditions that will cause an error
         let flags = vec![FeatureFlag {
             name: Some("Error Flag".to_string()),

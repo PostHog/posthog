@@ -2,7 +2,6 @@ use envconfig::Envconfig;
 use tokio::signal;
 use tracing_subscriber::fmt;
 use tracing_subscriber::fmt::format::FmtSpan;
-use tracing_subscriber::fmt::layer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
@@ -43,8 +42,7 @@ async fn main() {
         .with_target(true)
         .with_thread_ids(true)
         .with_level(true)
-        .with_filter(EnvFilter::from_default_env())
-        .with_span_fields(true);
+        .with_filter(EnvFilter::from_default_env());
 
     tracing_subscriber::registry().with(fmt_layer).init();
 
