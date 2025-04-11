@@ -111,7 +111,7 @@ export class TemplateTester {
         }
     }
 
-    async invoke(_inputs: Record<string, any>, _globals?: DeepPartialHogFunctionInvocationGlobals) {
+    private async compileInputs(_inputs: Record<string, any>): Promise<Record<string, HogFunctionInputType>> {
         const defaultInputs = this.template.inputs_schema.reduce((acc, input) => {
             if (typeof input.default !== 'undefined') {
                 acc[input.key] = input.default
@@ -125,69 +125,17 @@ export class TemplateTester {
             Object.entries(allInputs).map(async ([key, value]) => [key, await this.compileObject(value)])
         )
 
-        const compiledInputs = compiledEntries.reduce((acc, [key, value]) => {
+        return compiledEntries.reduce((acc, [key, value]) => {
             acc[key] = {
                 value: allInputs[key],
                 bytecode: value,
             }
             return acc
         }, {} as Record<string, HogFunctionInputType>)
+    }
 
-        if (this.template.mapping_templates) {
-            const compiledMappingInputs = this.template.mapping_templates.map((mapping) => ({
-                ...mapping,
-                inputs: {},
-            }))
-
-            await Promise.all(
-                compiledMappingInputs.map(async (mapping) => {
-                    if (!mapping.inputs_schema) {
-                        return
-                    }
-
-                    const processedInputs = await Promise.all(
-                        mapping.inputs_schema
-                            .filter((input) => typeof input.default !== 'undefined')
-                            .map(async (input) => {
-                                return {
-                                    key: input.key,
-                                    value: input.default,
-                                    bytecode: await this.compileObject(input.default),
-                                }
-                            })
-                    )
-
-                    const inputsObj = processedInputs.reduce((acc, item) => {
-                        acc[item.key] = {
-                            value: item.value,
-                            bytecode: item.bytecode,
-                        }
-                        return acc
-                    }, {} as Record<string, HogFunctionInputType>)
-
-                    mapping.inputs = inputsObj
-                })
-            )
-
-            const invocations = this.executor.buildHogFunctionInvocations(
-                [
-                    {
-                        ...this.template,
-                        team_id: 1,
-                        enabled: true,
-                        created_at: '2024-01-01T00:00:00Z',
-                        updated_at: '2024-01-01T00:00:00Z',
-                        deleted: false,
-                        inputs: compiledInputs,
-                        mappings: compiledMappingInputs,
-                    },
-                ],
-                this.createGlobals(_globals)
-            )
-
-            return invocations.invocations.map((invocation) => this.executor.execute(invocation))
-        }
-
+    async invoke(_inputs: Record<string, any>, _globals?: DeepPartialHogFunctionInvocationGlobals) {
+        const compiledInputs = await this.compileInputs(_inputs)
         const globals = this.createGlobals(_globals)
 
         const hogFunction: HogFunctionType = {
@@ -214,7 +162,68 @@ export class TemplateTester {
 
         const extraFunctions = invocation.hogFunction.type === 'transformation' ? transformationFunctions : {}
 
-        return [this.executor.execute(invocation, { functions: extraFunctions })]
+        return this.executor.execute(invocation, { functions: extraFunctions })
+    }
+
+    async invokeMappings(_inputs: Record<string, any>, _globals?: DeepPartialHogFunctionInvocationGlobals) {
+        const compiledInputs = await this.compileInputs(_inputs)
+
+        if (!this.template.mapping_templates) {
+            return []
+        }
+
+        const compiledMappingInputs = this.template.mapping_templates.map((mapping) => ({
+            ...mapping,
+            inputs: {},
+        }))
+
+        await Promise.all(
+            compiledMappingInputs.map(async (mapping) => {
+                if (!mapping.inputs_schema) {
+                    return
+                }
+
+                const processedInputs = await Promise.all(
+                    mapping.inputs_schema
+                        .filter((input) => typeof input.default !== 'undefined')
+                        .map(async (input) => {
+                            return {
+                                key: input.key,
+                                value: input.default,
+                                bytecode: await this.compileObject(input.default),
+                            }
+                        })
+                )
+
+                const inputsObj = processedInputs.reduce((acc, item) => {
+                    acc[item.key] = {
+                        value: item.value,
+                        bytecode: item.bytecode,
+                    }
+                    return acc
+                }, {} as Record<string, HogFunctionInputType>)
+
+                mapping.inputs = inputsObj
+            })
+        )
+
+        const invocations = this.executor.buildHogFunctionInvocations(
+            [
+                {
+                    ...this.template,
+                    team_id: 1,
+                    enabled: true,
+                    created_at: '2024-01-01T00:00:00Z',
+                    updated_at: '2024-01-01T00:00:00Z',
+                    deleted: false,
+                    inputs: compiledInputs,
+                    mappings: compiledMappingInputs,
+                },
+            ],
+            this.createGlobals(_globals)
+        )
+
+        return invocations.invocations.map((invocation) => this.executor.execute(invocation))
     }
 
     invokeFetchResponse(invocation: HogFunctionInvocation, response: HogFunctionQueueParametersFetchResponse) {
