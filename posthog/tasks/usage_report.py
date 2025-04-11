@@ -94,8 +94,10 @@ class UsageReportCounters:
 
     # Recordings
     recording_count_in_period: int
+    zero_duration_recording_count_in_period: int
     recording_bytes_in_period: int
     mobile_recording_count_in_period: int
+    zero_duration_mobile_recording_count_in_period: int
     mobile_recording_bytes_in_period: int
     mobile_billable_recording_count_in_period: int
     # Persons and Groups
@@ -601,7 +603,10 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_recording_count_in_period(
-    begin: datetime, end: datetime, snapshot_source: Literal["mobile", "web"] = "web"
+    begin: datetime,
+    end: datetime,
+    snapshot_source: Literal["mobile", "web"] = "web",
+    min_duration_seconds: int = -1,
 ) -> list[tuple[int, int]]:
     previous_begin = begin - (end - begin)
 
@@ -614,7 +619,7 @@ def get_teams_with_recording_count_in_period(
             WHERE min_first_timestamp BETWEEN %(begin)s AND %(end)s
             GROUP BY session_id
             HAVING ifNull(argMinMerge(snapshot_source), 'web') == %(snapshot_source)s
-        )
+            AND dateDiff(toDateTime(min_first_timestamp), toDateTime(max_last_timestamp)) >= %(min_duration_seconds)s
         WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
             -- before the period we are interested in
@@ -628,7 +633,13 @@ def get_teams_with_recording_count_in_period(
         )
         GROUP BY team_id
     """,
-        {"previous_begin": previous_begin, "begin": begin, "end": end, "snapshot_source": snapshot_source},
+        {
+            "previous_begin": previous_begin,
+            "begin": begin,
+            "end": end,
+            "snapshot_source": snapshot_source,
+            "min_duration_seconds": min_duration_seconds,
+        },
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
     )
@@ -638,7 +649,9 @@ def get_teams_with_recording_count_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+def get_teams_with_mobile_billable_recording_count_in_period(
+    begin: datetime, end: datetime, min_duration_seconds: int = -1
+) -> list[tuple[int, int]]:
     previous_begin = begin - (end - begin)
 
     result = sync_execute(
@@ -651,6 +664,7 @@ def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, en
             GROUP BY session_id
             HAVING (ifNull(argMinMerge(snapshot_source), '') == 'mobile'
             AND ifNull(argMinMerge(snapshot_library), '') IN ('posthog-ios', 'posthog-android', 'posthog-react-native'))
+            AND dateDiff(toDateTime(min_first_timestamp), toDateTime(max_last_timestamp)) >= %(min_duration_seconds)s
         )
         WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
@@ -665,7 +679,12 @@ def get_teams_with_mobile_billable_recording_count_in_period(begin: datetime, en
         )
         GROUP BY team_id
     """,
-        {"previous_begin": previous_begin, "begin": begin, "end": end},
+        {
+            "previous_begin": previous_begin,
+            "begin": begin,
+            "end": end,
+            "min_duration_seconds": min_duration_seconds,
+        },
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
     )
@@ -1035,11 +1054,17 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_recording_count_in_period": get_teams_with_recording_count_in_period(
             period_start, period_end, snapshot_source="web"
         ),
+        "teams_with_zero_duration_recording_count_in_period": get_teams_with_recording_count_in_period(
+            period_start, period_end, snapshot_source="web", min_duration_seconds=1
+        ),
         "teams_with_recording_bytes_in_period": get_teams_with_recording_bytes_in_period(
             period_start, period_end, snapshot_source="web"
         ),
         "teams_with_mobile_recording_count_in_period": get_teams_with_recording_count_in_period(
             period_start, period_end, snapshot_source="mobile"
+        ),
+        "teams_with_zero_duration_mobile_recording_count_in_period": get_teams_with_recording_count_in_period(
+            period_start, period_end, snapshot_source="mobile", min_duration_seconds=1
         ),
         "teams_with_mobile_recording_bytes_in_period": get_teams_with_recording_bytes_in_period(
             period_start, period_end, snapshot_source="mobile"
