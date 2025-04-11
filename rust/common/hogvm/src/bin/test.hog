@@ -1,1 +1,6 @@
-return 'test' != 'test'
+let a := 1
+let b := 2
+let dict := {}
+let list := [dict]
+dict['key'] := list
+print(toString(dict))

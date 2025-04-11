@@ -95,7 +95,3 @@ fn assert_argc(args: &[HogValue], count: usize, name: impl AsRef<str>) -> Result
         format!("{} takes exactly {} arguments", name.as_ref(), count),
     )
 }
-
-fn fail(msg: impl AsRef<str>) -> Result<HogValue, VmError> {
-    Err(VmError::NativeCallFailed(msg.as_ref().to_string()))
-}
