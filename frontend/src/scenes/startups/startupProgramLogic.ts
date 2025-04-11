@@ -290,7 +290,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 console.log('📤 Submitting form with values:', valuesToSubmit)
 
                 try {
-                    const response = await api.create('api/startups/apply', valuesToSubmit)
+                    const response = await api.create('api/billing/startups/apply', valuesToSubmit)
                     actions.setFormSubmitted(true)
                     // eslint-disable-next-line no-console
                     console.log('✅ Application submitted successfully with response:', response)

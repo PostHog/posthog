@@ -374,9 +374,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = {
             **request.data,
             "email": self.request.user.email,
-            "first_name": getattr(self.request.user, "first_name", None),
-            "last_name": getattr(self.request.user, "last_name", None),
         }
+
+        if self.request.user.first_name:
+            data["first_name"] = self.request.user.first_name
+        if self.request.user.last_name:
+            data["last_name"] = self.request.user.last_name
 
         try:
             res = billing_manager.apply_startup_program(organization, data)
