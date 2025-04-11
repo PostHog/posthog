@@ -10,6 +10,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pageReportsLogic } from './pageReportsLogic'
 import { Tiles } from './WebAnalyticsDashboard'
 import { WebAnalyticsCompareFilter } from './WebAnalyticsFilters'
+import { WebAnalyticsModal } from './WebAnalyticsModal'
 
 function NoUrlSelectedMessage(): JSX.Element {
     return (
@@ -91,6 +92,7 @@ export function PageReports(): JSX.Element {
 
     return (
         <div className="space-y-2 mt-2 h-full min-h-0">
+            <WebAnalyticsModal />
             <Tiles tiles={tiles} compact={true} />
         </div>
     )
