@@ -14,9 +14,8 @@ export function FixedReplayHeatmapBrowser({
     iframeRef?: React.MutableRefObject<HTMLIFrameElement | null>
 }): JSX.Element | null {
     const logic = heatmapsBrowserLogic()
-    const [widthOverride, setWidthOverride] = React.useState<number | null>(null)
 
-    const { replayIframeData, hasValidReplayIframeData, filterPanelCollapsed } = useValues(logic)
+    const { replayIframeData, hasValidReplayIframeData, filterPanelCollapsed, widthOverride } = useValues(logic)
     const { onIframeLoad, setIframeWidth, toggleFilterPanelCollapsed } = useActions(logic)
 
     const {
@@ -63,7 +62,7 @@ export function FixedReplayHeatmapBrowser({
         <div className="flex flex-row gap-x-2 w-full">
             <FilterPanel {...fixedReplayFilterPanelProps} isEmpty={heatmapEmpty} />
             <div className="relative flex-1 w-full h-full">
-                <ViewportChooser setWidth={setWidthOverride} selectedWidth={widthOverride} />
+                <ViewportChooser />
                 <div className="flex justify-center h-full w-full">
                     <div
                         className="relative h-full "
