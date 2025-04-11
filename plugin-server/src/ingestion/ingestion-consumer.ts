@@ -1,3 +1,4 @@
+import { cloneDeep } from 'lodash'
 import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
@@ -49,6 +50,12 @@ const forcedOverflowEventsCounter = new Counter({
     help: 'Number of events that were routed to overflow because they matched the force overflow tokens list',
 })
 
+const eventProcessorComparison = new Counter({
+    name: 'event_processor_comparison',
+    help: 'Count of compared events for the new ingester',
+    labelNames: ['outcome'],
+})
+
 type IncomingEvent = { message: Message; event: PipelineEvent }
 
 type IncomingEventsByDistinctId = {
@@ -95,6 +102,8 @@ export class IngestionConsumer {
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokensToForceOverflow: string[] = []
 
+    private comparisonV2Percentage: number
+
     constructor(
         private hub: Hub,
         overrides: Partial<
@@ -129,6 +138,12 @@ export class IngestionConsumer {
 
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
+
+        this.comparisonV2Percentage = hub.INGESTION_CONSUMER_V2_COMPARISON_PERCENTAGE ?? 0
+
+        if (this.comparisonV2Percentage < 0 || this.comparisonV2Percentage > 1) {
+            throw new Error('Invalid value for INGESTION_CONSUMER_V2_COMPARISON_PERCENTAGE - must be between 0 and 1')
+        }
     }
 
     public get service(): PluginServerService {
@@ -218,6 +233,10 @@ export class IngestionConsumer {
         }
     }
 
+    /**
+     * For a batch of events they will all be the same token:distinct_id allowing us to efficiently
+     * move them all at once for overflow or testing topics.
+     */
     private redirectEvents(incomingEvents: IncomingEvent[]): IncomingEvent[] {
         if (!incomingEvents.length) {
             return []
@@ -273,20 +292,89 @@ export class IngestionConsumer {
             // Track $set usage in events that aren't known to use it, before ingestion adds anything there
             trackIfNonPersonEventUpdatesPersons(incomingEvent.event)
 
-            // TODO: Add comparison flags to only run the comparison for some events
-            const newResult = await this.runEventRunnerV2(incomingEvent)
+            if (this.comparisonV2Percentage && Math.random() < this.comparisonV2Percentage) {
+                let v1Result: RawKafkaEvent | undefined
+                let v2Result: RawKafkaEvent | undefined
+                let v1Error: unknown | undefined
+                let v2Error: unknown | undefined
 
-            const result = await this.runEventRunnerV1(incomingEvent)
+                try {
+                    // NOTE: This is not ideal but we are cloning the event to ensure we don't accidentally modify it
+                    const clonedEvent = cloneDeep(incomingEvent.event)
+                    v2Result = await this.runEventRunnerV2({
+                        event: clonedEvent,
+                        message: incomingEvent.message,
+                    })
+                } catch (e) {
+                    v2Error = e
+                }
 
-            // Compare results
+                try {
+                    const result = await this.runEventRunnerV1(incomingEvent)
 
-            logger.info('Comparison of results', {
-                newResult,
-                result,
-            })
+                    if (result?.lastStep === 'emitEventStep') {
+                        // TRICKY: The rawKafkaEvent is passed here. The API is weird but given we are replacing it we're not changing anything here
+                        v1Result = result.args[0] as any
+                    }
+                } catch (e) {
+                    v1Error = e
+                }
 
+                try {
+                    this.compareResults(v1Result, v2Result, v1Error, v2Error)
+                } catch (e) {}
+
+                if (v1Error) {
+                    // We want to rethrow the error of the existing processor if it errored here
+                    throw v1Error
+                }
+
+                return
+            }
+
+            // If not comparing we just run it
+            await this.runEventRunnerV1(incomingEvent)
             return
         }
+    }
+
+    private compareResults(v1Result?: RawKafkaEvent, v2Result?: RawKafkaEvent, v1Error?: unknown, v2Error?: unknown) {
+        // NOTE: Here we will do a simple comparison to start with just checking that the number of properties are the same
+        const logDiff = (outcome: string, details: Record<string, any> = {}) => {
+            eventProcessorComparison.inc({
+                outcome,
+            })
+
+            logger.warn('[IngestionConsumer] comparison diff', {
+                outcome,
+                details,
+            })
+        }
+
+        if (!!v1Error !== !!v2Error) {
+            return logDiff(v1Error ? 'v1_error_but_not_v2' : 'v2_error_but_not_v1')
+        }
+
+        if (!!v1Result !== !!v2Result) {
+            return logDiff(v1Result ? 'v1_result_but_not_v2' : 'v2_result_but_not_v1')
+        }
+
+        // Iterate over each properties and compare. If the value is an object, then count the keys
+
+        if (v1Result && v2Result) {
+            const diff: Record<string, string> = {}
+
+            Object.keys(v1Result).forEach((key) => {
+                const v1Value = (v1Result as any)[key]
+                const v2Value = (v2Result as any)[key]
+
+                if (v1Value !== v2Value) {
+                    diff[key] = 'diff'
+                }
+            })
+        }
+
+        eventProcessorComparison.inc({ outcome: 'same' })
     }
 
     private async runEventRunnerV1(incomingEvent: IncomingEvent): Promise<EventPipelineResult | undefined> {
