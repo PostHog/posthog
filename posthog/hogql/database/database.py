@@ -513,10 +513,7 @@ def create_hogql_database(
                         views = define_mappings(
                             views,
                             lambda team, warehouse_modifier: DataWarehouseSavedQuery.objects.exclude(deleted=True)
-                            .filter(
-                                team_id=team.pk,
-                                name=warehouse_modifier.table_name,
-                            )
+                            .filter(team_id=team.pk, name=warehouse_modifier.table_name)
                             .latest("created_at"),
                         )
                     else:
@@ -535,10 +532,7 @@ def create_hogql_database(
                         self_managed_warehouse_tables = define_mappings(
                             self_managed_warehouse_tables,
                             lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
-                            .filter(
-                                team_id=team.pk,
-                                name=warehouse_modifier.table_name,
-                            )
+                            .filter(team_id=team.pk, name=warehouse_modifier.table_name)
                             .select_related("credential", "external_data_source")
                             .latest("created_at"),
                         )
