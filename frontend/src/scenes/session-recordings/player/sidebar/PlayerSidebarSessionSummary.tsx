@@ -13,7 +13,7 @@ import { LemonBanner, LemonMenu, Link, Tooltip } from '@posthog/lemon-ui'
 function formatEventMetaInfo(event: SessionKeyEvent): JSX.Element {
     return (
         <pre className="m-0 p-0 font-mono text-xs whitespace-pre">
-{`Event: ${event.event}
+            {`Event: ${event.event}
 Type: ${event.event_type || 'N/A'}
 Importance: ${(event.importance * 100).toFixed(0)}%
 Window ID: ${event.window_id}
@@ -38,7 +38,9 @@ function formatMsIntoTime(ms: number): string {
     const minutes = Math.floor((seconds % 3600) / 60)
     const remainingSeconds = seconds % 60
 
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${remainingSeconds
+        .toString()
+        .padStart(2, '0')}`
 }
 
 function SessionSummary(): JSX.Element {
@@ -63,12 +65,7 @@ function SessionSummary(): JSX.Element {
         <div className="flex flex-col" style={{ maxWidth: '24rem' }}>
             {sessionSummary ? (
                 <>
-                    <LemonBanner
-                        className="mb-3"
-                        type='info'
-                        action={undefined}
-                        onClose={undefined}
-                    >
+                    <LemonBanner className="mb-3" type="info" action={undefined} onClose={undefined}>
                         <div className="text-sm break-words py-1 px-1" style={{ fontWeight: 'normal' }}>
                             {sessionSummary.content.summary}
                         </div>
@@ -78,11 +75,11 @@ function SessionSummary(): JSX.Element {
                         <LemonMenu
                             items={Object.entries(FILTER_TYPES).map(([key, { label }]) => ({
                                 label,
-                                onClick: () => setFilterType(key as FilterType)
+                                onClick: () => setFilterType(key as FilterType),
                             }))}
                             buttonSize="xsmall"
                         >
-                            <LemonButton type="secondary" size="xsmall" icon={<IconFilter />} className='mb-3'>
+                            <LemonButton type="secondary" size="xsmall" icon={<IconFilter />} className="mb-3">
                                 {FILTER_TYPES[filterType].label}
                             </LemonButton>
                         </LemonMenu>
@@ -91,7 +88,9 @@ function SessionSummary(): JSX.Element {
                             {filteredEvents?.map((event, index) => (
                                 <div
                                     key={index}
-                                    className={`border-b cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight ${event.error ? 'bg-danger-highlight' : ''}`}
+                                    className={`border-b cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight ${
+                                        event.error ? 'bg-danger-highlight' : ''
+                                    }`}
                                     onClick={() => {
                                         seekToTime(event.milliseconds_since_start)
                                     }}
@@ -100,10 +99,7 @@ function SessionSummary(): JSX.Element {
                                         <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
                                             {formatMsIntoTime(event.milliseconds_since_start)}
                                             <div className="flex flex-row gap-2 mt-1">
-                                                <Link
-                                                    to={event.current_url}
-                                                    target="_blank"
-                                                >
+                                                <Link to={event.current_url} target="_blank">
                                                     <Tooltip title={event.current_url} placement="top">
                                                         <span className="font-mono text-xs text-muted-alt">url</span>
                                                     </Tooltip>
@@ -146,12 +142,9 @@ function SessionSummary(): JSX.Element {
                     </div>
                 </>
             ) : (
-                <div className="text-center text-muted-alt">
-                    No summary available for this session
-                </div>
-            )
-            }
-        </div >
+                <div className="text-center text-muted-alt">No summary available for this session</div>
+            )}
+        </div>
     )
 }
 
@@ -182,18 +175,18 @@ export function PlayerSidebarSessionSummary(): JSX.Element | null {
     return (
         <>
             <FlaggedFeature flag={FEATURE_FLAGS.AI_SESSION_SUMMARY} match={true}>
-            <div className="rounded border bg-surface-primary px-2 py-1">
-                <h2>AI Session Summary</h2>
-                {sessionSummaryLoading ? (
-                    <>
-                        Thinking... <Spinner />{' '}
-                    </>
-                ) : sessionSummary ? (
-                    <SessionSummary />
-                ) : (
-                    <LoadSessionSummaryButton />
-                )}
-            </div>
+                <div className="rounded border bg-surface-primary px-2 py-1">
+                    <h2>AI Session Summary</h2>
+                    {sessionSummaryLoading ? (
+                        <>
+                            Thinking... <Spinner />{' '}
+                        </>
+                    ) : sessionSummary ? (
+                        <SessionSummary />
+                    ) : (
+                        <LoadSessionSummaryButton />
+                    )}
+                </div>
             </FlaggedFeature>
         </>
     )
