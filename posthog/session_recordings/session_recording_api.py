@@ -1212,7 +1212,7 @@ def safely_read_modifiers_overrides(distinct_id: str, team: Team) -> HogQLQueryM
         #     distinct_id,
         #     groups=groups,
         # )
-        modifier_overrides = (flags_n_bags or {}).get("featureFlagPayloads", {}).get(flag_key, None)
+        modifier_overrides = (flags_n_bags.get("featureFlagPayloads") or {}).get(flag_key, None)
         if modifier_overrides:
             modifiers.optimizeJoinedFilters = json.loads(modifier_overrides).get("optimizeJoinedFilters", None)
     except:
