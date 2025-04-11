@@ -515,9 +515,7 @@ def create_hogql_database(
                             lambda team, warehouse_modifier: DataWarehouseSavedQuery.objects.exclude(deleted=True)
                             .filter(
                                 team_id=team.pk,
-                                name=warehouse_tables_dot_notation_mapping[warehouse_modifier.table_name]
-                                if warehouse_modifier.table_name in warehouse_tables_dot_notation_mapping
-                                else warehouse_modifier.table_name,
+                                name=warehouse_modifier.table_name,
                             )
                             .latest("created_at"),
                         )
@@ -539,9 +537,7 @@ def create_hogql_database(
                             lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
                             .filter(
                                 team_id=team.pk,
-                                name=warehouse_tables_dot_notation_mapping[warehouse_modifier.table_name]
-                                if warehouse_modifier.table_name in warehouse_tables_dot_notation_mapping
-                                else warehouse_modifier.table_name,
+                                name=warehouse_modifier.table_name,
                             )
                             .select_related("credential", "external_data_source")
                             .latest("created_at"),
