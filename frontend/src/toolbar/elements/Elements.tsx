@@ -16,6 +16,7 @@ import { toolbarLogic } from '../bar/toolbarLogic'
 import { ScrollDepth } from './ScrollDepth'
 
 export function Elements(): JSX.Element {
+    const { visibleMenu: activeToolbarMode } = useValues(toolbarLogic)
     const {
         heatmapElements,
         elementsToDisplay,
@@ -59,7 +60,7 @@ export function Elements(): JSX.Element {
                 }}
             >
                 <ScrollDepth />
-                <HeatmapCanvas />
+                {activeToolbarMode === 'heatmap' && <HeatmapCanvas />}
                 {highlightElementMeta?.rect ? <FocusRect rect={highlightElementMeta.rect} /> : null}
 
                 {elementsToDisplay.map(({ rect, element, apparentZIndex }, index) => {
@@ -88,7 +89,7 @@ export function Elements(): JSX.Element {
                     )
                 })}
 
-                {heatmapElements.map(({ rect, count, clickCount, rageclickCount, element }, index) => {
+                {heatmapElements.map(({ rect, count, clickCount, rageclickCount, deadclickCount, element }, index) => {
                     return (
                         <Fragment key={`heatmap-${index}`}>
                             <AutocaptureElement
@@ -169,6 +170,37 @@ export function Elements(): JSX.Element {
                                     onMouseOut={() => selectedElement === null && setHoverElement(null)}
                                 >
                                     {compactNumber(rageclickCount)}&#128545;
+                                </AutocaptureElementLabel>
+                            )}
+                            {!!deadclickCount && (
+                                <AutocaptureElementLabel
+                                    rect={rect}
+                                    style={{
+                                        pointerEvents: heatmapPointerEvents,
+                                        zIndex: 5,
+                                        opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
+                                        transition: 'opacity 0.2s, transform 0.2s linear',
+                                        transform: hoverElement === element ? 'scale(1.3)' : 'none',
+                                        cursor: 'pointer',
+                                        color: `hsla(${getHeatMapHue(
+                                            deadclickCount || 0,
+                                            highestClickCount
+                                        )}, 20%, 12%, 1)`,
+                                        background: `hsla(${getHeatMapHue(
+                                            deadclickCount || 0,
+                                            highestClickCount
+                                        )}, 100%, 62%, 1)`,
+                                        boxShadow: `hsla(${getHeatMapHue(
+                                            deadclickCount || 0,
+                                            highestClickCount
+                                        )}, 100%, 32%, 1) 0px 1px 5px 1px`,
+                                    }}
+                                    align="left"
+                                    onClick={() => selectElement(element)}
+                                    onMouseOver={() => selectedElement === null && setHoverElement(element)}
+                                    onMouseOut={() => selectedElement === null && setHoverElement(null)}
+                                >
+                                    {compactNumber(deadclickCount)}&#128565;
                                 </AutocaptureElementLabel>
                             )}
                         </Fragment>

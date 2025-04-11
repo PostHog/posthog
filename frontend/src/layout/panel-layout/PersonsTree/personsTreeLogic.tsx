@@ -10,9 +10,9 @@ import type { personsTreeLogicType } from './personsTreeLogicType'
 
 export const personsTreeLogic = kea<personsTreeLogicType>([
     path(['layout', 'panel-layout', 'personsTreeLogic']),
-    connect({
+    connect(() => ({
         values: [panelLayoutLogic, ['searchTerm']],
-    }),
+    })),
     loaders(({ values }) => ({
         rawSearchResponse: [
             null as SearchResponse | null,

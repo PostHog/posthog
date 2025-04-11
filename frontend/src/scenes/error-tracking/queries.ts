@@ -6,9 +6,18 @@ import {
     InsightVizNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, BaseMathType, ChartDisplayType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
+import {
+    AnyPropertyFilter,
+    BaseMathType,
+    ChartDisplayType,
+    EventPropertyFilter,
+    PropertyFilterType,
+    PropertyGroupFilter,
+    PropertyOperator,
+    UniversalFiltersGroup,
+} from '~/types'
 
-import { resolveDateRange } from './utils'
+import { resolveDateRange, SEARCHABLE_EXCEPTION_PROPERTIES } from './utils'
 
 export const errorTrackingQuery = ({
     orderBy,
@@ -54,17 +63,25 @@ export const errorTrackingQuery = ({
 export const errorTrackingIssueQuery = ({
     issueId,
     dateRange,
-    volumeResolution,
+    filterGroup,
+    filterTestAccounts,
+    searchQuery,
+    volumeResolution = 0,
 }: {
     issueId: string
     dateRange: DateRange
-    volumeResolution: number
+    filterGroup?: UniversalFiltersGroup
+    filterTestAccounts: boolean
+    searchQuery?: string
+    volumeResolution?: number
 }): ErrorTrackingQuery => {
     return {
         kind: NodeKind.ErrorTrackingQuery,
         issueId,
         dateRange: resolveDateRange(dateRange).toDateRange(),
-        filterTestAccounts: false,
+        filterGroup: filterGroup as PropertyGroupFilter,
+        filterTestAccounts,
+        searchQuery,
         volumeResolution,
     }
 }
@@ -73,11 +90,13 @@ export const errorTrackingIssueEventsQuery = ({
     issueId,
     filterTestAccounts,
     filterGroup,
+    searchQuery,
     dateRange,
 }: {
     issueId: string | null
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
+    searchQuery: string
     dateRange: DateRange
 }): DataTableNode | null => {
     if (!issueId) {
@@ -91,7 +110,21 @@ export const errorTrackingIssueEventsQuery = ({
     // row expansion only works when you fetch the entire event with '*'
     const columns = ['*', 'person', 'timestamp', 'recording_button(properties.$session_id)']
     const group = filterGroup.values[0] as UniversalFiltersGroup
-    const properties = group.values as AnyPropertyFilter[]
+    const properties = [...group.values] as AnyPropertyFilter[]
+
+    if (searchQuery) {
+        properties.push(
+            ...SEARCHABLE_EXCEPTION_PROPERTIES.map(
+                (prop): EventPropertyFilter => ({
+                    type: PropertyFilterType.Event,
+                    operator: PropertyOperator.IContains,
+                    key: prop,
+                    value: searchQuery,
+                })
+            )
+        )
+    }
+
     const where = [`'${issueId}' == issue_id`]
 
     const eventsQuery: EventsQuery = {

@@ -1,6 +1,6 @@
 pub mod api;
 pub mod client;
-pub mod cohort;
+pub mod cohorts;
 pub mod config;
 pub mod flags;
 pub mod metrics;

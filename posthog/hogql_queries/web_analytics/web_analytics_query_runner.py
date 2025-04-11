@@ -3,7 +3,6 @@ from abc import ABC
 from datetime import timedelta, datetime
 from math import ceil
 from typing import Optional, Union
-import posthoganalytics
 
 from django.conf import settings
 from django.core.cache import cache
@@ -50,17 +49,6 @@ WebQueryNode = Union[
 class WebAnalyticsQueryRunner(QueryRunner, ABC):
     query: WebQueryNode
     query_type: type[WebQueryNode]
-    include_data_warehouse_revenue: bool = False
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        self.include_data_warehouse_revenue = posthoganalytics.feature_enabled(
-            "web-analytics-data-warehouse-revenue-settings",
-            str(self.team.organization_id),
-            groups={"organization": str(self.team.organization_id)},
-            group_properties={"organization": {"id": str(self.team.organization_id)}},
-        )
 
     @cached_property
     def query_date_range(self):
@@ -262,28 +250,28 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
         end: ast.Expr,
         alias: Optional[str] = None,
         params: Optional[list[ast.Expr]] = None,
-        extra_args: Optional[list[ast.Expr]] = None,
     ):
-        and_args: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=["start_timestamp"]),
-                right=start,
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Lt,
-                left=ast.Field(chain=["start_timestamp"]),
-                right=end,
-            ),
-        ]
-
-        if extra_args:
-            and_args.extend(extra_args)
-
         expr = ast.Call(
             name=function_name + "If",
             params=params,
-            args=[ast.Field(chain=[column_name]), ast.Call(name="and", args=and_args)],
+            args=[
+                ast.Field(chain=[column_name]),
+                ast.Call(
+                    name="and",
+                    args=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.GtEq,
+                            left=ast.Field(chain=["start_timestamp"]),
+                            right=start,
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Lt,
+                            left=ast.Field(chain=["start_timestamp"]),
+                            right=end,
+                        ),
+                    ],
+                ),
+            ],
         )
 
         if alias is not None:

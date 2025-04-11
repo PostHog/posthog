@@ -72,6 +72,7 @@ import {
     Group,
     GroupListParams,
     HogFunctionIconResponse,
+    HogFunctionKind,
     HogFunctionStatus,
     HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
@@ -80,6 +81,7 @@ import {
     HogFunctionTypeType,
     InsightModel,
     IntegrationType,
+    LinearTeamType,
     LinkedInAdsAccountType,
     LinkedInAdsConversionRuleType,
     ListOrganizationMembersParams,
@@ -125,6 +127,7 @@ import {
     SlackChannelType,
     SubscriptionType,
     Survey,
+    SurveyStats,
     TeamType,
     UserBasicType,
     UserGroup,
@@ -395,6 +398,9 @@ class ApiRequest {
     }
     public fileSystemCount(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
         return this.fileSystem(projectId).addPathComponent(id).addPathComponent('count')
+    }
+    public fileSystemCountByPath(path: string, projectId?: ProjectType['id']): ApiRequest {
+        return this.fileSystem(projectId).addPathComponent('count_by_path').withQueryString({ path })
     }
 
     // # Plugins
@@ -810,7 +816,7 @@ class ApiRequest {
 
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('warehouse_tables')
+        return this.environmentsDetail(teamId).addPathComponent('warehouse_tables')
     }
     public dataWarehouseTable(id: DataWarehouseTable['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseTables(teamId).addPathComponent(id)
@@ -818,7 +824,7 @@ class ApiRequest {
 
     // # Warehouse view
     public dataWarehouseSavedQueries(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('warehouse_saved_queries')
+        return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_queries')
     }
     public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
@@ -831,14 +837,14 @@ class ApiRequest {
         offset = 0,
         teamId?: TeamType['id']
     ): ApiRequest {
-        return this.projectsDetail(teamId)
+        return this.environmentsDetail(teamId)
             .addPathComponent('data_modeling_jobs')
             .withQueryString({ saved_query_id: savedQueryId, limit: pageSize, offset })
     }
 
     // # Warehouse view link
     public dataWarehouseViewLinks(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('warehouse_view_link')
+        return this.environmentsDetail(teamId).addPathComponent('warehouse_view_link')
     }
     public dataWarehouseViewLink(id: DataWarehouseViewLink['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseViewLinks(teamId).addPathComponent(id)
@@ -886,6 +892,10 @@ class ApiRequest {
             .addPathComponent(id)
             .addPathComponent('channels')
             .withQueryString({ channel_id: channelId })
+    }
+
+    public integrationLinearTeams(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('linear_teams')
     }
 
     public integrationGoogleAdsAccounts(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1042,7 +1052,7 @@ class ApiRequest {
 
     // External Data Source
     public externalDataSources(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('external_data_sources')
+        return this.environmentsDetail(teamId).addPathComponent('external_data_sources')
     }
 
     public externalDataSource(sourceId: ExternalDataSource['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1050,7 +1060,7 @@ class ApiRequest {
     }
 
     public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('external_data_schemas')
+        return this.environmentsDetail(teamId).addPathComponent('external_data_schemas')
     }
 
     public externalDataSourceSchema(schemaId: ExternalDataSourceSchema['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1250,6 +1260,7 @@ const api = {
     fileSystem: {
         async list({
             parent,
+            path,
             depth,
             limit,
             offset,
@@ -1259,6 +1270,7 @@ const api = {
             type__startswith,
         }: {
             parent?: string
+            path?: string
             depth?: number
             limit?: number
             offset?: number
@@ -1269,7 +1281,7 @@ const api = {
         }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest()
                 .fileSystem()
-                .withQueryString({ parent, depth, limit, offset, search, ref, type, type__startswith })
+                .withQueryString({ parent, path, depth, limit, offset, search, ref, type, type__startswith })
                 .get()
         },
         async unfiled(type?: string): Promise<CountedPaginatedResponse<FileSystemEntry>> {
@@ -1292,6 +1304,9 @@ const api = {
         },
         async count(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemCount> {
             return await new ApiRequest().fileSystemCount(id).create()
+        },
+        async countByPath(path: string): Promise<FileSystemCount> {
+            return await new ApiRequest().fileSystemCountByPath(path).create()
         },
     },
 
@@ -2059,9 +2074,13 @@ const api = {
         async list({
             filters,
             types,
+            kinds,
+            excludeKinds,
         }: {
             filters?: any
             types?: HogFunctionTypeType[]
+            kinds?: HogFunctionKind[]
+            excludeKinds?: HogFunctionKind[]
         }): Promise<PaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
@@ -2069,6 +2088,8 @@ const api = {
                     filters,
                     // NOTE: The API expects "type" as thats the DB level name
                     ...(types ? { type: types.join(',') } : {}),
+                    ...(kinds ? { kind: kinds.join(',') } : {}),
+                    ...(excludeKinds ? { exclude_kind: excludeKinds.join(',') } : {}),
                 })
                 .get()
         },
@@ -2600,6 +2621,43 @@ const api = {
             }
             return await apiRequest.create()
         },
+        async getSurveyStats({
+            surveyId,
+            dateFrom = null,
+            dateTo = null,
+        }: {
+            surveyId: Survey['id']
+            dateFrom?: string | null
+            dateTo?: string | null
+        }): Promise<SurveyStats> {
+            const apiRequest = new ApiRequest().survey(surveyId).withAction('stats')
+            const queryParams: Record<string, string> = {}
+            if (dateFrom) {
+                queryParams['date_from'] = dateFrom
+            }
+            if (dateTo) {
+                queryParams['date_to'] = dateTo
+            }
+
+            return await apiRequest.withQueryString(queryParams).get()
+        },
+        async getGlobalSurveyStats({
+            dateFrom = null,
+            dateTo = null,
+        }: {
+            dateFrom?: string | null
+            dateTo?: string | null
+        }): Promise<SurveyStats> {
+            const apiRequest = new ApiRequest().surveys().withAction('stats')
+            const queryParams: Record<string, string> = {}
+            if (dateFrom) {
+                queryParams['date_from'] = dateFrom
+            }
+            if (dateTo) {
+                queryParams['date_to'] = dateTo
+            }
+            return await apiRequest.get()
+        },
     },
 
     dataWarehouseTables: {
@@ -2745,6 +2803,9 @@ const api = {
         async incremental_fields(schemaId: ExternalDataSourceSchema['id']): Promise<SchemaIncrementalFieldsResponse> {
             return await new ApiRequest().externalDataSourceSchema(schemaId).withAction('incremental_fields').create()
         },
+        async delete_data(schemaId: ExternalDataSourceSchema['id']): Promise<SchemaIncrementalFieldsResponse> {
+            return await new ApiRequest().externalDataSourceSchema(schemaId).withAction('delete_data').delete()
+        },
         async logs(
             schemaId: ExternalDataSourceSchema['id'],
             params: LogEntryRequestParams = {}
@@ -2876,6 +2937,9 @@ const api = {
             channelId: string
         ): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannelsById(id, channelId).get()
+        },
+        async linearTeams(id: IntegrationType['id']): Promise<{ teams: LinearTeamType[] }> {
+            return await new ApiRequest().integrationLinearTeams(id).get()
         },
         async googleAdsAccounts(
             id: IntegrationType['id']

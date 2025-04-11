@@ -2,11 +2,9 @@ from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import QuerySet
-import posthoganalytics
 from rest_framework import filters, serializers, viewsets, pagination, status
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.exceptions import PermissionDenied
 
 from posthog.api.utils import action
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -15,20 +13,6 @@ from posthog.models.file_system.file_system import FileSystem, split_path, join_
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.user import User
 from posthog.models.team import Team
-
-
-def has_permissions_to_access_tree_view(user, team):
-    tree_view_enabled = posthoganalytics.feature_enabled(
-        "tree-view",
-        str(user.distinct_id),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-    )
-
-    if user.is_staff or tree_view_enabled:
-        return
-
-    raise PermissionDenied("You must have the 'tree-view' flag enabled, or be a staff user to access this resource.")
 
 
 class FileSystemSerializer(serializers.ModelSerializer):
@@ -44,6 +28,7 @@ class FileSystemSerializer(serializers.ModelSerializer):
             "ref",
             "href",
             "meta",
+            "shortcut",
             "created_at",
             "created_by",
         ]
@@ -77,7 +62,11 @@ class FileSystemSerializer(serializers.ModelSerializer):
                     depth=depth_index,
                     type="folder",
                     created_by=request.user,
+                    shortcut=False,
                 )
+
+        if validated_data.get("shortcut") is None:
+            validated_data["shortcut"] = False
 
         depth = len(segments)
         file_system = FileSystem.objects.create(
@@ -106,15 +95,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     pagination_class = FileSystemsLimitOffsetPagination
     search_fields = ["path", "ref", "type"]
 
-    def initial(self, request, *args, **kwargs):
-        super().initial(request, *args, **kwargs)
-        has_permissions_to_access_tree_view(request.user, self.team)
-
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.filter(team=self.team)
 
         depth_param = self.request.query_params.get("depth")
         parent_param = self.request.query_params.get("parent")
+        path_param = self.request.query_params.get("path")
         type_param = self.request.query_params.get("type")
         type__startswith_param = self.request.query_params.get("type__startswith")
         ref_param = self.request.query_params.get("ref")
@@ -126,6 +112,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             except ValueError:
                 pass
 
+        if self.action == "list":
+            queryset = queryset.order_by("path")
+
+        if path_param:
+            queryset = queryset.filter(path=path_param)
         if parent_param:
             queryset = queryset.filter(path__startswith=f"{parent_param}/")
         if type_param:
@@ -134,16 +125,20 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(type__startswith=type__startswith_param)
         if ref_param:
             queryset = queryset.filter(ref=ref_param)
+            queryset = queryset.order_by("shortcut")  # override order
 
-        if self.action == "list":
-            queryset = queryset.order_by("path")
+        if self.user_access_control:
+            queryset = self.user_access_control.filter_and_annotate_file_system_queryset(queryset)
 
         return queryset
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         if instance.type == "folder":
-            FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/").delete()
+            qs = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/")
+            if self.user_access_control:
+                qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
+            qs.delete()
         instance.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -156,10 +151,16 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         retroactively_fix_folders_and_depth(self.team, cast(User, request.user))
 
+        if self.user_access_control:
+            qs = FileSystem.objects.filter(id__in=[f.id for f in files])
+            qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
+            file_count = qs.count()
+        else:
+            file_count = len(files)
+
         return Response(
             {
-                "results": FileSystemSerializer(files, many=True).data,
-                "count": len(files),
+                "count": file_count,
             },
             status=status.HTTP_200_OK,
         )
@@ -178,7 +179,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return Response({"detail": "Cannot move folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
 
             with transaction.atomic():
-                for file in FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/"):
+                qs = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/")
+                if self.user_access_control:
+                    qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
+                for file in qs:
                     file.path = new_path + file.path[len(instance.path) :]
                     file.depth = len(split_path(file.path))
                     file.save()
@@ -217,10 +221,15 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return Response({"detail": "Cannot link folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
 
             with transaction.atomic():
-                for file in FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/"):
+                qs = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/")
+                if self.user_access_control:
+                    qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
+
+                for file in qs:
                     file.pk = None  # This removes the id
                     file.path = new_path + file.path[len(instance.path) :]
                     file.depth = len(split_path(file.path))
+                    file.shortcut = True
                     file.save()  # A new instance is created with a new id
 
                 targets = FileSystem.objects.filter(team=self.team, path=new_path).all()
@@ -231,12 +240,14 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     instance.pk = None  # This removes the id
                     instance.path = new_path
                     instance.depth = len(split_path(instance.path))
+                    instance.shortcut = True
                     instance.save()  # A new instance is created with a new id
 
         else:
             instance.pk = None  # This removes the id
             instance.path = new_path + instance.path[len(instance.path) :]
             instance.depth = len(split_path(instance.path))
+            instance.shortcut = True
             instance.save()  # A new instance is created with a new id
 
         return Response(
@@ -250,8 +261,25 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance = self.get_object()
         if instance.type != "folder":
             return Response({"detail": "Count can only be called on folders"}, status=status.HTTP_400_BAD_REQUEST)
-        count = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/").count()
-        return Response({"count": count}, status=status.HTTP_200_OK)
+
+        qs = FileSystem.objects.filter(team=self.team, path__startswith=f"{instance.path}/")
+        if self.user_access_control:
+            qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
+
+        return Response({"count": qs.count()}, status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=False)
+    def count_by_path(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Get count of all files in a folder."""
+        path_param = self.request.query_params.get("path")
+        if not path_param:
+            return Response({"detail": "path parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = FileSystem.objects.filter(team=self.team, path__startswith=f"{path_param}/")
+        if self.user_access_control:
+            qs = self.user_access_control.filter_and_annotate_file_system_queryset(qs)
+
+        return Response({"count": qs.count()}, status=status.HTTP_200_OK)
 
 
 def assure_parent_folders(path: str, team: Team, created_by: User) -> None:

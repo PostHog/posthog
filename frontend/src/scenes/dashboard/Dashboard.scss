@@ -1,0 +1,7 @@
+.Dashboard_filters {
+    position: sticky;
+    top: var(--breadcrumbs-height-compact);
+    z-index: 10;
+    padding: 0.5rem 0;
+    background: var(--bg-primary);
+}

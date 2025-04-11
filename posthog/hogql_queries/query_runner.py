@@ -389,7 +389,9 @@ def get_query_runner(
         )
 
     if kind == "RevenueExampleEventsQuery":
-        from .web_analytics.revenue_example_events_query_runner import RevenueExampleEventsQueryRunner
+        from products.revenue_analytics.backend.hogql_queries.revenue_example_events_query_runner import (
+            RevenueExampleEventsQueryRunner,
+        )
 
         return RevenueExampleEventsQueryRunner(
             query=query,
@@ -400,7 +402,7 @@ def get_query_runner(
         )
 
     if kind == "RevenueExampleDataWarehouseTablesQuery":
-        from .web_analytics.revenue_example_data_warehouse_tables_query_runner import (
+        from products.revenue_analytics.backend.hogql_queries.revenue_example_data_warehouse_tables_query_runner import (
             RevenueExampleDataWarehouseTablesQueryRunner,
         )
 
@@ -670,7 +672,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if self.is_cached_response(cached_response_candidate):
             cached_response_candidate["is_cached"] = True
-            cached_response = CachedResponse(**cached_response_candidate)
+            # When rolling out schema changes, cached responses may not match the new schema.
+            # Trigger recomputation in this case.
+            try:
+                cached_response = CachedResponse(**cached_response_candidate)
+            except Exception as e:
+                capture_exception(Exception(f"Error parsing cached response: {e}"))
+                cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
         elif cached_response_candidate is None:
             cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
         else:

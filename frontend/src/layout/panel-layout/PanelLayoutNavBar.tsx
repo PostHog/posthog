@@ -17,6 +17,7 @@ import { router } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -58,10 +59,21 @@ const panelStyles = cva({
 export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): JSX.Element {
     const { toggleSearchBar } = useActions(commandBarLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
-    const { showLayoutPanel, setActivePanelIdentifier, clearActivePanelIdentifier, toggleLayoutNavCollapsed } =
-        useActions(panelLayoutLogic)
-    const { isLayoutPanelVisible, activePanelIdentifier, mainContentRef, isLayoutPanelPinned, isLayoutNavCollapsed } =
-        useValues(panelLayoutLogic)
+    const {
+        showLayoutPanel,
+        setActivePanelIdentifier,
+        clearActivePanelIdentifier,
+        toggleLayoutNavCollapsed,
+        setVisibleSideAction,
+    } = useActions(panelLayoutLogic)
+    const {
+        isLayoutPanelVisible,
+        activePanelIdentifier,
+        mainContentRef,
+        isLayoutPanelPinned,
+        isLayoutNavCollapsed,
+        visibleSideAction,
+    } = useValues(panelLayoutLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { mobileLayout: isMobileLayout, navbarItems } = useValues(navigation3000Logic)
     const { closeAccountPopover, toggleAccountPopover } = useActions(navigationLogic)
@@ -183,13 +195,13 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
         },
         {
             identifier: 'PersonsManagement',
-            id: 'Persons and groups',
+            id: featureFlags[FEATURE_FLAGS.B2B_ANALYTICS] ? 'Persons and cohorts' : 'Persons and groups',
             icon: <IconPeople />,
             to: urls.persons(),
             onClick: () => {
                 handleStaticNavbarItemClick(urls.persons(), true)
             },
-            tooltip: 'Persons and groups',
+            tooltip: featureFlags[FEATURE_FLAGS.B2B_ANALYTICS] ? 'Persons and cohorts' : 'Persons and groups',
         },
         {
             identifier: 'Activity',
@@ -423,6 +435,51 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                         >
                                                                             {item.sideAction.icon}
                                                                         </ButtonPrimitive>
+                                                                    </ListBox.Item>
+                                                                )}
+
+                                                            {!isLayoutNavCollapsed &&
+                                                                item.sideAction &&
+                                                                item.identifier === 'Groups' &&
+                                                                item.sideAction.dropdown?.overlay && (
+                                                                    <ListBox.Item
+                                                                        asChild
+                                                                        key={`${item.identifier}-dropdown`}
+                                                                    >
+                                                                        <Popover
+                                                                            visible={
+                                                                                visibleSideAction === item.identifier
+                                                                            }
+                                                                            overlay={item.sideAction.dropdown.overlay}
+                                                                            placement={
+                                                                                item.sideAction.dropdown.placement
+                                                                            }
+                                                                            showArrow={false}
+                                                                            onClickInside={() => {
+                                                                                setVisibleSideAction('')
+                                                                            }}
+                                                                            onClickOutside={() => {
+                                                                                setVisibleSideAction('')
+                                                                            }}
+                                                                        >
+                                                                            <ButtonPrimitive
+                                                                                sideActionRight
+                                                                                active={
+                                                                                    visibleSideAction ===
+                                                                                    item.identifier
+                                                                                }
+                                                                                onClick={() => {
+                                                                                    visibleSideAction ===
+                                                                                    item.identifier
+                                                                                        ? setVisibleSideAction('')
+                                                                                        : setVisibleSideAction(
+                                                                                              item.identifier
+                                                                                          )
+                                                                                }}
+                                                                            >
+                                                                                <IconChevronRight className="size-3 text-secondary" />
+                                                                            </ButtonPrimitive>
+                                                                        </Popover>
                                                                     </ListBox.Item>
                                                                 )}
                                                         </ButtonGroupPrimitive>

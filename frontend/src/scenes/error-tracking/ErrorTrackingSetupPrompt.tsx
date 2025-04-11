@@ -2,32 +2,26 @@ import { IconExternal } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/types'
 
 import { errorTrackingLogic } from './errorTrackingLogic'
 
-export const ErrorTrackingSetupPrompt = ({ children }: { children: React.ReactElement }): JSX.Element => {
+export const ErrorTrackingSetupPrompt = ({ children }: { children: React.ReactNode }): JSX.Element => {
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(errorTrackingLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const hasErrorTracking = useFeatureFlag('ERROR_TRACKING')
-
     const exceptionAutocaptureEnabled = currentTeam && currentTeam.autocapture_exceptions_opt_in
 
     return hasSentExceptionEventLoading || currentTeamLoading ? (
         <div className="flex justify-center">
             <Spinner />
         </div>
-    ) : !hasErrorTracking ? (
-        <BetaAccessBanner />
     ) : !hasSentExceptionEvent && !exceptionAutocaptureEnabled ? (
         <IngestionStatusCheck />
     ) : (
-        children
+        <>{children}</>
     )
 }
 
@@ -70,28 +64,6 @@ const IngestionStatusCheck = (): JSX.Element | null => {
                         Read the docs
                     </LemonButton>
                 </>
-            }
-        />
-    )
-}
-
-const BetaAccessBanner = (): JSX.Element | null => {
-    return (
-        <ProductIntroduction
-            productName="Error tracking"
-            thingName="issue"
-            titleOverride="Welcome to Error Tracking"
-            description="Error tracking is in beta for our JS, Node and Python SDKs."
-            isEmpty={true}
-            docsURL="https://posthog.com/docs/error-tracking"
-            productKey={ProductKey.ERROR_TRACKING}
-            actionElementOverride={
-                <LemonButton
-                    type="primary"
-                    onClick={() => posthog.updateEarlyAccessFeatureEnrollment('error-tracking', true)}
-                >
-                    Get started
-                </LemonButton>
             }
         />
     )
