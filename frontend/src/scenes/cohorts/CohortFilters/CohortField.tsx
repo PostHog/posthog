@@ -18,6 +18,7 @@ import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import {
     CohortEventFiltersFieldProps,
     CohortFieldBaseProps,
+    CohortGroupPropertiesValuesFieldProps,
     CohortNumberFieldProps,
     CohortPersonPropertiesValuesFieldProps,
     CohortRelativeAndExactTimeFieldProps,
@@ -169,6 +170,37 @@ export function CohortPersonPropertiesValuesField({
             operator={operator || PropertyOperator.Exact}
             propertyKey={propertyKey as string}
             type={PropertyFilterType.Person}
+            value={value as PropertyFilterValue}
+            onSet={(newValue: PropertyOperator) => {
+                onChange({ [fieldKey]: newValue })
+            }}
+            placeholder="Enter value..."
+        />
+    )
+}
+
+export function CohortGroupPropertiesValuesField({
+    fieldKey,
+    criteria,
+    cohortFilterLogicKey,
+    onChange: _onChange,
+    propertyKey,
+    operator,
+}: CohortGroupPropertiesValuesFieldProps): JSX.Element {
+    const { logic } = useCohortFieldLogic({
+        fieldKey,
+        criteria,
+        cohortFilterLogicKey,
+        onChange: _onChange,
+    })
+    const { value } = useValues(logic)
+    const { onChange } = useActions(logic)
+
+    return (
+        <PropertyValue
+            operator={operator || PropertyOperator.Exact}
+            propertyKey={propertyKey as string}
+            type={PropertyFilterType.Group}
             value={value as PropertyFilterValue}
             onSet={(newValue: PropertyOperator) => {
                 onChange({ [fieldKey]: newValue })

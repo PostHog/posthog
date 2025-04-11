@@ -6,6 +6,7 @@ import {
     BehavioralCohortType,
     BehavioralEventType,
     BehavioralLifecycleType,
+    GroupType,
     PropertyFilterValue,
     PropertyOperator,
 } from '~/types'
@@ -25,6 +26,8 @@ export enum FilterType {
     EventFilters = 'eventFilters',
     PersonProperties = 'personProperties',
     PersonPropertyValues = 'personPropertyValues',
+    GroupProperties = 'groupProperties',
+    GroupPropertyValues = 'groupPropertyValues',
     EventType = 'eventType',
     Number = 'number',
     NumberTicker = 'numberTicker',
@@ -38,6 +41,7 @@ export enum FieldOptionsType {
     Actors = 'actors',
     EventBehavioral = 'eventBehavioral',
     PersonPropertyBehavioral = 'personPropertyBehavioral',
+    GroupPropertyBehavioral = 'groupPropertyBehavioral',
     CohortBehavioral = 'cohortBehavioral',
     LifecycleBehavioral = 'lifecycleBehavioral',
     TimeUnits = 'timeUnits',
@@ -64,6 +68,7 @@ export enum BehavioralFilterKey {
     Behavioral = 'behavioral',
     Cohort = 'cohort',
     Person = 'person',
+    Group = 'group',
 }
 
 export interface Field {
@@ -110,6 +115,14 @@ export interface CohortPersonPropertiesValuesFieldProps extends Omit<CohortField
     operator?: PropertyOperator
 }
 
+export interface CohortGroupPropertiesValuesFieldProps extends Omit<CohortFieldBaseProps, 'fieldOptionGroupTypes'> {
+    fieldOptionGroupTypes: never
+    groupTypes: Map<number, GroupType>
+    groupTypeIndex: number
+    propertyKey: PropertyFilterValue | undefined
+    operator?: PropertyOperator
+}
+
 export interface CohortEventFiltersFieldProps extends Omit<CohortFieldBaseProps, 'fieldOptionGroupTypes'> {
     fieldOptionGroupTypes: never
 }
@@ -132,6 +145,7 @@ export type CohortFieldProps =
     | CohortTaxonomicFieldProps
     | CohortTextFieldProps
     | CohortPersonPropertiesValuesFieldProps
+    | CohortGroupPropertiesValuesFieldProps
     | CohortEventFiltersFieldProps
     | CohortRelativeAndExactTimeFieldProps
 
@@ -144,6 +158,8 @@ export enum CohortClientErrors {
     EmptyEventFilters = 'Event filters cannot be empty.',
     EmptyPersonProperties = 'Person property name cannot be empty.',
     EmptyPersonPropertyValues = 'Person property value cannot be empty',
+    EmptyGroupProperties = 'Group property name cannot be empty.',
+    EmptyGroupPropertyValues = 'Group property value cannot be empty',
     EmptyEventType = 'Event type cannot be empty.',
     EmptyNumber = 'Period values must be at least 1 day and cannot be empty.',
     EmptyNumberTicker = 'Number cannot be empty.',

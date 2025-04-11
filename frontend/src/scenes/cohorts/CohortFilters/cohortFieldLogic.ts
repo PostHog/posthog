@@ -9,7 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { ActorGroupType, AnyCohortCriteriaType, AvailableFeature } from '~/types'
+import { ActorGroupType, AnyCohortCriteriaType, AvailableFeature, BehavioralEventType } from '~/types'
 
 import type { cohortFieldLogicType } from './cohortFieldLogicType'
 
@@ -63,8 +63,27 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
                     ? { ...FIELD_VALUES, ...SCALE_FIELD_VALUES }
                     : FIELD_VALUES
 
+                const groupPropertyFields = Object.fromEntries(
+                    Array.from(groupTypes.values()).map((type) => [
+                        `${FieldOptionsType.GroupPropertyBehavioral}_${type.group_type_index}`,
+                        {
+                            label: `${aggregationLabel(type.group_type_index).singular} Properties`,
+                            type: `${FieldOptionsType.GroupPropertyBehavioral}_${type.group_type_index}`,
+                            values: {
+                                [BehavioralEventType.HaveGroupProperty + `_${type.group_type_index}`]: {
+                                    label: 'Have the property',
+                                },
+                                [BehavioralEventType.NotHaveGroupProperty + `_${type.group_type_index}`]: {
+                                    label: 'Do not have the property',
+                                },
+                            },
+                        },
+                    ])
+                )
+
                 const allGroups = {
                     ...fieldOptions,
+                    ...groupPropertyFields,
                     [FieldOptionsType.Actors]: {
                         label: 'Actors',
                         type: FieldOptionsType.Actors,

@@ -3,7 +3,7 @@ import './CohortCriteriaRowBuilder.scss'
 import { IconCopy, IconTrash } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Field as KeaField } from 'kea-forms'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -12,6 +12,7 @@ import { renderField, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
 import { cleanCriteria } from 'scenes/cohorts/cohortUtils'
 
+import { groupsModel } from '~/models/groupsModel'
 import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
 
 export interface CohortCriteriaRowBuilderProps {
@@ -36,6 +37,7 @@ export function CohortCriteriaRowBuilder({
     onChangeType,
 }: CohortCriteriaRowBuilderProps): JSX.Element {
     const { setCriteria, duplicateFilter, removeFilter } = useActions(cohortEditLogic({ id }))
+    const { groupTypes } = useValues(groupsModel)
     const rowShape = ROWS[type]
 
     const renderFieldComponent = (_field: Field, i: number): JSX.Element => {
@@ -107,6 +109,7 @@ export function CohortCriteriaRowBuilder({
                                             setCriteria(cleanCriteria(newCriteria, true), groupIndex, index)
                                             onChangeType?.(newCriteria['value'] ?? BehavioralEventType.PerformEvent)
                                         },
+                                        groupTypes,
                                     })}
                                 </div>
                             </>
