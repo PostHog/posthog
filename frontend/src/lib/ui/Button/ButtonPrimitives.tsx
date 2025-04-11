@@ -67,12 +67,10 @@ export const ButtonGroupPrimitive = forwardRef<HTMLDivElement, ButtonGroupProps>
         sizeContext: size,
     }
 
-    let buttonHeight = ''
+    let buttonHeight = 'button-primitive-height-base'
     switch (size) {
         case 'sm':
             buttonHeight = 'button-primitive-height-sm'
-            break
-        case 'base':
             break
         case 'lg':
             buttonHeight = 'button-primitive-height-lg'
