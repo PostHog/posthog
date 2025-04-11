@@ -170,7 +170,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                         issueLogic.actions.setIssue(record)
                     }}
                 >
-                    <div className="flex items-center h-[1.2rem] gap-1">
+                    <div className="flex items-center h-[1.2rem] gap-2">
                         <RuntimeIcon runtime={runtime} fontSize="0.8rem" />
                         <span className="font-semibold text-[1.2em]">{record.name || 'Unknown Type'}</span>
                     </div>
