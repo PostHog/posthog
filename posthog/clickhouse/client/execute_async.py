@@ -18,7 +18,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.renderers import SafeJSONRenderer
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 from posthog.tasks.tasks import process_query_task
-from posthog.exceptions import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team

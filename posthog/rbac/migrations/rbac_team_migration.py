@@ -3,7 +3,7 @@ from ee.models.rbac.access_control import AccessControl
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 import structlog
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.exceptions import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 

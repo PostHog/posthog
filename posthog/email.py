@@ -17,7 +17,7 @@ import requests
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
 from posthog.tasks.utils import CeleryQueue
-from posthog.exceptions import capture_exception
+from posthog.exceptions_capture import capture_exception
 
 
 def inline_css(value: str) -> str:
