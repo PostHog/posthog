@@ -182,7 +182,13 @@ class PathsV2QueryRunner(QueryRunner):
 
             query.select.append(ast.Alias(alias="series_entities_flags", expr=ast.Tuple(exprs=series_entities_flags)))
         else:
-            query.select.append(ast.Alias(alias="series_entities_flags", expr=ast.Call(name="array", args=[])))
+            # query.select.append(ast.Alias(alias="series_entities_flags", expr=ast.Call(name="array", args=[])))
+            query.select.append(
+                ast.Alias(
+                    alias="series_entities_flags",
+                    expr=ast.Tuple(exprs=[ast.Constant(value=None), ast.Constant(value=None)]),
+                )
+            )
 
         return query
 
@@ -239,8 +245,12 @@ class PathsV2QueryRunner(QueryRunner):
         │ 631e1988-3971-79a2-02ae-b09da769be2e │             1 │ [('2023-03-11 11:30:00.000000','Landing Page',NULL),('2023-03-11 11:32:00.000000','Search','2023-03-11 11:30:00.000000'),('2023-03-11 11:35:00.000000','Product View','2023-03-11 11:32:00.000000'),('2023-03-11 11:38:00.000000','Add to Cart','2023-03-11 11:35:00.000000'),('2023-03-11 11:42:00.000000','Checkout','2023-03-11 11:38:00.000000'),('2023-03-11 11:45:00.000000','Purchase','2023-03-11 11:42:00.000000')] │ [[('2023-03-11 11:30:00.000000','Landing Page',NULL),('2023-03-11 11:32:00.000000','Search','2023-03-11 11:30:00.000000'),('2023-03-11 11:35:00.000000','Product View','2023-03-11 11:32:00.000000'),('2023-03-11 11:38:00.000000','Add to Cart','2023-03-11 11:35:00.000000'),('2023-03-11 11:42:00.000000','Checkout','2023-03-11 11:38:00.000000'),('2023-03-11 11:45:00.000000','Purchase','2023-03-11 11:42:00.000000')]] │ [('2023-03-11 11:30:00.000000','Landing Page',NULL),('2023-03-11 11:32:00.000000','Search','2023-03-11 11:30:00.000000'),('2023-03-11 11:35:00.000000','Product View','2023-03-11 11:32:00.000000'),('2023-03-11 11:38:00.000000','Add to Cart','2023-03-11 11:35:00.000000')] │
         └──────────────────────────────────────┴───────────────┴────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
         """
+
+        has_start_point = self.query.series is not None and len(self.query.series) > 0
+        has_end_point = self.query.series is not None and len(self.query.series) == 2
+
         return parse_select(
-            """
+            f"""
             SELECT actor_id,
                 session_index,
 
@@ -257,10 +267,10 @@ class PathsV2QueryRunner(QueryRunner):
 
                 /* Splits the tuple array if the difference between the current and the
                 previous timestamp is greater than the session window. */
-                arraySplit(x->if(x.1 < x.3 + {session_interval}, 0, 1), paths_array) as paths_array_session_split,
+                arraySplit(x->if(x.1 < x.3 + {{session_interval}}, 0, 1), paths_array) as paths_array_session_split,
 
                 /* Remove the previous timestamp column from the array. */
-                arrayMap((x) -> (x.1, x.2), paths_array_per_session_joined) as paths_array_per_session,
+                arrayMap((x) -> (x.1, x.2, x.4), paths_array_per_session_joined) as paths_array_per_session,
 
                 /* Filters out the steps that are the same as the previous step. */
                 arrayFilter(
@@ -269,12 +279,15 @@ class PathsV2QueryRunner(QueryRunner):
                     arrayEnumerate(paths_array_per_session)
                 ) as filtered_paths_array_per_session,
 
+                {"arrayFirstIndex(x -> x.3.1 = 1, {{collapsed_path_array_alias}}) AS xx," if has_start_point else "1 AS xx,"}
+                arraySlice({{collapsed_path_array_alias}}, xx) as yy,
+
                 /* Adds dropoffs. */
-                arrayPushBack({collapsed_path_array_alias}, (now(), {POSTHOG_DROPOFF})) as paths_array_per_session_with_dropoffs,
+                arrayPushBack(yy, (now(), {{POSTHOG_DROPOFF}}, tuple(null, null))) as paths_array_per_session_with_dropoffs,
 
                 /* Returns the first n events per session. */
-                arraySlice(paths_array_per_session_with_dropoffs, 1, {max_steps}) as limited_paths_array_per_session
-            FROM {paths_per_actor_as_array_query}
+                arraySlice(paths_array_per_session_with_dropoffs, 1, {{max_steps}}) as limited_paths_array_per_session
+            FROM {{paths_per_actor_as_array_query}}
             ARRAY JOIN paths_array_session_split AS paths_array_per_session_joined,
                 arrayEnumerate(paths_array_session_split) AS session_index
         """,

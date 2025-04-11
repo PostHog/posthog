@@ -671,3 +671,84 @@ class TestPathsV2PathsPerActorAndSessionAsTupleQuery(SharedSetup):
             response = execute_hogql_query(query=paths_per_actor_and_session_as_tuple_query, team=self.team)
             rows = rows_as_dicts(response)
         self.assertEqual(len(rows[0]["limited_paths_array_per_session"]), 2)
+
+    def test_start_and_end_event(self):
+        _ = journeys_for(
+            team=self.team,
+            events_by_person={
+                "person": [
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2023-03-12 12:00:00",
+                        "properties": {"$current_url": "https://example.com/somepage"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2023-03-12 12:01:00",
+                        "properties": {"$current_url": "https://example.com"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2023-03-12 12:02:00",
+                        "properties": {"$current_url": "https://example.com/about"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2023-03-12 12:03:00",
+                        "properties": {"$current_url": "https://example.com/cart"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2023-03-12 12:04:00",
+                        "properties": {"$current_url": "https://example.com/purchase"},
+                    },
+                    {
+                        "event": "$pageview",
+                        "timestamp": "2023-03-12 12:05:00",
+                        "properties": {"$current_url": "https://example.com/anotherpage"},
+                    },
+                ],
+            },
+        )
+
+        query = PathsV2Query(
+            series=[
+                EventsNode(
+                    kind="EventsNode",
+                    event="$pageview",
+                    name="Viewed Homepage",
+                    properties=[
+                        EventPropertyFilter(
+                            key="$current_url",
+                            value=["https://example.com"],
+                            operator=PropertyOperator.EXACT,
+                            type="event",
+                        )
+                    ],
+                ),
+                EventsNode(
+                    kind="EventsNode",
+                    event="$pageview",
+                    name="Viewed Purchase Page",
+                    properties=[
+                        EventPropertyFilter(
+                            key="$current_url",
+                            value=["https://example.com/purchase"],
+                            operator=PropertyOperator.EXACT,
+                            type="event",
+                        )
+                    ],
+                ),
+            ],
+            pathsV2Filter=PathsV2Filter(
+                collapseEvents=False
+            ),  # TODO: this is necessary so that $pageview events are not collapsed; need to think about how to handle path start and end events
+        )
+
+        with freeze_time("2023-03-13T12:00:00Z"):
+            query_runner = self._get_query_runner(query=query)
+            paths_per_actor_and_session_as_tuple_query = query_runner._paths_per_actor_and_session_as_tuple_query()
+            response = execute_hogql_query(query=paths_per_actor_and_session_as_tuple_query, team=self.team)
+            rows = rows_as_dicts(response)
+
+        self.assertEqual(len(rows), 1)
