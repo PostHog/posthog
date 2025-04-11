@@ -31,6 +31,7 @@ from rest_framework.exceptions import Throttled
 
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 
+import posthog.session_recordings.queries.sub_queries.events_subquery
 from ..models.product_intent.product_intent import ProductIntent
 import posthog.session_recordings.queries.session_recording_list_from_query
 from ee.session_recordings.session_summary.summarize_session import summarize_recording
@@ -453,7 +454,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         distinct_id = str(cast(User, request.user).distinct_id)
         modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
         results, _, timings = (
-            posthog.session_recordings.queries.session_recording_list_from_query.ReplayFiltersEventsSubQuery(
+            posthog.session_recordings.queries.sub_queries.events_subquery.ReplayFiltersEventsSubQuery(
                 query=query, team=self.team, hogql_query_modifiers=modifiers
             ).get_event_ids_for_session()
         )
