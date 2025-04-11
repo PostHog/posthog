@@ -8,6 +8,7 @@ from json import JSONDecodeError
 from typing import Any, Optional, cast, Literal
 
 import structlog
+from clickhouse_driver.errors import ServerException
 from posthoganalytics.ai.openai import OpenAI
 from urllib.parse import urlparse
 
@@ -26,7 +27,11 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 from rest_framework.request import Request
+from rest_framework.exceptions import Throttled
 
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+
+import posthog.session_recordings.queries.sub_queries.events_subquery
 from ..models.product_intent.product_intent import ProductIntent
 import posthog.session_recordings.queries.session_recording_list_from_query
 from ee.session_recordings.session_summary.summarize_session import summarize_recording
@@ -394,13 +399,30 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         return recording
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        query = filter_from_params_to_query(request.GET.dict())
+        user_distinct_id = cast(User, request.user).distinct_id
 
-        self._maybe_report_recording_list_filters_changed(request, team=self.team)
-        return list_recordings_response(
-            list_recordings_from_query(query, cast(User, request.user), team=self.team),
-            context=self.get_serializer_context(),
-        )
+        try:
+            query = filter_from_params_to_query(request.GET.dict())
+
+            self._maybe_report_recording_list_filters_changed(request, team=self.team)
+            return list_recordings_response(
+                list_recordings_from_query(query, cast(User, request.user), team=self.team),
+                context=self.get_serializer_context(),
+            )
+
+        except CHQueryErrorTooManySimultaneousQueries:
+            raise Throttled(detail="Too many simultaneous queries. Try again later.")
+        except (ServerException, Exception) as e:
+            if isinstance(e, exceptions.ValidationError):
+                raise
+
+            if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
+                raise Throttled(detail="Query timeout exceeded. Try again later.")
+
+            posthoganalytics.capture_exception(
+                e, distinct_id=user_distinct_id, properties={"replay_feature": "listing_recordings"}
+            )
+            return Response({"error": "An internal error has occurred. Please try again later."}, status=500)
 
     @extend_schema(
         exclude=True,
@@ -432,7 +454,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         distinct_id = str(cast(User, request.user).distinct_id)
         modifiers = safely_read_modifiers_overrides(distinct_id, self.team)
         results, _, timings = (
-            posthog.session_recordings.queries.session_recording_list_from_query.ReplayFiltersEventsSubQuery(
+            posthog.session_recordings.queries.sub_queries.events_subquery.ReplayFiltersEventsSubQuery(
                 query=query, team=self.team, hogql_query_modifiers=modifiers
             ).get_event_ids_for_session()
         )
