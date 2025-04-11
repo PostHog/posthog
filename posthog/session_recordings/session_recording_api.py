@@ -409,11 +409,12 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 context=self.get_serializer_context(),
             )
 
-        except ValidationError:
-            raise
         except CHQueryErrorTooManySimultaneousQueries:
             raise Throttled(detail="Too many simultaneous queries. Try again later.")
         except (ServerException, Exception) as e:
+            if isinstance(e, exceptions.ValidationError):
+                raise
+
             if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
                 raise Throttled(detail="Query timeout exceeded. Try again later.")
 
