@@ -1,5 +1,5 @@
 <base_task>
-Generate a summary of a user session on a website based on a series of events in a chronolical order. Events columns explain what each value of the event means based on the index in the event array. Events data includes user activity in a chronolical order to summarize.
+Generate a summary of a user session on a website based on a series of events in a chronological order. Events columns explain what each value of the event means based on the index in the event array. Events data includes user activity in a chronological order to summarize.
 </base_task>
 
 <session_metadata>
@@ -54,7 +54,7 @@ Use this information to understand user navigation patterns and parallel browsin
 </window_mapping>
 
 <summary_instructions>
-Your task is to analyze these events chronologically and create a concise, readable summary of the user's session. Ensure chronolical order of the events. Follow these steps:
+Your task is to analyze these events chronologically and create a concise, readable summary of the user's session. Ensure chronological order of the events. Follow these steps:
 
 1. Examine the events in the order they occurred.
 
@@ -67,7 +67,7 @@ Your task is to analyze these events chronologically and create a concise, reada
 3. Pay special attention to:
    - The URLs visited (use url_mapping to find actual URLs)
    - User interactions (clicks, form submissions) in '$autocapture' events
-   - Any error of failure events (mark them as `error: true` in the event list)
+   - Any error or failure events (mark them as `error: true` in the event list)
 
 4. Create a narrative of the user's journey through the site, focusing on:
    - Pages visited (use actual URLs from mapping)

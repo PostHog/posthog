@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 from django.template import Engine, Context
 
 
-def load_sesssion_recording_events_from_csv(file_path: str) -> tuple[list[str], list[list[str | datetime]]]:
+def load_session_recording_events_from_csv(file_path: str) -> tuple[list[str], list[list[str | datetime]]]:
     headers = []
     rows: list[list[str | datetime]] = []
     with open(file_path) as f:

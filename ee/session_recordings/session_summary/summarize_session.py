@@ -130,7 +130,7 @@ class ReplaySummarizer:
         # TODO: Calculate tag/error stats for the session manually
         # to use it later for grouping/suggesting (and showing overall stats)
 
-        # TODO Make the output streamable (the main reason behing using YAML
+        # TODO Make the output streamable (the main reason behind using YAML
         # to keep it partially parsable to avoid waiting for the LLM to finish)
 
         return {"content": session_summary.data, "timings": timer.get_all_timings()}

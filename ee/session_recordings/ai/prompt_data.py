@@ -139,6 +139,6 @@ class SessionSummaryPromptData:
             return str(val)
 
         # Join with a null byte as delimiter since it won't appear in normal strings,
-        # so we can the same string using the same combination of values only.
+        # so we can get the same string using the same combination of values only.
         event_string = "\0".join(format_value(x) for x in event)
         return hashlib.sha256(event_string.encode()).hexdigest()[:length]
