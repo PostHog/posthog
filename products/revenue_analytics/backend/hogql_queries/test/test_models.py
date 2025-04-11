@@ -64,3 +64,39 @@ class TestRevenueAnalyticsModels(BaseTest):
 
         view = RevenueAnalyticsRevenueView.for_schema_source(self.source)
         self.assertIsNone(view)
+
+    def test_revenue_view_prefix(self):
+        """Test that RevenueAnalyticsRevenueView handles prefix correctly"""
+        self.source.prefix = "prefix"
+        self.source.save()
+
+        view = RevenueAnalyticsRevenueView.for_schema_source(self.source)
+        self.assertIsNotNone(view)
+        self.assertEqual(view.name, "stripe.prefix.revenue_view")
+
+    def test_revenue_view_no_prefix(self):
+        """Test that RevenueAnalyticsRevenueView handles no prefix correctly"""
+        self.source.prefix = None
+        self.source.save()
+
+        view = RevenueAnalyticsRevenueView.for_schema_source(self.source)
+        self.assertIsNotNone(view)
+        self.assertEqual(view.name, "stripe.revenue_view")
+
+    def test_revenue_view_prefix_with_underscores(self):
+        """Test that RevenueAnalyticsRevenueView handles prefix with underscores correctly"""
+        self.source.prefix = "prefix_with_underscores_"
+        self.source.save()
+
+        view = RevenueAnalyticsRevenueView.for_schema_source(self.source)
+        self.assertIsNotNone(view)
+        self.assertEqual(view.name, "stripe.prefix_with_underscores.revenue_view")
+
+    def test_revenue_view_prefix_with_empty_string(self):
+        """Test that RevenueAnalyticsRevenueView handles prefix with underscores and periods correctly"""
+        self.source.prefix = ""
+        self.source.save()
+
+        view = RevenueAnalyticsRevenueView.for_schema_source(self.source)
+        self.assertIsNotNone(view)
+        self.assertEqual(view.name, "stripe.revenue_view")

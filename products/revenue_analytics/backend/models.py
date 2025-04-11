@@ -194,7 +194,7 @@ class RevenueAnalyticsRevenueView(SavedQuery):
             ),
         )
 
-        if source.prefix is None:
+        if not source.prefix:
             name = f"stripe.revenue_view"
         else:
             prefix = source.prefix.strip("_")
