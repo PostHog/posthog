@@ -279,11 +279,13 @@ class PathsV2QueryRunner(QueryRunner):
                     arrayEnumerate(paths_array_per_session)
                 ) as filtered_paths_array_per_session,
 
-                {"arrayFirstIndex(x -> x.3.1 = 1, {{collapsed_path_array_alias}}) AS xx," if has_start_point else "1 AS xx,"}
-                arraySlice({{collapsed_path_array_alias}}, xx) as yy,
+                /* Remove steps before the start point and after the end point. */
+                {"arrayFirstIndex(x -> x.3.1 = 1, {collapsed_path_array_alias}) AS start_index," if has_start_point else "1 AS start_index,"}
+                {"arrayLastIndex(x -> x.3.2 = 1, {collapsed_path_array_alias}) - 1 AS end_index," if has_end_point else "null AS end_index,"}
+                arraySlice({{collapsed_path_array_alias}}, start_index, end_index) as paths_array_filtered_by_endpoints,
 
                 /* Adds dropoffs. */
-                arrayPushBack(yy, (now(), {{POSTHOG_DROPOFF}}, tuple(null, null))) as paths_array_per_session_with_dropoffs,
+                arrayPushBack(paths_array_filtered_by_endpoints, (now(), {{POSTHOG_DROPOFF}}, tuple(null, null))) as paths_array_per_session_with_dropoffs,
 
                 /* Returns the first n events per session. */
                 arraySlice(paths_array_per_session_with_dropoffs, 1, {{max_steps}}) as limited_paths_array_per_session

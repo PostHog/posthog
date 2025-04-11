@@ -678,34 +678,28 @@ class TestPathsV2PathsPerActorAndSessionAsTupleQuery(SharedSetup):
             events_by_person={
                 "person": [
                     {
-                        "event": "$pageview",
+                        "event": "some_action",
                         "timestamp": "2023-03-12 12:00:00",
-                        "properties": {"$current_url": "https://example.com/somepage"},
                     },
                     {
-                        "event": "$pageview",
+                        "event": "view_homepage",
                         "timestamp": "2023-03-12 12:01:00",
-                        "properties": {"$current_url": "https://example.com"},
                     },
                     {
-                        "event": "$pageview",
+                        "event": "view_about",
                         "timestamp": "2023-03-12 12:02:00",
-                        "properties": {"$current_url": "https://example.com/about"},
                     },
                     {
-                        "event": "$pageview",
+                        "event": "view_cart",
                         "timestamp": "2023-03-12 12:03:00",
-                        "properties": {"$current_url": "https://example.com/cart"},
                     },
                     {
-                        "event": "$pageview",
+                        "event": "view_purchase",
                         "timestamp": "2023-03-12 12:04:00",
-                        "properties": {"$current_url": "https://example.com/purchase"},
                     },
                     {
-                        "event": "$pageview",
+                        "event": "another_action",
                         "timestamp": "2023-03-12 12:05:00",
-                        "properties": {"$current_url": "https://example.com/anotherpage"},
                     },
                 ],
             },
@@ -715,29 +709,13 @@ class TestPathsV2PathsPerActorAndSessionAsTupleQuery(SharedSetup):
             series=[
                 EventsNode(
                     kind="EventsNode",
-                    event="$pageview",
+                    event="view_homepage",
                     name="Viewed Homepage",
-                    properties=[
-                        EventPropertyFilter(
-                            key="$current_url",
-                            value=["https://example.com"],
-                            operator=PropertyOperator.EXACT,
-                            type="event",
-                        )
-                    ],
                 ),
                 EventsNode(
                     kind="EventsNode",
-                    event="$pageview",
+                    event="view_purchase",
                     name="Viewed Purchase Page",
-                    properties=[
-                        EventPropertyFilter(
-                            key="$current_url",
-                            value=["https://example.com/purchase"],
-                            operator=PropertyOperator.EXACT,
-                            type="event",
-                        )
-                    ],
                 ),
             ],
             pathsV2Filter=PathsV2Filter(
