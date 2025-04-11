@@ -327,8 +327,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
         editInsight: ({ query, insight }) => {
             const maybeExistingTab = values.allTabs.find((tab) => tab.insight?.short_id === insight.short_id)
+
             if (maybeExistingTab) {
-                actions.selectTab(maybeExistingTab)
+                const updatedTab = { ...maybeExistingTab, insight }
+                actions.updateTab(updatedTab)
+                actions.selectTab(updatedTab)
             } else {
                 actions.createTab(query, undefined, insight)
             }
@@ -484,29 +487,31 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
         },
         _deleteTab: ({ tab: tabToRemove }) => {
-            if (props.monaco) {
-                const model = props.monaco.editor.getModel(tabToRemove.uri)
-                if (tabToRemove.uri.toString() === values.activeModelUri?.uri.toString()) {
-                    const indexOfModel = values.allTabs.findIndex(
-                        (tab) => tab.uri.toString() === tabToRemove.uri.toString()
-                    )
-                    const nextModel =
-                        values.allTabs[indexOfModel + 1] || values.allTabs[indexOfModel - 1] || values.allTabs[0] // there will always be one
-                    actions.selectTab(nextModel)
-                }
-                model?.dispose()
-                actions.removeTab(tabToRemove)
-                const queries = values.allTabs.map((tab) => {
-                    return {
-                        query: props.monaco?.editor.getModel(tab.uri)?.getValue() || '',
-                        path: tab.uri.path.split('/').pop(),
-                        view: tab.view,
-                        insight: tab.insight,
-                        response: tab.response,
-                    }
-                })
-                actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
+            if (!props.monaco) {
+                return
             }
+
+            const model = props.monaco.editor.getModel(tabToRemove.uri)
+            if (tabToRemove.uri.toString() === values.activeModelUri?.uri.toString()) {
+                const indexOfModel = values.allTabs.findIndex(
+                    (tab) => tab.uri.toString() === tabToRemove.uri.toString()
+                )
+                const nextModel =
+                    values.allTabs[indexOfModel + 1] || values.allTabs[indexOfModel - 1] || values.allTabs[0] // there will always be one
+                actions.selectTab(nextModel)
+            }
+            model?.dispose()
+            actions.removeTab(tabToRemove)
+            const queries = values.allTabs.map((tab) => {
+                return {
+                    query: props.monaco?.editor.getModel(tab.uri)?.getValue() || '',
+                    path: tab.uri.path.split('/').pop(),
+                    view: tab.view,
+                    insight: tab.insight,
+                    response: tab.response,
+                }
+            })
+            actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
         },
         setLocalState: ({ key, value }) => {
             localStorage.setItem(key, value)
@@ -749,6 +754,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             lemonToast.info(`You're now viewing ${insight.name || insight.derived_name || name}`)
 
+            if (values.activeModelUri) {
+                actions._deleteTab(values.activeModelUri)
+            }
+
             router.actions.push(urls.insightView(insight.short_id))
         },
         updateInsight: async () => {
@@ -774,7 +783,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
 
             lemonToast.info(`You're now viewing ${savedInsight.name || savedInsight.derived_name || name}`)
-            router.actions.push(urls.insightView(savedInsight.short_id, undefined, undefined))
+
+            if (values.activeModelUri) {
+                actions._deleteTab(values.activeModelUri)
+            }
+
+            router.actions.push(urls.insightView(savedInsight.short_id))
         },
         loadDataWarehouseSavedQueriesSuccess: ({ dataWarehouseSavedQueries }) => {
             // keep tab views up to date
@@ -1011,7 +1025,26 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     }
 
                     actions.editInsight(query, insight)
-                    actions.runQuery()
+
+                    // Only run the query if the results aren't already cached locally
+                    if (insight.query?.kind === NodeKind.DataVisualizationNode && insight.query) {
+                        dataNodeLogic({
+                            key: values.dataLogicKey,
+                            query: (insight.query as DataVisualizationNode).source,
+                        }).mount()
+
+                        const response = dataNodeLogic({
+                            key: values.dataLogicKey,
+                            query: (insight.query as DataVisualizationNode).source,
+                        }).values.response
+
+                        if (!response) {
+                            actions.runQuery()
+                        }
+                    } else {
+                        actions.runQuery()
+                    }
+
                     tabAdded = true
                     router.actions.replace(router.values.location.pathname)
                 }
