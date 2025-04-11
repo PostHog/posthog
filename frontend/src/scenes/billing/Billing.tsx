@@ -197,12 +197,13 @@ export function Billing(): JSX.Element {
 
             {!showBillingSummary && <StripePortalButton />}
 
+            <LemonDivider className="mt-6 mb-8" />
+
             {featureFlags[FEATURE_FLAGS.BILLING_FORECASTING_ISSUES] && (
                 <div className="flex mt-6 gap-6 max-w-300 flex-col-reverse">
                     <LemonBanner type="warning">
-                        <strong>Note:</strong> Our forecasting engine is currently experiencing some issues. Projected
-                        amounts may appear higher than expected. We're working on a fix, so please don't panic if you
-                        see unusual estimates.
+                        <strong>Note:</strong> Our forecasting engine is experiencing an issue. The projected amounts
+                        may appear incorrect. We're working on a fix and it should be resolved soon.
                     </LemonBanner>
                 </div>
             )}
