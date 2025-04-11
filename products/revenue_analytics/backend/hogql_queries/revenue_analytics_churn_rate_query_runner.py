@@ -30,7 +30,6 @@ class RevenueAnalyticsChurnRateQueryRunner(RevenueAnalyticsQueryRunner):
         assert response.results
 
         return RevenueAnalyticsChurnRateQueryResponse(
-            columns=response.columns,
             results=response.results,
             modifiers=self.modifiers,
         )

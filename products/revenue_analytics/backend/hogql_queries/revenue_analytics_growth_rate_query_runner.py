@@ -30,7 +30,6 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
         assert response.results
 
         return RevenueAnalyticsGrowthRateQueryResponse(
-            columns=response.columns,
             results=response.results,
             modifiers=self.modifiers,
         )

@@ -635,7 +635,12 @@ class SerializedField:
     chain: Optional[list[str | int]] = None
 
 
-DatabaseSchemaTable: TypeAlias = DatabaseSchemaPostHogTable | DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable
+DatabaseSchemaTable: TypeAlias = (
+    DatabaseSchemaPostHogTable
+    | DatabaseSchemaDataWarehouseTable
+    | DatabaseSchemaViewTable
+    | DatabaseSchemaManagedViewTable
+)
 
 
 def serialize_database(
@@ -687,11 +692,6 @@ def serialize_database(
         .all()
         if warehouse_table_names
         else []
-    )
-
-    # Fetch all views in a single query
-    all_views = (
-        DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team_id=context.team_id).all() if views else []
     )
 
     # Process warehouse tables
@@ -759,6 +759,11 @@ def serialize_database(
             schema=schema,
             source=source,
         )
+
+    # Fetch all views in a single query
+    all_views = (
+        DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team_id=context.team_id).all() if views else []
+    )
 
     # Process views using prefetched data
     views_dict = {view.name: view for view in all_views}

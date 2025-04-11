@@ -30,7 +30,6 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner):
         assert response.results
 
         return RevenueAnalyticsOverviewQueryResponse(
-            columns=response.columns,
             results=response.results,
             modifiers=self.modifiers,
         )
