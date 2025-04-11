@@ -68,7 +68,7 @@ export const urls = {
         }`,
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
-    errorTracking: (): string => '/error_tracking',
+    errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (): string => '/error_tracking/configuration',
     /** @param id A UUID or 'new'. ':id' for routing. */
     errorTrackingAlert: (id: string): string => `/error_tracking/alerts/${id}`,

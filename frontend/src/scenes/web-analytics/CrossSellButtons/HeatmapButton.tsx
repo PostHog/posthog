@@ -23,6 +23,7 @@ const VALID_BREAKDOWN_VALUES = new Set([
     WebStatsBreakdown.InitialPage,
     WebStatsBreakdown.ExitPage,
     WebStatsBreakdown.ExitClick,
+    WebStatsBreakdown.FrustrationMetrics,
 ])
 
 export const HeatmapButton = ({ breakdownBy, value }: HeatmapButtonProps): JSX.Element => {

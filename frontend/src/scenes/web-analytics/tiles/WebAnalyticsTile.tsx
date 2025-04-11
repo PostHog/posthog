@@ -47,6 +47,7 @@ import {
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
 
+import { ErrorTrackingButton } from '../CrossSellButtons/ErrorTrackingButton'
 import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
 import { ReplayButton } from '../CrossSellButtons/ReplayButton'
 import { pageReportsLogic } from '../pageReportsLogic'
@@ -189,6 +190,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>Timezone</>
         case WebStatsBreakdown.Language:
             return <>Language</>
+        case WebStatsBreakdown.FrustrationMetrics:
+            return <>URL</>
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
             return <>Source / Medium / Campaign</>
         default:
@@ -207,7 +210,8 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
     switch (breakdownBy) {
         case WebStatsBreakdown.ExitPage:
         case WebStatsBreakdown.InitialPage:
-        case WebStatsBreakdown.Page: {
+        case WebStatsBreakdown.Page:
+        case WebStatsBreakdown.FrustrationMetrics: {
             if (typeof value !== 'string') {
                 return <>{value}</>
             }
@@ -381,6 +385,21 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             render: VariationCell({ isPercentage: true }),
             align: 'right',
         },
+        rage_clicks: {
+            renderTitle: SortableCell('Rage Clicks', WebAnalyticsOrderByFields.RageClicks),
+            render: VariationCell(),
+            align: 'right',
+        },
+        dead_clicks: {
+            renderTitle: SortableCell('Dead Clicks', WebAnalyticsOrderByFields.DeadClicks),
+            render: VariationCell(),
+            align: 'right',
+        },
+        errors: {
+            renderTitle: SortableCell('Errors', WebAnalyticsOrderByFields.Errors),
+            render: VariationCell(),
+            align: 'right',
+        },
         converting_users: {
             renderTitle: SortableCell('Converting Users', WebAnalyticsOrderByFields.ConvertingUsers),
             render: VariationCell(),
@@ -405,6 +424,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
                             value={value}
                         />
                         <HeatmapButton breakdownBy={breakdownBy} value={value} />
+                        <ErrorTrackingButton breakdownBy={breakdownBy} value={value} />
                     </div>
                 )
             },
@@ -570,6 +590,11 @@ const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): str
         case WebStatsBreakdown.City:
             if (Array.isArray(breakdownValue)) {
                 return breakdownValue[1]
+            }
+            break
+        case WebStatsBreakdown.FrustrationMetrics:
+            if (typeof breakdownValue === 'string') {
+                return breakdownValue
             }
             break
     }

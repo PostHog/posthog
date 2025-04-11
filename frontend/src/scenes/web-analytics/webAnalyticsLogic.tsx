@@ -88,6 +88,7 @@ export enum TileId {
     GOALS = 'GOALS',
     WEB_VITALS = 'WEB_VITALS',
     WEB_VITALS_PATH_BREAKDOWN = 'WEB_VITALS_PATH_BREAKDOWN',
+    FRUSTRATING_PAGES = 'FRUSTRATING_PAGES',
 
     // Page Report Tiles to avoid conflicts with web analytics
     PAGE_REPORTS_COMBINED_METRICS_CHART_SECTION = 'PR_COMBINED_METRICS_CHART_SECTION',
@@ -135,6 +136,7 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.GOALS]: 10,
     [TileId.WEB_VITALS]: 11,
     [TileId.WEB_VITALS_PATH_BREAKDOWN]: 12,
+    [TileId.FRUSTRATING_PAGES]: 13,
 
     // Page Report Sections
     [TileId.PAGE_REPORTS_COMBINED_METRICS_CHART_SECTION]: 1,
@@ -339,6 +341,8 @@ export const webStatsBreakdownToPropertyName = (
             return { key: '$timezone', type: PropertyFilterType.Event }
         case WebStatsBreakdown.Language:
             return { key: '$geoip_language', type: PropertyFilterType.Event }
+        case WebStatsBreakdown.FrustrationMetrics:
+            return { key: '$current_url', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
             return undefined
         default:
@@ -1922,6 +1926,70 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                   Errors are captured as <code>$exception</code> events which means that
                                                   you can create insights, filter recordings and trigger surveys based
                                                   on them exactly the same way you can for any other type of event.
+                                              </p>
+                                          </div>
+                                      </>
+                                  ),
+                              },
+                          }
+                        : null,
+                    !conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FRUSTRATING_PAGES_TILE]
+                        ? {
+                              kind: 'query',
+                              title: 'Frustrating Pages',
+                              tileId: TileId.FRUSTRATING_PAGES,
+                              layout: {
+                                  colSpanClassName: 'md:col-span-2',
+                              },
+                              query: {
+                                  full: true,
+                                  kind: NodeKind.DataTableNode,
+                                  source: {
+                                      kind: NodeKind.WebStatsTableQuery,
+                                      breakdownBy: WebStatsBreakdown.FrustrationMetrics,
+                                      dateRange,
+                                      filterTestAccounts,
+                                      properties: webAnalyticsFilters,
+                                      compareFilter,
+                                      limit: 10,
+                                      doPathCleaning: isPathCleaningEnabled,
+                                  },
+                                  embedded: true,
+                                  showActions: true,
+                                  hiddenColumns: ['views'],
+                              },
+                              insightProps: createInsightProps(TileId.FRUSTRATING_PAGES, 'table'),
+                              canOpenModal: true,
+                              canOpenInsight: false,
+                              docs: {
+                                  title: 'Frustrated Pages',
+                                  description: (
+                                      <>
+                                          <div>
+                                              <p>
+                                                  See which pages are causing frustration by monitoring rage clicks,
+                                                  dead clicks, and errors.
+                                              </p>
+                                              <p>
+                                                  <ul>
+                                                      <li>
+                                                          A dead click is a click that doesn't result in any action.
+                                                          E.g. an image that looks like a button.
+                                                      </li>
+                                                      <li>
+                                                          Rage clicks are clicks that are followed by a scroll, text
+                                                          selection change, or DOM mutation.
+                                                      </li>
+                                                      <li>
+                                                          Errors are JavaScript exceptions that occur when users
+                                                          interact with your site.
+                                                      </li>
+                                                  </ul>
+                                              </p>
+                                              <p>
+                                                  These are captured automatically and can help identify broken
+                                                  functionality, failed API calls, or other technical issues that
+                                                  frustrate users.
                                               </p>
                                           </div>
                                       </>
