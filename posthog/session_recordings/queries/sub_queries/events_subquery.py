@@ -14,17 +14,17 @@ from posthog.schema import (
     PropertyGroupFilterValue,
     FilterLogicalOperator,
 )
-from posthog.session_recordings.queries.session_recording_list_from_query import (
-    _entity_to_expr,
-    poe_is_active,
-    SessionRecordingQueryResult,
-    NEGATIVE_OPERATORS,
+from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
+from posthog.session_recordings.queries.utils import (
     INVERSE_OPERATOR_FOR,
+    NEGATIVE_OPERATORS,
+    SessionRecordingQueryResult,
+    _entity_to_expr,
     is_event_property,
     is_group_property,
     is_person_property,
+    poe_is_active,
 )
-from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 
 
 class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
