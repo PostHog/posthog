@@ -141,3 +141,9 @@ class AssistantNodeName(StrEnum):
     INKEEP_DOCS = "inkeep_docs"
     SESSION_RECORDINGS_FILTERS = "session_recordings_filters"
     INSIGHT_RAG_CONTEXT = "insight_rag_context"
+    PRODUCT_ANALYTICS_SUBGRAPH = "product_analytics_subgraph"
+
+
+class AssistantMode(StrEnum):
+    ASSISTANT = "assistant"
+    INSIGHTS_TOOL = "insights_tool"

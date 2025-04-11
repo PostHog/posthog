@@ -14,9 +14,9 @@ from rest_framework.request import Request
 from django.http import StreamingHttpResponse
 from rest_framework.response import Response
 from posthog.rate_limit import EditorProxyBurstRateThrottle, EditorProxySustainedRateThrottle
-from .providers.anthropic import AnthropicProvider, AnthropicConfig
-from .providers.codestral import CodestralProvider
-from .providers.inkeep import InkeepProvider
+from ..providers.anthropic import AnthropicProvider, AnthropicConfig
+from ..providers.codestral import CodestralProvider
+from ..providers.inkeep import InkeepProvider
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from collections.abc import Generator, Callable

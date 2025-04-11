@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from ee.hogai.assistant import Assistant
+from ee.hogai.utils.types import AssistantMode
 from ee.models.assistant import Conversation
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
@@ -81,6 +82,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             contextual_tools=serializer.validated_data.get("contextual_tools"),
             is_new_conversation=not conversation_id,
             trace_id=serializer.validated_data["trace_id"],
+            mode=AssistantMode.ASSISTANT,
         )
         return StreamingHttpResponse(assistant.stream(), content_type=ServerSentEventRenderer.media_type)
 

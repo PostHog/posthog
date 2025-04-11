@@ -422,7 +422,7 @@ class TestRootNodeTools(BaseTest):
             root_tool_insight_plan="Foobar",
             root_tool_insight_type="trends",
         )
-        self.assertEqual(node.router(state_2), "insights")
+        self.assertEqual(node.router(state_2), "product_analytics")
 
         # Test case 3: No tool call message or root tool call - should return "end"
         state_3 = AssistantState(messages=[AssistantMessage(content="Hello")])

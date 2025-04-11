@@ -284,9 +284,9 @@ class TaxonomyAgentPlannerToolsNode(AssistantNode, ABC):
         )
 
     def router(self, state: AssistantState):
-        # Human-in-the-loop. Get back to the root node.
+        # Human-in-the-loop. Get out of the product analytics subgraph.
         if not state.root_tool_call_id:
-            return "root"
+            return "end"
         # The plan has been found. Move to the generation.
         if state.plan:
             return "plan_found"

@@ -34,7 +34,7 @@ from posthog.schema import (
     FailureMessage,
 )
 
-RouteName = Literal["insights", "root", "end", "search_documentation", "session_recordings_filters"]
+RouteName = Literal["product_analytics", "root", "end", "search_documentation", "session_recordings_filters"]
 
 
 # Lower casing matters here. Do not change it.
@@ -329,7 +329,7 @@ class RootNodeTools(AssistantNode):
             return "root"
         if state.root_tool_call_id:
             if state.root_tool_insight_type:
-                return "insights"
+                return "product_analytics"
             # For all other tools, we route based on tool name
             return cast(RouteName, self._get_tool_call(state.messages, state.root_tool_call_id).name)
         return "end"
