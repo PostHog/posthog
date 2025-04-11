@@ -19,7 +19,7 @@ Let's get you developing the plugin server in no time:
 
 1. Make sure that the plugin server is configured correctly (see [Configuration](#Configuration)).
    The following settings need to be the same for the plugin server and the main server:
-   `DATABASE_URL`, `REDIS_URL`, `KAFKA_HOSTS`, `CLICKHOUSE_HOST`, `CLICKHOUSE_DATABASE`,
+   `DATABASE_URL`, `PERSONS_DATABASE_URL`, `REDIS_URL`, `KAFKA_HOSTS`, `CLICKHOUSE_HOST`, `CLICKHOUSE_DATABASE`,
    `CLICKHOUSE_USER`, and `CLICKHOUSE_PASSWORD`. Their default values should work just fine in local
    development though.
 
@@ -59,6 +59,7 @@ testing:
     APP_METRICS_FLUSH_FREQUENCY_MS=0 \
         CLICKHOUSE_DATABASE='default' \
         DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog \
+        PERSONS_DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog \
         PLUGINS_DEFAULT_LOG_LEVEL=0 \
         RELOAD_PLUGIN_JITTER_MAX_MS=0 \
         PLUGIN_SERVER_MODE=functional-tests \
@@ -68,6 +69,7 @@ testing:
     ```bash
     CLICKHOUSE_DATABASE='default' \
         DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog \
+        PERSONS_DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog \
         pnpm functional_tests --watch
     ```
 
@@ -107,6 +109,7 @@ There's a multitude of settings you can use to control the plugin server. Use th
 | Name                                   | Description                                                                                                                                                                                                    | Default value                         |
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
 | DATABASE_URL                           | Postgres database URL                                                                                                                                                                                          | `'postgres://localhost:5432/posthog'` |
+| PERSONS_DATABASE_URL                   | Postgres persons database URL                                                                                                                                                                                  | `'postgres://localhost:5432/posthog'` |
 | REDIS_URL                              | Redis store URL                                                                                                                                                                                                | `'redis://localhost'`                 |
 | BASE_DIR                               | base path for resolving local plugins                                                                                                                                                                          | `'.'`                                 |
 | WORKER_CONCURRENCY                     | number of concurrent worker threads                                                                                                                                                                            | `0` – all cores                       |

@@ -267,7 +267,7 @@ describe('DB', () => {
 
     async function fetchPersonByPersonId(teamId: number, personId: InternalPerson['id']): Promise<Person | undefined> {
         const selectResult = await db.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             `SELECT * FROM posthog_person WHERE team_id = $1 AND id = $2`,
             [teamId, personId],
             'fetchPersonByPersonId'
@@ -284,7 +284,7 @@ describe('DB', () => {
         await db.addPersonlessDistinctId(team.id, 'addPersonlessDistinctId')
 
         const result = await db.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            PostgresUse.PERSONS_WRITE,
             'SELECT id FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2',
             [team.id, 'addPersonlessDistinctId'],
             'addPersonlessDistinctId'
