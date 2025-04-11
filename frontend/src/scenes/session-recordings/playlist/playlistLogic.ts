@@ -7,6 +7,7 @@ export const playlistLogic = kea<playlistLogicType>([
     actions({
         setIsExpanded: (isExpanded: boolean) => ({ isExpanded }), // WIll be removed together with Mix (R.I.P. Mix)
         setIsFiltersExpanded: (isFiltersExpanded: boolean) => ({ isFiltersExpanded }),
+        setActiveFilterTab: (activeFilterTab: string) => ({ activeFilterTab }),
     }),
     reducers({
         isExpanded: [
@@ -16,9 +17,15 @@ export const playlistLogic = kea<playlistLogicType>([
             },
         ],
         isFiltersExpanded: [
-            true,
+            false,
             {
                 setIsFiltersExpanded: (_, { isFiltersExpanded }) => isFiltersExpanded,
+            },
+        ],
+        activeFilterTab: [
+            'filters',
+            {
+                setActiveFilterTab: (_, { activeFilterTab }) => activeFilterTab,
             },
         ],
     }),
