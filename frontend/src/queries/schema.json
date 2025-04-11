@@ -9155,7 +9155,8 @@
                     "default": "total"
                 },
                 "funnelToStep": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "To select the range of steps for trends & time to convert funnels, 0-indexed"
                 },
                 "funnelVizType": {
                     "$ref": "#/definitions/FunnelVizType",
