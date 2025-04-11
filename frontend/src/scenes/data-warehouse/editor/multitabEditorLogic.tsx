@@ -982,7 +982,26 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     }
 
                     actions.editInsight(query, insight)
-                    actions.runQuery()
+
+                    // Only run the query if the results aren't already cached locally
+                    if (insight.query?.kind === NodeKind.DataVisualizationNode && insight.query) {
+                        dataNodeLogic({
+                            key: values.dataLogicKey,
+                            query: (insight.query as DataVisualizationNode).source,
+                        }).mount()
+
+                        const response = dataNodeLogic({
+                            key: values.dataLogicKey,
+                            query: (insight.query as DataVisualizationNode).source,
+                        }).values.response
+
+                        if (!response) {
+                            actions.runQuery()
+                        }
+                    } else {
+                        actions.runQuery()
+                    }
+
                     tabAdded = true
                     router.actions.replace(router.values.location.pathname)
                 }
