@@ -178,7 +178,6 @@ function renderDataPoint(d: SparklineDatum): JSX.Element {
 function renderEventPoint(d: SparklineEvent<string>): JSX.Element {
     return (
         <div className="flex justify-start items-center h-full gap-1">
-            {/* <div className="text-lg font-bold whitespace-nowrap">{dayjs(d.date).fromNow()}</div> */}
             <div className="text-lg font-bold">{d.payload}</div>
         </div>
     )
