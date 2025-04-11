@@ -18,7 +18,6 @@ from posthog.models.integration import (
     Integration,
     OauthIntegration,
     SlackIntegration,
-    LinearIntegration,
     GoogleCloudIntegration,
     GoogleAdsIntegration,
     LinkedInAdsIntegration,
@@ -61,6 +60,7 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 request.user,
             )
             return instance
+
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
             try:
                 instance = OauthIntegration.integration_from_oauth_response(
@@ -217,8 +217,3 @@ class IntegrationViewSet(
         ]
 
         return Response({"adAccounts": accounts})
-
-    @action(methods=["GET"], detail=True, url_path="linear_teams")
-    def linear_teams(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        linear = LinearIntegration(self.get_object())
-        return Response({"teams": linear.list_teams()})
