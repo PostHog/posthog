@@ -9,7 +9,6 @@ import IconGoogleCloud from 'public/services/google-cloud.png'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 import IconHubspot from 'public/services/hubspot.png'
 import IconIntercom from 'public/services/intercom.png'
-import IconLinear from 'public/services/linear.png'
 import IconLinkedIn from 'public/services/linkedin.png'
 import IconMailjet from 'public/services/mailjet.png'
 import IconSalesforce from 'public/services/salesforce.png'
@@ -33,7 +32,6 @@ const ICONS: Record<IntegrationKind, any> = {
     intercom: IconIntercom,
     'linkedin-ads': IconLinkedIn,
     email: IconMailjet,
-    linear: IconLinear,
 }
 
 export const integrationsLogic = kea<integrationsLogicType>([
@@ -175,12 +173,6 @@ export const integrationsLogic = kea<integrationsLogicType>([
             (s) => [s.integrations],
             (integrations) => {
                 return integrations?.filter((x) => x.kind == 'slack')
-            },
-        ],
-        linearIntegrations: [
-            (s) => [s.integrations],
-            (integrations) => {
-                return integrations?.filter((x) => x.kind == 'linear') || []
             },
         ],
 
