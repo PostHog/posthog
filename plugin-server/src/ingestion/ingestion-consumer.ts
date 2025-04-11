@@ -5,12 +5,10 @@ import { HogTransformerService } from '../cdp/hog-transformations/hog-transforme
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
 import { KafkaProducerWrapper } from '../kafka/producer'
-import { IngestionOverflowMode } from '../main/ingestion-queues/batch-processing/each-batch-ingestion'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
 import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import {
     eventDroppedCounter,
-    ingestionPartitionKeyOverflowed,
     latestOffsetTimestampGauge,
     setUsageInNonPersonEventsCounter,
 } from '../main/ingestion-queues/metrics'
@@ -25,6 +23,12 @@ import { EventDroppedError, EventPipelineRunnerV2 } from './event-pipeline-runne
 import { MemoryRateLimiter } from './utils/overflow-detector'
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
+
+const ingestionPartitionKeyOverflowed = new Counter({
+    name: 'ingestion_partition_key_overflowed',
+    help: 'Indicates that a given key has overflowed capacity and been redirected to a different topic. Value incremented once a minute.',
+    labelNames: ['partition_key'],
+})
 
 const histogramKafkaBatchSize = new Histogram({
     name: 'ingestion_batch_size',
@@ -56,6 +60,16 @@ const KNOWN_SET_EVENTS = new Set([
     'survey dismissed',
     'survey sent',
 ])
+
+const trackIfNonPersonEventUpdatesPersons = (event: PipelineEvent) => {
+    if (
+        !PERSON_EVENTS.has(event.event) &&
+        !KNOWN_SET_EVENTS.has(event.event) &&
+        (event.properties?.$set || event.properties?.$set_once || event.properties?.$unset)
+    ) {
+        setUsageInNonPersonEventsCounter.inc()
+    }
+}
 
 export class IngestionConsumer {
     protected name = 'ingestion-consumer'
@@ -179,9 +193,11 @@ export class IngestionConsumer {
 
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
-                Object.values(parsedMessages).map(async (x) => {
+                Object.values(parsedMessages).map(async (events) => {
+                    const eventsToProcess = this.redirectEvents(events)
+
                     return await this.runInstrumented('processEventsForDistinctId', () =>
-                        this.processEventsForDistinctId(x)
+                        this.processEventsForDistinctId(eventsToProcess)
                     )
                 })
             )
@@ -200,61 +216,64 @@ export class IngestionConsumer {
         }
     }
 
+    private redirectEvents(incomingEvents: IncomingEvent[]): IncomingEvent[] {
+        if (!incomingEvents.length) {
+            return incomingEvents
+        }
+
+        if (this.testingTopic) {
+            void this.scheduleWork(this.emitToTestingTopic(incomingEvents.map((x) => x.message)))
+        }
+
+        // NOTE: We know at this point that all these events are the same token distinct_id
+        const token = incomingEvents[0].event.token
+        const distinctId = incomingEvents[0].event.distinct_id
+        const kafkaTimestamp = incomingEvents[0].message.timestamp
+        const eventKey = `${token}:${distinctId}`
+
+        // Check if this token is in the force overflow list
+        const shouldForceOverflow = token && this.tokensToForceOverflow.includes(token)
+
+        // Check the rate limiter and emit to overflow if necessary
+        const isBelowRateLimit = this.overflowRateLimiter.consume(eventKey, incomingEvents.length, kafkaTimestamp)
+
+        if (this.overflowEnabled() && (shouldForceOverflow || !isBelowRateLimit)) {
+            ingestionPartitionKeyOverflowed.inc(incomingEvents.length)
+
+            if (shouldForceOverflow) {
+                forcedOverflowEventsCounter.inc()
+            } else if (this.ingestionWarningLimiter.consume(eventKey, incomingEvents.length)) {
+                logger.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
+            }
+
+            // NOTE: If we are forcing to overflow we typically want to keep the partition key
+            // If the event is marked for skipping persons however locality doesn't matter so we would rather have the higher throughput
+            // of random partitioning.
+            const preserveLocality = shouldForceOverflow && !this.shouldSkipPerson(token, distinctId) ? true : undefined
+
+            void this.scheduleWork(
+                this.emitToOverflow(
+                    incomingEvents.map((x) => x.message),
+                    preserveLocality
+                )
+            )
+
+            return []
+        }
+
+        return incomingEvents
+    }
+
     private async processEventsForDistinctId(incomingEvents: IncomingEvent[]): Promise<void> {
         // Process every message sequentially, stash promises to await on later
         for (const { message, event } of incomingEvents) {
             // Track $set usage in events that aren't known to use it, before ingestion adds anything there
-            if (
-                event.properties &&
-                !PERSON_EVENTS.has(event.event) &&
-                !KNOWN_SET_EVENTS.has(event.event) &&
-                ('$set' in event.properties || '$set_once' in event.properties || '$unset' in event.properties)
-            ) {
-                setUsageInNonPersonEventsCounter.inc()
-            }
+            trackIfNonPersonEventUpdatesPersons(event)
 
             let runner: EventPipelineRunnerV2 | undefined
 
             try {
-                logger.debug('🔁', `Processing event`, {
-                    event,
-                })
-
-                if (this.testingTopic) {
-                    void this.scheduleWork(this.emitToTestingTopic([message]))
-                    continue
-                }
-
-                const eventKey = `${event.token}:${event.distinct_id}`
-                // Check if this token is in the force overflow list
-                const shouldForceOverflow = event.token && this.tokensToForceOverflow.includes(event.token)
-
-                // Check the rate limiter and emit to overflow if necessary
-                const isBelowRateLimit = this.overflowRateLimiter.consume(eventKey, 1, message.timestamp)
-
-                if (this.overflowEnabled() && (shouldForceOverflow || !isBelowRateLimit)) {
-                    logger.debug('🔁', `Sending to overflow`, {
-                        event,
-                        reason: shouldForceOverflow ? 'force_overflow_token' : 'rate_limit',
-                    })
-                    ingestionPartitionKeyOverflowed.labels(`${event.team_id ?? event.token}`).inc()
-
-                    if (shouldForceOverflow) {
-                        forcedOverflowEventsCounter.inc()
-                    } else if (this.ingestionWarningLimiter.consume(eventKey, 1)) {
-                        logger.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
-                    }
-
-                    // NOTE: If we are forcing to overflow we typically want to keep the partition key
-                    // If the event is marked for skipping persons however locality doesn't matter so we would rather have the higher throughput
-                    // of random partitioning.
-                    const preserveLocality =
-                        shouldForceOverflow && !this.shouldSkipPerson(event.token, event.distinct_id) ? true : undefined
-
-                    void this.scheduleWork(this.emitToOverflow([message], preserveLocality))
-                    continue
-                }
-
+                logger.debug('🔁', `Processing event`, { event })
                 runner = this.getEventPipelineRunner(event)
                 await runner.run()
             } catch (error) {
@@ -476,11 +495,6 @@ export class IngestionConsumer {
             preservePartitionLocalityOverride !== undefined
                 ? preservePartitionLocalityOverride
                 : this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
-        const overflowMode = preservePartitionLocality
-            ? IngestionOverflowMode.Reroute
-            : IngestionOverflowMode.RerouteRandomly
-
-        const useRandomPartitioning = overflowMode === IngestionOverflowMode.RerouteRandomly
 
         await Promise.all(
             kafkaMessages.map((message) =>
@@ -490,7 +504,7 @@ export class IngestionConsumer {
                     // ``message.key`` should not be undefined here, but in the
                     // (extremely) unlikely event that it is, set it to ``null``
                     // instead as that behavior is safer.
-                    key: useRandomPartitioning ? null : message.key ?? null,
+                    key: preservePartitionLocality ? message.key ?? null : null,
                     headers: message.headers,
                 })
             )
