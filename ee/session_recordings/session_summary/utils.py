@@ -1,6 +1,7 @@
 import csv
 from datetime import datetime
 import json
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 from django.template import Engine, Context
@@ -108,28 +109,22 @@ def shorten_url(url: str, max_length: int = 256) -> str:
     return f"{base_url}"
 
 
-def load_custom_template(template_dir: str, template_name: str, context: dict | None = None) -> str:
+def load_custom_template(template_dir: Path, template_name: str, context: dict | None = None) -> str:
     """
     Load and render a template from the session summary templates directory.
     A custom function to load templates from non-standard location.
     """
-    # template_dir = Path(__file__).parent / 'templates'
     template_path = template_dir / template_name
-
     if not template_path.exists():
         raise FileNotFoundError(f"Template {template_name} not found in {template_dir}")
-
     with open(template_path) as f:
         template_string = f.read()
-
     # Create a new Engine instance with our template directory
     engine = Engine(
         debug=True,
         libraries={},
     )
-
     # Create template from string
     template = engine.from_string(template_string)
-
     # Render template with context
     return template.render(Context(context or {}))
