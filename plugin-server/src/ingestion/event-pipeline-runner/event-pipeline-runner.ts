@@ -112,6 +112,9 @@ export class EventPipelineRunnerV2 {
     }
 
     private dropEvent(dropCause: string): undefined {
+        if (this.comparisonMode) {
+            return
+        }
         eventDroppedCounter
             .labels({
                 event_type: 'analytics',
