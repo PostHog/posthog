@@ -171,6 +171,14 @@ export class DB {
         this.PERSONS_AND_GROUPS_CACHE_TTL = personAndGroupsCacheTtl
     }
 
+    private getReadTargetForPerson(): PostgresUse {
+        return this.postgres.isPersonsDbConfigured ? PostgresUse.PERSONS_READ : PostgresUse.COMMON_READ
+    }
+
+    private getWriteTargetForPerson(): PostgresUse {
+        return this.postgres.isPersonsDbConfigured ? PostgresUse.PERSONS_WRITE : PostgresUse.COMMON_WRITE
+    }
+
     // ClickHouse
 
     public clickhouseQuery<R extends Record<string, any> = Record<string, any>>(
@@ -530,7 +538,7 @@ export class DB {
         const values = [teamId, distinctId]
 
         const { rows } = await this.postgres.query<RawPerson>(
-            options.useReadReplica ? PostgresUse.COMMON_READ : PostgresUse.COMMON_WRITE,
+            options.useReadReplica ? this.getReadTargetForPerson() : this.getWriteTargetForPerson(),
             queryString,
             values,
             'fetchPerson'
@@ -561,9 +569,10 @@ export class DB {
 
         // The Person is being created, and so we can hardcode version 0!
         const personVersion = 0
+        const target = tx ?? this.getWriteTargetForPerson()
 
         const { rows } = await this.postgres.query<RawPerson>(
-            tx ?? PostgresUse.COMMON_WRITE,
+            target,
             `WITH inserted_person AS (
                     INSERT INTO posthog_person (
                         created_at, properties, properties_last_updated_at,
@@ -651,6 +660,7 @@ export class DB {
             delete update['version']
         }
 
+        const target = tx ?? this.getWriteTargetForPerson()
         const updateValues = Object.values(unparsePersonPartial(update))
 
         // short circuit if there are no updates to be made
@@ -666,12 +676,7 @@ export class DB {
         )} WHERE id = $${Object.values(update).length + 1}
         RETURNING *`
 
-        const { rows } = await this.postgres.query<RawPerson>(
-            tx ?? PostgresUse.COMMON_WRITE,
-            queryString,
-            values,
-            'updatePerson'
-        )
+        const { rows } = await this.postgres.query<RawPerson>(target, queryString, values, 'updatePerson')
         if (rows.length == 0) {
             throw new NoRowsUpdatedError(
                 `Person with team_id="${person.team_id}" and uuid="${person.uuid} couldn't be updated`
@@ -760,7 +765,7 @@ export class DB {
 
     public async addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean> {
         const result = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            this.getWriteTargetForPerson(),
             `
                 INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
                 VALUES ($1, $2, false, now())
@@ -793,10 +798,11 @@ export class DB {
     public async addPersonlessDistinctIdForMerge(
         teamId: number,
         distinctId: string,
-        tx?: TransactionClient
+        tx: TransactionClient
     ): Promise<boolean> {
         const result = await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx,
+
             `
                 INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
                 VALUES ($1, $2, true, now())
@@ -815,7 +821,7 @@ export class DB {
         person: InternalPerson,
         distinctId: string,
         version: number,
-        tx?: TransactionClient
+        tx: TransactionClient
     ): Promise<void> {
         const kafkaMessages = await this.addDistinctIdPooled(person, distinctId, version, tx)
         if (kafkaMessages.length) {
@@ -827,10 +833,10 @@ export class DB {
         person: InternalPerson,
         distinctId: string,
         version: number,
-        tx?: TransactionClient
+        tx: TransactionClient
     ): Promise<TopicMessage[]> {
         const insertResult = await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx,
             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
             'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4) RETURNING *',
             [distinctId, person.id, person.team_id, version],
@@ -953,7 +959,7 @@ export class DB {
         version: number | null
     ): Promise<CohortPeople> {
         const insertResult = await this.postgres.query(
-            PostgresUse.COMMON_WRITE,
+            this.getWriteTargetForPerson(),
             `INSERT INTO posthog_cohortpeople (cohort_id, person_id, version) VALUES ($1, $2, $3) RETURNING *;`,
             [cohortId, personId, version],
             'addPersonToCohort'
@@ -970,7 +976,7 @@ export class DB {
         // When personIDs change, update places depending on a person_id foreign key
 
         await this.postgres.query(
-            tx ?? PostgresUse.COMMON_WRITE,
+            tx ?? this.getWriteTargetForPerson(),
             // Do two high level things in a single round-trip to the DB.
             //
             // 1. Update cohorts.
