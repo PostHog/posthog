@@ -11,6 +11,8 @@ import {
     CompatToolCall,
     OpenAICompletionMessage,
     OpenAIToolCall,
+    VercelSDKImageMessage,
+    VercelSDKTextMessage,
 } from './types'
 
 function formatUsage(inputTokens: number, outputTokens?: number | null): string | null {
@@ -104,7 +106,7 @@ export function parseOpenAIToolCalls(toolCalls: OpenAIToolCall[]): CompatToolCal
 }
 
 export function isAnthropicTextMessage(output: unknown): output is AnthropicTextMessage {
-    return !!output && typeof output === 'object' && 'type' in output && output.type === 'text'
+    return !!output && typeof output === 'object' && 'type' in output && output.type === 'text' && 'text' in output
 }
 
 export function isAnthropicToolCallMessage(output: unknown): output is AnthropicToolCallMessage {
@@ -125,6 +127,30 @@ export function isAnthropicRoleBasedMessage(input: unknown): input is AnthropicI
     )
 }
 
+export function isVercelSDKTextMessage(input: unknown): input is VercelSDKTextMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'text' &&
+        'content' in input &&
+        typeof input.content === 'string'
+    )
+}
+
+export function isVercelSDKImageMessage(input: unknown): input is VercelSDKImageMessage {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'type' in input &&
+        input.type === 'image' &&
+        'content' in input &&
+        typeof input.content === 'object' &&
+        input.content !== null &&
+        'image' in input.content &&
+        typeof input.content.image === 'string'
+    )
+}
 /**
  * Normalizes a message from an LLM provider into a format that is compatible with the PostHog LLM Observability schema.
  *
@@ -134,6 +160,16 @@ export function isAnthropicRoleBasedMessage(input: unknown): input is AnthropicI
  */
 export function normalizeMessage(output: unknown, defaultRole?: string): CompatMessage[] {
     const role = defaultRole || 'assistant'
+
+    // Vercel SDK
+    if (isVercelSDKTextMessage(output)) {
+        return [
+            {
+                role,
+                content: output.content,
+            },
+        ]
+    }
 
     // OpenAI
     if (isOpenAICompatMessage(output)) {
@@ -216,7 +252,6 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
             },
         ]
     }
-
     // Unsupported message.
     return [
         {
@@ -255,6 +290,10 @@ export function removeMilliseconds(timestamp: string): string {
 export function formatLLMEventTitle(event: LLMTrace | LLMTraceEvent): string {
     if (isLLMTraceEvent(event)) {
         if (event.event === '$ai_generation') {
+            const spanName = event.properties.$ai_span_name
+            if (spanName) {
+                return `${spanName}`
+            }
             const title = event.properties.$ai_model || 'Generation'
             if (event.properties.$ai_provider) {
                 return `${title} (${event.properties.$ai_provider})`

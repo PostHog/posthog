@@ -2,6 +2,7 @@ import { v4 as uuid4 } from 'uuid'
 
 import { ONE_HOUR } from '../src/config/constants'
 import { PluginLogEntryType } from '../src/types'
+import { parseJSON } from '../src/utils/json-parse'
 import { UUIDT } from '../src/utils/utils'
 import { getCacheKey } from '../src/worker/vm/extensions/cache'
 import {
@@ -135,7 +136,7 @@ test.concurrent(
         expect(appMetric.successes).toEqual(0)
         expect(appMetric.failures).toEqual(1)
         expect(appMetric.error_type).toEqual('Error')
-        expect(JSON.parse(appMetric.error_details!)).toMatchObject({
+        expect(parseJSON(appMetric.error_details!)).toMatchObject({
             error: { message: 'error thrown in plugin' },
             event: { properties: event.properties },
         })
@@ -321,7 +322,7 @@ test.concurrent(`plugin method tests: can drop events via processEvent`, async (
 
     await waitForExpect(async () => {
         const [event] = await fetchEvents(teamId, customEventUuid)
-        expect(event).toBeDefined()
+        expect(event).toBeTruthy()
     })
 
     const [event] = await fetchEvents(teamId, dropMeUuid)
@@ -476,7 +477,7 @@ test.concurrent('plugins can use attachements', async () => {
         testAttachment: {
             file_name: 'test.txt',
             content_type: 'text/plain',
-            contents: JSON.parse(JSON.stringify(Buffer.from('test'))),
+            contents: parseJSON(JSON.stringify(Buffer.from('test'))),
         },
     })
 })

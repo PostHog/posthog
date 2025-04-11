@@ -14,6 +14,37 @@ export const processAiEvent = (event: PluginEvent): PluginEvent => {
     return event
 }
 
+const calculateInputCost = (event: PluginEvent, cost: ModelRow) => {
+    if (!event.properties) {
+        return '0'
+    }
+    if (event.properties['$ai_provider'] && event.properties['$ai_provider'].toLowerCase() === 'openai') {
+        const cacheReadTokens = event.properties['$ai_cache_read_input_tokens'] || 0
+        const inputTokens = event.properties['$ai_input_tokens'] || 0
+        const difference = bigDecimal.subtract(inputTokens, cacheReadTokens)
+        const cachedCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.5), cacheReadTokens)
+        const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, difference)
+        return bigDecimal.add(cachedCost, uncachedCost)
+    } else if (event.properties['$ai_provider'] && event.properties['$ai_provider'].toLowerCase() === 'anthropic') {
+        const cacheReadTokens = event.properties['$ai_cache_read_input_tokens'] || 0
+        const cacheWriteTokens = event.properties['$ai_cache_creation_input_tokens'] || 0
+        const inputTokens = event.properties['$ai_input_tokens'] || 0
+        const writeCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 1.25), cacheWriteTokens)
+        const cacheReadCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.1), cacheReadTokens)
+        const totalCacheCost = bigDecimal.add(writeCost, cacheReadCost)
+        const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, inputTokens)
+        return bigDecimal.add(totalCacheCost, uncachedCost)
+    }
+    return bigDecimal.multiply(cost.cost.prompt_token, event.properties['$ai_input_tokens'] || 0)
+}
+
+const calculateOutputCost = (event: PluginEvent, cost: ModelRow) => {
+    if (!event.properties) {
+        return '0'
+    }
+    return bigDecimal.multiply(cost.cost.completion_token, event.properties['$ai_output_tokens'] || 0)
+}
+
 const processCost = (event: PluginEvent) => {
     if (!event.properties) {
         return event
@@ -37,12 +68,8 @@ const processCost = (event: PluginEvent) => {
         return event
     }
 
-    event.properties['$ai_input_cost_usd'] = parseFloat(
-        bigDecimal.multiply(cost.cost.prompt_token, event.properties['$ai_input_tokens'] || 0)
-    )
-    event.properties['$ai_output_cost_usd'] = parseFloat(
-        bigDecimal.multiply(cost.cost.completion_token, event.properties['$ai_output_tokens'] || 0)
-    )
+    event.properties['$ai_input_cost_usd'] = parseFloat(calculateInputCost(event, cost))
+    event.properties['$ai_output_cost_usd'] = parseFloat(calculateOutputCost(event, cost))
 
     event.properties['$ai_total_cost_usd'] = parseFloat(
         bigDecimal.add(event.properties['$ai_input_cost_usd'], event.properties['$ai_output_cost_usd'])

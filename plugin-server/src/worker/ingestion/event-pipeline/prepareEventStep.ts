@@ -2,8 +2,8 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { processAiEvent } from '../../../ingestion/ai-costs/process-ai-event'
 import { PreIngestionEvent } from '../../../types'
+import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
-import { status } from '../../../utils/status'
 import { parseEventTimestamp } from '../timestamps'
 import { captureIngestionWarning } from '../utils'
 import { invalidTimestampCounter } from './metrics'
@@ -29,7 +29,7 @@ export async function prepareEventStep(
             // NOTE: Whilst this is pre-production we want to make it as optional as possible
             // so we don't block the pipeline if it fails
             captureException(error)
-            status.error(error)
+            logger.error(error)
         }
     }
 

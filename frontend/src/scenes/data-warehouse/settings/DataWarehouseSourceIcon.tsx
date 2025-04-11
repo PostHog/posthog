@@ -1,6 +1,7 @@
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import BlushingHog from 'public/hedgehog/blushing-hog.png'
+import IconPostHog from 'public/posthog-icon.svg'
 import IconAwsS3 from 'public/services/aws-s3.png'
 import Iconazure from 'public/services/azure.png'
 import IconBigQuery from 'public/services/bigquery.png'
@@ -24,7 +25,7 @@ import { getDataWarehouseSourceUrl } from 'scenes/data-warehouse/settings/DataWa
  * @param url
  */
 export function mapUrlToProvider(url: string): string {
-    if (url.includes('.s3.amazonaws.com')) {
+    if (url.includes('amazonaws.com')) {
         return 'aws'
     } else if (url.startsWith('https://storage.googleapis.com')) {
         return 'google-cloud'
@@ -44,11 +45,15 @@ export function mapUrlToProvider(url: string): string {
 export function DataWarehouseSourceIcon({
     type,
     size = 'small',
+    sizePx: sizePxProps,
+    disableTooltip = false,
 }: {
     type: string
     size?: 'small' | 'medium'
+    sizePx?: number
+    disableTooltip?: boolean
 }): JSX.Element {
-    const sizePx = size === 'small' ? 30 : 60
+    const sizePx = sizePxProps ?? (size === 'small' ? 30 : 60)
 
     const icon = {
         Stripe: IconStripe,
@@ -67,7 +72,22 @@ export function DataWarehouseSourceIcon({
         BigQuery: IconBigQuery,
         Chargebee: IconChargebee,
         BlushingHog: BlushingHog, // fallback, we don't know what this is
+        PostHog: IconPostHog,
     }[type]
+
+    if (disableTooltip) {
+        return (
+            <div className="flex items-center gap-4">
+                <img
+                    src={icon}
+                    alt={type}
+                    height={sizePx}
+                    width={sizePx}
+                    className="rounded object-contain max-w-none"
+                />
+            </div>
+        )
+    }
 
     return (
         <div className="flex items-center gap-4">

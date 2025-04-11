@@ -27,6 +27,7 @@ import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
 import { ObjectStorage } from './utils/object_storage'
+import { TeamManagerLazy } from './utils/team-manager-lazy'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
@@ -44,21 +45,10 @@ export { Element } from '@posthog/plugin-scaffold' // Re-export Element from sca
 type Brand<K, T> = K & { __brand: T }
 
 export enum LogLevel {
-    None = 'none',
     Debug = 'debug',
     Info = 'info',
-    Log = 'log',
     Warn = 'warn',
     Error = 'error',
-}
-
-export const logLevelToNumber: Record<LogLevel, number> = {
-    [LogLevel.None]: 0,
-    [LogLevel.Debug]: 10,
-    [LogLevel.Info]: 20,
-    [LogLevel.Log]: 30,
-    [LogLevel.Warn]: 40,
-    [LogLevel.Error]: 50,
 }
 
 export enum KafkaSecurityProtocol {
@@ -118,6 +108,10 @@ export type CdpConfig = {
     CDP_HOG_FILTERS_TELEMETRY_TEAMS: string
     CDP_CYCLOTRON_BATCH_SIZE: number
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
+    CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
+    CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
+    CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
+    CDP_CYCLOTRON_USE_BULK_COPY_JOB: boolean
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
@@ -141,6 +135,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
     INGESTION_BATCH_SIZE: number // kafka consumer batch size
     INGESTION_OVERFLOW_ENABLED: boolean // whether or not overflow rerouting is enabled (only used by analytics-ingestion)
+    INGESTION_FORCE_OVERFLOW_TOKENS: string // comma-separated list of tokens to always route to overflow
     INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether or not Kafka message keys should be preserved or discarded when messages are rerouted to overflow
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
@@ -233,6 +228,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean // refuse to start unless there is a properly configured persistent job queue (e.g. graphile)
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
     SITE_URL: string | null
+    FILTER_TRANSFORMATIONS_ENABLED_TEAMS: number[] // comma-separated list of team IDs to enable filter-based transformations for
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
@@ -263,7 +259,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
-
+    LAZY_LOADER_DEFAULT_BUFFER_MS: number
     // dump profiles to disk, covering the first N seconds of runtime
     STARTUP_PROFILE_DURATION_SECONDS: number
     STARTUP_PROFILE_CPU: boolean
@@ -318,7 +314,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     POSTHOG_API_KEY: string
     POSTHOG_HOST_URL: string
 
-    // cookieless
+    // cookieless, should match the values in rust/feature-flags/src/config.rs
     COOKIELESS_DISABLED: boolean
     COOKIELESS_FORCE_STATELESS_MODE: boolean
     COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: number
@@ -336,9 +332,19 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: string
     SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
     SESSION_RECORDING_V2_S3_TIMEOUT_MS: number
+    SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
+    SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
 
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
+
+    PROPERTY_DEFS_CONSUMER_GROUP_ID: string
+    PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: string
+    PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: string
+    PROPERTY_DEFS_WRITE_DISABLED: boolean
+
+    CDP_HOG_WATCHER_SAMPLE_RATE: number
+    LAZY_TEAM_MANAGER_COMPARISON: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -363,6 +369,7 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigSecretLookup: Map<string, PluginConfigId>
     // tools
     teamManager: TeamManager
+    teamManagerLazy: TeamManagerLazy
     organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
@@ -660,6 +667,9 @@ export interface Team {
         | null
     cookieless_server_hash_mode: CookielessServerHashMode | null
     timezone: string
+
+    // NOTE: Currently only created on the lazy loader
+    available_features?: string[]
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
@@ -710,6 +720,7 @@ export type PersonMode = 'full' | 'propertyless' | 'force_upgrade'
 
 /** Raw event row from ClickHouse. */
 export interface RawClickHouseEvent extends BaseEvent {
+    project_id: ProjectId
     timestamp: ClickHouseTimestamp
     created_at: ClickHouseTimestamp
     properties?: string
@@ -739,6 +750,7 @@ export interface RawKafkaEvent extends RawClickHouseEvent {
 
 /** Parsed event row from ClickHouse. */
 export interface ClickHouseEvent extends BaseEvent {
+    project_id: ProjectId
     timestamp: DateTime
     created_at: DateTime
     properties: Record<string, any>
@@ -818,7 +830,9 @@ export type PropertiesLastOperation = Record<string, PropertyUpdateOperation>
 
 /** Properties shared by RawPerson and Person. */
 export interface BasePerson {
-    id: number
+    // NOTE: id is a bigint in the DB, which pg lib returns as a string
+    // We leave it as a string as dealing with the bigint type is tricky and we don't need any of its features
+    id: string
     team_id: number
     properties: Properties
     is_user_id: number
@@ -1061,9 +1075,6 @@ export interface RawAction {
     updated_at: string
     last_calculated_at: string
     steps_json: ActionStep[] | null
-    bytecode: any[] | null
-    bytecode_error: string | null
-    pinned_at: string | null
 }
 
 /** Usable Action model. */
@@ -1118,17 +1129,6 @@ export type IngestEventResponse =
     | { success: true; actionMatches: Action[]; preIngestionEvent: PreIngestionEvent | null }
     | { success: false; error: string }
 
-export interface EventDefinitionType {
-    id: string
-    name: string
-    volume_30_day: number | null
-    query_usage_30_day: number | null
-    team_id: number
-    project_id: number | null
-    last_seen_at: string // DateTime
-    created_at: string // DateTime
-}
-
 export enum UnixTimestampPropertyTypeFormat {
     UNIX_TIMESTAMP = 'unix_timestamp',
     UNIX_TIMESTAMP_MILLISECONDS = 'unix_timestamp_milliseconds',
@@ -1155,19 +1155,23 @@ export enum PropertyDefinitionTypeEnum {
     Event = 1,
     Person = 2,
     Group = 3,
+    Session = 4,
 }
+
+export type ResolvedGroups = Record<string, number>
 
 export interface PropertyDefinitionType {
     id: string
     name: string
     is_numerical: boolean
-    volume_30_day: number | null
-    query_usage_30_day: number | null
     team_id: number
     project_id: number | null
-    property_type?: PropertyType
+    property_type: PropertyType | null
     type: PropertyDefinitionTypeEnum
-    group_type_index: number | null
+    group_type_name?: string
+    group_type_index?: number | null
+    volume_30_day?: number | null
+    query_usage_30_day?: number | null
 }
 
 export interface EventPropertyType {

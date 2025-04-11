@@ -13,6 +13,7 @@ import {
     Team,
 } from '../../../../src/types'
 import { createEventsToDropByToken } from '../../../../src/utils/db/hub'
+import { parseJSON } from '../../../../src/utils/json-parse'
 import { cookielessServerHashStep } from '../../../../src/worker/ingestion/event-pipeline/cookielessServerHashStep'
 import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
 import { emitEventStep } from '../../../../src/worker/ingestion/event-pipeline/emitEventStep'
@@ -44,7 +45,7 @@ class TestEventPipelineRunner extends EventPipelineRunner {
         // and pass the same object around by reference. We want to see a "snapshot" of the args
         // sent to each step, rather than the final mutated object (which many steps actually share
         // in practice, for better or worse).
-        this.stepsWithArgs.push([step.name, JSON.parse(JSON.stringify(args))])
+        this.stepsWithArgs.push([step.name, parseJSON(JSON.stringify(args))])
 
         return super.runStep(step, [runner, ...args], teamId, sendtoDLQ)
     }
@@ -305,9 +306,7 @@ describe('EventPipelineRunner', () => {
                     'events_dead_letter_queue_test'
                 )
                 expect(
-                    JSON.parse(
-                        (mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages[0].value as string
-                    )
+                    parseJSON((mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages[0].value as string)
                 ).toMatchObject({
                     team_id: 2,
                     distinct_id: 'my_id',
@@ -347,9 +346,7 @@ describe('EventPipelineRunner', () => {
                 expect(runner.steps).toEqual(['populateTeamDataStep'])
                 expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
                 expect(
-                    JSON.parse(
-                        (mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages[0].value as string
-                    )
+                    parseJSON((mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages[0].value as string)
                 ).toMatchObject({
                     team_id: 9,
                     type: 'client_ingestion_warning',
@@ -483,9 +480,7 @@ describe('EventPipelineRunner', () => {
                 expect(runner.steps).toEqual(['populateTeamDataStep'])
                 expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
                 expect(
-                    JSON.parse(
-                        (mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages[0].value as string
-                    )
+                    parseJSON((mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages[0].value as string)
                 ).toMatchObject({
                     team_id: 9,
                     type: 'invalid_event_when_process_person_profile_is_false',

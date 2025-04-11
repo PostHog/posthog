@@ -2,7 +2,6 @@ import time
 from typing import Optional
 from uuid import UUID
 import posthoganalytics
-from sentry_sdk import capture_exception
 
 import requests
 from celery import shared_task
@@ -13,7 +12,8 @@ from prometheus_client import Gauge
 from redis import Redis
 from structlog import get_logger
 
-from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency, get_api_personal_rate_limiter
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.hogql.constants import LimitContext
@@ -65,23 +65,26 @@ def process_query_task(
     user_id: Optional[int],
     query_id: str,
     query_json: dict,
-    api_query_personal_key: bool,
+    is_query_service: bool,
     limit_context: Optional[LimitContext] = None,
 ) -> None:
     """
     Kick off query
     Once complete save results to redis
     """
-    with get_api_personal_rate_limiter().run(is_api=api_query_personal_key, team_id=team_id, task_id=query_id):
-        from posthog.clickhouse.client import execute_process_query
+    from posthog.clickhouse.client import execute_process_query
 
-        execute_process_query(
-            team_id=team_id,
-            user_id=user_id,
-            query_id=query_id,
-            query_json=query_json,
-            limit_context=limit_context,
-        )
+    if is_query_service:
+        tag_queries(chargeable=1)
+
+    execute_process_query(
+        team_id=team_id,
+        user_id=user_id,
+        query_id=query_id,
+        query_json=query_json,
+        limit_context=limit_context,
+        is_query_service=is_query_service,
+    )
 
 
 @shared_task(ignore_result=True)
@@ -668,13 +671,6 @@ def process_scheduled_changes() -> None:
 
 
 @shared_task(ignore_result=True)
-def validate_proxy_domains() -> None:
-    from posthog.tasks.validate_proxy_domains import validate_proxy_domains
-
-    validate_proxy_domains()
-
-
-@shared_task(ignore_result=True)
 def sync_insight_cache_states_task() -> None:
     from posthog.caching.insight_caching_state import sync_insight_cache_states
 
@@ -840,24 +836,6 @@ def send_org_usage_reports() -> None:
 
 
 @shared_task(ignore_result=True)
-def update_quota_limiting() -> None:
-    try:
-        from ee.billing.quota_limiting import report_quota_limiting_event
-        from ee.billing.quota_limiting import update_all_orgs_billing_quotas
-
-        report_quota_limiting_event("update_quota_limiting task started", {})
-
-        update_all_orgs_billing_quotas()
-
-        report_quota_limiting_event("update_quota_limiting task finished", {})
-    except ImportError:
-        report_quota_limiting_event("update_quota_limiting task failed", {"error": "ImportError"})
-    except Exception as e:
-        capture_exception(e)
-        report_quota_limiting_event("update_quota_limiting task failed", {"error": str(e)})
-
-
-@shared_task(ignore_result=True)
 def schedule_all_subscriptions() -> None:
     try:
         from ee.tasks.subscriptions import (
@@ -908,6 +886,16 @@ def ee_persist_finished_recordings() -> None:
         pass
     else:
         persist_finished_recordings()
+
+
+@shared_task(ignore_result=True)
+def ee_persist_finished_recordings_v2() -> None:
+    try:
+        from ee.session_recordings.persistence_tasks import persist_finished_recordings_v2
+    except ImportError:
+        pass
+    else:
+        persist_finished_recordings_v2()
 
 
 @shared_task(

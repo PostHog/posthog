@@ -78,6 +78,7 @@
         "js-big-decimal": "^2.2.0",
         "kafkajs": "^2.2.0",
         "kafkajs-snappy": "^1.1.0",
+        "lodash": "^4.17.21",
         "lru-cache": "^6.0.0",
         "luxon": "^3.4.4",
         "lz4-kafkajs": "1.0.0",
@@ -118,6 +119,7 @@
         "@types/ioredis": "^4.26.4",
         "@types/jest": "^29.5.14",
         "@types/kafkajs-snappy": "^1.0.0",
+        "@types/lodash": "^4.17.16",
         "@types/long": "4.x.x",
         "@types/luxon": "^3.4.2",
         "@types/node-fetch": "^2.5.10",
@@ -152,6 +154,6 @@
     },
     "cyclotron": {
         "//This is a short term workaround to ensure that cyclotron changes trigger a rebuild": true,
-        "version": "0.1.7"
+        "version": "0.1.10"
     }
 }

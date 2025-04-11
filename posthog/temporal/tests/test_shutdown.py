@@ -72,7 +72,9 @@ async def test_shutdown_monitor_async(temporal_client: Client):
     assert hasattr(err, "__cause__"), "Workflow failure missing cause"
     assert isinstance(err.__cause__, ActivityError)
     assert isinstance(err.__cause__.__cause__, ApplicationError)
-    assert err.__cause__.__cause__.type == "WorkerShuttingDownError"
+    # We expect "WorkerShuttingDownError" to be raised, but depending on the timing
+    # of threads, "WorkerShutdown" could be raised by temporal instead.
+    assert err.__cause__.__cause__.type == "WorkerShuttingDownError" or err.__cause__.__cause__.type == "WorkerShutdown"
 
 
 @pytest.fixture

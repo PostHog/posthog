@@ -20,7 +20,7 @@ import type { sidePanelActivityLogicType } from './sidePanelActivityLogicType'
 const POLL_TIMEOUT = 5 * 60 * 1000
 
 export type ActivityFilters = {
-    scope?: ActivityScope
+    scope?: ActivityScope | string
     item_id?: ActivityLogItem['item_id']
     user?: UserBasicType['id']
 }
@@ -45,10 +45,10 @@ export enum SidePanelActivityTab {
 
 export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelActivityLogic']),
-    connect({
+    connect(() => ({
         values: [sidePanelContextLogic, ['sceneSidePanelContext'], projectLogic, ['currentProjectId']],
         actions: [sidePanelStateLogic, ['openSidePanel']],
-    }),
+    })),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
         incrementErrorCount: true,

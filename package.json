@@ -20,15 +20,20 @@
         "prepare": "husky install",
         "schema:build": "pnpm --filter=@posthog/frontend run schema:build:json && pnpm run schema:build:python",
         "schema:build:python": "bash bin/build-schema-python.sh",
+        "taxonomy:build": "pnpm run taxonomy:build:json",
+        "taxonomy:build:json": "python bin/build-taxonomy-json.py && prettier --write ./frontend/src/taxonomy/core-filter-definitions-by-group.json",
         "grammar:build": "npm run grammar:build:python && npm run grammar:build:cpp",
         "grammar:build:python": "cd posthog/hogql/grammar && antlr -Dlanguage=Python3 HogQLLexer.g4 && antlr -visitor -no-listener -Dlanguage=Python3 HogQLParser.g4",
         "grammar:build:cpp": "cd posthog/hogql/grammar && antlr -o ../../../common/hogql_parser -Dlanguage=Cpp HogQLLexer.g4 && antlr -o ../../../common/hogql_parser -visitor -no-listener -Dlanguage=Cpp HogQLParser.g4",
         "dev:migrate:postgres": "export DEBUG=1 && source env/bin/activate && python manage.py migrate",
         "dev:migrate:clickhouse": "export DEBUG=1 && source env/bin/activate && python manage.py migrate_clickhouse",
-        "mypy-baseline-sync": "mypy -p posthog | mypy-baseline sync",
+        "mypy-baseline-sync": "TEST=1 mypy -p posthog | mypy-baseline sync",
+        "mypy-check": "TEST=1 mypy -p posthog | mypy-baseline filter",
         "format:backend": "./bin/ruff.sh .",
         "format:frontend": "pnpm --filter=@posthog/frontend run format",
-        "format": "pnpm format:backend && pnpm format:frontend"
+        "format": "pnpm format:backend && pnpm format:frontend",
+        "cleandep": "rm -rf node_modules && pnpm -r exec rm -rf node_modules",
+        "storybook": "pnpm turbo --filter=@posthog/storybook start"
     },
     "dependencies": {
         "concurrently": "^5.3.0",
@@ -92,6 +97,10 @@
             "eslint --cache -c .eslintrc.js --fix",
             "prettier --write"
         ],
+        "products/*/manifest.tsx": [
+            "eslint --cache -c .eslintrc.js --fix",
+            "prettier --write"
+        ],
         "products/**/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
             "eslint --cache -c .eslintrc.js --fix",
             "prettier --write"
@@ -116,6 +125,7 @@
             "pnpm --dir plugin-server exec eslint --fix",
             "pnpm --dir plugin-server exec prettier --write"
         ],
+        "funnel-udf/**/*.rs": "rustfmt",
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
             "./bin/ruff.sh check --fix",
             "./bin/ruff.sh format"

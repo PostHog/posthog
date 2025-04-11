@@ -3,10 +3,12 @@ import { Counter } from 'prom-client'
 
 import { Hub, PluginConfig, PluginMethodsConcrete, PostIngestionEvent } from '../../types'
 import { Response } from '../../utils/fetch'
+import { parseJSON } from '../../utils/json-parse'
+import { logger } from '../../utils/logger'
 import { getHttpCallRecorder, HttpCallRecorder, RecordedHttpCall, recordFetchRequest } from '../../utils/recorded-fetch'
-import { status } from '../../utils/status'
+import { cloneObject } from '../../utils/utils'
 import { DESTINATION_PLUGINS } from '../legacy-plugins'
-import { HogFunctionInvocation, HogFunctionType } from '../types'
+import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionType } from '../types'
 import { createInvocation } from '../utils'
 import { LegacyPluginExecutorService } from './legacy-plugin-executor.service'
 
@@ -24,7 +26,7 @@ function convertPluginConfigToHogFunction(pluginConfig: PluginConfig): HogFuncti
     const legacyDestinationPlugin = DESTINATION_PLUGINS.find((plugin) => plugin.template.id === hogFunctionTemplateId)
 
     if (!legacyDestinationPlugin) {
-        status.error('🔍', `Legacy destination plugin ${hogFunctionTemplateId} not found`)
+        logger.error('🔍', `Legacy destination plugin ${hogFunctionTemplateId} not found`)
         return null
     }
 
@@ -80,7 +82,7 @@ export class LegacyOneventCompareService {
             try {
                 hogFunction = convertPluginConfigToHogFunction(pluginConfig)
             } catch (e) {
-                status.error('Failed to convert plugin config to hog function', e)
+                logger.error('Failed to convert plugin config to hog function', e)
             }
 
             this.hogFunctionsByPluginConfigId[pluginConfig.id] = hogFunction
@@ -103,34 +105,43 @@ export class LegacyOneventCompareService {
         }
 
         // Clear the recorder before running the operation if recording is enabled
+        getHttpCallRecorder().clearCalls()
 
         let pluginConfigError: any = null
-        let recordedCalls: RecordedHttpCall[] = []
+
+        const clonedEvent = cloneObject(event) // NOTE: The hog function can modify the event so we need to clone it
+
         try {
             // Execute the operation
             await onEvent(onEventPayload)
         } catch (e) {
             pluginConfigError = e
-        } finally {
-            recordedCalls = getHttpCallRecorder().getCalls()
-            getHttpCallRecorder().clearCalls()
         }
 
         try {
-            const hogFunctionResult = await this.runHogFunctionOnEvent(pluginConfig, event, recordedCalls)
-            const comparer = new HttpCallRecorder()
+            const recordedCalls = getHttpCallRecorder().getCalls()
 
+            const hogFunctionResult = await this.runHogFunctionOnEvent(pluginConfig, clonedEvent, recordedCalls)
+            const comparer = new HttpCallRecorder()
             const comparison = comparer.compareCalls(recordedCalls, hogFunctionResult.recordedCalls)
 
+            const errorDiff =
+                (pluginConfigError && !hogFunctionResult.result.error) ||
+                (!pluginConfigError && hogFunctionResult.result.error)
+
             comparisonCounter
-                .labels(pluginConfig.plugin?.id.toString() ?? '?', comparison.matches ? 'true' : 'false')
+                .labels(pluginConfig.plugin?.id.toString() ?? '?', comparison.matches || errorDiff ? 'true' : 'false')
                 .inc()
 
-            if (!comparison.matches) {
-                status.info('🔎', `COMPARING ${pluginConfig.plugin?.id}`, comparison)
+            if (!comparison.matches || errorDiff) {
+                logger.info('🔎', `COMPARING ${pluginConfig.plugin?.id}`, {
+                    ...comparison,
+                    pluginConfigError: String(pluginConfigError),
+                    hogFunctionResultError: String(hogFunctionResult.result.error),
+                })
             }
         } catch (e) {
-            status.error('', 'Failed to compare HTTP calls', e)
+            logger.error('', 'Failed to compare HTTP calls', e)
         }
 
         // Throw the original error so it behaves like before
@@ -144,7 +155,7 @@ export class LegacyOneventCompareService {
         event: PostIngestionEvent,
         recordedCalls: RecordedHttpCall[]
     ): Promise<{
-        error?: any
+        result: HogFunctionInvocationResult
         recordedCalls: RecordedHttpCall[]
     }> {
         // Try to execute the same thing but polyfilling the fetch calls with the recorded ones
@@ -157,7 +168,7 @@ export class LegacyOneventCompareService {
 
         // Mapped plugin config inputs are always static values
         const inputs: HogFunctionInvocation['globals']['inputs'] = Object.fromEntries(
-            Object.entries(hogFunction.inputs ?? {}).map(([key, value]) => [key, value.value])
+            Object.entries(hogFunction.inputs ?? {}).map(([key, value]) => [key, value?.value])
         )
 
         const invocation = createInvocation(
@@ -192,59 +203,51 @@ export class LegacyOneventCompareService {
         const copiedCalls = [...recordedCalls]
         const recorder = new HttpCallRecorder()
 
-        let error: any = undefined
+        const result = await this.legacyPluginExecutorService.execute(invocation, {
+            fetch: (url, init) => {
+                // For each call take the first one out of the stack
 
-        await this.legacyPluginExecutorService
-            .execute(invocation, {
-                fetch: (url, init) => {
-                    // For each call take the first one out of the stack
+                const call = copiedCalls.shift()
 
-                    const call = copiedCalls.shift()
+                if (!call) {
+                    throw new Error('No call found')
+                }
 
-                    if (!call) {
-                        throw new Error('No call found')
-                    }
+                if (call?.request.url !== url) {
+                    throw new Error(`Call URL ${url} did not match expected URL ${call?.request.url}`)
+                }
 
-                    if (call?.request.url !== url) {
-                        throw new Error(`Call URL ${url} did not match expected URL ${call?.request.url}`)
-                    }
+                const request = recordFetchRequest(url, init)
 
-                    const request = recordFetchRequest(url, init)
+                recorder.addCall({
+                    id: call.id,
+                    request,
+                    response: call.response,
+                })
 
-                    recorder.addCall({
-                        id: call.id,
-                        request,
-                        response: call.response,
-                    })
+                const res: Partial<Response> = {
+                    headers: call.response.headers as any,
+                    status: call.response.status,
+                    statusText: call.response.statusText,
+                    ok: call.response.status >= 200 && call.response.status < 300,
+                    json: () => {
+                        return new Promise((res, rej) => {
+                            if (!call.response.body) {
+                                return rej(new Error('No response body'))
+                            }
+                            try {
+                                return res(parseJSON(call.response.body))
+                            } catch (e) {
+                                return rej(e)
+                            }
+                        })
+                    },
+                }
 
-                    const res: Partial<Response> = {
-                        headers: call.response.headers as any,
-                        status: call.response.status,
-                        statusText: call.response.statusText,
-                        ok: call.response.status >= 200 && call.response.status < 300,
-                        json: () => {
-                            return new Promise((res, rej) => {
-                                if (!call.response.body) {
-                                    return rej(new Error('No response body'))
-                                }
-                                try {
-                                    return res(JSON.parse(call.response.body))
-                                } catch (e) {
-                                    return rej(e)
-                                }
-                            })
-                        },
-                    }
+                return Promise.resolve(res as Response)
+            },
+        })
 
-                    return Promise.resolve(res as Response)
-                },
-            })
-            .catch((e) => {
-                error = e
-            })
-
-        // Do comparison of calls!
-
-        return { error, recordedCalls: recorder.getCalls() }
+        return { result, recordedCalls: recorder.getCalls() }
     }
 }

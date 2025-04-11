@@ -27,6 +27,7 @@ class PersonManager(models.Manager):
 
 
 class Person(models.Model):
+    id = models.BigAutoField(primary_key=True)
     _distinct_ids: Optional[list[str]]
 
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
@@ -118,6 +119,7 @@ class Person(models.Model):
 
 
 class PersonDistinctId(models.Model):
+    id = models.BigAutoField(primary_key=True)
     team = models.ForeignKey("Team", on_delete=models.CASCADE, db_index=False)
     person = models.ForeignKey(Person, on_delete=models.CASCADE)
     distinct_id = models.CharField(max_length=400)

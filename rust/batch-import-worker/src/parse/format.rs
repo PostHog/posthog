@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Error};
+use chrono::Duration;
 use common_types::{InternallyCapturedEvent, RawEvent};
 use rayon::iter::IntoParallelIterator;
 use rayon::prelude::*;
@@ -51,6 +52,10 @@ impl FormatConfig {
                 let event_transform = MixpanelEvent::parse_fn(
                     transform_context,
                     config.skip_no_distinct_id,
+                    config
+                        .timestamp_offset_seconds
+                        .map(Duration::seconds)
+                        .unwrap_or_default(),
                     skip_geoip(),
                 );
 

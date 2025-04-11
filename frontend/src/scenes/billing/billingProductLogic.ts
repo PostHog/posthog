@@ -50,7 +50,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
     props({} as BillingProductLogicProps),
     key((props) => props.product.type),
     path(['scenes', 'billing', 'billingProductLogic']),
-    connect({
+    connect(() => ({
         values: [
             billingLogic,
             ['billing', 'isUnlicensedDebug', 'scrollToProductKey', 'unsubscribeError'],
@@ -70,7 +70,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 'deactivateProductSuccess',
             ],
         ],
-    }),
+    })),
     actions({
         setIsEditingBillingLimit: (isEditingBillingLimit: boolean) => ({ isEditingBillingLimit }),
         setBillingLimitInput: (billingLimitInput: number | null) => ({ billingLimitInput }),
@@ -267,7 +267,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                         ? {
                               type: BillingGaugeItemKind.BillingLimit,
                               text: 'Billing limit',
-                              top: true,
                               value: billingLimitAsUsage || 0,
                           }
                         : (undefined as any),
@@ -276,7 +275,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
                               type: BillingGaugeItemKind.FreeTier,
                               text: 'Free tier limit',
                               value: freeTier,
-                              top: true,
                           }
                         : undefined,
                     product.projected_usage && product.projected_usage > (product.current_usage || 0)
@@ -284,14 +282,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
                               type: BillingGaugeItemKind.ProjectedUsage,
                               text: 'Projected',
                               value: product.projected_usage || 0,
-                              top: false,
                           }
                         : undefined,
                     {
                         type: BillingGaugeItemKind.CurrentUsage,
                         text: 'Current',
                         value: product.current_usage || 0,
-                        top: false,
                     },
                 ].filter(Boolean)
             },

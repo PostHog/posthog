@@ -1,14 +1,17 @@
+import uuid
 from datetime import timedelta
 from unittest import mock
-import uuid
+
 import psycopg
 import pytest
-from asgiref.sync import sync_to_async
 import pytest_asyncio
+from asgiref.sync import sync_to_async
+from django.conf import settings
+
 from posthog.test.base import APIBaseTest
+from posthog.warehouse.models import DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
-from django.conf import settings
 
 
 @pytest.fixture
@@ -63,7 +66,7 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
         )
         payload = response.json()
 
@@ -84,7 +87,7 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
         )
 
         assert response.status_code == 400
@@ -104,7 +107,7 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
         )
 
         # should respond but with empty list. Example: Hubspot has not incremental fields but the response should be an empty list so that full refresh is selectable
@@ -154,7 +157,7 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         response = await sync_to_async(self.client.post)(
-            f"/api/projects/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
         )
         payload = response.json()
 
@@ -171,25 +174,28 @@ class TestExternalDataSchema(APIBaseTest):
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_time_of_day="12:00:00",
         )
 
         with mock.patch(
             "posthog.warehouse.api.external_data_schema.trigger_external_data_workflow"
         ) as mock_trigger_external_data_workflow:
             response = self.client.patch(
-                f"/api/projects/{self.team.pk}/external_data_schemas/{schema.id}",
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"sync_type": "full_refresh"},
             )
 
             assert response.status_code == 200
-            mock_trigger_external_data_workflow.assert_called_once()
+            mock_trigger_external_data_workflow.assert_not_called()
             schema.refresh_from_db()
-            assert schema.sync_type_config.get("reset_pipeline") is True
+            assert schema.sync_type_config.get("reset_pipeline") is None
+            assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
     def test_update_schema_change_sync_type_incremental_field(self):
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=ExternalDataSource.Type.STRIPE, job_inputs={}
         )
+        table = DataWarehouseTable.objects.create(team=self.team)
         schema = ExternalDataSchema.objects.create(
             name="BalanceTransaction",
             team=self.team,
@@ -197,25 +203,30 @@ class TestExternalDataSchema(APIBaseTest):
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
             sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
-            sync_type_config={"incremental_field": "some_other_field", "incremental_field_type": "datetime"},
+            sync_type_config={"incremental_field": "some_other_field", "incremental_field_type": "integer"},
+            table=table,
         )
 
-        with mock.patch(
-            "posthog.warehouse.api.external_data_schema.trigger_external_data_workflow"
-        ) as mock_trigger_external_data_workflow:
+        with (
+            mock.patch(
+                "posthog.warehouse.api.external_data_schema.trigger_external_data_workflow"
+            ) as mock_trigger_external_data_workflow,
+            mock.patch.object(DataWarehouseTable, "get_max_value_for_column", return_value=1),
+        ):
             response = self.client.patch(
-                f"/api/projects/{self.team.pk}/external_data_schemas/{schema.id}",
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"sync_type": "incremental", "incremental_field": "field", "incremental_field_type": "integer"},
             )
 
             assert response.status_code == 200
-            mock_trigger_external_data_workflow.assert_called_once()
+            mock_trigger_external_data_workflow.assert_not_called()
 
             schema.refresh_from_db()
 
-            assert schema.sync_type_config.get("reset_pipeline") is True
+            assert schema.sync_type_config.get("reset_pipeline") is None
             assert schema.sync_type_config.get("incremental_field") == "field"
             assert schema.sync_type_config.get("incremental_field_type") == "integer"
+            assert schema.sync_type_config.get("incremental_field_last_value") == 1
 
     def test_update_schema_change_should_sync_off(self):
         source = ExternalDataSource.objects.create(
@@ -241,7 +252,7 @@ class TestExternalDataSchema(APIBaseTest):
             mock_external_data_workflow_exists.return_value = True
 
             response = self.client.patch(
-                f"/api/projects/{self.team.pk}/external_data_schemas/{schema.id}",
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"should_sync": False},
             )
 
@@ -275,7 +286,7 @@ class TestExternalDataSchema(APIBaseTest):
             mock_external_data_workflow_exists.return_value = True
 
             response = self.client.patch(
-                f"/api/projects/{self.team.pk}/external_data_schemas/{schema.id}",
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"should_sync": True},
             )
 
@@ -309,7 +320,7 @@ class TestExternalDataSchema(APIBaseTest):
             mock_external_data_workflow_exists.return_value = False
 
             response = self.client.patch(
-                f"/api/projects/{self.team.pk}/external_data_schemas/{schema.id}",
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"should_sync": True},
             )
 
@@ -333,7 +344,7 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         response = self.client.patch(
-            f"/api/projects/{self.team.pk}/external_data_schemas/{schema.id}",
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
             data={"should_sync": True},
         )
 
@@ -353,7 +364,7 @@ class TestExternalDataSchema(APIBaseTest):
         )
 
         response = self.client.patch(
-            f"/api/projects/{self.team.pk}/external_data_schemas/{schema.id}",
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
             data={"sync_type": "blah"},
         )
 
@@ -384,7 +395,7 @@ class TestExternalDataSchema(APIBaseTest):
             mock_external_data_workflow_exists.return_value = True
 
             response = self.client.patch(
-                f"/api/projects/{self.team.pk}/external_data_schemas/{schema.id}",
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"sync_frequency": "7day"},
             )
 
@@ -393,3 +404,42 @@ class TestExternalDataSchema(APIBaseTest):
 
             schema.refresh_from_db()
             assert schema.sync_frequency_interval == timedelta(days=7)
+
+    def test_update_schema_sync_time_of_day(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=ExternalDataSource.Type.STRIPE, job_inputs={}
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_frequency_interval=timedelta(days=1),
+            sync_time_of_day="12:00:00",
+        )
+
+        with (
+            mock.patch(
+                "posthog.warehouse.api.external_data_schema.external_data_workflow_exists"
+            ) as mock_external_data_workflow_exists,
+            mock.patch(
+                "posthog.warehouse.api.external_data_schema.sync_external_data_job_workflow"
+            ) as mock_sync_external_data_job_workflow,
+        ):
+            mock_external_data_workflow_exists.return_value = True
+
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_time_of_day": "15:30:00"},
+            )
+
+            assert response.status_code == 200
+            mock_sync_external_data_job_workflow.assert_called_once()
+
+            schema.refresh_from_db()
+            assert schema.sync_time_of_day is not None
+            assert schema.sync_time_of_day.hour == 15
+            assert schema.sync_time_of_day.minute == 30
+            assert schema.sync_time_of_day.second == 0

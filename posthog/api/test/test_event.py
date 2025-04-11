@@ -226,6 +226,73 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["results"]), 0)
 
+    @freeze_time("2020-01-10")
+    def test_event_column_values(self):
+        person1 = _create_person(
+            properties={"email": "joe@posthog.com"},
+            team=self.team,
+            distinct_ids=["bla"],
+        )
+        person2 = _create_person(
+            properties={"email": "bob@posthog.com"},
+            team=self.team,
+            distinct_ids=["blu"],
+        )
+        person3 = _create_person(
+            properties={"email": "bill@posthog.com"},
+            team=self.team,
+            distinct_ids=["ble"],
+        )
+        _create_event(
+            distinct_id="bla",
+            event="random event 1",
+            team=self.team,
+        )
+        _create_event(
+            distinct_id="blu",
+            event="random event 2",
+            team=self.team,
+            properties={"random_prop": "asdf"},
+        )
+        _create_event(
+            distinct_id="ble",
+            event="another random event",
+            team=self.team,
+            properties={"random_prop": "qwerty"},
+        )
+
+        team2 = Organization.objects.bootstrap(None)[2]
+        _create_event(
+            distinct_id="bla",
+            event="random event",
+            team=team2,
+            properties={"random_prop": "abcd"},
+        )
+
+        flush_persons_and_events()
+
+        # distinct_id
+        response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=distinct_id&is_column=true").json()
+        self.assertEqual(sorted(x["name"] for x in response), sorted(["bla", "ble", "blu"]))
+
+        # event
+        response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=event&is_column=true").json()
+        self.assertEqual(
+            sorted(x["name"] for x in response), sorted(["another random event", "random event 1", "random event 2"])
+        )
+
+        # person_id
+        response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=person_id&is_column=true").json()
+        self.assertEqual(
+            sorted(x["name"] for x in response), sorted([str(person3.uuid), str(person2.uuid), str(person1.uuid)])
+        )
+
+        # Search
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/events/values/?key=event&is_column=true&value=another"
+        ).json()
+        self.assertEqual(response, [{"name": "another random event"}])
+
     def test_custom_event_values(self):
         events = ["test", "new event", "another event"]
         for event in events:

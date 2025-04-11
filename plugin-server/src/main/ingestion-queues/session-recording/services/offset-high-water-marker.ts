@@ -3,8 +3,8 @@ import { TopicPartition } from 'node-rdkafka'
 
 import { RedisPool } from '../../../../types'
 import { timeoutGuard } from '../../../../utils/db/utils'
+import { logger } from '../../../../utils/logger'
 import { captureException } from '../../../../utils/posthog'
-import { status } from '../../../../utils/status'
 
 export const offsetHighWaterMarkKey = (prefix: string, tp: TopicPartition) => {
     return `${prefix}high-water-marks/${tp.topic}/${tp.partition}`
@@ -86,7 +86,7 @@ export class OffsetHighWaterMarker {
                 await client.zadd(key, 'GT', offset, id)
             })
         } catch (error) {
-            status.error('🧨', 'OffsetHighWaterMarker failed to add high-water mark for partition', {
+            logger.error('🧨', 'OffsetHighWaterMarker failed to add high-water mark for partition', {
                 error: error.message,
                 key,
                 ...tp,
@@ -127,7 +127,7 @@ export class OffsetHighWaterMarker {
                 await client.zremrangebyscore(key, '-Inf', offset)
             })
         } catch (error) {
-            status.error('🧨', 'OffsetHighWaterMarker failed to commit high-water mark for partition', {
+            logger.error('🧨', 'OffsetHighWaterMarker failed to commit high-water mark for partition', {
                 error: error.message,
                 key,
                 ...tp,

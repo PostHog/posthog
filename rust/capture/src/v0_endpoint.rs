@@ -9,12 +9,12 @@ use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use base64::Engine;
 use common_types::{CapturedEvent, RawEvent};
+use limiters::token_dropper::TokenDropper;
 use metrics::counter;
 use serde_json::json;
 use serde_json::Value;
 use tracing::instrument;
 
-use crate::limiters::token_dropper::TokenDropper;
 use crate::prometheus::report_dropped_events;
 use crate::v0_request::{
     Compression, DataType, ProcessedEvent, ProcessedEventMetadata, ProcessingContext, RawRequest,
@@ -351,6 +351,26 @@ pub async fn process_replay_events<'a>(
         .properties
         .remove("$session_id")
         .ok_or(CaptureError::MissingSessionId)?;
+
+    // Validate session_id is a valid UUID
+    let session_id_str = session_id.as_str().ok_or(CaptureError::InvalidSessionId)?;
+
+    // Reject session_ids that are too long, or that contains non-alphanumeric characters,
+    // this is a proxy for "not a valid UUID"
+    // we can't just reject non-UUIDv7 strings because
+    // some running versions of PostHog JS in the wild are still pre-version 1.73.0
+    // when we started sending valid UUIDv7 session_ids
+    // at time of writing they are ~4-5% of all sessions
+    // they'll be having a bad time generally but replay probably works a little for them
+    // so we don't drop non-UUID strings, but we use length as a proxy definitely bad UUIDs
+    if session_id_str.len() > 70
+        || !session_id_str
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return Err(CaptureError::InvalidSessionId);
+    }
+
     let window_id = events[0]
         .properties
         .remove("$window_id")
@@ -394,12 +414,7 @@ pub async fn process_replay_events<'a>(
 
     let metadata = ProcessedEventMetadata {
         data_type: DataType::SnapshotMain,
-        session_id: Some(
-            session_id
-                .as_str()
-                .ok_or(CaptureError::InvalidSessionId)?
-                .to_string(),
-        ),
+        session_id: Some(session_id_str.to_string()),
     };
 
     let event = CapturedEvent {

@@ -345,7 +345,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         return self.get_event_query()
 
-    def to_actors_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+    def to_actors_query(self) -> ast.SelectQuery:
         assert self.correlation_actors_query is not None
 
         if self.query.funnelCorrelationType == FunnelCorrelationResultsType.PROPERTIES:
@@ -362,7 +362,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         else:
             return self.events_actor_query()
 
-    def events_actor_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+    def events_actor_query(self) -> ast.SelectQuery:
         assert self.correlation_actors_query is not None
 
         if not self.correlation_actors_query.funnelCorrelationPersonEntity:
@@ -421,9 +421,9 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                 "date_to": date_to,
             },
         )
+        assert isinstance(query, ast.SelectQuery)
 
         if prop_query:
-            assert isinstance(query, ast.SelectQuery)
             assert isinstance(query.where, ast.And)
             query.where.exprs = [*query.where.exprs, prop_query]
 
@@ -431,7 +431,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
     def properties_actor_query(
         self,
-    ) -> ast.SelectQuery | ast.SelectSetQuery:
+    ) -> ast.SelectQuery:
         assert self.correlation_actors_query is not None
 
         if not self.correlation_actors_query.funnelCorrelationPropertyValues:
@@ -467,6 +467,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         """,
             placeholders={"funnel_persons_query": funnel_persons_query},
         )
+        assert isinstance(query, ast.SelectQuery)
 
         return query
 

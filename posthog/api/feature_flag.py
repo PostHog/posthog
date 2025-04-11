@@ -371,6 +371,7 @@ class FeatureFlagSerializer(
         validated_data["created_by"] = request.user
         validated_data["last_modified_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
+        validated_data["version"] = 1  # This is the first version of the feature flag
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
         creation_context = validated_data.pop(
             "creation_context", "feature_flags"
@@ -638,6 +639,7 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "active",
             "ensure_experience_continuity",
             "has_encrypted_payloads",
+            "version",
         ]
 
 
@@ -1093,11 +1095,14 @@ class FeatureFlagViewSet(
     def remote_config(self, request: request.Request, **kwargs):
         is_flag_id_provided = kwargs["pk"].isdigit()
 
-        feature_flag = (
-            FeatureFlag.objects.get(pk=kwargs["pk"])
-            if is_flag_id_provided
-            else FeatureFlag.objects.get(key=kwargs["pk"], team__project_id=self.project_id)
-        )
+        try:
+            feature_flag = (
+                FeatureFlag.objects.get(pk=kwargs["pk"])
+                if is_flag_id_provided
+                else FeatureFlag.objects.get(key=kwargs["pk"], team__project_id=self.project_id)
+            )
+        except FeatureFlag.DoesNotExist:
+            return Response("", status=status.HTTP_404_NOT_FOUND)
 
         if not feature_flag.is_remote_configuration:
             return Response("", status=status.HTTP_404_NOT_FOUND)

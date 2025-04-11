@@ -1,14 +1,23 @@
 import {
     DataTableNode,
     DateRange,
-    ErrorTrackingIssue,
     ErrorTrackingQuery,
-    ErrorTrackingSparklineConfig,
     EventsQuery,
     InsightVizNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, BaseMathType, ChartDisplayType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
+import {
+    AnyPropertyFilter,
+    BaseMathType,
+    ChartDisplayType,
+    EventPropertyFilter,
+    PropertyFilterType,
+    PropertyGroupFilter,
+    PropertyOperator,
+    UniversalFiltersGroup,
+} from '~/types'
+
+import { resolveDateRange, SEARCHABLE_EXCEPTION_PROPERTIES } from './utils'
 
 export const errorTrackingQuery = ({
     orderBy,
@@ -18,16 +27,17 @@ export const errorTrackingQuery = ({
     filterTestAccounts,
     filterGroup,
     searchQuery,
-    customVolume,
+    volumeResolution = 0,
     columns,
+    orderDirection,
     limit = 50,
 }: Pick<
     ErrorTrackingQuery,
-    'orderBy' | 'status' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit' | 'searchQuery'
+    'orderBy' | 'status' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit' | 'searchQuery' | 'orderDirection'
 > & {
     filterGroup: UniversalFiltersGroup
-    customVolume?: ErrorTrackingSparklineConfig | null
     columns: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee')[]
+    volumeResolution?: number
 }): DataTableNode => {
     return {
         kind: NodeKind.DataTableNode,
@@ -35,13 +45,14 @@ export const errorTrackingQuery = ({
             kind: NodeKind.ErrorTrackingQuery,
             orderBy,
             status,
-            dateRange,
+            dateRange: resolveDateRange(dateRange).toDateRange(),
             assignee,
-            customVolume,
+            volumeResolution,
             filterGroup: filterGroup as PropertyGroupFilter,
             filterTestAccounts: filterTestAccounts,
             searchQuery: searchQuery,
             limit: limit,
+            orderDirection,
         },
         showActions: false,
         showTimings: false,
@@ -52,43 +63,69 @@ export const errorTrackingQuery = ({
 export const errorTrackingIssueQuery = ({
     issueId,
     dateRange,
-    customVolume,
+    filterGroup,
+    filterTestAccounts,
+    searchQuery,
+    volumeResolution = 0,
 }: {
     issueId: string
     dateRange: DateRange
-    customVolume?: ErrorTrackingSparklineConfig | null
+    filterGroup?: UniversalFiltersGroup
+    filterTestAccounts: boolean
+    searchQuery?: string
+    volumeResolution?: number
 }): ErrorTrackingQuery => {
     return {
         kind: NodeKind.ErrorTrackingQuery,
         issueId,
-        dateRange,
-        filterTestAccounts: false,
-        customVolume,
+        dateRange: resolveDateRange(dateRange).toDateRange(),
+        filterGroup: filterGroup as PropertyGroupFilter,
+        filterTestAccounts,
+        searchQuery,
+        volumeResolution,
     }
 }
 
 export const errorTrackingIssueEventsQuery = ({
-    issue,
+    issueId,
     filterTestAccounts,
     filterGroup,
+    searchQuery,
     dateRange,
 }: {
-    issue: ErrorTrackingIssue | null
+    issueId: string | null
     filterTestAccounts: boolean
     filterGroup: UniversalFiltersGroup
+    searchQuery: string
     dateRange: DateRange
 }): DataTableNode | null => {
-    if (!issue) {
+    if (!issueId) {
         return null
+    }
+    if (!dateRange.date_from) {
+        throw new Error('date_from is required')
     }
 
     // const select = ['person', 'timestamp', 'recording_button(properties.$session_id)']
     // row expansion only works when you fetch the entire event with '*'
     const columns = ['*', 'person', 'timestamp', 'recording_button(properties.$session_id)']
-
     const group = filterGroup.values[0] as UniversalFiltersGroup
-    const properties = group.values as AnyPropertyFilter[]
-    const where = [`'${issue.id}' == issue_id`]
+    const properties = [...group.values] as AnyPropertyFilter[]
+
+    if (searchQuery) {
+        properties.push(
+            ...SEARCHABLE_EXCEPTION_PROPERTIES.map(
+                (prop): EventPropertyFilter => ({
+                    type: PropertyFilterType.Event,
+                    operator: PropertyOperator.IContains,
+                    key: prop,
+                    value: searchQuery,
+                })
+            )
+        )
+    }
+
+    const where = [`'${issueId}' == issue_id`]
 
     const eventsQuery: EventsQuery = {
         kind: NodeKind.EventsQuery,
@@ -97,7 +134,7 @@ export const errorTrackingIssueEventsQuery = ({
         where,
         properties,
         filterTestAccounts: filterTestAccounts,
-        after: dateRange.date_from || issue.first_seen,
+        after: dateRange.date_from,
         before: dateRange.date_to || undefined,
     }
 

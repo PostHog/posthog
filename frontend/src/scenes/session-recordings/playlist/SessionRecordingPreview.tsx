@@ -5,10 +5,8 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
@@ -134,11 +132,8 @@ function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
 }
 
 function PinnedIndicator(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
-    const description = isTestingSaved ? 'saved' : 'pinned'
     return (
-        <Tooltip placement="top-end" title={<>This recording is {description} to this list.</>}>
+        <Tooltip placement="top-end" title={<>This recording is pinned to this list.</>}>
             <IconPinFilled className="text-sm text-orange shrink-0" />
         </Tooltip>
     )
@@ -214,7 +209,7 @@ export function SessionRecordingPreview({
             >
                 <div className="grow overflow-hidden deprecated-space-y-1">
                     <div className="flex items-center justify-between gap-x-0.5">
-                        <div className="flex overflow-hidden font-medium text-link ph-no-capture">
+                        <div className="flex overflow-hidden font-medium ph-no-capture">
                             <span className="truncate">{asDisplay(recording.person)}</span>
                         </div>
 

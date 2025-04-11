@@ -26,15 +26,16 @@ export interface ProductConfigurationSelect extends ProductConfigOptionBase {
     /** Sets the initial value. Use a team setting to reflect current state, or a static value to set a default. */
     value: string | number | null
     selectOptions: LemonSelectOptions<any>
+    onChange?: (value: string | number | null) => Partial<TeamType>
 }
 
 export type ProductConfigOption = ProductConfigurationToggle | ProductConfigurationSelect
 
 export const onboardingProductConfigurationLogic = kea<onboardingProductConfigurationLogicType>([
     path(() => ['scenes', 'onboarding', 'onboardingProductConfigurationLogic']),
-    connect({
+    connect(() => ({
         actions: [teamLogic, ['updateCurrentTeam']],
-    }),
+    })),
     actions({
         setConfigOptions: (configOptions: ProductConfigOption[]) => ({ configOptions }),
         saveConfiguration: true,
@@ -49,13 +50,20 @@ export const onboardingProductConfigurationLogic = kea<onboardingProductConfigur
     })),
     listeners(({ values, actions }) => ({
         saveConfiguration: async () => {
-            const updateConfig = {}
+            const updateConfig: Record<string, any> = {}
+
             values.configOptions.forEach((configOption) => {
-                updateConfig[configOption.teamProperty] = configOption.inverseToggle
-                    ? !configOption.value
-                    : configOption.value
+                if (configOption.onChange) {
+                    const changes = configOption.onChange(configOption.value)
+                    Object.assign(updateConfig, changes)
+                } else {
+                    const value = configOption.inverseToggle ? !configOption.value : configOption.value
+
+                    updateConfig[configOption.teamProperty] = value
+                }
             })
-            actions.updateCurrentTeam(updateConfig)
+
+            actions.updateCurrentTeam(updateConfig as Partial<TeamType>)
         },
     })),
 ])

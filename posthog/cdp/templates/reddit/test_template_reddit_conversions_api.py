@@ -9,6 +9,8 @@ TEST_PIXEL_ID = "pixel12345"
 TEST_CONVERSION_ACCESS_TOKEN = "test_access_token"
 TEST_EVENT_ID = "0194ff28-77c9-798a-88d5-7225f3d9a5a6"
 TEST_EVENT_TIMESTAMP = 1739463203210
+TEST_SCREEN_DIMENSIONS = {"width": 1920, "height": 1080}
+TEST_HASH_USER_AGENT = "test_hashed_user_agent"
 
 
 class TestTemplateRedditAds(BaseHogFunctionTemplateTest):
@@ -18,7 +20,11 @@ class TestTemplateRedditAds(BaseHogFunctionTemplateTest):
         inputs = {
             "accountId": TEST_PIXEL_ID,
             "conversionsAccessToken": TEST_CONVERSION_ACCESS_TOKEN,
-            "userProperties": {"email": TEST_EMAIL},
+            "userProperties": {
+                "email": TEST_EMAIL,
+                "screen_dimensions": TEST_SCREEN_DIMENSIONS,
+                "user_agent": TEST_HASH_USER_AGENT,
+            },
             "eventTime": TEST_EVENT_TIMESTAMP,
         }
         inputs.update(kwargs)
@@ -54,7 +60,11 @@ class TestTemplateRedditAds(BaseHogFunctionTemplateTest):
                                     "products": [{"product_id": "product12345"}],
                                 },
                                 "event_type": {"tracking_type": "PageVisit"},
-                                "user": {"email": "test@example.com"},
+                                "user": {
+                                    "email": "test@example.com",
+                                    "screen_dimensions": {"height": 1080, "width": 1920},
+                                    "user_agent": "test_hashed_user_agent",
+                                },
                             }
                         ],
                         "test_mode": False,

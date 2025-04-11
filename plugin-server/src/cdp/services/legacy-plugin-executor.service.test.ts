@@ -14,11 +14,16 @@ import {
 } from '../_tests/fixtures'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { LegacyDestinationPlugin, LegacyTransformationPlugin } from '../legacy-plugins/types'
-import { HogFunctionInvocation, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
+import { HogFunctionInvocation, HogFunctionInvocationGlobalsWithInputs, HogFunctionType, LogEntry } from '../types'
 import { LegacyPluginExecutorService } from './legacy-plugin-executor.service'
 
 jest.setTimeout(1000)
 
+const getLogMessages = (logs: LogEntry[]) => {
+    return logs.map((l) => {
+        return l.message.replace(/\d+\.\d+ms/, 'REPLACED-TIME-ms')
+    })
+}
 /**
  * NOTE: The internal and normal events consumers are very similar so we can test them together
  */
@@ -125,7 +130,7 @@ describe('LegacyPluginExecutorService', () => {
                 service.execute(createInvocation(fn, globals)),
             ])
 
-            expect(service['pluginState'][fn.id]).toBeDefined()
+            expect(service['pluginState'][fn.id]).toBeTruthy()
 
             expect(await results).toMatchObject([{ finished: true }, { finished: true }, { finished: true }])
 
@@ -178,17 +183,11 @@ describe('LegacyPluginExecutorService', () => {
             expect(customerIoPlugin.onEvent).toHaveBeenCalledTimes(1)
             expect(forSnapshot(jest.mocked(customerIoPlugin.onEvent!).mock.calls[0][0])).toMatchInlineSnapshot(`
                 {
+                  "$set": undefined,
+                  "$set_once": undefined,
                   "distinct_id": "distinct_id",
                   "event": "mycustomevent",
-                  "person": {
-                    "created_at": "",
-                    "properties": {
-                      "email": "test@posthog.com",
-                      "first_name": "Pumpkin",
-                    },
-                    "team_id": 2,
-                    "uuid": "uuid",
-                  },
+                  "ip": null,
                   "properties": {
                     "email": "test@posthog.com",
                   },
@@ -205,6 +204,7 @@ describe('LegacyPluginExecutorService', () => {
                   [
                     "https://api.customer.io/v1/api/info/ip_addresses",
                     {
+                      "body": undefined,
                       "headers": {
                         "Authorization": "Basic MTIzNDU2Nzg5MDpjaW8tdG9rZW4=",
                         "User-Agent": "PostHog Customer.io App",
@@ -215,7 +215,7 @@ describe('LegacyPluginExecutorService', () => {
                   [
                     "https://track.customer.io/api/v1/customers/distinct_id",
                     {
-                      "body": "{"_update":false,"identifier":"distinct_id","email":"test@posthog.com"}",
+                      "body": "{"_update":false,"identifier":"distinct_id"}",
                       "headers": {
                         "Authorization": "Basic MTIzNDU2Nzg5MDpjaW8tdG9rZW4=",
                         "Content-Type": "application/json",
@@ -240,12 +240,43 @@ describe('LegacyPluginExecutorService', () => {
             `)
 
             expect(res.finished).toBe(true)
-            expect(res.logs.map((l) => l.message)).toMatchInlineSnapshot(`
+            expect(getLogMessages(res.logs)).toMatchInlineSnapshot(`
                 [
                   "Successfully authenticated with Customer.io. Completing setupPlugin.",
-                  "Detected email, test@posthog.com",
-                  "{"status":{},"existsAlready":false,"email":"test@posthog.com"}",
+                  "Detected email, null",
+                  "{"status":{},"existsAlready":false,"email":null}",
                   "true",
+                  "Function completed in REPLACED-TIME-ms.",
+                ]
+            `)
+        })
+
+        it('should mock out fetch if it is a test function', async () => {
+            jest.spyOn(customerIoPlugin, 'onEvent')
+
+            const invocation = createInvocation(fn, globals)
+            invocation.hogFunction.name = 'My function [CDP-TEST-HIDDEN]'
+            invocation.globals.event.event = 'mycustomevent'
+            invocation.globals.event.properties = {
+                email: 'test@posthog.com',
+            }
+
+            const res = await service.execute(invocation)
+
+            // NOTE: Setup call is not mocked
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+
+            expect(customerIoPlugin.onEvent).toHaveBeenCalledTimes(1)
+
+            expect(forSnapshot(getLogMessages(res.logs))).toMatchInlineSnapshot(`
+                [
+                  "Successfully authenticated with Customer.io. Completing setupPlugin.",
+                  "Detected email, null",
+                  "{"status":{},"existsAlready":false,"email":null}",
+                  "true",
+                  "Fetch called but mocked due to test function, {"url":"https://track.customer.io/api/v1/customers/distinct_id","method":"PUT"}",
+                  "Fetch called but mocked due to test function, {"url":"https://track.customer.io/api/v1/customers/distinct_id/events","method":"POST"}",
+                  "Function completed in REPLACED-TIME-ms.",
                 ]
             `)
         })
@@ -275,11 +306,11 @@ describe('LegacyPluginExecutorService', () => {
             expect(customerIoPlugin.onEvent).toHaveBeenCalledTimes(1)
 
             expect(res.error).toBeInstanceOf(Error)
-            expect(forSnapshot(res.logs.map((l) => l.message))).toMatchInlineSnapshot(`
+            expect(forSnapshot(getLogMessages(res.logs))).toMatchInlineSnapshot(`
                 [
                   "Successfully authenticated with Customer.io. Completing setupPlugin.",
-                  "Detected email, test@posthog.com",
-                  "{"status":{},"existsAlready":false,"email":"test@posthog.com"}",
+                  "Detected email, null",
+                  "{"status":{},"existsAlready":false,"email":null}",
                   "true",
                   "Plugin execution failed: Received a potentially intermittent error from the Customer.io API. Response 500: {}",
                 ]
@@ -328,8 +359,11 @@ describe('LegacyPluginExecutorService', () => {
                 expect(res.error).toBeUndefined()
                 expect(forSnapshot(res.execResult)).toMatchInlineSnapshot(`
                     {
+                      "$set": undefined,
+                      "$set_once": undefined,
                       "distinct_id": "distinct_id",
                       "event": "dont-drop-me",
+                      "ip": undefined,
                       "properties": {
                         "email": "test@posthog.com",
                       },
@@ -377,8 +411,11 @@ describe('LegacyPluginExecutorService', () => {
                 expect(res.error).toBeUndefined()
                 expect(forSnapshot(res.execResult)).toMatchInlineSnapshot(`
                     {
+                      "$set": undefined,
+                      "$set_once": undefined,
                       "distinct_id": "distinct_id",
                       "event": "$pageview",
+                      "ip": undefined,
                       "properties": {
                         "version": "1.12.20",
                         "version__major": 1,
@@ -437,7 +474,7 @@ describe('LegacyPluginExecutorService', () => {
                 invocation.globals.inputs.legacy_plugin_config_id = pluginConfig.id
             }
             const res = await service.execute(invocation)
-            expect(res.logs.map((l) => l.message)).toMatchSnapshot()
+            expect(getLogMessages(res.logs)).toMatchSnapshot()
         })
 
         const testCasesTransformation = Object.entries(TRANSFORMATION_PLUGINS_BY_ID).map(([pluginId, plugin]) => ({
@@ -451,7 +488,7 @@ describe('LegacyPluginExecutorService', () => {
             invocation.hogFunction.type = 'transformation'
             invocation.globals.event.event = '$pageview'
             const res = await service.execute(invocation)
-            expect(res.logs.map((l) => l.message)).toMatchSnapshot()
+            expect(getLogMessages(res.logs)).toMatchSnapshot()
         })
     })
 

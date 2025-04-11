@@ -7,10 +7,10 @@ from typing import Literal, Optional, Union, cast
 
 from prometheus_client import Counter
 from django.conf import settings
-from django.db import DatabaseError, IntegrityError, DataError
+from django.db import DatabaseError, IntegrityError
 from django.db.models.expressions import ExpressionWrapper, RawSQL
 from django.db.models.fields import BooleanField
-from django.db.models import Q, Func, F, CharField
+from django.db.models import Q, Func, F, CharField, Expression
 from django.db.models.query import QuerySet
 from sentry_sdk.api import start_span
 from posthog.metrics import LABEL_TEAM_ID
@@ -28,7 +28,6 @@ from posthog.models.team.team import Team
 from posthog.models.utils import execute_with_timeout
 from posthog.queries.base import match_property, properties_to_Q, sanitize_property_key
 from posthog.database_healthcheck import (
-    postgres_healthcheck,
     DATABASE_FOR_FLAG_MATCHING,
 )
 from posthog.utils import label_for_team_id_to_track
@@ -45,7 +44,7 @@ logger = structlog.get_logger(__name__)
 
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 
-FLAG_MATCHING_QUERY_TIMEOUT_MS = 300  # 300 ms. Any longer and we'll just error out.
+FLAG_MATCHING_QUERY_TIMEOUT_MS = 500  # 500 ms. Any longer and we'll just error out.
 
 FLAG_EVALUATION_ERROR_COUNTER = Counter(
     "flag_evaluation_error_total",
@@ -78,21 +77,22 @@ class FeatureFlagMatchReason(StrEnum):
     OUT_OF_ROLLOUT_BOUND = "out_of_rollout_bound"
     NO_GROUP_TYPE = "no_group_type"
 
-    def score(self):
-        if self == FeatureFlagMatchReason.SUPER_CONDITION_VALUE:
-            return 4
-        if self == FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE:
-            return 3.5
-        if self == FeatureFlagMatchReason.CONDITION_MATCH:
-            return 3
-        if self == FeatureFlagMatchReason.NO_GROUP_TYPE:
-            return 2
-        if self == FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND:
-            return 1
-        if self == FeatureFlagMatchReason.NO_CONDITION_MATCH:
-            return 0
-
-        return -1
+    def score(self) -> float:
+        match self:
+            case FeatureFlagMatchReason.SUPER_CONDITION_VALUE:
+                return 4
+            case FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE:
+                return 3.5
+            case FeatureFlagMatchReason.CONDITION_MATCH:
+                return 3
+            case FeatureFlagMatchReason.NO_GROUP_TYPE:
+                return 2
+            case FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND:
+                return 1
+            case FeatureFlagMatchReason.NO_CONDITION_MATCH:
+                return 0
+            case _:
+                raise AssertionError("Unreachable - all enum cases are handled")
 
     def __lt__(self, other):
         if self.__class__ is other.__class__:
@@ -110,6 +110,14 @@ class FeatureFlagMatch:
     payload: Optional[object] = None
 
 
+@dataclass(frozen=True)
+class FeatureFlagDetails:
+    match: FeatureFlagMatch
+    id: int = 0
+    version: int = 0
+    description: Optional[str] = None
+
+
 class FlagsMatcherCache:
     def __init__(self, project_id: int):
         self.project_id = project_id
@@ -124,8 +132,9 @@ class FlagsMatcherCache:
                 group_type_mapping_rows = GroupTypeMapping.objects.db_manager(DATABASE_FOR_FLAG_MATCHING).filter(
                     project_id=self.project_id
                 )
-                return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
-        except DatabaseError:
+                return {row.group_type: cast(GroupTypeIndex, row.group_type_index) for row in group_type_mapping_rows}
+        except DatabaseError as e:
+            logger.exception("group_types_to_indexes database error", error=str(e), exc_info=True)
             self.failed_to_fetch_flags = True
             raise
 
@@ -267,7 +276,12 @@ class FeatureFlagMatcher:
             payload=None,
         )
 
-    def get_matches(self) -> tuple[dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool]:
+    def get_matches_with_details(
+        self,
+    ) -> tuple[
+        dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool, Optional[dict[str, FeatureFlagDetails]]
+    ]:
+        flags_details = {}
         flag_values = {}
         flag_evaluation_reasons = {}
         faced_error_computing_flags = False
@@ -280,6 +294,14 @@ class FeatureFlagMatcher:
                     continue
             try:
                 flag_match = self.get_match(feature_flag)
+
+                flags_details[feature_flag.key] = FeatureFlagDetails(
+                    match=flag_match,
+                    id=feature_flag.id,
+                    version=feature_flag.version or 1,
+                    description=feature_flag.name,
+                )
+
                 if flag_match.match:
                     flag_values[feature_flag.key] = flag_match.variant or True
                 else:
@@ -301,14 +323,14 @@ class FeatureFlagMatcher:
             flag_evaluation_reasons,
             flag_payloads,
             faced_error_computing_flags,
+            flags_details,
         )
 
     def get_matching_variant(self, feature_flag: FeatureFlag) -> Optional[str]:
+        # Calculate hash once outside the loop since it's the same for all variants
+        variant_hash = self.get_hash(feature_flag, salt="variant")
         for variant in self.variant_lookup_table(feature_flag):
-            if (
-                self.get_hash(feature_flag, salt="variant") >= variant["value_min"]
-                and self.get_hash(feature_flag, salt="variant") < variant["value_max"]
-            ):
+            if variant_hash >= variant["value_min"] and variant_hash < variant["value_max"]:
                 return variant["key"]
         return None
 
@@ -578,7 +600,7 @@ class FeatureFlagMatcher:
                                     **type_property_annotations,
                                     **{
                                         key: ExpressionWrapper(
-                                            expr if expr else RawSQL("true", []),
+                                            cast(Expression, expr if expr else RawSQL("true", [])),
                                             output_field=BooleanField(),
                                         ),
                                     },
@@ -599,9 +621,9 @@ class FeatureFlagMatcher:
                                     **type_property_annotations,
                                     **{
                                         key: ExpressionWrapper(
-                                            expr if expr else RawSQL("true", []),
+                                            cast(Expression, expr if expr else RawSQL("true", [])),
                                             output_field=BooleanField(),
-                                        )
+                                        ),
                                     },
                                 )
                                 group_fields.append(key)
@@ -668,7 +690,8 @@ class FeatureFlagMatcher:
                                     ), f"Expected 1 group query result, got {len(group_query)}"
                                     all_conditions = {**all_conditions, **group_query[0]}
                     return all_conditions
-        except DatabaseError:
+        except DatabaseError as e:
+            logger.exception("query_conditions database error", error=str(e), exc_info=True)
             self.failed_to_fetch_conditions = True
             raise
         except Exception:
@@ -695,6 +718,8 @@ class FeatureFlagMatcher:
             # TODO: Don't use the cache if self.groups is empty, since that means no groups provided anyway
             # :TRICKY: If aggregating by groups
             group_type_name = self.cache.group_type_index_to_name.get(feature_flag.aggregation_group_type_index)
+            if group_type_name is None:
+                return None
             group_key = self.groups.get(group_type_name)
             return group_key
 
@@ -703,16 +728,23 @@ class FeatureFlagMatcher:
     # uniformly distributed between 0 and 1, so if we want to show this feature to 20% of traffic
     # we can do _hash(key, identifier) < 0.2
     def get_hash(self, feature_flag: FeatureFlag, salt="") -> float:
-        hash_key = f"{feature_flag.key}.{self.hashed_identifier(feature_flag)}{salt}"
-        hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
-        return hash_val / __LONG_SCALE__
+        return self.calculate_hash(f"{feature_flag.key}.", self.hashed_identifier(feature_flag), salt)
 
     # This function takes a identifier and a feature flag and returns a float between 0 and 1.
     # Given the same identifier and key, it'll always return the same float. These floats are
     # uniformly distributed between 0 and 1, and are keyed only on user's distinct id / group key.
     # Thus, irrespective of the flag, the same user will always get the same value.
     def get_holdout_hash(self, feature_flag: FeatureFlag, salt="") -> float:
-        hash_key = f"holdout-{self.hashed_identifier(feature_flag)}{salt}"
+        return self.calculate_hash("holdout-", self.hashed_identifier(feature_flag), salt)
+
+    @classmethod
+    def calculate_hash(cls, prefix: str, hash_identifier: str | None, salt="") -> float:
+        if hash_identifier is None:
+            # Return a hash value that will make the flag evaluate to false; since we
+            # can't evaluate a flag without an identifier.
+            # NB: A flag with 0.0 hash will always evaluate to false
+            return 0
+        hash_key = f"{prefix}{hash_identifier}{salt}"
         hash_val = int(hashlib.sha1(hash_key.encode("utf-8")).hexdigest()[:15], 16)
         return hash_val / __LONG_SCALE__
 
@@ -806,7 +838,9 @@ def _get_all_feature_flags(
     property_value_overrides: Optional[dict[str, Union[str, int]]] = None,
     group_property_value_overrides: Optional[dict[str, dict[str, Union[str, int]]]] = None,
     skip_database_flags: bool = False,
-) -> tuple[dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool]:
+) -> tuple[
+    dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool, Optional[dict[str, FeatureFlagDetails]]
+]:
     if group_property_value_overrides is None:
         group_property_value_overrides = {}
     if property_value_overrides is None:
@@ -827,9 +861,9 @@ def _get_all_feature_flags(
             property_value_overrides,
             group_property_value_overrides,
             skip_database_flags,
-        ).get_matches()
+        ).get_matches_with_details()
 
-    return {}, {}, {}, False
+    return {}, {}, {}, False, None
 
 
 # Return feature flags
@@ -842,6 +876,29 @@ def get_all_feature_flags(
     group_property_value_overrides: Optional[dict[str, dict[str, Union[str, int]]]] = None,
     flag_keys: Optional[list[str]] = None,
 ) -> tuple[dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool]:
+    all_flags, reasons, payloads, errors, _ = get_all_feature_flags_with_details(
+        team,
+        distinct_id,
+        groups,
+        hash_key_override,
+        property_value_overrides,
+        group_property_value_overrides,
+        flag_keys,
+    )
+    return all_flags, reasons, payloads, errors
+
+
+def get_all_feature_flags_with_details(
+    team: Team,
+    distinct_id: str,
+    groups: Optional[dict[GroupTypeName, str]] = None,
+    hash_key_override: Optional[str] = None,
+    property_value_overrides: Optional[dict[str, Union[str, int]]] = None,
+    group_property_value_overrides: Optional[dict[str, dict[str, Union[str, int]]]] = None,
+    flag_keys: Optional[list[str]] = None,
+) -> tuple[
+    dict[str, Union[str, bool]], dict[str, dict], dict[str, object], bool, Optional[dict[str, FeatureFlagDetails]]
+]:
     if group_property_value_overrides is None:
         group_property_value_overrides = {}
     if property_value_overrides is None:
@@ -870,8 +927,7 @@ def get_all_feature_flags(
     )
 
     with start_span(op="without_experience_continuity"):
-        # check every 10 seconds whether the database is alive or not
-        is_database_alive = (not settings.DECIDE_SKIP_POSTGRES_FLAGS) and postgres_healthcheck.is_connected()
+        is_database_alive = not settings.DECIDE_SKIP_POSTGRES_FLAGS
         if not is_database_alive or not flags_have_experience_continuity_enabled:
             return _get_all_feature_flags(
                 all_feature_flags,
@@ -1082,11 +1138,6 @@ def handle_feature_flag_exception(err: Exception, log_message: str = "", set_hea
     if reason == "unknown":
         capture_exception(err)
 
-    # DataErrors are generally not because the db is down, but because of bad data.
-    # We don't want to set the healthcheck down for bad data.
-    if not isinstance(err, DataError) and isinstance(err, DatabaseError) and set_healthcheck:
-        postgres_healthcheck.set_connection(False)
-
 
 def parse_exception_for_error_message(err: Exception):
     reason = "unknown"
@@ -1201,7 +1252,7 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, project_id: int
             **type_property_annotations,
             **{
                 key: ExpressionWrapper(
-                    expr if expr else RawSQL("true", []),
+                    cast(Expression, expr if expr else RawSQL("true", [])),
                     output_field=BooleanField(),
                 ),
             },

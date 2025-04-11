@@ -2,7 +2,7 @@ use chrono::{Duration, Timelike, Utc};
 use common_kafka::kafka_messages::app_metrics2::{
     AppMetric2, Kind as AppMetric2Kind, Source as AppMetric2Source,
 };
-use cyclotron_core::{JobInit, JobState, QueueManager, Worker};
+use cyclotron_core::{JobInit, JobState, QueueManager, Worker, WorkerConfig};
 use cyclotron_janitor::{config::JanitorSettings, janitor::Janitor};
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::{ClientConfig, Message};
@@ -13,8 +13,17 @@ use common_kafka::{test::create_mock_kafka, APP_METRICS2_TOPIC};
 
 #[sqlx::test(migrations = "../cyclotron-core/migrations")]
 async fn janitor_test(db: PgPool) {
-    let worker = Worker::from_pool(db.clone(), Default::default());
-    let manager = QueueManager::from_pool(db.clone());
+    // kinda gross, but the from_pool methods are better suited to test usage
+    let default_worker_cfg = WorkerConfig::default();
+    let should_compress_vm_state = default_worker_cfg.should_compress_vm_state();
+    let should_use_bulk_job_copy = default_worker_cfg.should_use_bulk_job_copy();
+
+    let worker = Worker::from_pool(db.clone(), default_worker_cfg);
+    let manager = QueueManager::from_pool(
+        db.clone(),
+        should_compress_vm_state,
+        should_use_bulk_job_copy,
+    );
 
     // Purposefully MUCH smaller than would be used in production, so
     // we can simulate stalled or poison jobs quickly

@@ -6,6 +6,7 @@ import { CookielessServerHashMode, Hook, Hub } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { PostgresUse } from '../../../../src/utils/db/postgres'
 import { convertToPostIngestionEvent } from '../../../../src/utils/event'
+import { parseJSON } from '../../../../src/utils/json-parse'
 import { UUIDT } from '../../../../src/utils/utils'
 import { ActionManager } from '../../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../../src/worker/ingestion/action-matcher'
@@ -20,7 +21,7 @@ import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../h
 import { commonUserId } from '../../../helpers/plugins'
 import { insertRow, resetTestDatabase } from '../../../helpers/sql'
 
-jest.mock('../../../../src/utils/status')
+jest.mock('../../../../src/utils/logger')
 
 describe('Event Pipeline integration test', () => {
     let hub: Hub
@@ -235,8 +236,7 @@ describe('Event Pipeline integration test', () => {
         // and use expect.any for a few payload properties, which wouldn't be possible in a simpler way
         expect(jest.mocked(fetch).mock.calls[0][0]).toBe('https://example.com/')
         const secondArg = jest.mocked(fetch).mock.calls[0][1]
-        expect(JSON.parse(secondArg!.body as unknown as string)).toStrictEqual(expectedPayload)
-        expect(JSON.parse(secondArg!.body as unknown as string)).toStrictEqual(expectedPayload)
+        expect(parseJSON(secondArg!.body as unknown as string)).toEqual(expectedPayload)
         expect(secondArg!.headers).toStrictEqual({ 'Content-Type': 'application/json' })
         expect(secondArg!.method).toBe('POST')
     })
@@ -306,7 +306,7 @@ describe('Event Pipeline integration test', () => {
         }
         expect(events.length).toEqual(2)
         expect(events[0].distinct_id.slice(0, 11)).toEqual('cookieless_') // should have set a distict id
-        expect(events[0].properties.$session_id).toBeDefined() // should have set a session id
+        expect(events[0].properties.$session_id).toBeTruthy() // should have set a session id
         expect(events[0].properties.$raw_user_agent).toBeUndefined() // should have removed personal data
         expect(events[0].distinct_id).toEqual(events[1].distinct_id) // events with the same hash should be assigned to the same user
         expect(events[0].properties.$session_id).toEqual(events[1].properties.$session_id)

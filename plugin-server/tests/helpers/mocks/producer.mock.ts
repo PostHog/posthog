@@ -1,4 +1,5 @@
 import { KafkaProducerWrapper, TopicMessage } from '../../../src/kafka/producer'
+import { parseJSON } from '../../../src/utils/json-parse'
 
 export type ParsedTopicMessage = {
     topic: string
@@ -70,7 +71,7 @@ export const getParsedQueuedMessages = (): ParsedTopicMessage[] => {
         topic: topicMessage.topic,
         messages: topicMessage.messages.map((message) => ({
             key: typeof message.key === 'string' ? message.key : null,
-            value: message.value ? JSON.parse(message.value.toString()) : null,
+            value: message.value ? parseJSON(message.value.toString()) : null,
         })),
     }))
 }

@@ -2,6 +2,9 @@ import { LemonDivider, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'kea-forms'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconAreaChart, IconComment, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
 import { SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
@@ -15,123 +18,107 @@ function SurveySchedule(): JSX.Element {
     const { survey } = useValues(surveyLogic)
     if (survey.schedule === SurveyScheduleEnum.Recurring && survey.iteration_count && survey.iteration_frequency_days) {
         return (
-            <>
-                <span className="card-secondary">Schedule</span>
-                <span>
-                    Repeats every {survey.iteration_frequency_days}{' '}
-                    {pluralize(survey.iteration_frequency_days, 'day', 'days', false)}, {survey.iteration_count}{' '}
-                    {pluralize(survey.iteration_count, 'time', 'times', false)}
-                </span>
-            </>
+            <span>
+                Repeats every {survey.iteration_frequency_days}{' '}
+                {pluralize(survey.iteration_frequency_days, 'day', 'days', false)}, {survey.iteration_count}{' '}
+                {pluralize(survey.iteration_count, 'time', 'times', false)}
+            </span>
         )
     }
 
     if (survey.schedule === SurveyScheduleEnum.Always) {
-        return (
-            <>
-                <span className="card-secondary">Schedule</span>
-                <span>Always</span>
-            </>
-        )
+        return <span>Always</span>
     }
 
     // Default case: survey is scheduled to run once
+    return <span>Once</span>
+}
+
+function SurveyOption({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
     return (
-        <>
-            <span className="card-secondary">Schedule</span>
-            <span>Once</span>
-        </>
+        <div className="flex flex-col">
+            <dt className="card-secondary">{label}</dt>
+            <dd>{children}</dd>
+        </div>
     )
+}
+
+const QuestionIconMap = {
+    [SurveyQuestionType.Open]: <IconComment className="text-muted" />,
+    [SurveyQuestionType.Link]: <IconLink className="text-muted" />,
+    [SurveyQuestionType.Rating]: <IconAreaChart className="text-muted" />,
+    [SurveyQuestionType.SingleChoice]: <IconListView className="text-muted" />,
+    [SurveyQuestionType.MultipleChoice]: <IconGridView className="text-muted" />,
 }
 
 export function SurveyOverview(): JSX.Element {
     const { survey, selectedPageIndex, targetingFlagFilters } = useValues(surveyLogic)
     const { setSelectedPageIndex } = useActions(surveyLogic)
     const { surveyUsesLimit, surveyUsesAdaptiveLimit } = useValues(surveyLogic)
-
+    const { featureFlags } = useValues(enabledFeaturesLogic)
     return (
-        <div className="flex flex-row">
-            <div className="flex flex-col w-full">
-                <span className="mt-4 card-secondary">Display mode</span>
-                <span>
+        <div className="flex gap-4">
+            <dl className="flex flex-col gap-4 flex-1 overflow-hidden">
+                <SurveyOption label="Display mode">
                     {survey.type === SurveyType.API ? survey.type.toUpperCase() : capitalizeFirstLetter(survey.type)}
-                </span>
-                {survey.questions[0].question && (
-                    <>
-                        <span className="mt-4 card-secondary">Type</span>
-                        <span>{SurveyQuestionLabel[survey.questions[0].type]}</span>
-                        <span className="mt-4 card-secondary">
-                            {pluralize(survey.questions.length, 'Question', 'Questions', false)}
-                        </span>
-                        {survey.questions.map((q, idx) => (
-                            <li key={q.id ?? idx}>{q.question}</li>
-                        ))}
-                    </>
-                )}
-                {survey.questions[0].type === SurveyQuestionType.Link && (
-                    <>
-                        <span className="mt-4 card-secondary">Link url</span>
-                        <span>{survey.questions[0].link}</span>
-                    </>
-                )}
-                <div className="flex flex-row gap-8">
-                    {survey.start_date && (
-                        <div className="flex flex-col">
-                            <span className="mt-4 card-secondary">Start date</span>
-                            <TZLabel time={survey.start_date} />
-                        </div>
-                    )}
-                    {survey.end_date && (
-                        <div className="flex flex-col">
-                            <span className="mt-4 card-secondary">End date</span>
-                            <TZLabel time={survey.end_date} />
-                        </div>
-                    )}
-                </div>
-                <div className="flex flex-row gap-8">
-                    <div className="flex flex-col mt-4">
-                        <SurveySchedule />
+                </SurveyOption>
+                <SurveyOption label={pluralize(survey.questions.length, 'Question', 'Questions', false)}>
+                    {survey.questions.map((q, idx) => {
+                        return (
+                            <div key={q.id ?? idx} className="flex flex-col lg:gap-4 lg:flex-row justify-between">
+                                <span className="flex-1 truncate">
+                                    {idx + 1}. {q.question}
+                                </span>
+                                <span className="flex items-center gap-1 text-xs text-muted">
+                                    {QuestionIconMap[q.type]}
+                                    {SurveyQuestionLabel[q.type]}
+                                </span>
+                            </div>
+                        )
+                    })}
+                </SurveyOption>
+                {(survey.start_date || survey.end_date) && (
+                    <div className="flex gap-16">
+                        {survey.start_date && (
+                            <SurveyOption label="Start date">
+                                <TZLabel time={survey.start_date} />
+                            </SurveyOption>
+                        )}
+                        {survey.end_date && (
+                            <SurveyOption label="End date">
+                                <TZLabel time={survey.end_date} />
+                            </SurveyOption>
+                        )}
                     </div>
-                </div>
+                )}
+                <SurveyOption label="Schedule">
+                    <SurveySchedule />
+                </SurveyOption>
                 {surveyUsesLimit && (
-                    <>
-                        <span className="mt-4 card-secondary">Completion conditions</span>
-                        <span>
-                            The survey will be stopped once <b>{survey.responses_limit}</b> responses are received.
-                        </span>
-                    </>
+                    <SurveyOption label="Completion conditions">
+                        The survey will be stopped once <b>{survey.responses_limit}</b> responses are received.
+                    </SurveyOption>
                 )}
                 {surveyUsesAdaptiveLimit && (
-                    <>
-                        <span className="mt-4 card-secondary">Completion conditions</span>
+                    <SurveyOption label="Completion conditions">
                         <span>
                             Survey response collection is limited to receive <b>{survey.response_sampling_limit}</b>{' '}
                             responses every {survey.response_sampling_interval} {survey.response_sampling_interval_type}
                             (s).
                         </span>
-                    </>
+                    </SurveyOption>
+                )}
+                {featureFlags[FEATURE_FLAGS.SURVEYS_PARTIAL_RESPONSES] && (
+                    <SurveyOption label="Partial responses">
+                        {survey.enable_partial_responses ? 'Enabled' : 'Disabled'}
+                    </SurveyOption>
                 )}
                 <LemonDivider />
                 <SurveyDisplaySummary id={survey.id} survey={survey} targetingFlagFilters={targetingFlagFilters} />
-            </div>
-            <div className="flex flex-col items-center w-full">
-                {survey.type === SurveyType.API && (
-                    <div className="p-4 border rounded">
-                        <div className="flex flex-row items-center w-full gap-1">
-                            Learn how to set up API surveys{' '}
-                            <Link
-                                data-attr="survey-doc-link"
-                                target="_blank"
-                                to="https://posthog.com/docs/surveys/implementing-custom-surveys"
-                                targetBlankIcon
-                            >
-                                in the docs
-                            </Link>
-                        </div>
-                    </div>
-                )}
+            </dl>
+            <div className="flex flex-col items-center">
                 {survey.type !== SurveyType.API ? (
-                    <div className="mt-6 max-w-72">
+                    <div className="mt-6 px-4">
                         <SurveyFormAppearance
                             previewPageIndex={selectedPageIndex || 0}
                             survey={survey}
@@ -139,7 +126,21 @@ export function SurveyOverview(): JSX.Element {
                         />
                     </div>
                 ) : (
-                    <div className="mt-2">
+                    <div className="mt-2 space-y-2">
+                        <div className="p-4 border rounded">
+                            <div className="flex flex-row items-center w-full gap-1">
+                                Learn how to set up API surveys{' '}
+                                <Link
+                                    data-attr="survey-doc-link"
+                                    target="_blank"
+                                    to="https://posthog.com/docs/surveys/implementing-custom-surveys"
+                                    targetBlankIcon
+                                >
+                                    in the docs
+                                </Link>
+                            </div>
+                        </div>
+
                         <SurveyAPIEditor survey={survey} />
                     </div>
                 )}

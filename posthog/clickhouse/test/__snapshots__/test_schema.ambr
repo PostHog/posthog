@@ -759,6 +759,7 @@
       , $group_4 VARCHAR COMMENT 'column_materializer::$group_4'
       , $window_id VARCHAR COMMENT 'column_materializer::$window_id'
       , $session_id VARCHAR COMMENT 'column_materializer::$session_id'
+      , $session_id_uuid Nullable(UInt128)
       , elements_chain_href String COMMENT 'column_materializer::elements_chain::href'
       , elements_chain_texts Array(String) COMMENT 'column_materializer::elements_chain::texts'
       , elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids'
@@ -1971,6 +1972,27 @@
   
   '''
 # ---
+# name: test_create_table_query[pg_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS pg_embeddings ON CLUSTER 'posthog'
+  (
+      domain String,
+      team_id Int64,
+      id String,
+      vector Array(Float32),
+      text String,
+      properties VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
+      is_deleted UInt8,
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.pg_embeddings', '{replica}-{shard}', timestamp, is_deleted)
+  
+      -- id for uniqueness
+      ORDER BY (team_id, domain, id)
+      SETTINGS index_granularity=512
+      
+  '''
+# ---
 # name: test_create_table_query[plugin_log_entries]
   '''
   
@@ -2443,13 +2465,15 @@
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-  
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- Other Ad / campaign / attribution IDs
       initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -2624,6 +2648,7 @@
       , $group_4 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
       , $window_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^"|"$', '') COMMENT 'column_materializer::$window_id'
       , $session_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::$session_id'
+      , $session_id_uuid Nullable(UInt128) MATERIALIZED toUInt128(JSONExtract(properties, '$session_id', 'Nullable(UUID)'))
       , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|")href="(.*?)"')
       , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"'))
       , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")attr_id="(.*?)"'))
@@ -3039,13 +3064,15 @@
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-  
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- Other Ad / campaign / attribution IDs
       initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -3277,13 +3304,15 @@
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-  
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- Other Ad / campaign / attribution IDs
       initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -3747,6 +3776,27 @@
   
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[pg_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS pg_embeddings ON CLUSTER 'posthog'
+  (
+      domain String,
+      team_id Int64,
+      id String,
+      vector Array(Float32),
+      text String,
+      properties VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
+      is_deleted UInt8,
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.pg_embeddings', '{replica}-{shard}', timestamp, is_deleted)
+  
+      -- id for uniqueness
+      ORDER BY (team_id, domain, id)
+      SETTINGS index_granularity=512
+      
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[plugin_log_entries]
   '''
   
@@ -3869,6 +3919,7 @@
       , $group_4 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
       , $window_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^"|"$', '') COMMENT 'column_materializer::$window_id'
       , $session_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::$session_id'
+      , $session_id_uuid Nullable(UInt128) MATERIALIZED toUInt128(JSONExtract(properties, '$session_id', 'Nullable(UUID)'))
       , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|")href="(.*?)"')
       , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"'))
       , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")attr_id="(.*?)"'))
@@ -4284,13 +4335,15 @@
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-  
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- Other Ad / campaign / attribution IDs
       initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),

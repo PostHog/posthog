@@ -49,7 +49,7 @@ export function InsightEmptyState({
     detail = 'Try changing the date range, or pick another action, event or breakdown.',
 }: {
     heading?: string
-    detail?: string
+    detail?: string | JSX.Element
 }): JSX.Element {
     return (
         <div
@@ -184,6 +184,8 @@ export function StatelessInsightLoadingState({
     queryId,
     pollResponse,
     suggestion,
+    setProgress,
+    progress,
     delayLoadingAnimation = false,
     loadingTimeSeconds = 0,
     renderEmptyStateAsSkeleton = false,
@@ -194,6 +196,8 @@ export function StatelessInsightLoadingState({
     delayLoadingAnimation?: boolean
     loadingTimeSeconds?: number
     renderEmptyStateAsSkeleton?: boolean
+    setProgress?: (loadId: string, progress: number) => void
+    progress?: number
 }): JSX.Element {
     const [rowsRead, setRowsRead] = useState(0)
     const [bytesRead, setBytesRead] = useState(0)
@@ -299,7 +303,7 @@ export function StatelessInsightLoadingState({
                         renderEmptyStateAsSkeleton ? 'items-start' : 'items-center'
                     )}
                 >
-                    <LoadingBar />
+                    <LoadingBar loadId={queryId} progress={progress} setProgress={setProgress} />
                     {suggestions}
                     <LoadingDetails
                         pollResponse={pollResponse}

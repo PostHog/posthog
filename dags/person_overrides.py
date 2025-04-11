@@ -12,7 +12,7 @@ from dags.common import JobOwners
 from posthog import settings
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
-    Mutation,
+    MutationWaiter,
     AlterTableMutationRunner,
     LightweightDeleteMutationRunner,
 )
@@ -110,7 +110,7 @@ class PersonOverridesSnapshotDictionary:
                 version Int64
             )
             PRIMARY KEY team_id, distinct_id
-            SOURCE(CLICKHOUSE(DB %(database)s TABLE %(table)s PASSWORD %(password)s))
+            SOURCE(CLICKHOUSE(DB %(database)s TABLE %(table)s USER %(user)s PASSWORD %(password)s))
             LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
             LIFETIME(0)
             SETTINGS(max_execution_time={max_execution_time}, max_memory_usage={max_memory_usage})
@@ -118,6 +118,7 @@ class PersonOverridesSnapshotDictionary:
             {
                 "database": settings.CLICKHOUSE_DATABASE,
                 "table": self.source.name,
+                "user": settings.CLICKHOUSE_USER,
                 "password": settings.CLICKHOUSE_PASSWORD,
             },
         )
@@ -173,7 +174,9 @@ class PersonOverridesSnapshotDictionary:
     def person_id_update_mutation_runner(self) -> AlterTableMutationRunner:
         return AlterTableMutationRunner(
             EVENTS_DATA_TABLE(),
-            "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id))",
+            {
+                "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id))"
+            },
             parameters={"name": self.qualified_name},
         )
 
@@ -326,16 +329,16 @@ def run_person_id_update_mutations(
 def start_overrides_delete_mutations(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     dictionary: PersonOverridesSnapshotDictionary,
-) -> tuple[PersonOverridesSnapshotDictionary, Mutation]:
+) -> tuple[PersonOverridesSnapshotDictionary, MutationWaiter]:
     """Start the mutation to remove overrides contained within the snapshot from the overrides table."""
-    mutation = cluster.any_host(dictionary.overrides_delete_mutation_runner.enqueue).result()
+    mutation = cluster.any_host(dictionary.overrides_delete_mutation_runner).result()
     return (dictionary, mutation)
 
 
 @dagster.op
 def wait_for_overrides_delete_mutations(
     cluster: dagster.ResourceParam[ClickhouseCluster],
-    inputs: tuple[PersonOverridesSnapshotDictionary, Mutation],
+    inputs: tuple[PersonOverridesSnapshotDictionary, MutationWaiter],
 ) -> PersonOverridesSnapshotDictionary:
     """Wait for all hosts to complete the mutation to remove overrides contained within the snapshot from the overrides table."""
     [dictionary, mutation] = inputs
@@ -398,10 +401,9 @@ def cleanup_orphaned_person_overrides_snapshot():
     cleanup_snapshot_resources(dictionary)
 
 
-# Schedule to run squash at 10 PM on Saturdays
 squash_schedule = dagster.ScheduleDefinition(
     job=squash_person_overrides,
-    cron_schedule="0 22 * * 6",  # At 22:00 (10 PM) on Saturday
+    cron_schedule=settings.SQUASH_PERSON_OVERRIDES_SCHEDULE,
     execution_timezone="UTC",
     name="squash_person_overrides_schedule",
 )

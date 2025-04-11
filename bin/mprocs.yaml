@@ -14,9 +14,12 @@ procs:
     frontend:
         shell: 'bin/check_kafka_clickhouse_up && ./bin/start-frontend'
 
-    temporal-worker:
+    temporal-worker-general-purpose:
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue general-purpose-task-queue'
+
+    temporal-worker-batch-exports:
         # added a sleep to give the docker stuff time to start
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue batch-exports-task-queue --metrics-port 8002'
 
     docker-compose:
         # docker-compose makes sure the stack is up, and then follows its logs - but doesn't tear down on exit for speed
@@ -47,7 +50,7 @@ procs:
             bin/start-rust-service property-defs-rs
 
     storybook:
-        shell: 'pnpm --filter=@posthog/storybook start'
+        shell: 'pnpm --filter=@posthog/storybook install && pnpm run storybook'
         autostart: false
 
 mouse_scroll_speed: 1

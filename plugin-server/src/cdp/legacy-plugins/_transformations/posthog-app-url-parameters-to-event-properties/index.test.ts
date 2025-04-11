@@ -135,7 +135,7 @@ describe('ParamsToPropertiesPlugin', () => {
 
     describe('plugin.json', () => {
         it('should contain all properties of PluginConfig', () => {
-            expect(pluginJSON.config).toBeDefined()
+            expect(pluginJSON.config).toBeTruthy()
             if (pluginJSON.config) {
                 const fields = new Set<string>()
                 for (const item of pluginJSON.config) {
@@ -154,7 +154,7 @@ describe('ParamsToPropertiesPlugin', () => {
         })
 
         it('should match types of all properties of PluginConfig', () => {
-            expect(pluginJSON.config).toBeDefined()
+            expect(pluginJSON.config).toBeTruthy()
             if (pluginJSON.config) {
                 const fields = new Map<string, string>()
                 for (const item of pluginJSON.config) {
@@ -182,10 +182,10 @@ describe('ParamsToPropertiesPlugin', () => {
                 if (processedEvent.properties) {
                     expect(Object.keys(processedEvent.properties).length).toEqual(sourcePropertiesCount)
                 } else {
-                    expect(processedEvent.properties).toBeDefined()
+                    expect(processedEvent.properties).toBeTruthy()
                 }
             } else {
-                expect(sourceEvent.properties).toBeDefined()
+                expect(sourceEvent.properties).toBeTruthy()
             }
         })
 
@@ -193,7 +193,7 @@ describe('ParamsToPropertiesPlugin', () => {
             const sourceEvent = buildPageViewEvent('https://posthog.com/test?plugin=1&myUrlParameter=1')
 
             if (sourceEvent.properties) {
-                expect(sourceEvent.properties['myUrlParameter']).not.toBeDefined()
+                expect(sourceEvent.properties['myUrlParameter']).not.toBeTruthy()
                 expect(mockMeta.global.alwaysJson).toBeFalsy()
 
                 const sourcePropertiesCount = Object.keys(sourceEvent?.properties).length
@@ -202,13 +202,13 @@ describe('ParamsToPropertiesPlugin', () => {
                 if (processedEvent.properties) {
                     expect(Object.keys(processedEvent.properties).length).toBeGreaterThan(sourcePropertiesCount)
                     expect(Object.keys(processedEvent.properties).length).toEqual(sourcePropertiesCount + 1)
-                    expect(processedEvent.properties['myUrlParameter']).toBeDefined()
+                    expect(processedEvent.properties['myUrlParameter']).toBeTruthy()
                     expect(processedEvent.properties.myUrlParameter).toEqual('1')
                 } else {
-                    expect(processedEvent.properties).toBeDefined()
+                    expect(processedEvent.properties).toBeTruthy()
                 }
             } else {
-                expect(sourceEvent.properties).toBeDefined()
+                expect(sourceEvent.properties).toBeTruthy()
             }
         })
 
@@ -216,7 +216,7 @@ describe('ParamsToPropertiesPlugin', () => {
             const sourceEvent = buildPageViewEvent('https://posthog.com/test?plugin=1&myUrlParameter=1')
 
             if (sourceEvent.properties) {
-                expect(sourceEvent.properties['myUrlParameter']).not.toBeDefined()
+                expect(sourceEvent.properties['myUrlParameter']).not.toBeTruthy()
 
                 const sourcePropertiesCount = Object.keys(sourceEvent?.properties).length
                 const processedEvent = processEvent(
@@ -227,13 +227,13 @@ describe('ParamsToPropertiesPlugin', () => {
                 if (processedEvent.properties) {
                     expect(Object.keys(processedEvent.properties).length).toBeGreaterThan(sourcePropertiesCount)
                     expect(Object.keys(processedEvent.properties).length).toEqual(sourcePropertiesCount + 2)
-                    expect(processedEvent.properties['plugin']).toBeDefined()
-                    expect(processedEvent.properties['myUrlParameter']).toBeDefined()
+                    expect(processedEvent.properties['plugin']).toBeTruthy()
+                    expect(processedEvent.properties['myUrlParameter']).toBeTruthy()
                 } else {
-                    expect(processedEvent.properties).toBeDefined()
+                    expect(processedEvent.properties).toBeTruthy()
                 }
             } else {
-                expect(sourceEvent.properties).toBeDefined()
+                expect(sourceEvent.properties).toBeTruthy()
             }
         })
 
@@ -241,8 +241,8 @@ describe('ParamsToPropertiesPlugin', () => {
             const sourceEvent = buildPageViewEvent('https://posthog.com/test?plugin=1&myUrlParameter=1')
 
             if (sourceEvent.properties) {
-                expect(sourceEvent.properties['myUrlParameter']).not.toBeDefined()
-                expect(sourceEvent.properties['$set']).not.toBeDefined()
+                expect(sourceEvent.properties['myUrlParameter']).not.toBeTruthy()
+                expect(sourceEvent.properties['$set']).not.toBeTruthy()
 
                 const sourcePropertiesCount = Object.keys(sourceEvent?.properties).length
                 const processedEvent = processEvent(sourceEvent, buildMockMeta({ setAsUserProperties: 'true' }))
@@ -250,14 +250,14 @@ describe('ParamsToPropertiesPlugin', () => {
                 if (processedEvent.properties) {
                     expect(Object.keys(processedEvent.properties).length).toBeGreaterThan(sourcePropertiesCount)
                     expect(Object.keys(processedEvent.properties).length).toEqual(sourcePropertiesCount + 2)
-                    expect(processedEvent.properties['myUrlParameter']).toBeDefined()
-                    expect(processedEvent.properties['$set']).toBeDefined()
-                    expect(processedEvent.properties.$set['myUrlParameter']).toBeDefined()
+                    expect(processedEvent.properties['myUrlParameter']).toBeTruthy()
+                    expect(processedEvent.properties['$set']).toBeTruthy()
+                    expect(processedEvent.properties.$set['myUrlParameter']).toBeTruthy()
                 } else {
-                    expect(processedEvent.properties).toBeDefined()
+                    expect(processedEvent.properties).toBeTruthy()
                 }
             } else {
-                expect(sourceEvent.properties).toBeDefined()
+                expect(sourceEvent.properties).toBeTruthy()
             }
         })
 
@@ -265,8 +265,8 @@ describe('ParamsToPropertiesPlugin', () => {
             const sourceEvent = buildPageViewEvent('https://posthog.com/test?plugin=1&myUrlParameter=1')
 
             if (sourceEvent.properties) {
-                expect(sourceEvent.properties['myUrlParameter']).not.toBeDefined()
-                expect(sourceEvent.properties['$set_once']).not.toBeDefined()
+                expect(sourceEvent.properties['myUrlParameter']).not.toBeTruthy()
+                expect(sourceEvent.properties['$set_once']).not.toBeTruthy()
 
                 const sourcePropertiesCount = Object.keys(sourceEvent?.properties).length
                 const processedEvent = processEvent(sourceEvent, buildMockMeta({ setAsInitialUserProperties: 'true' }))
@@ -274,14 +274,14 @@ describe('ParamsToPropertiesPlugin', () => {
                 if (processedEvent.properties) {
                     expect(Object.keys(processedEvent.properties).length).toBeGreaterThan(sourcePropertiesCount)
                     expect(Object.keys(processedEvent.properties).length).toEqual(sourcePropertiesCount + 2)
-                    expect(processedEvent.properties['myUrlParameter']).toBeDefined()
-                    expect(processedEvent.properties['$set_once']).toBeDefined()
-                    expect(processedEvent.properties.$set_once['initial_myUrlParameter']).toBeDefined()
+                    expect(processedEvent.properties['myUrlParameter']).toBeTruthy()
+                    expect(processedEvent.properties['$set_once']).toBeTruthy()
+                    expect(processedEvent.properties.$set_once['initial_myUrlParameter']).toBeTruthy()
                 } else {
-                    expect(processedEvent.properties).toBeDefined()
+                    expect(processedEvent.properties).toBeTruthy()
                 }
             } else {
-                expect(sourceEvent.properties).toBeDefined()
+                expect(sourceEvent.properties).toBeTruthy()
             }
         })
 
@@ -289,9 +289,9 @@ describe('ParamsToPropertiesPlugin', () => {
             const sourceEvent = buildPageViewEvent('https://posthog.com/test?plugin=1&myUrlParameter=1')
 
             if (sourceEvent.properties) {
-                expect(sourceEvent.properties['myUrlParameter']).not.toBeDefined()
-                expect(sourceEvent.properties['$set']).not.toBeDefined()
-                expect(sourceEvent.properties['$set_once']).not.toBeDefined()
+                expect(sourceEvent.properties['myUrlParameter']).not.toBeTruthy()
+                expect(sourceEvent.properties['$set']).not.toBeTruthy()
+                expect(sourceEvent.properties['$set_once']).not.toBeTruthy()
 
                 const sourcePropertiesCount = Object.keys(sourceEvent?.properties).length
                 const processedEvent = processEvent(
@@ -302,16 +302,16 @@ describe('ParamsToPropertiesPlugin', () => {
                 if (processedEvent.properties) {
                     expect(Object.keys(processedEvent.properties).length).toBeGreaterThan(sourcePropertiesCount)
                     expect(Object.keys(processedEvent.properties).length).toEqual(sourcePropertiesCount + 3)
-                    expect(processedEvent.properties['myUrlParameter']).toBeDefined()
-                    expect(processedEvent.properties['$set']).toBeDefined()
-                    expect(processedEvent.properties['$set_once']).toBeDefined()
-                    expect(processedEvent.properties.$set['myUrlParameter']).toBeDefined()
-                    expect(processedEvent.properties.$set_once['initial_myUrlParameter']).toBeDefined()
+                    expect(processedEvent.properties['myUrlParameter']).toBeTruthy()
+                    expect(processedEvent.properties['$set']).toBeTruthy()
+                    expect(processedEvent.properties['$set_once']).toBeTruthy()
+                    expect(processedEvent.properties.$set['myUrlParameter']).toBeTruthy()
+                    expect(processedEvent.properties.$set_once['initial_myUrlParameter']).toBeTruthy()
                 } else {
-                    expect(processedEvent.properties).toBeDefined()
+                    expect(processedEvent.properties).toBeTruthy()
                 }
             } else {
-                expect(sourceEvent.properties).toBeDefined()
+                expect(sourceEvent.properties).toBeTruthy()
             }
         })
 

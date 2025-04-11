@@ -1,4 +1,4 @@
-import { IconArrowLeft, IconGear, IconSidePanel } from '@posthog/icons'
+import { IconArrowLeft, IconExternal, IconGear, IconPlus, IconSidePanel } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -6,7 +6,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
+import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
@@ -57,26 +59,61 @@ export function Max(): JSX.Element {
     )
 }
 
-export function MaxInstance(): JSX.Element {
+export interface MaxInstanceProps {
+    sidePanel?: boolean
+}
+
+export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
     const { threadGrouped } = useValues(maxLogic)
+    const { startNewConversation } = useActions(maxLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
+    const { closeSidePanel } = useActions(sidePanelLogic)
 
     const headerButtons = (
-        <LemonButton
-            type="secondary"
-            size="small"
-            icon={<IconGear />}
-            onClick={() => {
-                openSettingsPanel({ settingId: 'core-memory' })
-                setTimeout(() => document.getElementById('product-description-textarea')?.focus(), 1)
-            }}
-        >
-            Settings
-        </LemonButton>
+        <>
+            <LemonButton
+                size="small"
+                icon={<IconPlus />}
+                onClick={() => startNewConversation()}
+                tooltip="Start a new chat"
+                tooltipPlacement="bottom"
+            />
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconGear />}
+                onClick={() => {
+                    openSettingsPanel({ settingId: 'core-memory' })
+                    setTimeout(() => document.getElementById('product-description-textarea')?.focus(), 1)
+                }}
+            >
+                Settings
+            </LemonButton>
+        </>
     )
 
     return (
         <>
+            {sidePanel && (
+                <SidePanelPaneHeader>
+                    <LemonButton
+                        size="small"
+                        sideIcon={<IconPlus />}
+                        onClick={() => startNewConversation()}
+                        tooltip="Start a new chat"
+                        tooltipPlacement="bottom"
+                    />
+                    <div className="flex-1" />
+                    <LemonButton
+                        size="small"
+                        sideIcon={<IconExternal />}
+                        to={urls.max()}
+                        onClick={() => closeSidePanel()}
+                        tooltip="Open as main focus"
+                        tooltipPlacement="bottom"
+                    />
+                </SidePanelPaneHeader>
+            )}
             <PageHeader delimited buttons={headerButtons} />
             {!threadGrouped.length ? (
                 <div className="@container/max-welcome relative flex flex-col gap-3 px-4 pb-8 items-center grow justify-center">

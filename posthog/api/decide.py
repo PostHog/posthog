@@ -1,4 +1,5 @@
 from random import random
+from typing import Any, Union
 
 import structlog
 from django.conf import settings
@@ -10,7 +11,7 @@ from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 from typing import Optional
 
-from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
+from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX, get_surveys_count, get_surveys_opt_in
 from posthog.api.utils import (
     get_project_id,
     get_token,
@@ -26,8 +27,9 @@ from posthog.geoip import get_geoip_properties
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
-from posthog.models.feature_flag import get_all_feature_flags
+from posthog.models.feature_flag import get_all_feature_flags_with_details
 from posthog.models.feature_flag.flag_analytics import increment_request_count
+from posthog.models.feature_flag.flag_matching import FeatureFlagMatch, FeatureFlagMatchReason
 from posthog.models.filters.mixins.utils import process_bool
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.utils import execute_with_timeout
@@ -77,7 +79,7 @@ def maybe_log_decide_data(request_body: Optional[dict] = None, response_body: Op
         logger.warn("Failed to log decide data", team_id=team_id_as_string)
 
 
-def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict:
+def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool = False) -> dict[str, Any]:
     use_remote_config = False
 
     # Explicitly set via query param for testing otherwise rollout percentage
@@ -91,6 +93,8 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
 
     REMOTE_CONFIG_CACHE_COUNTER.labels(result=use_remote_config).inc()
 
+    surveys_opt_in = get_surveys_opt_in(team) and get_surveys_count(team) > 0
+
     if use_remote_config:
         response = RemoteConfig.get_config_via_token(token, request=request)
 
@@ -98,7 +102,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
         response["isAuthenticated"] = False
         response["toolbarParams"] = {}
         response["config"] = {"enable_collect_everything": True}
-        response["surveys"] = True if len(response["surveys"]) > 0 else False
+        response["surveys"] = surveys_opt_in
 
         # Remove some stuff that is specific to the new RemoteConfig
         del response["hasFeatureFlags"]
@@ -112,7 +116,6 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
         "isAuthenticated": False,
         # gzip and gzip-js are aliases for the same compression algorithm
         "supportedCompression": ["gzip", "gzip-js"],
-        "featureFlags": [],
         "sessionRecording": False,
     }
 
@@ -167,7 +170,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
             response["quotaLimited"] = ["recordings"]
             response["sessionRecording"] = False
 
-    response["surveys"] = True if team.surveys_opt_in else False
+    response["surveys"] = surveys_opt_in
     response["heatmaps"] = True if team.heatmaps_opt_in else False
     response["flagsPersistenceDefault"] = True if team.flags_persistence_default else False
     response["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
@@ -200,18 +203,19 @@ def get_decide(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
         # Return minimal default configuration for non-POST requests
         statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
+        empty_response = _format_feature_flags_response({}, {}, {}, False, 2)
+
+        response = {
+            "config": {"enable_collect_everything": True},
+            "toolbarParams": {},
+            "isAuthenticated": False,
+            "supportedCompression": ["gzip", "gzip-js"],
+            "sessionRecording": False,
+        }
+        response.update(empty_response)
         return cors_response(
             request,
-            JsonResponse(
-                {
-                    "config": {"enable_collect_everything": True},
-                    "toolbarParams": {},
-                    "isAuthenticated": False,
-                    "supportedCompression": ["gzip", "gzip-js"],
-                    "featureFlags": [],
-                    "sessionRecording": False,
-                }
-            ),
+            JsonResponse(response),
         )
 
     # --- 2. Parse request data and API version ---
@@ -314,9 +318,14 @@ def get_decide(request: HttpRequest) -> HttpResponse:
         # For remote config, we need to ensure quota limiting is reflected
         if flags_response.get("quotaLimited"):
             response["quotaLimited"] = flags_response["quotaLimited"]
-            response["featureFlags"] = {}
             response["errorsWhileComputingFlags"] = False
-            response["featureFlagPayloads"] = {}
+            # Account for versions
+            if "featureFlags" in flags_response:
+                response["featureFlags"] = flags_response["featureFlags"]
+            if "featureFlagPayloads" in flags_response:
+                response["featureFlagPayloads"] = flags_response["featureFlagPayloads"]
+            if "flags" in flags_response:
+                response["flags"] = flags_response["flags"]
         else:  # Only update flags if not quota limited
             response.update(flags_response)
         # NOTE: Whenever you add something to decide response, update this test:
@@ -352,11 +361,7 @@ def get_feature_flags_response_or_body(
 
     # Early exit if flags are disabled via request
     if process_bool(data.get("disable_flags")) is True:
-        return {
-            "featureFlags": {},
-            "errorsWhileComputingFlags": False,
-            "featureFlagPayloads": {},
-        }
+        return _format_feature_flags_response({}, {}, {}, False, api_version)
 
     # Check if team is quota limited for feature flags
     if settings.DECIDE_FEATURE_FLAG_QUOTA_CHECK:
@@ -366,12 +371,9 @@ def get_feature_flags_response_or_body(
             QuotaResource.FEATURE_FLAG_REQUESTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
         )
         if token in limited_tokens_flags:
-            return {
-                "quotaLimited": ["feature_flags"],
-                "featureFlags": {},
-                "errorsWhileComputingFlags": False,
-                "featureFlagPayloads": {},
-            }
+            response = _format_feature_flags_response({}, {}, {}, False, api_version)
+            response["quotaLimited"] = ["feature_flags"]
+            return response
 
     # Validate distinct_id
     distinct_id = data.get("distinct_id")
@@ -399,7 +401,7 @@ def get_feature_flags_response_or_body(
     }
 
     # Compute feature flags
-    feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
+    feature_flags, _, feature_flag_payloads, errors, flags_details = get_all_feature_flags_with_details(
         team,
         distinct_id,
         data.get("groups") or {},
@@ -413,33 +415,86 @@ def get_feature_flags_response_or_body(
     _record_feature_flag_metrics(team, feature_flags, errors, data)
 
     # Format response based on API version
-    return _format_feature_flags_response(feature_flags, feature_flag_payloads, errors, api_version)
+    return _format_feature_flags_response(feature_flags, feature_flag_payloads, flags_details, errors, api_version)
 
 
 def _format_feature_flags_response(
-    feature_flags: dict, feature_flag_payloads: dict, errors: bool, api_version: int
-) -> dict:
+    feature_flags: dict[str, Any],
+    feature_flag_payloads: dict[str, Any],
+    flags_details: Optional[dict[str, Any]],
+    errors: bool,
+    api_version: int,
+) -> dict[str, Any]:
     """Format feature flags response according to API version."""
     active_flags = {key: value for key, value in feature_flags.items() if value}
 
     if api_version == 2:
         return {"featureFlags": active_flags}
-    elif api_version >= 3:
+    elif api_version == 3:
         return {
             "featureFlags": feature_flags,
             "errorsWhileComputingFlags": errors,
             "featureFlagPayloads": feature_flag_payloads,
         }
+    elif api_version >= 4:
+        return {
+            "flags": _format_feature_flag_details(flags_details),
+            "errorsWhileComputingFlags": errors,
+        }
     else:  # v1
         return {"featureFlags": list(active_flags.keys())}
 
 
+def _format_feature_flag_details(flags_details: Optional[dict]) -> dict:
+    if flags_details is None:
+        return {}
+
+    flag_details = {}
+    for flag_key, flag_value in flags_details.items():
+        flag_details[flag_key] = {
+            "key": flag_key,
+            "enabled": flag_value.match.match,
+            "variant": flag_value.match.variant,
+            "reason": {
+                "code": flag_value.match.reason.value,
+                "condition_index": flag_value.match.condition_index,
+                "description": _get_reason_description(flag_value.match),
+            },
+            "metadata": {
+                "id": flag_value.id,
+                "payload": flag_value.match.payload,
+                "version": flag_value.version,
+                "description": flag_value.description,
+            },
+        }
+
+    return flag_details
+
+
+def _get_reason_description(match: FeatureFlagMatch) -> str | None:
+    match match.reason.value:
+        case FeatureFlagMatchReason.CONDITION_MATCH:
+            return f"Matched condition set {(match.condition_index or 0) + 1}"
+        case FeatureFlagMatchReason.NO_CONDITION_MATCH:
+            return "No matching condition set"
+        case FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND:
+            return "Out of rollout bound"
+        case FeatureFlagMatchReason.NO_GROUP_TYPE:
+            return "No group type"
+        case FeatureFlagMatchReason.SUPER_CONDITION_VALUE:
+            return "Super condition value"
+        case FeatureFlagMatchReason.HOLDOUT_CONDITION_VALUE:
+            return "Holdout condition value"
+        case _:
+            return None
+
+
 def _record_feature_flag_metrics(
     team: Team,
-    feature_flags: dict,
+    feature_flags: dict[str, Any],
     errors: bool,
-    data: dict,
-):
+    data: dict[str, Any],
+) -> None:
     """Record metrics and handle billing for feature flag computations."""
     if not feature_flags:
         return
@@ -462,8 +517,8 @@ def _session_recording_domain_not_allowed(team: Team, request: HttpRequest) -> b
     return team.recording_domains and not on_permitted_recording_domain(team.recording_domains, request)
 
 
-def _session_recording_config_response(request: HttpRequest, team: Team) -> bool | dict:
-    session_recording_config_response: bool | dict = False
+def _session_recording_config_response(request: HttpRequest, team: Team) -> Union[bool, dict[str, Any]]:
+    session_recording_config_response: Union[bool, dict[str, Any]] = False
 
     try:
         if team.session_recording_opt_in and not _session_recording_domain_not_allowed(team, request):
@@ -509,6 +564,7 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> bool
                 "urlTriggers": team.session_recording_url_trigger_config,
                 "urlBlocklist": team.session_recording_url_blocklist_config,
                 "eventTriggers": team.session_recording_event_trigger_config,
+                "triggerMatchType": team.session_recording_trigger_match_type_config,
                 "scriptConfig": rrweb_script_config,
             }
 

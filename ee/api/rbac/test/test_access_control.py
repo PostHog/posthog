@@ -343,12 +343,14 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
     def test_query_counts(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
-        my_dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
-        other_user_dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
+        my_dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="my dashboard")
+        other_user_dashboard = Dashboard.objects.create(
+            team=self.team, created_by=self.other_user, name="other user dashboard"
+        )
 
         # Baseline query (triggers any first time cache things)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 11
+        baseline = 14
 
         # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
         with self.assertNumQueries(baseline + 4):
@@ -380,12 +382,14 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
     def test_query_counts_with_preload_optimization(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
-        my_dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
-        other_user_dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
+        my_dashboard = Dashboard.objects.create(team=self.team, created_by=self.user, name="my dashboard")
+        other_user_dashboard = Dashboard.objects.create(
+            team=self.team, created_by=self.other_user, name="other user dashboard"
+        )
 
         # Baseline query (triggers any first time cache things)
         self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
-        baseline = 11
+        baseline = 14
 
         # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
         with self.assertNumQueries(baseline + 4):

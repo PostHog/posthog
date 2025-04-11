@@ -44,6 +44,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { hexToRGBA, lightenDarkenColor } from '~/lib/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { GoalLine, TrendsFilter } from '~/queries/schema/schema-general'
+import { isInsightVizNode } from '~/queries/utils'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 
 let tooltipRoot: Root
@@ -62,6 +63,13 @@ export function ensureTooltip(): [Root, HTMLElement] {
         tooltipRoot = createRoot(tooltipEl)
     }
     return [tooltipRoot, tooltipEl]
+}
+
+export function hideTooltip(): void {
+    const tooltipEl = document.getElementById('InsightTooltipWrapper')
+    if (tooltipEl) {
+        tooltipEl.style.opacity = '0'
+    }
 }
 
 function truncateString(str: string, num: number): string {
@@ -257,6 +265,7 @@ export interface LineGraphProps {
     showValuesOnSeries?: boolean | null
     showPercentStackView?: boolean | null
     supportsPercentStackView?: boolean
+    showPercentView?: boolean | null
     hideAnnotations?: boolean
     hideXAxis?: boolean
     hideYAxis?: boolean
@@ -299,6 +308,7 @@ export function LineGraph_({
     showValuesOnSeries,
     showPercentStackView,
     supportsPercentStackView,
+    showPercentView,
     hideAnnotations,
     hideXAxis,
     hideYAxis,
@@ -308,17 +318,20 @@ export function LineGraph_({
     goalLines: _goalLines,
     isStacked = true,
 }: LineGraphProps): JSX.Element {
+    const originalDatasets = _datasets
     let datasets = _datasets
 
     const { aggregationLabel } = useValues(groupsModel)
     const { isDarkModeOn } = useValues(themeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
+    const { timezone, isTrends, breakdownFilter, query } = useValues(insightVizDataLogic(insightProps))
     const { theme, getTrendsColor } = useValues(trendsDataLogic(insightProps))
 
+    const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
+
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
-    const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
+    const [lineChart, setLineChart] = useState<Chart<ChartType, any, string>>()
 
     // Relying on useResizeObserver instead of Chart's onResize because the latter was not reliable
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
@@ -335,6 +348,21 @@ export function LineGraph_({
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
     const showAnnotations = isTrends && !isHorizontal && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
+
+    // Add scrollend event on main element to hide tooltips when scrolling
+    useEffect(() => {
+        if (!hideTooltipOnScroll) {
+            return
+        }
+
+        // Scroll events happen on the main element due to overflow-y: scroll
+        const main = document.getElementsByTagName('main')[0]
+        main.addEventListener('scrollend', hideTooltip)
+
+        return () => {
+            main.removeEventListener('scrollend', hideTooltip)
+        }
+    }, [hideTooltipOnScroll])
 
     // Remove tooltip element on unmount
     useEffect(() => {
@@ -403,6 +431,12 @@ export function LineGraph_({
             adjustedData = adjustedData.map((value) => (value === 0 ? LOG_ZERO : value))
         }
 
+        // Transform data to percentages if showPercentView is enabled
+        if (showPercentView && Array.isArray(adjustedData)) {
+            const count = dataset.count
+            adjustedData = adjustedData.map((value) => (typeof value === 'number' ? (value / count) * 100 : value))
+        }
+
         // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overridden in spread of `dataset` below
         return {
             borderColor: mainColor,
@@ -450,6 +484,13 @@ export function LineGraph_({
         }
     }
 
+    function formatYAxisTick(value: number | string): string {
+        if (showPercentView) {
+            return `${Number(value).toFixed(1)}%`
+        }
+        return formatPercentStackAxisValue(trendsFilter, value, isPercentStackView)
+    }
+
     function generateYaxesForLineGraph(
         dataSetCount: number,
         seriesNonZeroMin: number,
@@ -462,16 +503,16 @@ export function LineGraph_({
     ): Record<string, ScaleOptions<'linear' | 'logarithmic'>> {
         const defaultYAxisConfig = {
             display: !hideYAxis,
-            ...(isLog10 ? { type: 'logarithmic' as const } : { type: 'linear' as const }),
+            ...(isLog10
+                ? { type: 'logarithmic' as const, min: Math.pow(10, Math.ceil(Math.log10(seriesNonZeroMin)) - 1) }
+                : { type: 'linear' as const }),
             beginAtZero: true,
-            min: isLog10 ? Math.pow(10, Math.ceil(Math.log10(seriesNonZeroMin)) - 1) : undefined,
             stacked: showPercentStackView || isArea,
             ticks: {
                 ...tickOptions,
                 display: !hideYAxis,
                 ...(yAxisScaleType !== 'log10' && { precision }), // Precision is not supported for the log scale
-                callback: (value: number | string) =>
-                    formatPercentStackAxisValue(trendsFilter, value, isPercentStackView),
+                callback: formatYAxisTick,
                 color: (context: any) => {
                     if (context.tick) {
                         for (const annotation of goalLinesWithColor) {
@@ -494,7 +535,7 @@ export function LineGraph_({
                 )
                 const annotationTicks = goalLines.map((value) => ({
                     value: value.value,
-                    label: `⬤ ${formatPercentStackAxisValue(trendsFilter, value.value, isPercentStackView)}`,
+                    label: `⬤ ${formatYAxisTick(value.value)}`,
                 }))
 
                 // Guarantee that all annotations exist as ticks
@@ -541,7 +582,7 @@ export function LineGraph_({
 
         const seriesNonZeroMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
         const seriesNonZeroMin = Math.min(...datasets.flatMap((d) => d.data).filter((n) => !!n && n !== LOG_ZERO))
-        const precision = seriesNonZeroMax < 5 ? 1 : seriesNonZeroMax < 2 ? 2 : 0
+        const precision = seriesNonZeroMax < 2 ? 2 : seriesNonZeroMax < 5 ? 1 : 0
         const goalLines = _goalLines || []
         const goalLinesY = goalLines.map((a) => a.value)
         const goalLinesWithColor = goalLines.filter((goalLine) => Boolean(goalLine.borderColor))
@@ -549,7 +590,7 @@ export function LineGraph_({
         const tickOptions: Partial<TickOptions> = {
             color: colors.axisLabel as Color,
             font: {
-                family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
+                family: '"Emoji Flags Polyfill", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
                 size: 12,
                 weight: 'normal',
             },
@@ -713,6 +754,23 @@ export function LineGraph_({
                                     renderCount={
                                         tooltipConfig?.renderCount ||
                                         ((value: number): string => {
+                                            if (showPercentView) {
+                                                const series = seriesData.find((s) => s.count === value)
+                                                const datasetIndex = series?.datasetIndex
+                                                const dataIndex = series?.dataIndex
+                                                if (datasetIndex !== undefined && dataIndex !== undefined) {
+                                                    const originalDataset = originalDatasets[datasetIndex]
+                                                    const originalValue = originalDataset.data?.[dataIndex]
+
+                                                    if (originalValue !== undefined && originalValue !== null) {
+                                                        return `${value.toFixed(1)}% (${formatAggregationAxisValue(
+                                                            trendsFilter,
+                                                            originalValue
+                                                        )})`
+                                                    }
+                                                }
+                                            }
+
                                             if (!isPercentStackView) {
                                                 return formatAggregationAxisValue(trendsFilter, value)
                                             }
@@ -945,14 +1003,17 @@ export function LineGraph_({
         }
         Chart.register(ChartjsPluginStacked100)
         Chart.register(annotationPlugin)
-        const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
+
+        const chart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
             type: (isBar ? GraphType.Bar : type) as ChartType,
             data: { labels, datasets },
             options,
             plugins: [ChartDataLabels],
         })
-        setMyLineChart(newChart)
-        return () => newChart.destroy()
+
+        setLineChart(chart)
+
+        return () => chart.destroy()
     }, [
         datasets,
         hiddenLegendIndexes,
@@ -969,9 +1030,9 @@ export function LineGraph_({
     return (
         <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>
             <canvas ref={canvasRef} />
-            {showAnnotations && myLineChart && chartWidth && chartHeight ? (
+            {showAnnotations && lineChart && chartWidth && chartHeight ? (
                 <AnnotationsOverlay
-                    chart={myLineChart}
+                    chart={lineChart}
                     dates={datasets[0]?.days || []}
                     chartWidth={chartWidth}
                     chartHeight={chartHeight}

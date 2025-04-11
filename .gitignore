@@ -7,6 +7,7 @@ __pycache__/
 # Assistant Evaluation with Deepeval
 .deepeval
 .deepeval_telemtry.txt
+.deepeval_telemetry.txt
 .deepeval-cache.json
 .dlt
 .dmypy.json
@@ -99,3 +100,6 @@ playwright/test-results/
 
 .dagster_home/*
 !.dagster_home/.gitkeep
+
+# Dist release target dir
+target/*

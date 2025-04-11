@@ -10,10 +10,10 @@
          generations.input_cost AS input_cost,
          generations.output_cost AS output_cost,
          generations.total_cost AS total_cost,
-         if(0, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
+         if(0, generations.events, arrayFilter(x -> in(x.2, tuple('$ai_metric', '$ai_feedback')), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -21,6 +21,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -41,12 +42,12 @@
                toTimeZone(person.created_at, 'UTC') AS created_at,
                person.properties AS properties
         FROM person
-        WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                             (SELECT person.id AS id, max(person.version) AS version
-                                                              FROM person
-                                                              WHERE equals(person.team_id, 99999)
-                                                              GROUP BY person.id
-                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-16 00:10:59', 'UTC')))))
      GROUP BY id) AS generations
   LEFT JOIN
@@ -66,7 +67,9 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestTracesQueryRunner.test_field_mapping.1
@@ -80,10 +83,10 @@
          generations.input_cost AS input_cost,
          generations.output_cost AS output_cost,
          generations.total_cost AS total_cost,
-         if(1, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
+         if(1, generations.events, arrayFilter(x -> in(x.2, tuple('$ai_metric', '$ai_feedback')), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -91,6 +94,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -111,12 +115,12 @@
                toTimeZone(person.created_at, 'UTC') AS created_at,
                person.properties AS properties
         FROM person
-        WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                             (SELECT person.id AS id, max(person.version) AS version
-                                                              FROM person
-                                                              WHERE equals(person.team_id, 99999)
-                                                              GROUP BY person.id
-                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-16 00:10:59', 'UTC'))), ifNull(equals(id, 'trace1'), 0)))
      GROUP BY id) AS generations
   LEFT JOIN
@@ -136,7 +140,9 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestTracesQueryRunner.test_field_mapping.2
@@ -150,10 +156,10 @@
          generations.input_cost AS input_cost,
          generations.output_cost AS output_cost,
          generations.total_cost AS total_cost,
-         if(1, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
+         if(1, generations.events, arrayFilter(x -> in(x.2, tuple('$ai_metric', '$ai_feedback')), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -161,6 +167,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -181,12 +188,12 @@
                toTimeZone(person.created_at, 'UTC') AS created_at,
                person.properties AS properties
         FROM person
-        WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                             (SELECT person.id AS id, max(person.version) AS version
-                                                              FROM person
-                                                              WHERE equals(person.team_id, 99999)
-                                                              GROUP BY person.id
-                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-16 00:10:59', 'UTC'))), ifNull(equals(id, 'trace2'), 0)))
      GROUP BY id) AS generations
   LEFT JOIN
@@ -206,7 +213,9 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestTracesQueryRunner.test_pagination
@@ -220,10 +229,10 @@
          generations.input_cost AS input_cost,
          generations.output_cost AS output_cost,
          generations.total_cost AS total_cost,
-         if(0, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
+         if(0, generations.events, arrayFilter(x -> in(x.2, tuple('$ai_metric', '$ai_feedback')), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -231,6 +240,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -251,12 +261,12 @@
                toTimeZone(person.created_at, 'UTC') AS created_at,
                person.properties AS properties
         FROM person
-        WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                             (SELECT person.id AS id, max(person.version) AS version
-                                                              FROM person
-                                                              WHERE equals(person.team_id, 99999)
-                                                              GROUP BY person.id
-                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-16 00:10:59', 'UTC')))))
      GROUP BY id) AS generations
   LEFT JOIN
@@ -276,7 +286,9 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestTracesQueryRunner.test_pagination.1
@@ -290,10 +302,10 @@
          generations.input_cost AS input_cost,
          generations.output_cost AS output_cost,
          generations.total_cost AS total_cost,
-         if(0, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
+         if(0, generations.events, arrayFilter(x -> in(x.2, tuple('$ai_metric', '$ai_feedback')), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -301,6 +313,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -321,12 +334,12 @@
                toTimeZone(person.created_at, 'UTC') AS created_at,
                person.properties AS properties
         FROM person
-        WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                             (SELECT person.id AS id, max(person.version) AS version
-                                                              FROM person
-                                                              WHERE equals(person.team_id, 99999)
-                                                              GROUP BY person.id
-                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-16 00:10:59', 'UTC')))))
      GROUP BY id) AS generations
   LEFT JOIN
@@ -346,7 +359,9 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestTracesQueryRunner.test_pagination.2
@@ -360,10 +375,10 @@
          generations.input_cost AS input_cost,
          generations.output_cost AS output_cost,
          generations.total_cost AS total_cost,
-         if(0, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
+         if(0, generations.events, arrayFilter(x -> in(x.2, tuple('$ai_metric', '$ai_feedback')), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -371,6 +386,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -391,12 +407,12 @@
                toTimeZone(person.created_at, 'UTC') AS created_at,
                person.properties AS properties
         FROM person
-        WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                             (SELECT person.id AS id, max(person.version) AS version
-                                                              FROM person
-                                                              WHERE equals(person.team_id, 99999)
-                                                              GROUP BY person.id
-                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-16 00:10:59', 'UTC')))))
      GROUP BY id) AS generations
   LEFT JOIN
@@ -416,7 +432,9 @@
                      format_csv_allow_double_quotes=0,
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestTracesQueryRunner.test_properties_filter_with_multiple_events_in_group
@@ -430,10 +448,10 @@
          generations.input_cost AS input_cost,
          generations.output_cost AS output_cost,
          generations.total_cost AS total_cost,
-         if(1, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
+         if(1, generations.events, arrayFilter(x -> in(x.2, tuple('$ai_metric', '$ai_feedback')), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -441,6 +459,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -461,12 +480,12 @@
                toTimeZone(person.created_at, 'UTC') AS created_at,
                person.properties AS properties
         FROM person
-        WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                             (SELECT person.id AS id, max(person.version) AS version
-                                                              FROM person
-                                                              WHERE equals(person.team_id, 99999)
-                                                              GROUP BY person.id
-                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC'))), ifNull(equals(id, 'trace1'), 0)))
      GROUP BY id) AS generations
   LEFT JOIN
@@ -487,7 +506,9 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestTracesQueryRunner.test_properties_filter_with_multiple_events_in_group.1
@@ -501,10 +522,10 @@
          generations.input_cost AS input_cost,
          generations.output_cost AS output_cost,
          generations.total_cost AS total_cost,
-         if(1, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
+         if(1, generations.events, arrayFilter(x -> in(x.2, tuple('$ai_metric', '$ai_feedback')), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -512,6 +533,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -532,12 +554,12 @@
                toTimeZone(person.created_at, 'UTC') AS created_at,
                person.properties AS properties
         FROM person
-        WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                             (SELECT person.id AS id, max(person.version) AS version
-                                                              FROM person
-                                                              WHERE equals(person.team_id, 99999)
-                                                              GROUP BY person.id
-                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC'))), ifNull(equals(id, 'trace1'), 0)))
      GROUP BY id) AS generations
   LEFT JOIN
@@ -558,7 +580,9 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestTracesQueryRunner.test_properties_filter_with_multiple_events_in_group.2
@@ -572,10 +596,10 @@
          generations.input_cost AS input_cost,
          generations.output_cost AS output_cost,
          generations.total_cost AS total_cost,
-         if(1, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
+         if(1, generations.events, arrayFilter(x -> in(x.2, tuple('$ai_metric', '$ai_feedback')), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -583,6 +607,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -603,12 +628,12 @@
                toTimeZone(person.created_at, 'UTC') AS created_at,
                person.properties AS properties
         FROM person
-        WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                             (SELECT person.id AS id, max(person.version) AS version
-                                                              FROM person
-                                                              WHERE equals(person.team_id, 99999)
-                                                              GROUP BY person.id
-                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC'))), ifNull(equals(id, 'trace1'), 0)))
      GROUP BY id) AS generations
   LEFT JOIN
@@ -629,7 +654,9 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestTracesQueryRunner.test_trace_id_filter
@@ -643,10 +670,10 @@
          generations.input_cost AS input_cost,
          generations.output_cost AS output_cost,
          generations.total_cost AS total_cost,
-         if(1, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
+         if(1, generations.events, arrayFilter(x -> in(x.2, tuple('$ai_metric', '$ai_feedback')), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -654,6 +681,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -674,12 +702,12 @@
                toTimeZone(person.created_at, 'UTC') AS created_at,
                person.properties AS properties
         FROM person
-        WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                             (SELECT person.id AS id, max(person.version) AS version
-                                                              FROM person
-                                                              WHERE equals(person.team_id, 99999)
-                                                              GROUP BY person.id
-                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-08 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2025-01-16 00:10:59', 'UTC'))), ifNull(equals(id, 'trace1'), 0)))
      GROUP BY id) AS generations
   LEFT JOIN
@@ -699,7 +727,9 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestTracesQueryRunner.test_trace_property_filter_for_event_group
@@ -713,10 +743,10 @@
          generations.input_cost AS input_cost,
          generations.output_cost AS output_cost,
          generations.total_cost AS total_cost,
-         if(0, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
+         if(0, generations.events, arrayFilter(x -> in(x.2, tuple('$ai_metric', '$ai_feedback')), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -724,6 +754,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -744,12 +775,12 @@
                toTimeZone(person.created_at, 'UTC') AS created_at,
                person.properties AS properties
         FROM person
-        WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                             (SELECT person.id AS id, max(person.version) AS version
-                                                              FROM person
-                                                              WHERE equals(person.team_id, 99999)
-                                                              GROUP BY person.id
-                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))))
      GROUP BY id) AS generations
   LEFT JOIN
@@ -770,7 +801,9 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestTracesQueryRunner.test_trace_property_filter_for_event_group.1
@@ -784,10 +817,10 @@
          generations.input_cost AS input_cost,
          generations.output_cost AS output_cost,
          generations.total_cost AS total_cost,
-         if(0, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
+         if(0, generations.events, arrayFilter(x -> in(x.2, tuple('$ai_metric', '$ai_feedback')), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -795,6 +828,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -815,12 +849,12 @@
                toTimeZone(person.created_at, 'UTC') AS created_at,
                person.properties AS properties
         FROM person
-        WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                             (SELECT person.id AS id, max(person.version) AS version
-                                                              FROM person
-                                                              WHERE equals(person.team_id, 99999)
-                                                              GROUP BY person.id
-                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))))
      GROUP BY id) AS generations
   LEFT JOIN
@@ -841,7 +875,9 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestTracesQueryRunner.test_trace_property_filter_for_event_group.2
@@ -855,10 +891,10 @@
          generations.input_cost AS input_cost,
          generations.output_cost AS output_cost,
          generations.total_cost AS total_cost,
-         if(0, generations.events, arrayFilter(x -> ifNull(in(x.2, tuple('$ai_metric', '$ai_feedback')), 0), generations.events)) AS events,
+         if(0, generations.events, arrayFilter(x -> in(x.2, tuple('$ai_metric', '$ai_feedback')), generations.events)) AS events,
          traces.input_state AS input_state,
          traces.output_state AS output_state,
-         traces.trace_name AS trace_name,
+         ifNull(traces.trace_name, generations.span_name) AS trace_name,
          or(generations.filter_match, traces.filter_match) AS filter_match
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '') AS id,
@@ -866,6 +902,7 @@
             tuple(argMin(events__person.id, toTimeZone(events.timestamp, 'UTC')), argMin(events.distinct_id, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.created_at, toTimeZone(events.timestamp, 'UTC')), argMin(events__person.properties, toTimeZone(events.timestamp, 'UTC'))) AS first_person,
             round(accurateCastOrNull(sum(if(or(isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', '')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_parent_id'), ''), 'null'), '^"|"$', ''))
                                                                                                                                                                              and isNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')))), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_latency'), ''), 'null'), '^"|"$', ''), 'Float64'), 0)), 'Float64'), 2) AS total_latency,
+            argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS span_name,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS input_tokens,
             sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_output_tokens'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')) AS output_tokens,
             round(sum(accurateCastOrNull(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_input_cost_usd'), ''), 'null'), '^"|"$', ''), 'Float64'), 'Float64')), 4) AS input_cost,
@@ -886,12 +923,12 @@
                toTimeZone(person.created_at, 'UTC') AS created_at,
                person.properties AS properties
         FROM person
-        WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                             (SELECT person.id AS id, max(person.version) AS version
-                                                              FROM person
-                                                              WHERE equals(person.team_id, 99999)
-                                                              GROUP BY person.id
-                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), in(events.event, tuple('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback')), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_id'), ''), 'null'), '^"|"$', '')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-11-30 23:50:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-12-01 00:20:00', 'UTC')))))
      GROUP BY id) AS generations
   LEFT JOIN
@@ -912,6 +949,8 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---

@@ -34,12 +34,13 @@ export interface CountedHTMLElement {
     count: number // total of types of clicks
     clickCount: number // autocapture clicks
     rageclickCount: number
+    deadclickCount: number
     element: HTMLElement
     hash: string
     selector: string
     position?: number
     actionStep?: ActionStepType
-    type: '$autocapture' | '$rageclick'
+    type: '$autocapture' | '$rageclick' | '$dead_click'
 }
 
 export interface ElementRect {
@@ -59,7 +60,9 @@ export interface ElementWithMetadata {
     count?: number
     clickCount?: number
     rageclickCount?: number
+    deadclickCount?: number
     position?: number
+    apparentZIndex?: number
 }
 
 export interface ActionElementWithMetadata extends ElementWithMetadata {

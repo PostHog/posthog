@@ -4,8 +4,8 @@ import {
     IconCursorClick,
     IconDashboard,
     IconDatabase,
-    IconFeatures,
     IconGraph,
+    IconGroups,
     IconHome,
     IconLive,
     IconLogomark,
@@ -14,6 +14,7 @@ import {
     IconNotebook,
     IconPeople,
     IconPieChart,
+    IconPiggyBank,
     IconPlug,
     IconPlusSmall,
     IconRewindPlay,
@@ -30,19 +31,20 @@ import { actions, connect, events, kea, listeners, path, props, reducers, select
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isNotNil } from 'lib/utils'
+import { capitalizeFirstLetter, isNotNil } from 'lib/utils'
 import React from 'react'
-import { editorSidebarLogic } from 'scenes/data-warehouse/editor/editorSidebarLogic'
+import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { replayLandingPageLogic } from 'scenes/session-recordings/replayLandingPageLogic'
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { groupsModel } from '~/models/groupsModel'
 import { ReplayTabs } from '~/types'
 
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -70,14 +72,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
     props({} as { inputElement?: HTMLInputElement | null }),
     connect(() => ({
         values: [
+            groupsModel,
+            ['groupTypes', 'groupsAccessStatus'],
             sceneLogic,
             ['sceneConfig'],
             navigationLogic,
             ['mobileLayout'],
             teamLogic,
             ['hasOnboardedAnyProduct'],
-            replayLandingPageLogic,
-            ['replayLandingPage'],
             savedSessionRecordingPlaylistsLogic({ tab: ReplayTabs.Playlists }),
             ['playlists', 'playlistsLoading'],
         ],
@@ -355,20 +357,28 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 dashboardsModel.selectors.dashboardsLoading,
                 dashboardsModel.selectors.pinnedDashboards,
                 s.hasOnboardedAnyProduct,
-                s.replayLandingPage,
                 s.playlists,
                 s.playlistsLoading,
+                s.groupTypes,
+                s.groupsAccessStatus,
             ],
             (
                 featureFlags,
                 dashboardsLoading,
                 pinnedDashboards,
                 hasOnboardedAnyProduct,
-                replayLandingPage,
                 playlists,
-                playlistsLoading
+                playlistsLoading,
+                groupTypes,
+                groupsAccessStatus
             ): NavbarItem[][] => {
                 const isUsingSidebar = featureFlags[FEATURE_FLAGS.POSTHOG_3000_NAV]
+
+                const showGroupsIntroductionPage = [
+                    GroupsAccessStatus.HasAccess,
+                    GroupsAccessStatus.HasGroupTypes,
+                    GroupsAccessStatus.NoAccess,
+                ].includes(groupsAccessStatus)
 
                 const sectionOne: NavbarItem[] = hasOnboardedAnyProduct
                     ? [
@@ -427,7 +437,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                           },
                           {
                               identifier: Scene.PersonsManagement,
-                              label: 'People and groups',
+                              label: featureFlags[FEATURE_FLAGS.B2B_ANALYTICS] ? 'People' : 'People and groups',
                               icon: <IconPeople />,
                               logic: isUsingSidebar ? personsAndGroupsSidebarLogic : undefined,
                               to: isUsingSidebar ? undefined : urls.persons(),
@@ -463,16 +473,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                     })
                 }
 
-                if (featureFlags[FEATURE_FLAGS.FEATURE_MANAGEMENT_UI]) {
-                    sectionOne.splice(4, 0, {
-                        identifier: Scene.FeatureManagement,
-                        label: 'Features',
-                        icon: <IconFeatures />,
-                        logic: isUsingSidebar ? featureFlagsSidebarLogic : undefined,
-                        to: isUsingSidebar ? undefined : urls.featureManagement(),
-                    })
-                }
-
                 return [
                     sectionOne,
                     [
@@ -495,20 +495,39 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconPieChart />,
                             to: isUsingSidebar ? undefined : urls.webAnalytics(),
                         },
-                        featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
+                        featureFlags[FEATURE_FLAGS.B2B_ANALYTICS]
                             ? {
-                                  identifier: 'LLMObservability',
-                                  label: 'LLM observability',
-                                  icon: <IconAI />,
-                                  to: urls.llmObservabilityDashboard(),
-                                  tag: 'beta' as const,
+                                  identifier: Scene.Groups,
+                                  label: 'B2B analytics',
+                                  icon: <IconGroups />,
+                                  to: urls.groups(0),
+                                  tag: 'alpha' as const,
+                                  sideAction:
+                                      groupTypes.size > 1 && !showGroupsIntroductionPage
+                                          ? {
+                                                identifier: 'groups-dropdown',
+                                                dropdown: {
+                                                    overlay: (
+                                                        <LemonMenuOverlay
+                                                            items={Array.from(groupTypes.values()).map((groupType) => ({
+                                                                label: capitalizeFirstLetter(
+                                                                    groupType.name_plural || groupType.group_type
+                                                                ),
+                                                                to: urls.groups(groupType.group_type_index),
+                                                            }))}
+                                                        />
+                                                    ),
+                                                    placement: 'bottom-end',
+                                                },
+                                            }
+                                          : undefined,
                               }
                             : null,
                         {
                             identifier: Scene.Replay,
                             label: 'Session replay',
                             icon: <IconRewindPlay />,
-                            to: urls.replay(replayLandingPage),
+                            to: urls.replay(),
                             sideAction: {
                                 identifier: 'replay-dropdown',
                                 dropdown: {
@@ -550,24 +569,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                 },
                             },
                         },
-                        featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
-                            ? {
-                                  identifier: Scene.ErrorTracking,
-                                  label: 'Error tracking',
-                                  icon: <IconWarning />,
-                                  to: urls.errorTracking(),
-                                  tag: 'beta' as const,
-                              }
-                            : null,
-                        featureFlags[FEATURE_FLAGS.HEATMAPS_UI]
-                            ? {
-                                  identifier: Scene.Heatmaps,
-                                  label: 'Heatmaps',
-                                  icon: <IconCursorClick />,
-                                  to: isUsingSidebar ? undefined : urls.heatmaps(),
-                                  tag: 'alpha' as const,
-                              }
-                            : null,
                         {
                             identifier: Scene.FeatureFlags,
                             label: 'Feature flags',
@@ -589,17 +590,32 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.surveys(),
                         },
                         {
-                            identifier: 'EarlyAccessFeatures',
+                            identifier: Scene.EarlyAccessFeatures,
                             label: 'Early access features',
                             icon: <IconRocket />,
                             to: urls.earlyAccessFeatures(),
+                        },
+                        featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY]
+                            ? {
+                                  identifier: 'LLMObservability',
+                                  label: 'LLM observability',
+                                  icon: <IconAI />,
+                                  to: urls.llmObservabilityDashboard(),
+                                  tag: 'beta' as const,
+                              }
+                            : null,
+                        {
+                            identifier: Scene.ErrorTracking,
+                            label: 'Error tracking',
+                            icon: <IconWarning />,
+                            to: urls.errorTracking(),
                         },
                         {
                             identifier: Scene.SQLEditor,
                             label: 'SQL editor',
                             icon: <IconServer />,
                             to: urls.sqlEditor(),
-                            logic: editorSidebarLogic,
+                            logic: editorSceneLogic,
                         },
                         hasOnboardedAnyProduct
                             ? {
@@ -609,6 +625,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   to: urls.pipeline(),
                               }
                             : null,
+                        featureFlags[FEATURE_FLAGS.HEATMAPS_UI]
+                            ? {
+                                  identifier: Scene.Heatmaps,
+                                  label: 'Heatmaps',
+                                  icon: <IconCursorClick />,
+                                  to: isUsingSidebar ? undefined : urls.heatmaps(),
+                                  tag: 'alpha' as const,
+                              }
+                            : null,
                         featureFlags[FEATURE_FLAGS.MESSAGING] && hasOnboardedAnyProduct
                             ? {
                                   identifier: Scene.MessagingBroadcasts,
@@ -616,6 +641,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   icon: <IconMegaphone />,
                                   to: urls.messagingBroadcasts(),
                                   tag: 'alpha' as const,
+                              }
+                            : null,
+                        featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]
+                            ? {
+                                  identifier: Scene.RevenueAnalytics,
+                                  label: 'Revenue analytics',
+                                  icon: <IconPiggyBank />,
+                                  to: urls.revenueAnalytics(),
+                                  tag: 'beta' as const,
                               }
                             : null,
                     ].filter(isNotNil) as NavbarItem[],

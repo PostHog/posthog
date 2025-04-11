@@ -2,8 +2,6 @@ import dataclasses
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 
-from posthog import settings
-
 
 TableName = str
 PropertySourceColumnName = str
@@ -160,7 +158,6 @@ event_property_group_definitions = {
         "custom": PropertyGroupDefinition(
             f"key NOT LIKE '$%'",
             lambda key: not key.startswith("$"),
-            hidden=not settings.USE_PERSON_PROPERTIES_MAP_CUSTOM,
         ),
     },
 }

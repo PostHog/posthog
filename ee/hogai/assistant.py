@@ -10,15 +10,20 @@ from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.errors import GraphRecursionError
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
-from ee.hogai.funnels.nodes import FunnelGeneratorNode
-from ee.hogai.graph import AssistantGraph
-from ee.hogai.memory.nodes import MemoryInitializerNode
-from ee.hogai.retention.nodes import RetentionGeneratorNode
-from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
-from ee.hogai.trends.nodes import TrendsGeneratorNode
+from ee.hogai.graph import (
+    AssistantGraph,
+    FunnelGeneratorNode,
+    MemoryInitializerNode,
+    RetentionGeneratorNode,
+    SchemaGeneratorNode,
+    SQLGeneratorNode,
+    TrendsGeneratorNode,
+)
+from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.state import (
@@ -35,7 +40,7 @@ from ee.hogai.utils.state import (
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
-from posthog.models import Team, User
+from posthog.models import Action, Team, User
 from posthog.schema import (
     AssistantEventType,
     AssistantGenerationStatusEvent,
@@ -53,6 +58,7 @@ VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
     AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
     AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
+    AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
 }
 
 STREAMING_NODES: set[AssistantNodeName] = {
@@ -64,7 +70,10 @@ STREAMING_NODES: set[AssistantNodeName] = {
 """Nodes that can stream messages to the client."""
 
 
-VERBOSE_NODES = STREAMING_NODES | {AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT}
+VERBOSE_NODES = STREAMING_NODES | {
+    AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
+    AssistantNodeName.ROOT_TOOLS,
+}
 """Nodes that can send messages to the client."""
 
 
@@ -75,21 +84,26 @@ class Assistant:
     _team: Team
     _graph: CompiledStateGraph
     _user: Optional[User]
+    _contextual_tools: dict[str, Any]
     _conversation: Conversation
     _latest_message: HumanMessage
     _state: Optional[AssistantState]
     _callback_handler: Optional[BaseCallbackHandler]
+    _trace_id: Optional[str | UUID]
 
     def __init__(
         self,
         team: Team,
         conversation: Conversation,
         new_message: HumanMessage,
+        *,
         user: Optional[User] = None,
+        contextual_tools: Optional[dict[str, Any]] = None,
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
     ):
         self._team = team
+        self._contextual_tools = contextual_tools or {}
         self._user = user
         self._conversation = conversation
         self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())})
@@ -110,6 +124,7 @@ class Assistant:
             if posthoganalytics.default_client
             else None
         )
+        self._trace_id = trace_id
 
     def stream(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
@@ -167,6 +182,13 @@ class Assistant:
                     )
                 else:
                     self._report_conversation_state(last_viz_message)
+            except GraphRecursionError:
+                yield self._serialize_message(
+                    FailureMessage(
+                        content="The assistant has reached the maximum number of steps. You can explicitly ask to continue.",
+                        id=str(uuid4()),
+                    )
+                )
             except Exception as e:
                 # Reset the state, so that the next generation starts from the beginning.
                 self._graph.update_state(config, PartialAssistantState.get_reset_state())
@@ -186,7 +208,13 @@ class Assistant:
         config: RunnableConfig = {
             "recursion_limit": 48,
             "callbacks": callbacks,
-            "configurable": {"thread_id": self._conversation.id},
+            "configurable": {
+                "thread_id": self._conversation.id,
+                "trace_id": self._trace_id,
+                "distinct_id": self._user.distinct_id if self._user else None,
+                "contextual_tools": self._contextual_tools,
+                "team_id": self._team.id,
+            },
         }
         return config
 
@@ -220,6 +248,8 @@ class Assistant:
                 | AssistantNodeName.FUNNEL_PLANNER_TOOLS
                 | AssistantNodeName.RETENTION_PLANNER
                 | AssistantNodeName.RETENTION_PLANNER_TOOLS
+                | AssistantNodeName.SQL_PLANNER
+                | AssistantNodeName.SQL_PLANNER_TOOLS
             ):
                 substeps: list[str] = []
                 if input:
@@ -240,6 +270,25 @@ class Assistant:
                                     substeps.append(
                                         f"Analyzing {action.tool_input['entity']} property `{action.tool_input['property_name']}`"
                                     )
+                                case "retrieve_action_properties" | "retrieve_action_property_values":
+                                    id = (
+                                        action.tool_input
+                                        if isinstance(action.tool_input, str)
+                                        else action.tool_input["action_id"]
+                                    )
+                                    try:
+                                        action_model = Action.objects.get(pk=id, team__project_id=self._team.project_id)
+                                        if action.tool == "retrieve_action_properties":
+                                            substeps.append(f"Exploring `{action_model.name}` action properties")
+                                        elif action.tool == "retrieve_action_property_values" and isinstance(
+                                            action.tool_input, dict
+                                        ):
+                                            substeps.append(
+                                                f"Analyzing `{action.tool_input['property_name']}` action property of `{action_model.name}`"
+                                            )
+                                    except Action.DoesNotExist:
+                                        pass
+
                 return ReasoningMessage(content="Picking relevant events and properties", substeps=substeps)
             case AssistantNodeName.TRENDS_GENERATOR:
                 return ReasoningMessage(content="Creating trends query")
@@ -247,8 +296,25 @@ class Assistant:
                 return ReasoningMessage(content="Creating funnel query")
             case AssistantNodeName.RETENTION_GENERATOR:
                 return ReasoningMessage(content="Creating retention query")
-            case AssistantNodeName.INKEEP_DOCS:
-                return ReasoningMessage(content="Checking PostHog docs")
+            case AssistantNodeName.SQL_GENERATOR:
+                return ReasoningMessage(content="Creating SQL query")
+            case AssistantNodeName.ROOT_TOOLS:
+                assert isinstance(input.messages[-1], AssistantMessage)
+                tool_calls = input.messages[-1].tool_calls or []
+                assert len(tool_calls) <= 1
+                if len(tool_calls) == 0:
+                    return None
+                tool_call = tool_calls[0]
+                if tool_call.name == "create_and_query_insight":
+                    return ReasoningMessage(content="Coming up with an insight")
+                if tool_call.name == "search_documentation":
+                    return ReasoningMessage(content="Checking PostHog docs")
+                # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
+                # when the tool has been removed from the backend since the user's frontent was loaded
+                ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
+                return ReasoningMessage(
+                    content=ToolClass().thinking_message if ToolClass else f"Running tool {tool_call.name}"
+                )
             case _:
                 return None
 
@@ -286,8 +352,12 @@ class Assistant:
                 if isinstance(node_val, PartialAssistantState) and node_val.messages:
                     self._chunks = AIMessageChunk(content="")
                     for candidate_message in node_val.messages:
-                        # Filter out tool calls and empty assistant messages
-                        if not isinstance(candidate_message, AssistantToolCallMessage) and (
+                        if (
+                            # Filter out tool calls without a UI payload
+                            not isinstance(candidate_message, AssistantToolCallMessage)
+                            or candidate_message.ui_payload is not None
+                        ) and (
+                            # Also filter out empty assistant messages
                             not isinstance(candidate_message, AssistantMessage)
                             or isinstance(candidate_message, AssistantMessage)
                             and candidate_message.content

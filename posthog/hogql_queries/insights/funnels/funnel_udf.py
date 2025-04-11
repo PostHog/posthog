@@ -1,11 +1,13 @@
 from typing import cast, Optional, runtime_checkable
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.hogql import ast
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, HogQLQuerySettings
 from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql_queries.insights.funnels.base import FunnelBase, JOIN_ALGOS
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.schema import BreakdownType, BreakdownAttributionType
+from posthog.schema import BreakdownType, BreakdownAttributionType, StepOrderValue
 from posthog.utils import DATERANGE_MAP
 
 from typing import Protocol
@@ -59,7 +61,10 @@ class FunnelUDFMixin:
         prop_vals = f"[{self._default_breakdown_selector()}]"
         if self.context.breakdown:
             if self.context.breakdownAttributionType == BreakdownAttributionType.STEP:
-                prop = f"prop_{self.context.funnelsFilter.breakdownAttributionValue}"
+                if self.context.funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
+                    prop = f"prop_basic"
+                else:
+                    prop = f"prop_{self.context.funnelsFilter.breakdownAttributionValue}"
             else:
                 prop = "prop"
             if self._query_has_array_breakdown():
@@ -132,7 +137,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             fn = "aggregate_funnel"
             breakdown_prop = ""
 
-        prop_selector = "prop" if self.context.breakdown else self._default_breakdown_selector()
+        prop_selector = "prop_basic" if self.context.breakdown else self._default_breakdown_selector()
 
         prop_vals = self._prop_vals()
 
@@ -170,6 +175,19 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         return inner_select
 
     def get_query(self) -> ast.SelectQuery:
+        max_steps = self.context.max_steps
+        funnelsFilter = self.context.funnelsFilter
+
+        if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
+            for exclusion in funnelsFilter.exclusions or []:
+                if exclusion.funnelFromStep != 0 or exclusion.funnelToStep != max_steps - 1:
+                    raise ValidationError("Partial Exclusions not allowed in unordered funnels")
+            if (
+                funnelsFilter.breakdownAttributionType == BreakdownAttributionType.STEP
+                and funnelsFilter.breakdownAttributionValue != 0
+            ):
+                raise ValidationError("Only the first step can be used for breakdown attribution in unordered funnels")
+
         inner_select = self._inner_aggregation_query()
 
         step_results = ",".join(

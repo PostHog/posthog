@@ -6,7 +6,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useCallback, useEffect } from 'react'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
-import { SceneExport } from 'scenes/sceneTypes'
 
 import { ManualLinkSourceType, SourceConfig } from '~/types'
 
@@ -18,10 +17,6 @@ import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import { sourceWizardLogic } from './sourceWizardLogic'
 
-export const scene: SceneExport = {
-    component: NewSourceWizardScene,
-    logic: sourceWizardLogic,
-}
 export function NewSourceWizardScene(): JSX.Element {
     const { closeWizard } = useActions(sourceWizardLogic)
 
@@ -131,7 +126,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
 
     const onClick = (sourceConfig: SourceConfig): void => {
         if (sourceConfig.name == 'Hubspot') {
-            window.open(addToHubspotButtonUrl() as string)
+            window.open(addToHubspotButtonUrl() as string, '_self')
         } else {
             selectConnector(sourceConfig)
         }
@@ -153,7 +148,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
 
             <p>
                 Data will be synced to PostHog and regularly refreshed.{' '}
-                <Link to="https://posthog.com/docs/data-warehouse/setup#stripe">Learn more</Link>
+                <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
             </p>
             <LemonTable
                 dataSource={filteredConnectors}
@@ -183,7 +178,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                             const isConnected = disableConnectedSources && sourceConfig.existingSource
 
                             return (
-                                <div className="flex flex-row justify-end">
+                                <div className="flex flex-row justify-end p-1">
                                     {isConnected && (
                                         <LemonTag type="success" className="my-4" size="medium">
                                             <IconCheck />
@@ -215,7 +210,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
 
             <p>
                 Data will be queried directly from your data source that you manage.{' '}
-                <Link to="https://posthog.com/docs/data-warehouse/setup#linking-a-custom-source">Learn more</Link>
+                <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
             </p>
             <LemonTable
                 dataSource={manualConnectors}
@@ -238,7 +233,7 @@ function FirstStep({ disableConnectedSources }: Pick<NewSourcesWizardProps, 'dis
                         key: 'actions',
                         width: 0,
                         render: (_, sourceConfig) => (
-                            <div className="flex flex-row justify-end">
+                            <div className="flex flex-row justify-end p-1">
                                 <LemonButton
                                     onClick={() => onManualLinkClick(sourceConfig.type)}
                                     className="my-2"

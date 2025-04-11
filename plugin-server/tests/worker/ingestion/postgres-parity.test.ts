@@ -11,16 +11,17 @@ import {
     TimestampFormat,
 } from '../../../src/types'
 import { PostgresUse } from '../../../src/utils/db/postgres'
+import { parseJSON } from '../../../src/utils/json-parse'
 import { castTimestampOrNow, UUIDT } from '../../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 import { resetKafka } from '../../helpers/kafka'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'
 
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 jest.setTimeout(30000)
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
-    LOG_LEVEL: LogLevel.Log,
+    LOG_LEVEL: LogLevel.Info,
 }
 
 describe('postgres parity', () => {
@@ -89,7 +90,7 @@ describe('postgres parity', () => {
 
         const clickHousePersons = (await hub.db.fetchPersons(Database.ClickHouse)).map((row) => ({
             ...row,
-            properties: JSON.parse(row.properties), // avoids depending on key sort order
+            properties: parseJSON(row.properties), // avoids depending on key sort order
         }))
         expect(clickHousePersons).toEqual([
             {
@@ -109,7 +110,7 @@ describe('postgres parity', () => {
         const postgresPersons = await hub.db.fetchPersons(Database.Postgres)
         expect(postgresPersons).toEqual([
             {
-                id: expect.any(Number),
+                id: expect.any(String),
                 created_at: expect.any(DateTime),
                 properties: {
                     userProp: 'propValue',

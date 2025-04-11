@@ -1,7 +1,8 @@
 import { IconGear } from '@posthog/icons'
+import { LemonTag } from '@posthog/lemon-ui'
 import { actions, afterMount, BreakPointFunction, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
 import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -87,11 +88,33 @@ export enum TileId {
     GOALS = 'GOALS',
     WEB_VITALS = 'WEB_VITALS',
     WEB_VITALS_PATH_BREAKDOWN = 'WEB_VITALS_PATH_BREAKDOWN',
+
+    // Page Report Tiles to avoid conflicts with web analytics
+    PAGE_REPORTS_COMBINED_METRICS_CHART_SECTION = 'PR_COMBINED_METRICS_CHART_SECTION',
+    PAGE_REPORTS_PATHS_SECTION = 'PR_PATHS_SECTION',
+    PAGE_REPORTS_DEVICE_INFORMATION_SECTION = 'PR_DEVICE_INFORMATION_SECTION',
+    PAGE_REPORTS_TRAFFIC_SECTION = 'PR_TRAFFIC_SECTION',
+    PAGE_REPORTS_GEOGRAPHY_SECTION = 'PR_GEOGRAPHY_SECTION',
+    PAGE_REPORTS_COMBINED_METRICS_CHART = 'PR_COMBINED_METRICS_CHART',
+    PAGE_REPORTS_ENTRY_PATHS = 'PR_ENTRY_PATHS',
+    PAGE_REPORTS_EXIT_PATHS = 'PR_EXIT_PATHS',
+    PAGE_REPORTS_OUTBOUND_CLICKS = 'PR_OUTBOUND_CLICKS',
+    PAGE_REPORTS_CHANNELS = 'PR_CHANNELS',
+    PAGE_REPORTS_REFERRERS = 'PR_REFERRERS',
+    PAGE_REPORTS_DEVICE_TYPES = 'PR_DEVICE_TYPES',
+    PAGE_REPORTS_BROWSERS = 'PR_BROWSERS',
+    PAGE_REPORTS_OPERATING_SYSTEMS = 'PR_OPERATING_SYSTEMS',
+    PAGE_REPORTS_COUNTRIES = 'PR_COUNTRIES',
+    PAGE_REPORTS_REGIONS = 'PR_REGIONS',
+    PAGE_REPORTS_CITIES = 'PR_CITIES',
+    PAGE_REPORTS_TIMEZONES = 'PR_TIMEZONES',
+    PAGE_REPORTS_LANGUAGES = 'PR_LANGUAGES',
 }
 
 export enum ProductTab {
     ANALYTICS = 'analytics',
     WEB_VITALS = 'web-vitals',
+    PAGE_REPORTS = 'page-reports',
     SESSION_ATTRIBUTION_EXPLORER = 'session-attribution-explorer',
 }
 
@@ -112,6 +135,29 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.GOALS]: 10,
     [TileId.WEB_VITALS]: 11,
     [TileId.WEB_VITALS_PATH_BREAKDOWN]: 12,
+
+    // Page Report Sections
+    [TileId.PAGE_REPORTS_COMBINED_METRICS_CHART_SECTION]: 1,
+    [TileId.PAGE_REPORTS_PATHS_SECTION]: 2,
+    [TileId.PAGE_REPORTS_DEVICE_INFORMATION_SECTION]: 3,
+    [TileId.PAGE_REPORTS_TRAFFIC_SECTION]: 4,
+    [TileId.PAGE_REPORTS_GEOGRAPHY_SECTION]: 5,
+
+    // Page Report Tiles
+    [TileId.PAGE_REPORTS_COMBINED_METRICS_CHART]: 1,
+    [TileId.PAGE_REPORTS_ENTRY_PATHS]: 2,
+    [TileId.PAGE_REPORTS_EXIT_PATHS]: 3,
+    [TileId.PAGE_REPORTS_OUTBOUND_CLICKS]: 4,
+    [TileId.PAGE_REPORTS_CHANNELS]: 5,
+    [TileId.PAGE_REPORTS_REFERRERS]: 6,
+    [TileId.PAGE_REPORTS_DEVICE_TYPES]: 7,
+    [TileId.PAGE_REPORTS_BROWSERS]: 8,
+    [TileId.PAGE_REPORTS_OPERATING_SYSTEMS]: 9,
+    [TileId.PAGE_REPORTS_COUNTRIES]: 10,
+    [TileId.PAGE_REPORTS_REGIONS]: 11,
+    [TileId.PAGE_REPORTS_CITIES]: 12,
+    [TileId.PAGE_REPORTS_TIMEZONES]: 13,
+    [TileId.PAGE_REPORTS_LANGUAGES]: 14,
 }
 
 export interface BaseTile {
@@ -139,8 +185,8 @@ export interface QueryTile extends BaseTile {
 
 export interface TabsTileTab {
     id: string
-    title: string
-    linkText: string
+    title: string | JSX.Element
+    linkText: string | JSX.Element
     query: QuerySchema
     showIntervalSelect?: boolean
     control?: JSX.Element
@@ -166,12 +212,18 @@ export interface ErrorTrackingTile extends BaseTile {
     query: QuerySchema
 }
 
-export type WebAnalyticsTile = QueryTile | TabsTile | ReplayTile | ErrorTrackingTile
+export interface SectionTile extends BaseTile {
+    kind: 'section'
+    title?: string
+    tiles: WebAnalyticsTile[]
+}
+
+export type WebAnalyticsTile = QueryTile | TabsTile | ReplayTile | ErrorTrackingTile | SectionTile
 
 export interface WebAnalyticsModalQuery {
     tileId: TileId
     tabId?: string
-    title?: string
+    title?: string | JSX.Element
     query: QuerySchema
     insightProps: InsightLogicProps
     showIntervalSelect?: boolean
@@ -688,6 +740,14 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     })
                 }
 
+                if (productTab === ProductTab.PAGE_REPORTS) {
+                    breadcrumbs.push({
+                        key: Scene.WebAnalyticsPageReports,
+                        name: `Page reports`,
+                        path: urls.webAnalyticsPageReports(),
+                    })
+                }
+
                 return breadcrumbs
             },
         ],
@@ -907,19 +967,22 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 const revenueEventsSeries: EventsNode[] =
                     includeRevenue && currentTeam?.revenue_tracking_config
-                        ? currentTeam.revenue_tracking_config.events.map((e) => ({
-                              math: PropertyMathType.Sum,
-                              name: e.eventName,
-                              event: e.eventName,
-                              kind: NodeKind.EventsNode,
-                              custom_name: e.eventName,
-                              math_property: e.revenueProperty,
-                          }))
+                        ? ([
+                              ...currentTeam.revenue_tracking_config.events.map((e) => ({
+                                  name: e.eventName,
+                                  event: e.eventName,
+                                  custom_name: e.eventName,
+                                  math: PropertyMathType.Sum,
+                                  kind: NodeKind.EventsNode,
+                                  math_property: e.revenueProperty,
+                                  math_property_revenue_currency: e.revenueCurrencyProperty,
+                              })),
+                          ] as EventsNode[])
                         : []
 
                 const conversionRevenueSeries =
                     conversionGoal && 'customEventName' in conversionGoal && includeRevenue
-                        ? revenueEventsSeries.filter((e) => e.event === conversionGoal.customEventName)
+                        ? revenueEventsSeries.filter((e) => 'event' in e && e.event === conversionGoal.customEventName)
                         : []
 
                 const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
@@ -932,8 +995,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                 const createGraphsTrendsTab = (
                     id: GraphsTab,
-                    title: string,
-                    linkText: string,
+                    title: string | JSX.Element,
+                    linkText: string | JSX.Element,
                     series: AnyEntityNode[],
                     trendsFilter?: Partial<TrendsFilter>,
                     trendsQueryProperties?: Partial<TrendsQuery>
@@ -960,6 +1023,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         hidePersonsModal: true,
                         embedded: true,
+                        hideTooltipOnScroll: true,
                     },
                     showIntervalSelect: true,
                     insightProps: createInsightProps(TileId.GRAPHS, id),
@@ -997,7 +1061,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
                     // In case of a graph, we need to use the breakdownFilter and a InsightsVizNode,
                     // which will actually be handled by a WebStatsTrendTile instead of a WebStatsTableTile
-                    if (featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TREND_VIZ_TOGGLE] && visualization === 'graph') {
+                    if (visualization === 'graph') {
                         return {
                             ...baseTabProps,
                             query: {
@@ -1017,6 +1081,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 },
                                 hidePersonsModal: true,
                                 embedded: true,
+                                hideTooltipOnScroll: true,
                             },
                             canOpenInsight: true,
                             canOpenModal: false,
@@ -1171,7 +1236,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 !conversionGoal && revenueEventsSeries?.length
                                     ? createGraphsTrendsTab(
                                           GraphsTab.REVENUE_EVENTS,
-                                          'Revenue',
+                                          <span>
+                                              Revenue&nbsp;<LemonTag type="warning">BETA</LemonTag>
+                                          </span>,
                                           'Revenue',
                                           revenueEventsSeries,
                                           {
@@ -1216,8 +1283,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 conversionGoal && conversionRevenueSeries.length
                                     ? createGraphsTrendsTab(
                                           GraphsTab.CONVERSION_REVENUE,
-                                          'Conversion revenue',
-                                          'Conversion revenue',
+                                          <span>
+                                              Conversion Revenue&nbsp;<LemonTag type="warning">BETA</LemonTag>
+                                          </span>,
+                                          'Conversion Revenue',
                                           conversionRevenueSeries
                                       )
                                     : null,
@@ -1824,7 +1893,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    !conversionGoal && featureFlags[FEATURE_FLAGS.ERROR_TRACKING]
+                    !conversionGoal
                         ? {
                               kind: 'error_tracking',
                               tileId: TileId.ERROR_TRACKING,
@@ -2225,7 +2294,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
     actionToUrl(({ values }) => {
         const stateToUrl = (): string => {
-            const urlParams = new URLSearchParams()
+            const searchParams = { ...router.values.searchParams }
+            const urlParams = new URLSearchParams(searchParams)
 
             const {
                 rawWebAnalyticsFilters,
@@ -2287,9 +2357,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             if (compareFilter) {
                 urlParams.set('compare_filter', JSON.stringify(compareFilter))
             }
-            if (productTab !== ProductTab.ANALYTICS) {
-                urlParams.set('product_tab', productTab)
-            }
+
+            const { featureFlags } = featureFlagLogic.values
+            const pageReportsEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
+
             if (productTab === ProductTab.WEB_VITALS) {
                 urlParams.set('percentile', webVitalsPercentile)
             }
@@ -2303,7 +2374,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.set('tile_visualizations', JSON.stringify(tileVisualizations))
             }
 
-            const basePath = productTab === ProductTab.WEB_VITALS ? '/web/web-vitals' : '/web'
+            let basePath = '/web'
+            if (pageReportsEnabled && productTab === ProductTab.PAGE_REPORTS) {
+                basePath = '/web/page-reports'
+            } else if (productTab === ProductTab.WEB_VITALS) {
+                basePath = '/web/web-vitals'
+            }
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
         }
 
@@ -2352,7 +2428,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 tile_visualizations,
             }: Record<string, any>
         ): void => {
-            if (![ProductTab.ANALYTICS, ProductTab.WEB_VITALS].includes(productTab)) {
+            const { featureFlags } = featureFlagLogic.values
+            const pageReportsEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
+
+            // If trying to access page reports but the feature flag is not enabled, redirect to analytics
+            if (productTab === ProductTab.PAGE_REPORTS && !pageReportsEnabled) {
+                productTab = ProductTab.ANALYTICS
+            }
+
+            if (![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS].includes(productTab)) {
                 return
             }
 
@@ -2422,7 +2506,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
         }
 
-        return { '/web': toAction, '/web/:productTab': toAction }
+        return { '/web': toAction, '/web/:productTab': toAction, '/web/page-reports': toAction }
     }),
 
     listeners(({ values, actions }) => {

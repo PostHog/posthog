@@ -100,7 +100,7 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
                                 limit 10`,
                     }
 
-                    const res = await api.query(query, undefined, undefined, true)
+                    const res = await api.query(query, undefined, undefined, 'force_blocking')
 
                     return (
                         res.results

@@ -1,5 +1,4 @@
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import {
     allOperatorsMapping,
     capitalizeFirstLetter,
@@ -11,6 +10,7 @@ import {
 import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     AnyFilterLike,
     AnyPropertyFilter,
@@ -21,6 +21,7 @@ import {
     ElementPropertyFilter,
     EmptyPropertyFilter,
     EventDefinition,
+    EventMetadataPropertyFilter,
     EventPropertyFilter,
     FeaturePropertyFilter,
     FilterLogicalOperator,
@@ -102,6 +103,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Meta]: TaxonomicFilterGroupType.Metadata,
         [PropertyFilterType.Person]: TaxonomicFilterGroupType.PersonProperties,
         [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
+        [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
         [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
         [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
         [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
@@ -122,14 +124,14 @@ export function formatPropertyLabel(
     if (isHogQLPropertyFilter(item as AnyFilterLike)) {
         return extractExpressionComment(item.key)
     }
-    const { value, key, operator, type, cohort_name } = item
+    const { value, key, operator, type, cohort_name, label } = item
 
     const taxonomicFilterGroupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
 
     return type === 'cohort'
         ? `${capitalizeFirstLetter(cohortOperatorMap[operator || 'in'] || 'user in')} ` +
               (cohort_name || cohortsById[value]?.name || `ID ${value}`)
-        : (CORE_FILTER_DEFINITIONS_BY_GROUP[taxonomicFilterGroupType]?.[key]?.label || key) +
+        : (CORE_FILTER_DEFINITIONS_BY_GROUP[taxonomicFilterGroupType]?.[key]?.label || label || key) +
               (isOperatorFlag(operator)
                   ? ` ${allOperatorsMapping[operator]}`
                   : ` ${(allOperatorsMapping[operator || 'exact'] || '?').split(' ')[0]} ${
@@ -182,6 +184,9 @@ export function isValidPropertyFilter(
 
 export function isCohortPropertyFilter(filter?: AnyFilterLike | null): filter is CohortPropertyFilter {
     return filter?.type === PropertyFilterType.Cohort
+}
+export function isEventMetadataPropertyFilter(filter?: AnyFilterLike | null): filter is EventMetadataPropertyFilter {
+    return filter?.type === PropertyFilterType.EventMetadata
 }
 export function isPropertyGroupFilterLike(
     filter?: AnyFilterLike | null
@@ -237,6 +242,7 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
     return (
         isEventPropertyFilter(filter) ||
         isPersonPropertyFilter(filter) ||
+        isEventMetadataPropertyFilter(filter) ||
         isElementPropertyFilter(filter) ||
         isSessionPropertyFilter(filter) ||
         isCohortPropertyFilter(filter) ||
@@ -252,6 +258,7 @@ export function isPropertyFilterWithOperator(
 ): filter is
     | EventPropertyFilter
     | PersonPropertyFilter
+    | EventMetadataPropertyFilter
     | ElementPropertyFilter
     | SessionPropertyFilter
     | RecordingPropertyFilter
@@ -264,6 +271,7 @@ export function isPropertyFilterWithOperator(
         !isPropertyGroupFilterLike(filter) &&
         (isEventPropertyFilter(filter) ||
             isPersonPropertyFilter(filter) ||
+            isEventMetadataPropertyFilter(filter) ||
             isElementPropertyFilter(filter) ||
             isSessionPropertyFilter(filter) ||
             isRecordingPropertyFilter(filter) ||
@@ -291,6 +299,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.Person]: TaxonomicFilterGroupType.PersonProperties,
     [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
     [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
+    [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
     [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
     [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
     [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
@@ -334,6 +343,8 @@ export function propertyFilterTypeToPropertyDefinitionType(
 ): PropertyDefinitionType {
     return filterType === PropertyFilterType.Event
         ? PropertyDefinitionType.Event
+        : filterType === PropertyFilterType.EventMetadata
+        ? PropertyDefinitionType.EventMetadata
         : filterType === PropertyFilterType.Person
         ? PropertyDefinitionType.Person
         : filterType === PropertyFilterType.Group
@@ -352,6 +363,9 @@ export function taxonomicFilterTypeToPropertyFilterType(
 ): PropertyFilterType | undefined {
     if (filterType === TaxonomicFilterGroupType.CohortsWithAllUsers) {
         return PropertyFilterType.Cohort
+    }
+    if (filterType === TaxonomicFilterGroupType.EventMetadata) {
+        return PropertyFilterType.EventMetadata
     }
     if (
         filterType?.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ||
@@ -391,7 +405,8 @@ export function createDefaultPropertyFilter(
     propertyKey: string | number,
     propertyType: PropertyFilterType,
     taxonomicGroup: TaxonomicFilterGroup,
-    describeProperty: propertyDefinitionsModelType['values']['describeProperty']
+    describeProperty: propertyDefinitionsModelType['values']['describeProperty'],
+    originalQuery?: string
 ): AnyPropertyFilter {
     if (propertyType === PropertyFilterType.Cohort) {
         const operator =
@@ -437,7 +452,7 @@ export function createDefaultPropertyFilter(
     // is the equivalent of selecting a property value
     const property: AnyPropertyFilter = {
         key: isGroupNameFilter ? '$group_key' : propertyKey.toString(),
-        value: isGroupNameFilter ? propertyKey.toString() : null,
+        value: isGroupNameFilter ? propertyKey.toString() : originalQuery ?? null,
         operator,
         type: propertyType as AnyPropertyFilter['type'] as any, // bad | pipe chain :(
         group_type_index: taxonomicGroup.groupTypeIndex,
