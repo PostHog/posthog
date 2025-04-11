@@ -111,7 +111,7 @@ export class EventPipelineRunnerV2 {
         })
     }
 
-    private dropEvent(dropCause: string): void {
+    private dropEvent(dropCause: string): undefined {
         eventDroppedCounter
             .labels({
                 event_type: 'analytics',
@@ -120,7 +120,7 @@ export class EventPipelineRunnerV2 {
             .inc()
     }
 
-    async run(): Promise<RawKafkaEvent | void> {
+    async run(): Promise<RawKafkaEvent | undefined> {
         try {
             return await this._run()
         } catch (error) {
@@ -133,7 +133,7 @@ export class EventPipelineRunnerV2 {
         }
     }
 
-    private async _run(): Promise<RawKafkaEvent | void> {
+    private async _run(): Promise<RawKafkaEvent | undefined> {
         // First of all lets get the team
         this.team = (await this.getTeam()) ?? undefined
 
