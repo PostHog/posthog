@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import bigDecimal from 'js-big-decimal'
 
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { costsByModel } from './providers'
 import { ModelRow } from './providers/types'
 
@@ -138,7 +138,7 @@ const findCostFromModel = (aiModel: string): ModelRow | undefined => {
         cost = Object.values(costsByModel).find((cost) => aiModel.toLowerCase().includes(cost.model.toLowerCase()))
     }
     if (!cost) {
-        status.warn('🚨', `No cost found for model: ${aiModel}`)
+        logger.warn('🚨', `No cost found for model: ${aiModel}`)
     }
     return cost
 }

@@ -3,7 +3,7 @@ import { URL } from 'url'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { RawClickhouseHeatmapEvent, TimestampFormat } from '../../../types'
-import { status } from '../../../utils/status'
+import { logger } from '../../../utils/logger'
 import { castTimestampOrNow } from '../../../utils/utils'
 import { isDistinctIdIllegal } from '../../../worker/ingestion/person-state'
 
@@ -84,7 +84,7 @@ export function extractHeatmapData(event: PluginEvent): RawClickhouseHeatmapEven
     }
 
     if (!isValidNumber($viewport_height) || !isValidNumber($viewport_width)) {
-        status.warn('👀', '[extract-heatmap-data] dropping because invalid viewport dimensions', {
+        logger.warn('👀', '[extract-heatmap-data] dropping because invalid viewport dimensions', {
             parent: event.event,
             teamId: team_id,
             eventTimestamp: timestamp,

@@ -13,7 +13,7 @@ import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, Person, PersonMode, PipelineEvent, RawKafkaEvent, Team, TimestampFormat } from '../../types'
 import { safeClickhouseString, sanitizeEventName, sanitizeString } from '../../utils/db/utils'
 import { normalizeEvent, normalizeProcessPerson } from '../../utils/event'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { castTimestampOrNow, UUID } from '../../utils/utils'
 import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from '../../worker/ingestion/group-type-manager'
 import { PersonState } from '../../worker/ingestion/person-state'
@@ -296,7 +296,7 @@ export class EventPipelineRunnerV2 {
                 // NOTE: Whilst this is pre-production we want to make it as optional as possible
                 // so we don't block the pipeline if it fails
                 captureException(error)
-                status.error(error)
+                logger.error(error)
             }
         }
     }
@@ -424,7 +424,7 @@ export class EventPipelineRunnerV2 {
             elementsChain = getElementsChain(properties!)
         } catch (error) {
             captureException(error, { tags: { team_id: this.team!.id } })
-            status.warn('⚠️', 'Failed to process elements', {
+            logger.warn('⚠️', 'Failed to process elements', {
                 uuid: this.event.uuid,
                 teamId: this.team!.id,
                 properties,
