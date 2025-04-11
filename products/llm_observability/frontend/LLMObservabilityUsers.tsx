@@ -10,10 +10,12 @@ import { PropertyFilterType } from '~/types'
 import { llmObservabilityLogic } from './llmObservabilityLogic'
 
 const mapPerson = (person: any): { distinct_id: string; created_at: string; properties: Record<string, any> } => {
+    // The person data comes as a tuple [distinct_id, created_at, properties_json]
+    // We need to parse the properties_json string if it exists
     return {
         distinct_id: Array.isArray(person) && person.length > 0 ? person[0] : '',
         created_at: Array.isArray(person) && person.length > 1 ? person[1] : '',
-        properties: Array.isArray(person) && person.length > 2 ? person[2] : {},
+        properties: Array.isArray(person) && person.length > 2 ? JSON.parse(person[2]) : {},
     }
 }
 
