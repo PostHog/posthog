@@ -259,7 +259,8 @@ SELECT
   team_id AS my_team,
   properties,
   properties.$browser AS browser,
-  properties.custom AS custom
+  properties.custom AS custom,
+  person_id
 FROM events
 """
 
@@ -329,6 +330,7 @@ def test_create_batch_export_with_custom_schema(client: HttpClient, temporal):
                 "expression": "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
                 "alias": "custom",
             },
+            {"alias": "person_id", "expression": "events.person_id"},
         ]
         expected_schema = {
             "fields": expected_fields,
