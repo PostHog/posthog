@@ -1,14 +1,15 @@
 import { IconFilter, IconMagicWand, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { LemonBanner, LemonMenu, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { useState } from 'react'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+
 import { SessionKeyEvent } from '../player-meta/types'
-import { useState } from 'react'
-import { LemonBanner, LemonMenu, Link, Tooltip } from '@posthog/lemon-ui'
 
 function formatEventMetaInfo(event: SessionKeyEvent): JSX.Element {
     return (
@@ -62,11 +63,11 @@ function SessionSummary(): JSX.Element {
 
     return (
         // TODO Change with a proper limited instead of manual rem
-        <div className="flex flex-col" style={{ maxWidth: '24rem' }}>
+        <div className="flex flex-col xl:max-w-96">
             {sessionSummary ? (
                 <>
                     <LemonBanner className="mb-3" type="info" action={undefined} onClose={undefined}>
-                        <div className="text-sm break-words py-1 px-1" style={{ fontWeight: 'normal' }}>
+                        <div className="text-sm break-words py-1 px-1 font-normal">
                             {sessionSummary.content.summary}
                         </div>
                     </LemonBanner>
