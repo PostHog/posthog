@@ -619,7 +619,7 @@ def get_teams_with_recording_count_in_period(
             WHERE min_first_timestamp BETWEEN %(begin)s AND %(end)s
             GROUP BY session_id
             HAVING ifNull(argMinMerge(snapshot_source), 'web') == %(snapshot_source)s
-            AND dateDiff(toDateTime(min_first_timestamp), toDateTime(max_last_timestamp)) >= %(min_duration_seconds)s
+            AND dateDiff(toDateTime(min_first_timestamp), toDateTime(max_last_timestamp)) > %(min_duration_seconds)s
         WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
             -- before the period we are interested in
@@ -664,7 +664,7 @@ def get_teams_with_mobile_billable_recording_count_in_period(
             GROUP BY session_id
             HAVING (ifNull(argMinMerge(snapshot_source), '') == 'mobile'
             AND ifNull(argMinMerge(snapshot_library), '') IN ('posthog-ios', 'posthog-android', 'posthog-react-native'))
-            AND dateDiff(toDateTime(min_first_timestamp), toDateTime(max_last_timestamp)) >= %(min_duration_seconds)s
+            AND dateDiff(toDateTime(min_first_timestamp), toDateTime(max_last_timestamp)) > %(min_duration_seconds)s
         )
         WHERE session_id NOT IN (
             -- we want to exclude sessions that might have events with timestamps
@@ -1055,7 +1055,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end, snapshot_source="web"
         ),
         "teams_with_zero_duration_recording_count_in_period": get_teams_with_recording_count_in_period(
-            period_start, period_end, snapshot_source="web", min_duration_seconds=1
+            period_start, period_end, snapshot_source="web", min_duration_seconds=0
         ),
         "teams_with_recording_bytes_in_period": get_teams_with_recording_bytes_in_period(
             period_start, period_end, snapshot_source="web"
@@ -1064,7 +1064,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end, snapshot_source="mobile"
         ),
         "teams_with_zero_duration_mobile_recording_count_in_period": get_teams_with_recording_count_in_period(
-            period_start, period_end, snapshot_source="mobile", min_duration_seconds=1
+            period_start, period_end, snapshot_source="mobile", min_duration_seconds=0
         ),
         "teams_with_mobile_recording_bytes_in_period": get_teams_with_recording_bytes_in_period(
             period_start, period_end, snapshot_source="mobile"
