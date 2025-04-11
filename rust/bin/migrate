@@ -1,4 +1,47 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
-sqlx database create
-sqlx migrate run
+set -euxo pipefail
+
+#
+# this boostraps the databases and tables that are *not* explicitly owned
+# by the Django monolith. Includes "cyclotron" and "propdefs" add more for
+# new services that depend on their own isolated Postgres instance in
+# production
+#
+
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+source "$SCRIPT_DIR/util"
+
+check_docker_compose_up
+
+# hop up to posthog repo root and bootstrap the test_posthog DB.
+# this ensures all the Django-owned DB schemas we rely on in Rust
+# code stay in parity and exist for SQLX to verify query syntax
+# against. This also sets up the DB env for projects like
+# feature-flags that do not use SQLX to manage migrations.
+pushd "$SCRIPT_DIR/../.."
+DEBUG=true TEST=true python manage.py setup_test_environment --only-postgres
+popd
+
+# Extract the public.posthog_* table schemas from test_posthog DB that was
+# bootstrapped by the Python command above so SQLX can use them in the
+# Rust workspace 
+$SCRIPT_DIR/export_posthog_schemas
+
+# Allow for overriding DATABASE_URL set by `posthog/rust/.env` in this script
+DB_HOST="${DB_HOST:-postgres://posthog:posthog@localhost:5432}"
+log "Executing Rust workspace migrations with DB_HOST: ${DB_HOST}..."
+
+# `posthog/plugin-server/package.json` overrides CYCLOTRON_DATABASE_NAME
+# in a test target so we need to accomodate that too
+CYCLOTRON_DB_NAME="${CYCLOTRON_DATABASE_NAME:-test_posthog}"
+CYCLOTRON_DB="$DB_HOST/${CYCLOTRON_DB_NAME}"
+
+# cyclotron points to it's own DB instance in production, and therefore has its own
+# DB namespace in local dev too.
+if [ "$CYCLOTRON_DB_NAME" != "test_posthog" ]; then
+    sqlx database create -D "$CYCLOTRON_DB"
+fi
+sqlx migrate run -D "$CYCLOTRON_DB" --source "$SCRIPT_DIR/../cyclotron-core/migrations"
+
+# TODO: ^^^ in the near future, propdefs isolated DB will need to bootstrap as cyclotron does

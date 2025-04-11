@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+
+set -euxo pipefail
+
+#
+# Only intended to be run/sourced by other scripts!
+#
+# WARNING: This expects Django's setup_test_environment has
+# already been executed by the caller
+
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+source "$SCRIPT_DIR/util"
+
+# Ensure schema export and migration tools are installed
+check_install_pinned_sqlx_cli
+check_pg_dump_installed
+
+# Export test_posthog schemas into local Rust workspace for sqlx::test
+
+# Step 1: clean up any existing exported migration files; bootstrap static migration files
+RUST_MIGRATIONS="$SCRIPT_DIR/../migrations"
+MIGRATION_COUNTER=20250402111111
+
+find "$RUST_MIGRATIONS" -name '*' -delete
+mkdir -p "$RUST_MIGRATIONS"
+
+# Step 2: create static migrations to set up the DB for creation of the exported schemas
+echo "CREATE EXTENSION IF NOT EXISTS pg_trgm;" > "${RUST_MIGRATIONS}/${MIGRATION_COUNTER}_posthog_gin_extension.sql"
+MIGRATION_COUNTER=$((MIGRATION_COUNTER + 1))
+echo "CREATE EXTENSION IF NOT EXISTS ltree;" > "${RUST_MIGRATIONS}/${MIGRATION_COUNTER}_posthog_ltree_extension.sql"
+MIGRATION_COUNTER=$((MIGRATION_COUNTER + 1))
+
+# Step 3: export all public.posthog_* schemas into Rust workspace for SQLX to use in test migrations
+function tmp_file {
+  echo "$RUST_MIGRATIONS/posthog_schemas_${1}.sql.tmp"
+}
+
+MIGRATION_FILE="$RUST_MIGRATIONS/${MIGRATION_COUNTER}_posthog_schemas.sql"
+MIGRATION_COUNTER=$((MIGRATION_COUNTER + 1))
+
+log "Exporting test_posthog schemas..."
+PGPASSWORD=posthog pg_dump \
+    --user posthog \
+    --host localhost \
+    --port 5432 \
+    --dbname test_posthog \
+    --file="$(tmp_file 1)" \
+    --schema-only \
+    --schema public
+
+sed '/SELECT pg_catalog\.set_config/d' "$(tmp_file 1)" > "$(tmp_file 2)"
+sed '/^SET /d' "$(tmp_file 2)" > "$(tmp_file 3)"
+sed '/^CREATE SCHEMA /d' "$(tmp_file 3)" > "$(tmp_file 4)"
+awk '{gsub(/public\./, ""); print}' "$(tmp_file 4)" > "$MIGRATION_FILE"
+
+# Step 4: clean up the tempfiles!
+find "$RUST_MIGRATIONS" -name '*.tmp' -delete

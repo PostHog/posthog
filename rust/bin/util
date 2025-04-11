@@ -1,0 +1,47 @@
+# sourced by migration scripts
+
+SQLX_CLI_VERSION="0.8.3"
+POSTHOG_DOCKER_DB_CONTAINER_NAME="posthog-db-1"
+
+function log {
+  set +x
+  if [[ "${1:-}" == "--err" ]]; then
+    shift 1
+    echo -e "\n\033[1m[ERROR]\t$@\033[0m\n" >&2
+  else
+    echo -e "\n\033[1m[INFO]\t$@\033[0m\n"
+  fi
+  set -x
+}
+
+function check_docker_compose_up {
+  log "Checking on Docker Compose and DB container: ${POSTHOG_DOCKER_DB_CONTAINER_NAME}..."
+
+  if [[ -z "$(docker ps -q -f "name=${POSTHOG_DOCKER_DB_CONTAINER_NAME}")" ]] ; then
+    log --err "Required: posthog repo root docker-compose must be UP"
+    exit 1
+  fi
+}
+
+function check_install_pinned_sqlx_cli {
+  log "Checking SQLX CLI is installed at version ${SQLX_CLI_VERSION}..."
+
+  if ! which sqlx; then
+    log "Installing SQLX CLI tool..."
+    cargo install sqlx-cli --version "$SQLX_CLI_VERSION"
+  fi
+}
+
+function check_pg_dump_installed {
+  if ! which pg_dump; then
+    log --err "Required: pg_dump tool must be installed locally"
+    exit 1
+  fi
+}
+
+function check_psql_installed {
+  if ! which psql; then
+    log --err "Required: psql tool must be installed locally"
+    exit 1
+  fi
+}
