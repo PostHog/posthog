@@ -6,6 +6,7 @@ export type CyclotronPoolConfig = {
     maxLifetimeSeconds?: number
     idleTimeoutSeconds?: number
     shouldCompressVmState?: boolean
+    shouldUseBulkCopyJob?: boolean
 }
 
 // Type as expected by Cyclotron.
@@ -17,6 +18,7 @@ export type CyclotronInternalPoolConfig = {
     max_lifetime_seconds?: number
     idle_timeout_seconds?: number
     should_compress_vm_state?: boolean
+    should_use_bulk_copy_job?: boolean
 }
 
 // Config specific to tuning the worker batch flush and heartbeat behaviour

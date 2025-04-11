@@ -9,7 +9,8 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dateMapping } from 'lib/utils'
-import { useEffect, useRef, useState } from 'react'
+import { cn } from 'lib/utils/css-classes'
+import { ReactNode, useEffect, useRef, useState } from 'react'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
@@ -26,19 +27,15 @@ const taxonomicGroupTypes = [
     TaxonomicFilterGroupType.HogQLExpression,
 ]
 
-export const ErrorTrackingFilters = (): JSX.Element => {
+export const ErrorTrackingFilters = ({ children }: { children: ReactNode }): JSX.Element => {
     return (
         <div className="space-y-1">
-            <div className="flex gap-2 items-center">
-                <DateRange />
-                <FilterGroup />
-                <InternalAccounts />
-            </div>
+            <div className="flex gap-2 items-center">{children}</div>
         </div>
     )
 }
 
-const FilterGroup = (): JSX.Element => {
+export const FilterGroup = (): JSX.Element => {
     const { filterGroup } = useValues(errorTrackingLogic)
     const { setFilterGroup } = useActions(errorTrackingLogic)
 
@@ -144,24 +141,34 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
     )
 }
 
-const DateRange = (): JSX.Element => {
+export const DateRangeFilter = ({
+    className,
+    fullWidth = false,
+    size = 'small',
+}: {
+    className?: string
+    fullWidth?: boolean
+    size?: 'xsmall' | 'small' | 'medium' | 'large'
+}): JSX.Element => {
     const { dateRange } = useValues(errorTrackingLogic)
     const { setDateRange } = useActions(errorTrackingLogic)
-
     return (
-        <DateFilter
-            size="small"
-            dateFrom={dateRange.date_from}
-            dateTo={dateRange.date_to}
-            dateOptions={errorTrackingDateOptions}
-            onChange={(changedDateFrom, changedDateTo) =>
-                setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
-            }
-        />
+        <span className={cn('rounded bg-surface-primary', className)}>
+            <DateFilter
+                size={size}
+                dateFrom={dateRange.date_from}
+                dateTo={dateRange.date_to}
+                fullWidth={fullWidth}
+                dateOptions={errorTrackingDateOptions}
+                onChange={(changedDateFrom, changedDateTo) =>
+                    setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
+                }
+            />
+        </span>
     )
 }
 
-const InternalAccounts = (): JSX.Element => {
+export const InternalAccountsFilter = (): JSX.Element => {
     const { filterTestAccounts } = useValues(errorTrackingLogic)
     const { setFilterTestAccounts } = useActions(errorTrackingLogic)
 

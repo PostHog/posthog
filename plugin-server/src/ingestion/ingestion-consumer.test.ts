@@ -62,6 +62,7 @@ const createKafkaMessages: (events: PipelineEvent[]) => Message[] = (events) => 
             data: JSON.stringify(event),
         }
         return {
+            key: `${event.token}:${event.distinct_id}`,
             value: Buffer.from(JSON.stringify(captureEvent)),
             size: 1,
             topic: 'test',
@@ -220,6 +221,7 @@ describe('IngestionConsumer', () => {
                     // Reset ingester with multiple force overflow tokens
                     await ingester.stop()
                     hub.INGESTION_FORCE_OVERFLOW_TOKENS = `${team.api_token},${team2.api_token}`
+                    hub.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID = `${team.api_token}:distinct-id-team1`
                     ingester = new IngestionConsumer(hub)
                     await ingester.start()
 
@@ -244,8 +246,12 @@ describe('IngestionConsumer', () => {
                         String(a.value.distinct_id).localeCompare(String(b.value.distinct_id))
                     )
 
+                    // First one is randomized as it is marked for skipping persons
                     expect(sortedOverflowMessages[0].value.distinct_id).toEqual('distinct-id-team1')
+                    expect(sortedOverflowMessages[0].key).toEqual(null)
+                    // Second one is not randomized as it is not marked for skipping persons
                     expect(sortedOverflowMessages[1].value.distinct_id).toEqual('distinct-id-team2')
+                    expect(sortedOverflowMessages[1].key).toEqual(`${team2.api_token}:distinct-id-team2`)
                 })
             })
         })
@@ -864,7 +870,7 @@ describe('IngestionConsumer', () => {
             expect(forSnapshot(getProducedKafkaMessages())).toMatchInlineSnapshot(`
                 [
                   {
-                    "key": null,
+                    "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
                     "topic": "testing_topic",
                     "value": {
                       "data": "{"distinct_id":"user-1","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
