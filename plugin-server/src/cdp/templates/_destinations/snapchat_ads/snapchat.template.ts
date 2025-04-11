@@ -2,7 +2,7 @@ import { HogFunctionInputSchemaType } from '~/src/cdp/types'
 
 import { HogFunctionTemplate } from '../../types'
 
-const build_inputs = (): HogFunctionInputSchemaType[] => {
+const build_inputs = (multiProductEvent = false): HogFunctionInputSchemaType[] => {
     return [
         {
             key: 'eventId',
@@ -64,10 +64,19 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             default: {
                 value: '{toFloat(event.properties.price ?? event.properties.value ?? event.properties.revenue)}',
                 currency: '{event.properties.currency}',
-                content_ids: '{event.properties.item_ids}',
-                content_category: '{event.properties.category}',
+                content_ids: multiProductEvent
+                    ? '{arrayMap(x -> x.sku, event.properties.products ?? [])}'
+                    : '{event.properties.sku}',
+                content_category: multiProductEvent
+                    ? '{arrayMap(x -> x.category, event.properties.products ?? [])}'
+                    : '{event.properties.category}',
                 search_string: '{event.properties.search_string ?? event.properties.query}',
-                num_items: '{toInt(event.properties.number_items ?? event.properties.quantity)}',
+                contents: multiProductEvent
+                    ? "{arrayMap(x -> ({'item_price': x.price, 'id': x.sku, 'quantity': x.quantity, 'delivery_category': 'normal'}), event.properties.products ?? [])}"
+                    : "{(not empty(event.properties.price) and not empty(event.properties.sku) and not empty(event.properties.quantity) ? [{'item_price': event.properties.price, 'id': event.properties.sku, 'quantity': event.properties.quantity, 'delivery_category': 'normal'}] : [])}",
+                num_items: multiProductEvent
+                    ? '{arrayReduce((acc, curr) -> acc + curr.quantity, event.properties.products ?? [], 0)}'
+                    : '{event.properties.quantity}',
                 order_id:
                     '{event.properties.orderId ?? event.properties.transactionId ?? event.properties.transaction_id}',
                 event_id: '{event.uuid}',
@@ -225,7 +234,7 @@ if (res.status >= 400) {
                     default: 'PURCHASE',
                     required: true,
                 },
-                ...build_inputs(),
+                ...build_inputs(true),
             ],
         },
         {
@@ -245,7 +254,7 @@ if (res.status >= 400) {
                     default: 'START_CHECKOUT',
                     required: true,
                 },
-                ...build_inputs(),
+                ...build_inputs(true),
             ],
         },
         {
