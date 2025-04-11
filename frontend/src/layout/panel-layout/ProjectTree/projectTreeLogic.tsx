@@ -608,6 +608,42 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     root: 'new',
                 }),
         ],
+        treeItemsNewByNestedProduct: [
+            (s) => [s.treeItemsNew],
+            (treeItemsNew): TreeDataItem[] => {
+                // Create arrays for each category
+                const dataItems = treeItemsNew
+                    .filter((item: TreeDataItem) => item.record?.type.includes('hog_function/'))
+                    .sort((a: TreeDataItem, b: TreeDataItem) => a.name.localeCompare(b.name))
+
+                const insightItems = treeItemsNew
+                    .filter((item: TreeDataItem) => item.record?.type === 'insight')
+                    .sort((a: TreeDataItem, b: TreeDataItem) => a.name.localeCompare(b.name))
+
+                // Get other items (not data or insight)
+                const otherItems = treeItemsNew
+                    .filter(
+                        (item: TreeDataItem) =>
+                            !item.record?.type.includes('hog_function/') && !item.record?.type.includes('insight')
+                    )
+                    .sort((a: TreeDataItem, b: TreeDataItem) => a.name.localeCompare(b.name))
+
+                // Create the final hierarchical structure with explicit names for grouped items
+                const result = [
+                    ...otherItems,
+                    { id: 'data', name: 'Data', children: dataItems },
+                    { id: 'insight', name: 'Insight', children: insightItems },
+                ]
+
+                // Sort the top level alphabetically (keeping the structure)
+                return result.sort((a: TreeDataItem, b: TreeDataItem) => {
+                    // Always use name for sorting (with fallback to id)
+                    const nameA = a.name || a.id.charAt(0).toUpperCase() + a.id.slice(1)
+                    const nameB = b.name || b.id.charAt(0).toUpperCase() + b.id.slice(1)
+                    return nameA.localeCompare(nameB)
+                })
+            },
+        ],
         treeItemsExplore: [
             (s) => [s.featureFlags, s.groupNodes, s.folderStates],
             (featureFlags, groupNodes: FileSystemImport[], folderStates): TreeDataItem[] =>
@@ -627,6 +663,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     checkedItems,
                     root: 'project',
                     searchTerm: searchResults.searchTerm,
+                    disableFolderSelect: true,
                 })
                 if (searchResults.hasMore) {
                     if (searchResultsLoading) {
@@ -719,7 +756,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
 
                 let files = response.results
                 let hasMore = false
-                if (offset + files.length > PAGINATION_LIMIT) {
+                if (files.length > PAGINATION_LIMIT) {
                     files = files.slice(0, PAGINATION_LIMIT)
                     hasMore = true
                 }

@@ -28,7 +28,7 @@ import {
 } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
-import { DATAWAREHOUSE_EDITOR_ITEM_ID } from '../utils'
+import { DATAWAREHOUSE_EDITOR_ITEM_ID, sizeOfInBytes } from '../utils'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
 import { ViewEmptyState } from './ViewLoadingState'
@@ -73,6 +73,7 @@ export interface QueryTab {
     name: string
     sourceQuery?: DataVisualizationNode
     insight?: QueryBasedInsightModel
+    response?: Record<string, any>
 }
 
 export const multitabEditorLogic = kea<multitabEditorLogicType>([
@@ -88,12 +89,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 'deleteDataWarehouseSavedQuerySuccess',
                 'createDataWarehouseSavedQuerySuccess',
                 'runDataWarehouseSavedQuery',
+                'resetDataModelingJobs',
+                'loadDataModelingJobs',
             ],
             outputPaneLogic,
             ['setActiveTab'],
         ],
     })),
-    actions({
+    actions(({ values }) => ({
         setQueryInput: (queryInput: string) => ({ queryInput }),
         updateState: (skipBreakpoint?: boolean) => ({ skipBreakpoint }),
         runQuery: (queryOverride?: string, switchTab?: boolean) => ({
@@ -130,7 +133,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         editInsight: (query: string, insight: QueryBasedInsightModel) => ({ query, insight }),
         updateQueryTabState: (skipBreakpoint?: boolean) => ({ skipBreakpoint }),
         setLastRunQuery: (lastRunQuery: DataVisualizationNode | null) => ({ lastRunQuery }),
-    }),
+        setResponse: (response: Record<string, any> | null) => ({ response, currentTab: values.activeModelUri }),
+    })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
             actions.initialize()
@@ -336,6 +340,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         insight: uri.path === tab.uri.path ? insight : tab.insight,
                         sourceQuery: uri.path === tab.uri.path ? insight?.query : tab.insight?.query,
                         name: tab.name,
+                        response: tab.response,
                     }
                 })
                 actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
@@ -454,6 +459,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         path: tab.uri.path.split('/').pop(),
                         view: tab.view,
                         insight: tab.insight,
+                        response: tab.response,
                     }
                 })
                 actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
@@ -498,6 +504,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             insight: model.insight,
                             name: model.name,
                             sourceQuery: existingTab?.sourceQuery,
+                            response: model.response,
                         })
                         mountedCodeEditorLogic && initModel(newModel, mountedCodeEditorLogic)
                     }
@@ -528,6 +535,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                             name: activeView?.name || activeInsight?.name || activeTab.name,
                             insight: activeInsight,
                             sourceQuery: activeTab.sourceQuery,
+                            response: activeTab.response,
                         })
                     }
                 } else if (newModels.length) {
@@ -537,6 +545,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         sourceQuery: newModels[0].sourceQuery,
                         view: newModels[0].view,
                         insight: newModels[0].insight,
+                        response: newModels[0].response,
                     })
                 }
             } else {
@@ -563,6 +572,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     name: model.view?.name || model.name,
                     view: model.view,
                     insight: model.insight,
+                    response: model.response,
                 }
             })
             actions.setLocalState(editorModelsStateKey(props.key), JSON.stringify(queries))
@@ -775,6 +785,21 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 console.error(e)
             }
         },
+        setResponse: ({ response, currentTab }) => {
+            if (!currentTab || !response) {
+                return
+            }
+
+            const responseInBytes = sizeOfInBytes(response)
+
+            // Store in local storage if the response is less than 1 MB
+            if (responseInBytes <= 1024 * 1024) {
+                actions.updateTab({
+                    ...currentTab,
+                    response,
+                })
+            }
+        },
     })),
     subscriptions(({ props, actions, values }) => ({
         activeModelUri: (activeModelUri) => {
@@ -807,6 +832,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             const activeTab = values.allTabs.find((tab) => tab.uri.path === values.activeModelUri?.uri.path)
             if (activeTab && activeTab.uri.path != values.activeModelUri?.uri.path) {
                 actions.selectTab(activeTab)
+            }
+        },
+        editingView: (editingView) => {
+            if (editingView) {
+                actions.resetDataModelingJobs()
+                actions.loadDataModelingJobs(editingView.id)
             }
         },
     })),
@@ -858,7 +889,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         showLegacyFilters: [
             (s) => [s.sourceQuery],
             (sourceQuery) => {
-                return sourceQuery.source.query.indexOf('{filters}') !== -1
+                return (
+                    sourceQuery.source.query.indexOf('{filters}') !== -1 ||
+                    sourceQuery.source.query.indexOf('{filters.') !== -1
+                )
             },
         ],
         dataLogicKey: [
@@ -876,6 +910,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         doNotLoad: true,
                     })
                 )
+            },
+        ],
+        localStorageResponse: [
+            (s) => [s.activeModelUri],
+            (activeModelUri) => {
+                return activeModelUri?.response
             },
         ],
     }),
