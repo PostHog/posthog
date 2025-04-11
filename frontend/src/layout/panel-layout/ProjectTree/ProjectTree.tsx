@@ -1,13 +1,12 @@
 import { IconChevronRight, IconFolderPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { LemonTree, LemonTreeRef, TreeMode, TreeTableViewKeys } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { LemonTree, LemonTreeRef, TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem, ContextMenuSeparator } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
-import { RefObject, useEffect, useMemo, useRef } from 'react'
+import { RefObject, useEffect, useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -19,6 +18,7 @@ import { joinPath, splitPath } from './utils'
 export function ProjectTree(): JSX.Element {
     const {
         treeData,
+        treeTableKeys,
         lastViewedId,
         viableItems,
         expandedFolders,
@@ -59,30 +59,6 @@ export function ProjectTree(): JSX.Element {
             void navigator.clipboard.writeText(path)
         }
     }
-
-    const getTableViewKeys = useMemo(
-        (): TreeTableViewKeys => ({
-            headers: [
-                {
-                    key: 'name',
-                    title: 'Name',
-                    tooltip: (value: string) => value,
-                },
-                {
-                    key: 'record.created_at',
-                    title: 'Created at',
-                    formatFunction: (value: string) => dayjs(value).format('MMM D, YYYY'),
-                    tooltip: (value: string) => dayjs(value).format('MMM D, YYYY HH:mm:ss'),
-                },
-                {
-                    key: 'record.created_by.first_name',
-                    title: 'Created by',
-                    tooltip: (value: string) => value,
-                },
-            ],
-        }),
-        [treeData]
-    )
 
     useEffect(() => {
         setPanelTreeRef(treeRef)
@@ -292,7 +268,7 @@ export function ProjectTree(): JSX.Element {
                 className="px-0 py-1"
                 data={treeData}
                 mode={projectTreeMode as TreeMode}
-                tableViewKeys={getTableViewKeys}
+                tableViewKeys={treeTableKeys}
                 defaultSelectedFolderOrNodeId={lastViewedId || undefined}
                 isItemActive={(item) => {
                     if (!item.record?.href) {
