@@ -3,27 +3,31 @@ import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { MessageSizeTooLarge } from '~/src/utils/db/error'
-import { captureIngestionWarning } from '~/src/worker/ingestion/utils'
-
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
 import { KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
+import { TopicMessage } from '../../kafka/producer'
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, Person, PersonMode, PipelineEvent, RawKafkaEvent, Team, TimestampFormat } from '../../types'
+import { MessageSizeTooLarge } from '../../utils/db/error'
 import { safeClickhouseString, sanitizeEventName, sanitizeString } from '../../utils/db/utils'
 import { normalizeEvent, normalizeProcessPerson } from '../../utils/event'
 import { logger } from '../../utils/logger'
 import { castTimestampOrNow, UUID } from '../../utils/utils'
-import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from '../../worker/ingestion/group-type-manager'
+import { MAX_GROUP_TYPES_PER_TEAM } from '../../worker/ingestion/group-type-manager'
 import { PersonState } from '../../worker/ingestion/person-state'
 import { uuidFromDistinctId } from '../../worker/ingestion/person-uuid'
 import { upsertGroup } from '../../worker/ingestion/properties-updater'
 import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
+import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { runProcessEvent } from '../../worker/plugins/run'
 import { processAiEvent } from '../ai-costs/process-ai-event'
 import { getElementsChain } from './utils/event-utils'
 import { extractHeatmapData } from './utils/heatmaps'
+
+export type TopicMessageWithErrorHandler = TopicMessage & {
+    errorHandler?: (error: Error) => void
+}
 
 export class EventDroppedError extends Error {
     public doNotSendToDLQ: boolean = false
@@ -50,12 +54,13 @@ export const droppedEventFromTransformationsCounter = new Counter({
 
 export class EventPipelineRunnerV2 {
     private team?: Team
-    private promises: Promise<any>[] = []
     private event: PluginEvent
     private shouldProcessPerson: boolean = true
     private timestamp?: DateTime
     private person?: Person
-    private groupTypeManager: GroupTypeManager
+
+    private promises: Promise<any>[] = []
+    private kafkaMessages: TopicMessageWithErrorHandler[] = []
 
     constructor(
         private hub: Hub,
@@ -71,8 +76,10 @@ export class EventPipelineRunnerV2 {
             },
             team_id: originalEvent.team_id ?? -1,
         }
-        // TODO: Move this up a level (or maybe even to the hub)
-        this.groupTypeManager = new GroupTypeManager(hub.postgres, hub.teamManager, hub.SITE_URL)
+    }
+
+    public getKafkaMessages(): TopicMessageWithErrorHandler[] {
+        return this.kafkaMessages
     }
 
     public getPromises(): Promise<any>[] {
@@ -88,22 +95,20 @@ export class EventPipelineRunnerV2 {
             ..._details,
         }
 
-        this.promises.push(
-            this.hub.kafkaProducer!.queueMessages({
-                topic: KAFKA_INGESTION_WARNINGS,
-                messages: [
-                    {
-                        value: JSON.stringify({
-                            team_id: this.team?.id,
-                            type: warning,
-                            source: 'plugin-server',
-                            details: JSON.stringify(details),
-                            timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-                        }),
-                    },
-                ],
-            })
-        )
+        this.kafkaMessages.push({
+            topic: KAFKA_INGESTION_WARNINGS,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        team_id: this.team?.id,
+                        type: warning,
+                        source: 'plugin-server',
+                        details: JSON.stringify(details),
+                        timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+                    }),
+                },
+            ],
+        })
     }
 
     private dropEvent(dropCause: string): void {
@@ -308,7 +313,8 @@ export class EventPipelineRunnerV2 {
         }
 
         // TODO: In the future we should do this a level up at the batch level. We just need higher level team loading
-        this.promises.push(this.hub.teamManager.setTeamIngestedEvent(this.team!, this.event.properties!))
+        // TODO: Move this up a level to run _after_ we have processed the event and resolved the team
+        // this.promises.push(this.hub.teamManager.setTeamIngestedEvent(this.team!, this.event.properties!))
     }
 
     private async processPerson() {
@@ -335,6 +341,7 @@ export class EventPipelineRunnerV2 {
         ).update()
 
         this.person = person
+        // NOTE: In the future we should return the kafka messages rather than pushing them within the PersonState
         this.promises.push(kafkaAck)
     }
 
@@ -345,7 +352,7 @@ export class EventPipelineRunnerV2 {
 
         // Adds group_0 etc values to properties
         for (const [groupType, groupIdentifier] of Object.entries(this.event.properties!.$groups || {})) {
-            const columnIndex = await this.groupTypeManager.fetchGroupTypeIndex(
+            const columnIndex = await this.hub.groupTypeManager.fetchGroupTypeIndex(
                 this.team!.id,
                 this.team!.project_id,
                 groupType
@@ -366,7 +373,7 @@ export class EventPipelineRunnerV2 {
                 $group_key: groupKey,
                 $group_set: groupPropertiesToSet,
             } = this.event.properties!
-            const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(
+            const groupTypeIndex = await this.hub.groupTypeManager.fetchGroupTypeIndex(
                 this.team!.id,
                 this.team!.project_id,
                 groupType
@@ -391,15 +398,13 @@ export class EventPipelineRunnerV2 {
             if (this.team?.heatmaps_opt_in !== false) {
                 const heatmapEvents = extractHeatmapData(this.event) ?? []
 
-                this.promises.push(
-                    this.hub.kafkaProducer!.queueMessages({
-                        topic: this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                        messages: heatmapEvents.map((rawEvent) => ({
-                            key: this.event.uuid,
-                            value: Buffer.from(JSON.stringify(rawEvent)),
-                        })),
-                    })
-                )
+                this.kafkaMessages.push({
+                    topic: this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                    messages: heatmapEvents.map((rawEvent) => ({
+                        key: this.event.uuid,
+                        value: Buffer.from(JSON.stringify(rawEvent)),
+                    })),
+                })
             }
         } catch (e) {
             this.captureIngestionWarning('invalid_heatmap_data', {
@@ -474,39 +479,38 @@ export class EventPipelineRunnerV2 {
     }
 
     private produceExceptionSymbolificationEventStep(event: RawKafkaEvent) {
-        this.promises.push(
-            this.hub.kafkaProducer!.queueMessages({
-                topic: this.hub.EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC,
-                messages: [
-                    {
-                        key: event.uuid,
-                        value: Buffer.from(JSON.stringify(event)),
-                    },
-                ],
-            })
-        )
+        this.kafkaMessages.push({
+            topic: this.hub.EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC,
+            messages: [
+                {
+                    key: event.uuid,
+                    value: Buffer.from(JSON.stringify(event)),
+                },
+            ],
+        })
     }
 
     private produceEventToKafka(event: RawKafkaEvent) {
-        this.promises.push(
-            this.hub
-                .kafkaProducer!.produce({
-                    topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+        this.kafkaMessages.push({
+            topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+            messages: [
+                {
                     key: event.uuid,
                     value: Buffer.from(JSON.stringify(event)),
-                })
-                .catch(async (error) => {
-                    // Some messages end up significantly larger than the original
-                    // after plugin processing, person & group enrichment, etc.
-                    if (error instanceof MessageSizeTooLarge) {
-                        await captureIngestionWarning(this.hub.kafkaProducer, event.team_id, 'message_size_too_large', {
-                            eventUuid: event.uuid,
-                            distinctId: event.distinct_id,
-                        })
-                    } else {
-                        throw error
-                    }
-                })
-        )
+                },
+            ],
+            errorHandler: async (error) => {
+                // Some messages end up significantly larger than the original
+                // after plugin processing, person & group enrichment, etc.
+                if (error instanceof MessageSizeTooLarge) {
+                    await captureIngestionWarning(this.hub.kafkaProducer, event.team_id, 'message_size_too_large', {
+                        eventUuid: event.uuid,
+                        distinctId: event.distinct_id,
+                    })
+                } else {
+                    throw error
+                }
+            },
+        })
     }
 }
