@@ -217,6 +217,7 @@ class Consumer:
 
     def create_consumer_task(
         self,
+        tg: asyncio.TaskGroup,
         queue: RecordBatchQueue,
         producer_task: asyncio.Task,
         max_bytes: int,
@@ -229,7 +230,7 @@ class Consumer:
         **kwargs,
     ) -> asyncio.Task:
         """Create a record batch consumer task."""
-        consumer_task = asyncio.create_task(
+        consumer_task = tg.create_task(
             self.start(
                 queue=queue,
                 producer_task=producer_task,
@@ -243,7 +244,6 @@ class Consumer:
             ),
             name=task_name,
         )
-
         return consumer_task
 
     @abc.abstractmethod
@@ -443,6 +443,9 @@ async def run_consumer(
         nonlocal consumer_tasks_done
         nonlocal consumer_tasks_pending
 
+        if task.cancelled():
+            consumer.logger.debug("Record batch consumer task cancelled")
+
         try:
             records_completed += task.result()
         except:
@@ -453,27 +456,29 @@ async def run_consumer(
 
     await consumer.logger.adebug("Starting record batch consumer")
 
-    consumer_task = consumer.create_consumer_task(
-        queue=queue,
-        producer_task=producer_task,
-        max_bytes=max_bytes,
-        schema=schema,
-        json_columns=json_columns,
-        multiple_files=multiple_files,
-        include_inserted_at=include_inserted_at,
-        max_file_size_bytes=max_file_size_bytes,
-        **writer_file_kwargs or {},
-    )
-    consumer_tasks_pending.add(consumer_task)
-    consumer_task.add_done_callback(consumer_done_callback)
+    # We use a TaskGroup to ensure that if the activity is cancelled, this is propagated to all pending tasks.
+    try:
+        async with asyncio.TaskGroup() as tg:
+            consumer_task = consumer.create_consumer_task(
+                tg=tg,
+                queue=queue,
+                producer_task=producer_task,
+                max_bytes=max_bytes,
+                schema=schema,
+                json_columns=json_columns,
+                multiple_files=multiple_files,
+                include_inserted_at=include_inserted_at,
+                max_file_size_bytes=max_file_size_bytes,
+                **writer_file_kwargs or {},
+            )
+            consumer_task.add_done_callback(consumer_done_callback)
+            consumer_tasks_pending.add(consumer_task)
+    except Exception:
+        if consumer_task.done():
+            consumer_task_exception = consumer_task.exception()
 
-    await asyncio.wait(consumer_tasks_pending)
-
-    if consumer_task.done():
-        consumer_task_exception = consumer_task.exception()
-
-        if consumer_task_exception is not None:
-            raise consumer_task_exception
+            if consumer_task_exception is not None:
+                raise consumer_task_exception
 
     await raise_on_task_failure(producer_task)
     await consumer.logger.adebug("Successfully finished record batch consumer")

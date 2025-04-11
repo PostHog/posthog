@@ -286,7 +286,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     def test_valid_view_nested_view(self):
         saved_query_response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {
                 "name": "event_view",
                 "query": {
