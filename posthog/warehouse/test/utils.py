@@ -63,7 +63,7 @@ def create_data_warehouse_table_from_csv(
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
             source_type=ExternalDataSource.Type.STRIPE,
-            prefix=source_prefix or "posthog_test_",
+            prefix=source_prefix or "posthog_test",
         )
 
     if credential is None:

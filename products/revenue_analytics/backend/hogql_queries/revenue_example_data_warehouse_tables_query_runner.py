@@ -47,18 +47,14 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
                     ast.SelectQuery(
                         select=[
                             ast.Alias(alias="view_name", expr=ast.Constant(value=view_name)),
-                            ast.Alias(alias="distinct_id", expr=ast.Field(chain=[view_name, "id"])),
-                            ast.Alias(
-                                alias="original_revenue", expr=ast.Field(chain=[view_name, "adjusted_original_amount"])
-                            ),
-                            ast.Alias(
-                                alias="original_currency", expr=ast.Field(chain=[view_name, "original_currency"])
-                            ),
-                            ast.Alias(alias="revenue", expr=ast.Field(chain=[view_name, "amount"])),
-                            ast.Alias(alias="currency", expr=ast.Field(chain=[view_name, "currency"])),
+                            ast.Alias(alias="distinct_id", expr=ast.Field(chain=["id"])),
+                            ast.Alias(alias="original_revenue", expr=ast.Field(chain=["adjusted_original_amount"])),
+                            ast.Alias(alias="original_currency", expr=ast.Field(chain=["original_currency"])),
+                            ast.Alias(alias="revenue", expr=ast.Field(chain=["amount"])),
+                            ast.Alias(alias="currency", expr=ast.Field(chain=["currency"])),
                         ],
                         select_from=ast.JoinExpr(table=ast.Field(chain=[view_name])),
-                        order_by=[ast.OrderExpr(expr=ast.Field(chain=[view_name, "timestamp"]), order="DESC")],
+                        order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
                     )
                 )
 

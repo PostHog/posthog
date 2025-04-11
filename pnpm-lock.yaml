@@ -845,8 +845,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.235.2
-        version: 1.235.2(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.235.5
+        version: 1.235.5(@rrweb/types@2.0.0-alpha.17)
       posthog-js-lite:
         specifier: 3.0.0
         version: 3.0.0
@@ -960,6 +960,9 @@ importers:
       '@sentry/types':
         specifier: 7.112.1
         version: 7.112.1
+      '@storybook/addon-actions':
+        specifier: ^7.6.4
+        version: 7.6.4
       '@storybook/react':
         specifier: ^7.6.4
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@4.9.5)
@@ -13234,8 +13237,8 @@ packages:
   posthog-js@1.217.2:
     resolution: {integrity: sha512-3KC+UjI0UT5zh8kAOVqe/AfvRjBMKynRIBQNlv0TXnfpZG0+h3r/1ONecDgCCGLs/a/55SJCExrugDlx+HPH3w==}
 
-  posthog-js@1.235.2:
-    resolution: {integrity: sha512-QvNQT+CLUeS6821oscBKGGWXsMb1j+6XUJGxXLzACefU8YGQ60hWDWNzTXqBI8JNVmwMHjB4Hy9WHCjWC6apcA==}
+  posthog-js@1.235.5:
+    resolution: {integrity: sha512-uTvYm8dJ/xAqq385IKGVcPALf0F4G/cQ3eMQO8JQzwZUUoYggBKzp4NuzXZHDSfvxgDZDchi7yfZupbVVdVn9A==}
     peerDependencies:
       '@rrweb/types': 2.0.0-alpha.17
       rrweb-snapshot: 2.0.0-alpha.17
@@ -30814,7 +30817,7 @@ snapshots:
       preact: 10.25.4
       web-vitals: 4.2.4
 
-  posthog-js@1.235.2(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.235.5(@rrweb/types@2.0.0-alpha.17):
     dependencies:
       core-js: 3.40.0
       fflate: 0.4.8

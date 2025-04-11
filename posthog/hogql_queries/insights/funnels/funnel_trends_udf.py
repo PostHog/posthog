@@ -88,7 +88,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelTrends):
 
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 
-        from_step = funnelsFilter.funnelFromStep or 0
+        from_step = (funnelsFilter.funnelFromStep or 0) + 1
         to_step = max_steps if funnelsFilter.funnelToStep is None else funnelsFilter.funnelToStep + 1
 
         inner_select = cast(
