@@ -5,6 +5,11 @@ on:
         paths-ignore:
             - 'rust/**'
             - 'livestream/**'
+    workflow_dispatch:
+        inputs:
+            clickhouseServerVersion:
+                description: ClickHouse server version. Leave blank for default
+                type: string
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
