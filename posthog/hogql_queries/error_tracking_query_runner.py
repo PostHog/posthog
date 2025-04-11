@@ -93,6 +93,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
             ),
             ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
+            ast.Alias(alias="function", expr=self.innermost_frame_attribute("$exception_functions")),
+            ast.Alias(alias="source", expr=self.innermost_frame_attribute("$exception_sources")),
         ]
 
         for alias, config in self.sparklineConfigs.items():
@@ -109,6 +111,18 @@ class ErrorTrackingQueryRunner(QueryRunner):
             )
 
         return exprs
+
+    def innermost_frame_attribute(self, materialized_col):
+        return ast.Call(
+            name="argMin",
+            args=[
+                ast.TupleAccess(
+                    tuple=ast.Field(chain=["properties", materialized_col]),
+                    index=-1,
+                ),
+                ast.Field(chain=["timestamp"]),
+            ],
+        )
 
     def select_sparkline_array(self, alias: str, opts: VolumeOptions):
         """
@@ -377,6 +391,8 @@ class ErrorTrackingQueryRunner(QueryRunner):
                         issue
                         | {
                             "last_seen": result_dict.get("last_seen"),
+                            "function": result_dict.get("function"),
+                            "source": result_dict.get("source"),
                             "earliest": result_dict.get("earliest") if self.query.issueId else None,
                             "aggregations": self.extract_aggregations(result_dict),
                         }

@@ -179,7 +179,8 @@ impl FingerprintedErrProps {
             .exception_list
             .iter()
             .filter_map(|e| e.stack.as_ref())
-            .flat_map(Stacktrace::get_frames);
+            .flat_map(Stacktrace::get_frames)
+            .filter(|e| e.in_app);
 
         let sources = unique_by(frames.clone(), |f| f.source.clone());
         let functions = unique_by(frames, |f| f.resolved_name.clone());
