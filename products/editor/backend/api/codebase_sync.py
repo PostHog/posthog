@@ -37,7 +37,11 @@ class CodebaseSyncSerializer(serializers.Serializer):
 
 
 class CodebaseSyncResponseSerializer(serializers.Serializer):
+    synced = serializers.SerializerMethodField()
     diverging_files = serializers.ListField(child=serializers.CharField())
+
+    def get_synced(self, obj):
+        return len(obj["diverging_files"]) == 0
 
 
 class CodebaseArtifactSerializer(serializers.Serializer):

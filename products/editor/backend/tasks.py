@@ -2,10 +2,13 @@ import json
 
 from celery import shared_task
 from openai import OpenAI
+from structlog import get_logger
 
 from posthog.clickhouse.client import sync_execute
 from products.editor.backend.chunking import chunk_text
 from products.editor.backend.chunking.types import Chunk
+
+logger = get_logger(__name__)
 
 EmbeddingResult = list[tuple[Chunk, list[float]]]
 
@@ -72,5 +75,23 @@ def embed_file(
     file_path: str,
     file_content: str,
 ):
-    embeddings = chunk_and_embed(file_path, file_content)
-    insert_embeddings(team_id, user_id, codebase_id, artifact_id, file_path, embeddings)
+    try:
+        logger.info(
+            "Embedding file",
+            team_id=team_id,
+            user_id=user_id,
+            codebase_id=codebase_id,
+            artifact_id=artifact_id,
+        )
+        embeddings = chunk_and_embed(file_path, file_content)
+        insert_embeddings(team_id, user_id, codebase_id, artifact_id, file_path, embeddings)
+    except Exception as e:
+        logger.exception(
+            "Error embedding file",
+            team_id=team_id,
+            user_id=user_id,
+            codebase_id=codebase_id,
+            artifact_id=artifact_id,
+            error=type(e).__name__,
+        )
+        raise

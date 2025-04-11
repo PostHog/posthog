@@ -70,12 +70,10 @@ class EditorSemanticSearchQueryRunner(TaxonomyCacheMixin, QueryRunner):
         # Joins are expensive, so we use a subquery to find all artifact IDs matching the query.
         return parse_select(
             """
-             SELECT
-                argMax(artifact_id, timestamp) as artifact_id
+            SELECT
+                DISTINCT artifact_id as artifact_id
             FROM
                 codebase_embeddings
-            GROUP BY
-                artifact_id
             WHERE
                 is_deleted = 0 AND user_id = {user_id} AND codebase_id = {codebase_id} AND branch = {branch}
             """,
