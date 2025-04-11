@@ -52,7 +52,7 @@ class MaxTool(BaseTool):
     """
 
     _context: dict[str, Any]
-    _team_id: int
+    _team_id: int | None
 
     @abstractmethod
     def _run_impl(self, *args, **kwargs) -> tuple[str, Any]:
@@ -75,7 +75,7 @@ class MaxTool(BaseTool):
 
     def _run(self, *args, config: RunnableConfig, **kwargs):
         self._context = config["configurable"].get("contextual_tools", {}).get(self.get_name(), {})
-        self._team_id = config["configurable"].get("team_id")
+        self._team_id = config["configurable"].get("team_id", None)
         return self._run_impl(*args, **kwargs)
 
     @property
