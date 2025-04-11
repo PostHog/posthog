@@ -860,7 +860,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(0):
             self.assertEqual(
                 self.match_flag(feature_flag, "example_id"),
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
@@ -2988,7 +2988,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         with (
-            self.assertNumQueries(10),
+            self.assertNumQueries(13),
             snapshot_postgres_queries_context(self),
         ):  # 1 to fill group cache, 2 to match feature flags with group properties (of each type), 1 to match feature flags with person properties
             matches, reasons, payloads, _, _ = FeatureFlagMatcher(
@@ -3066,7 +3066,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         self.assertEqual(payloads, {"variant": {"color": "blue"}})
 
         with (
-            self.assertNumQueries(9),
+            self.assertNumQueries(12),
             snapshot_postgres_queries_context(self),
         ):  # 1 to fill group cache, 1 to match feature flags with group properties (only 1 group provided), 1 to match feature flags with person properties
             matches, reasons, payloads, _, _ = FeatureFlagMatcher(
@@ -3972,7 +3972,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ).get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
-        # one extra query to query group
+        # 4 extra query to query group (including setting timeout)
         # second extra query to check existence
         with self.assertNumQueries(11):
             self.assertEqual(
@@ -4006,8 +4006,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
-        # 9 queries same as before for groups, 1 extra for person existence check, 1 extra for person query
-        with self.assertNumQueries(11):
+        # 9 queries same as before for groups, 4 extra for person existence check (including timeouts), 1 extra for person query
+        with self.assertNumQueries(14):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -4035,7 +4035,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             )
 
         # no existence check for person because flag has not is_not_set condition
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(13):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -4199,7 +4199,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(1):
             # no local computation because cohort lookup is required
             # no postgres person query required here to get the person, because email is sufficient
             self.assertEqual(
@@ -4213,7 +4213,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(1):
             # no postgres query required here to get the person
             self.assertEqual(
                 FeatureFlagMatcher(
@@ -4226,7 +4226,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(1):
             # Random person doesn't yet exist, but still should resolve thanks to overrides
             self.assertEqual(
                 FeatureFlagMatcher(
@@ -4239,7 +4239,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(1):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -4292,7 +4292,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(1):
             # no local computation because cohort lookup is required
             # no postgres person query required here to get the person, because email is sufficient
             # property id override shouldn't confuse the matcher
@@ -4307,7 +4307,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(1):
             # no postgres query required here to get the person
             self.assertEqual(
                 FeatureFlagMatcher(
