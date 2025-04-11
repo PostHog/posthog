@@ -1579,9 +1579,15 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "type": {
+                    "const": "tool_call",
+                    "default": "tool_call",
+                    "description": "`type` needed to conform to the OpenAI shape, which is expected by LangChain",
+                    "type": "string"
                 }
             },
-            "required": ["id", "name", "args"],
+            "required": ["id", "name", "args", "type"],
             "type": "object"
         },
         "AssistantToolCallMessage": {
@@ -9149,7 +9155,8 @@
                     "default": "total"
                 },
                 "funnelToStep": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "To select the range of steps for trends & time to convert funnels, 0-indexed"
                 },
                 "funnelVizType": {
                     "$ref": "#/definitions/FunnelVizType",
@@ -15145,6 +15152,9 @@
             "properties": {
                 "count": {
                     "$ref": "#/definitions/integer"
+                },
+                "label": {
+                    "type": "string"
                 }
             },
             "required": ["count"],

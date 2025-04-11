@@ -70,6 +70,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         return {
             "id": tile_id,
             "layouts": {},
+            "order": 0,
             "color": color,
             "text": self._expected_text(
                 body,

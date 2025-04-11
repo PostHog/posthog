@@ -649,6 +649,7 @@ export default function SurveyEdit(): JSX.Element {
                                           <LemonField name="appearance" label="">
                                               {({ value, onChange }) => (
                                                   <Customization
+                                                      type={survey.type}
                                                       appearance={value || defaultSurveyAppearance}
                                                       hasBranchingLogic={hasBranchingLogic}
                                                       deleteBranchingLogic={deleteBranchingLogic}

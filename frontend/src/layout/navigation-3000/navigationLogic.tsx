@@ -36,7 +36,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, isNotNil } from 'lib/utils'
 import React from 'react'
-import { editorSidebarLogic } from 'scenes/data-warehouse/editor/editorSidebarLogic'
+import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -615,7 +615,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'SQL editor',
                             icon: <IconServer />,
                             to: urls.sqlEditor(),
-                            logic: editorSidebarLogic,
+                            logic: editorSceneLogic,
                         },
                         hasOnboardedAnyProduct
                             ? {

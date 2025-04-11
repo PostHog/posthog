@@ -2,7 +2,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
 from pydantic import ValidationError
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 from uuid import UUID
 from django.db import transaction
 
@@ -92,6 +92,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "session_recording_url_trigger_config",
             "session_recording_url_blocklist_config",
             "session_recording_event_trigger_config",
+            "session_recording_trigger_match_type_config",
             "session_replay_config",
             "survey_config",
             "recording_domains",
@@ -134,6 +135,7 @@ TEAM_CONFIG_FIELDS = (
     "session_recording_url_trigger_config",
     "session_recording_url_blocklist_config",
     "session_recording_event_trigger_config",
+    "session_recording_trigger_match_type_config",
     "session_replay_config",
     "survey_config",
     "week_start_day",
@@ -316,6 +318,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if received_keys not in valid_keys:
             raise exceptions.ValidationError(
                 "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys."
+            )
+
+        return value
+
+    @staticmethod
+    def validate_session_recording_trigger_match_type_config(value) -> Literal["all", "any"] | None:
+        if value not in ["all", "any", None]:
+            raise exceptions.ValidationError(
+                "Must provide a valid trigger match type. Only 'all' or 'any' or None are allowed."
             )
 
         return value

@@ -235,12 +235,12 @@ describe('experimentLogic', () => {
     describe('selector values', () => {
         it('given an mde, calculates correct sample size', async () => {
             await expectLogic(logic).toMatchValues({
-                minimumDetectableEffect: 1,
+                minimumDetectableEffect: 30,
             })
 
-            expect(logic.values.minimumSampleSizePerVariant(20)).toEqual(25600)
+            expect(logic.values.minimumSampleSizePerVariant(20)).toEqual(29)
 
-            expect(logic.values.minimumSampleSizePerVariant(40)).toEqual(38400)
+            expect(logic.values.minimumSampleSizePerVariant(40)).toEqual(43)
 
             expect(logic.values.minimumSampleSizePerVariant(0)).toEqual(0)
         })
@@ -258,11 +258,11 @@ describe('experimentLogic', () => {
 
         it('given control count data, calculates correct running time', async () => {
             // 1000 count over 14 days
-            expect(logic.values.recommendedExposureForCountData(1000)).toEqual(2251.2)
+            expect(logic.values.recommendedExposureForCountData(1000)).toEqual(2.8)
 
             // 10,000 entrants over 14 days
             // 10x entrants, so 1/10th running time
-            expect(logic.values.recommendedExposureForCountData(10000)).toEqual(225.1)
+            expect(logic.values.recommendedExposureForCountData(10000)).toEqual(0.3)
 
             // 0 entrants over 14 days, so infinite running time
             expect(logic.values.recommendedExposureForCountData(0)).toEqual(Infinity)

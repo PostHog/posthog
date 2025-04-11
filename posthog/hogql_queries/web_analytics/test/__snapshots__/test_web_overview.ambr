@@ -57,7 +57,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_comparison
@@ -107,7 +108,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_goal_no_conversions
@@ -155,7 +157,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_goal_one_autocapture_conversion
@@ -200,7 +203,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_goal_one_custom_action_conversion
@@ -245,7 +249,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_goal_one_custom_event_conversion
@@ -290,7 +295,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_goal_one_pageview_conversion
@@ -338,7 +344,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_rate
@@ -386,7 +393,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_correctly_counts_pageviews_in_long_running_session
@@ -436,7 +444,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_dont_filter_test_accounts
@@ -486,7 +495,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_filter_cohort
@@ -541,7 +551,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_filter_test_accounts
@@ -601,7 +612,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_increase_in_users
@@ -651,7 +663,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_increase_in_users_using_mobile
@@ -701,7 +714,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_limit_is_context_aware
@@ -751,7 +765,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_no_crash_when_no_data
@@ -801,7 +816,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_no_crash_when_no_data.1
@@ -851,7 +867,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_no_crash_when_no_data.2
@@ -899,7 +916,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_no_revenue_when_action_conversion_goal_set_but_include_revenue_disabled
@@ -944,7 +962,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_no_revenue_when_event_conversion_goal_set_but_include_revenue_disabled
@@ -989,7 +1008,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_revenue
@@ -1042,7 +1062,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_revenue_conversion_event
@@ -1090,7 +1111,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_revenue_conversion_event_with_multiple_revenue_events
@@ -1138,7 +1160,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_revenue_conversion_no_config
@@ -1186,7 +1209,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_revenue_multiple_events
@@ -1239,7 +1263,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_revenue_no_config
@@ -1292,7 +1317,8 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
-                     transform_null_in=1
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_revenue_with_data_warehouse_table

@@ -1,4 +1,3 @@
-import { IconGear } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
@@ -19,7 +18,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { dayjs } from 'lib/dayjs'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -34,7 +32,7 @@ import { userLogic } from 'scenes/userLogic'
 import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
 import { SurveyQuestionLabel } from './constants'
-import { openSurveysSettingsDialog, SurveySettings } from './SurveySettings'
+import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
 
 export const scene: SceneExport = {
@@ -51,9 +49,7 @@ export function Surveys(): JSX.Element {
         surveysResponsesCountLoading,
         searchTerm,
         filters,
-        showSurveysDisabledBanner,
         tab,
-        globalSurveyAppearanceConfigAvailable,
         hasNextPage,
         hasNextSearchPage,
     } = useValues(surveysLogic)
@@ -106,6 +102,7 @@ export function Surveys(): JSX.Element {
                 }
                 tabbedPage
             />
+            <SurveysDisabledBanner />
             <LemonTabs
                 activeKey={tab}
                 onChange={(newTab) => setTab(newTab as SurveysTabs)}
@@ -114,7 +111,7 @@ export function Surveys(): JSX.Element {
                     { key: SurveysTabs.Archived, label: 'Archived' },
                     { key: SurveysTabs.Notifications, label: 'Notifications' },
                     { key: SurveysTabs.History, label: 'History' },
-                    globalSurveyAppearanceConfigAvailable ? { key: SurveysTabs.Settings, label: 'Settings' } : null,
+                    { key: SurveysTabs.Settings, label: 'Settings' },
                 ]}
             />
             {tab === SurveysTabs.Settings && <SurveySettings />}
@@ -144,22 +141,6 @@ export function Surveys(): JSX.Element {
                 <>
                     <div className="deprecated-space-y-2">
                         <VersionCheckerBanner />
-
-                        {showSurveysDisabledBanner ? (
-                            <LemonBanner
-                                type="warning"
-                                action={{
-                                    type: 'secondary',
-                                    icon: <IconGear />,
-                                    onClick: () => openSurveysSettingsDialog(),
-                                    children: 'Configure',
-                                }}
-                                className="mb-2"
-                            >
-                                Survey popovers are currently disabled for this project. Re-enable them in the settings,
-                                otherwise surveys will not be visible.
-                            </LemonBanner>
-                        ) : null}
                     </div>
 
                     {(shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.SURVEYS]) && (
