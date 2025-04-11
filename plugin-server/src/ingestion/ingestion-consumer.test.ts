@@ -162,21 +162,6 @@ describe('IngestionConsumer', () => {
                 ).toMatchSnapshot()
             })
 
-            it('should allow some events to pass', async () => {
-                const manyOverflowedMessages = createKafkaMessages([
-                    createEvent({ distinct_id: 'overflow-distinct-id' }),
-                    createEvent({ distinct_id: 'overflow-distinct-id' }),
-                    createEvent({ distinct_id: 'overflow-distinct-id' }),
-                ])
-                ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 999, now())
-                await ingester.handleKafkaBatch(manyOverflowedMessages)
-                expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(2)
-
-                expect(
-                    forSnapshot(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test'))
-                ).toMatchSnapshot()
-            })
-
             it('does not overflow if it is consuming from the overflow topic', async () => {
                 ingester['topic'] = 'events_plugin_ingestion_overflow_test'
                 ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())

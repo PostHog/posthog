@@ -220,11 +220,12 @@ export class IngestionConsumer {
 
     private redirectEvents(incomingEvents: IncomingEvent[]): IncomingEvent[] {
         if (!incomingEvents.length) {
-            return incomingEvents
+            return []
         }
 
         if (this.testingTopic) {
             void this.scheduleWork(this.emitToTestingTopic(incomingEvents.map((x) => x.message)))
+            return []
         }
 
         // NOTE: We know at this point that all these events are the same token distinct_id
@@ -293,7 +294,7 @@ export class IngestionConsumer {
         try {
             const result = await this.runInstrumented('runEventPipeline', () =>
                 retryIfRetriable(async () => {
-                    const runner = new EventPipelineRunner(this.hub, event, this.hogTransformer)
+                    const runner = this.getEventPipelineRunnerV1(event)
                     return await runner.runEventPipeline(event)
                 })
             )
@@ -362,7 +363,7 @@ export class IngestionConsumer {
     }
 
     private async runEventRunnerV2(incomingEvent: IncomingEvent): Promise<RawKafkaEvent | undefined> {
-        const runner = this.getEventPipelineRunner(incomingEvent.event)
+        const runner = this.getEventPipelineRunnerV2(incomingEvent.event)
 
         try {
             return await runner.run()
@@ -422,11 +423,14 @@ export class IngestionConsumer {
         throw error
     }
 
-    private getEventPipelineRunner(event: PipelineEvent): EventPipelineRunnerV2 {
+    private getEventPipelineRunnerV1(event: PipelineEvent): EventPipelineRunner {
+        return new EventPipelineRunner(this.hub, event, this.hogTransformer)
+    }
+
+    private getEventPipelineRunnerV2(event: PipelineEvent): EventPipelineRunnerV2 {
         // Mostly a helper method for testing
         return new EventPipelineRunnerV2(this.hub, event, this.hogTransformer, true)
     }
-
     private parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
         const batches: IncomingEventsByDistinctId = {}
 
