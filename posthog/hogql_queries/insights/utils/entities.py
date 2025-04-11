@@ -104,14 +104,15 @@ def _semantic_property_repr(property: AnyPropertyFilter) -> str:
 def entity_to_expr(entity: EntityNode, team: Team) -> ast.Expr:
     filters: list[ast.Expr] = []
 
-    if isinstance(entity, EventsNode) and entity.event is not None:
-        filters.append(
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["event"]),
-                right=ast.Constant(value=entity.event),
+    if isinstance(entity, EventsNode):
+        if entity.event is not None:
+            filters.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["event"]),
+                    right=ast.Constant(value=entity.event),
+                )
             )
-        )
     elif isinstance(entity, ActionsNode):
         try:
             action = Action.objects.get(pk=entity.id, team__project_id=team.project_id)

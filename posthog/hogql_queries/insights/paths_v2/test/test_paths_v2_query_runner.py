@@ -268,8 +268,8 @@ class TestPathsV2(SharedSetup):
             ],
         )
 
-    @pytest.mark.skip(reason="TODO: pending start and end event implementation")
-    def test_series(self):
+    @pytest.mark.skip(reason="TODO: pending start and end point implementation")
+    def test_start_and_end_point(self):
         _ = journeys_for(
             team=self.team,
             events_by_person={

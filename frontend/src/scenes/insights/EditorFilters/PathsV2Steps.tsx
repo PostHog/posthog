@@ -68,7 +68,7 @@ export function PathsV2Steps(): JSX.Element {
                 // showSeriesIndicator={showSeriesIndicator}
                 // seriesIndicatorType="numeric"
                 // entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
-                entitiesLimit={1}
+                entitiesLimit={2}
                 // sortable
                 //             addFilterDefaultOptions
                 // buttonCopy?: string

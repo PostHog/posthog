@@ -5,7 +5,7 @@ from typing import Any
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import apply_path_cleaning, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.paths_v2.utils import interval_unit_to_sql
@@ -165,12 +165,16 @@ class PathsV2QueryRunner(QueryRunner):
             SELECT
                 timestamp,
                 person_id as actor_id,
-                event as path_item
+                {path_item} as path_item
             FROM events
             WHERE {filters}
             ORDER BY actor_id, timestamp
         """,
-            placeholders={"filters": ast.And(exprs=event_filters)},
+            placeholders={
+                "filters": ast.And(exprs=event_filters),
+                "path_item": apply_path_cleaning(ast.Field(chain=["properties", "$pathname"]), self.team),
+                # ast.Field(chain=["event"]),
+            },
         )
 
         # append start and end event flags
@@ -285,7 +289,7 @@ class PathsV2QueryRunner(QueryRunner):
                 arraySlice({{collapsed_path_array_alias}}, start_index, end_index) as paths_array_filtered_by_endpoints,
 
                 /* Adds dropoffs. */
-                arrayPushBack(paths_array_filtered_by_endpoints, (now(), {{POSTHOG_DROPOFF}}, tuple(null, null))) as paths_array_per_session_with_dropoffs,
+                arrayPushBack(paths_array_filtered_by_endpoints, (now(), {{POSTHOG_DROPOFF}}, {"tuple(null)" if self.query.series and len(self.query.series) == 1 else "tuple(null, null)"})) as paths_array_per_session_with_dropoffs,
 
                 /* Returns the first n events per session. */
                 arraySlice(paths_array_per_session_with_dropoffs, 1, {{max_steps}}) as limited_paths_array_per_session
