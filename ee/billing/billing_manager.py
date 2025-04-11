@@ -445,3 +445,13 @@ class BillingManager:
         handle_billing_service_error(res)
 
         return res.json()
+
+    def apply_startup_program(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/startups/apply",
+            json=data,
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
+        return res.json()
