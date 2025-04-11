@@ -43,6 +43,7 @@ export type SettingSectionId =
     | 'organization-details'
     | 'organization-members'
     | 'organization-billing'
+    | 'organization-startup-program'
     | 'organization-authentication'
     | 'organization-roles'
     | 'organization-proxy'

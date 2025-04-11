@@ -56,7 +56,7 @@ def build_billing_token(license: License, organization: Organization, user: Opti
     return encoded_jwt
 
 
-def handle_billing_service_error(res: requests.Response, valid_codes=(200, 404, 401)) -> None:
+def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 404, 401)) -> None:
     if res.status_code not in valid_codes:
         logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
         try:
@@ -444,4 +444,14 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
+        return res.json()
+
+    def apply_startup_program(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/startups/apply",
+            json=data,
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
         return res.json()
