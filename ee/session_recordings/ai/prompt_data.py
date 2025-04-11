@@ -91,10 +91,9 @@ class SessionSummaryPromptData:
 
     def _prepare_metadata(self, raw_session_metadata: dict[str, Any]) -> SessionSummaryMetadata:
         # Remove excessive data
+        raw_session_metadata = raw_session_metadata.copy()  # Avoid mutating the original
         for ef in ("distinct_id", "viewed", "recording_duration", "storage", "ongoing"):
-            if ef not in raw_session_metadata:
-                continue
-            del raw_session_metadata[ef]
+            raw_session_metadata.pop(ef, None)
         # Assuming start/end times are always present
         start_time = prepare_datetime(raw_session_metadata["start_time"])
         end_time = prepare_datetime(raw_session_metadata["end_time"])
