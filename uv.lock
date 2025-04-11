@@ -2976,11 +2976,11 @@ wheels = [
 
 [[package]]
 name = "monotonic"
-version = "1.5"
+version = "1.6"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/19/c1/27f722aaaaf98786a1b338b78cf60960d9fe4849825b071f4e300da29589/monotonic-1.5.tar.gz", hash = "sha256:23953d55076df038541e648a53676fb24980f7a1be290cdda21300b3bc21dfb0", size = 7525 }
+sdist = { url = "https://files.pythonhosted.org/packages/ea/ca/8e91948b782ddfbd194f323e7e7d9ba12e5877addf04fb2bf8fca38e86ac/monotonic-1.6.tar.gz", hash = "sha256:3a55207bcfed53ddd5c5bae174524062935efed17792e9de2ad0205ce9ad63f7", size = 7615 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ac/aa/063eca6a416f397bd99552c534c6d11d57f58f2e94c14780f3bbf818c4cf/monotonic-1.5-py2.py3-none-any.whl", hash = "sha256:552a91f381532e33cbd07c6a2655a21908088962bb8fa7239ecbcc6ad1140cc7", size = 5262 },
+    { url = "https://files.pythonhosted.org/packages/9a/67/7e8406a29b6c45be7af7740456f7f37025f0506ae2e05fb9009a53946860/monotonic-1.6-py2.py3-none-any.whl", hash = "sha256:68687e19a14f11f26d140dd5c86f3dba4bf5df58003000ed467e0e2a69bca96c", size = 8154 },
 ]
 
 [[package]]
@@ -3813,7 +3813,7 @@ requires-dist = [
     { name = "pdpyras", specifier = "==5.2.0" },
     { name = "phonenumberslite", specifier = "==8.13.6" },
     { name = "pillow", specifier = "==10.2.0" },
-    { name = "posthoganalytics", specifier = "==3.21.0" },
+    { name = "posthoganalytics", specifier = ">=3.24.1" },
     { name = "psutil", specifier = "==6.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.7" },
@@ -3929,7 +3929,7 @@ dev = [
 
 [[package]]
 name = "posthoganalytics"
-version = "3.21.0"
+version = "3.24.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -3939,9 +3939,9 @@ dependencies = [
     { name = "requests" },
     { name = "six" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6f/1d/883a97c8d6f6b11c480c6f67333cd226f24341c43add38ed20dd79b87ab4/posthoganalytics-3.21.0.tar.gz", hash = "sha256:230191bdcdfb55a278542b3461d7629431bae91de0b3edf6c1b4d562d834859e", size = 67461 }
+sdist = { url = "https://files.pythonhosted.org/packages/03/b7/f6617e31ae91929e71712b63e0d47a1703f8c15b8181e1ae85df85a00ff8/posthoganalytics-3.24.1.tar.gz", hash = "sha256:38aecaee8d2b9f63fa1d19ab22d35eb3128ee525d3800e464cadf2f3495e5666", size = 72226 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d7/bf/2cead5eabfda3072f7a1f74d12e8746e11047fcfecc298cdeb2f8e87587f/posthoganalytics-3.21.0-py2.py3-none-any.whl", hash = "sha256:95d0646ca60e873f74a91d2e7fcd9015b3fe84c6a2d493d40c2c3a5a3feebc6b", size = 80294 },
+    { url = "https://files.pythonhosted.org/packages/6a/3a/a77494779f1e229922584bd3ed944e0b5ef00829720448d90da689f337c0/posthoganalytics-3.24.1-py2.py3-none-any.whl", hash = "sha256:e93b6f34e787f2e3cddce1a1913abc4be167b978c07385491f1dbfc3d9aeb392", size = 86501 },
 ]
 
 [[package]]

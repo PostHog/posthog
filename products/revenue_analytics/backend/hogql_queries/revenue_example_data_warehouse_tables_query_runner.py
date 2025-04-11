@@ -3,7 +3,6 @@ from typing import cast, Union
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql.database.database import create_hogql_database, Database
 from posthog.hogql.hogql import HogQLContext
 from posthog.schema import (
@@ -12,9 +11,10 @@ from posthog.schema import (
     CachedRevenueExampleDataWarehouseTablesQueryResponse,
 )
 from ..models import RevenueAnalyticsRevenueView
+from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
 
-class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
+class RevenueExampleDataWarehouseTablesQueryRunner(RevenueAnalyticsQueryRunner):
     query: RevenueExampleDataWarehouseTablesQuery
     response: RevenueExampleDataWarehouseTablesQueryResponse
     cached_response: CachedRevenueExampleDataWarehouseTablesQueryResponse

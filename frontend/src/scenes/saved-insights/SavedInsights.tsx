@@ -12,6 +12,7 @@ import {
     IconLifecycle,
     IconPerson,
     IconPieChart,
+    IconPiggyBank,
     IconPlusSmall,
     IconRetention,
     IconStar,
@@ -251,6 +252,24 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Database Schema',
         description: 'Introspect the PostHog database schema.',
         icon: IconHogQL,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsOverviewQuery]: {
+        name: 'Revenue Analytics Overview',
+        description: 'View revenue analytics overview.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsGrowthRateQuery]: {
+        name: 'Revenue Analytics Growth Rate',
+        description: 'View revenue analytics growth rate.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsChurnRateQuery]: {
+        name: 'Revenue Analytics Churn Rate',
+        description: 'View revenue analytics churn rate.',
+        icon: IconPiggyBank,
         inMenu: true,
     },
     [NodeKind.WebOverviewQuery]: {

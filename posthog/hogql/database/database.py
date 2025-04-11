@@ -85,6 +85,7 @@ from posthog.schema import (
     DatabaseSchemaPostHogTable,
     DatabaseSchemaSchema,
     DatabaseSchemaSource,
+    DatabaseSchemaManagedViewTable,
     DatabaseSchemaViewTable,
     DatabaseSerializedFieldType,
     HogQLQuery,
@@ -634,7 +635,12 @@ class SerializedField:
     chain: Optional[list[str | int]] = None
 
 
-DatabaseSchemaTable: TypeAlias = DatabaseSchemaPostHogTable | DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable
+DatabaseSchemaTable: TypeAlias = (
+    DatabaseSchemaPostHogTable
+    | DatabaseSchemaDataWarehouseTable
+    | DatabaseSchemaViewTable
+    | DatabaseSchemaManagedViewTable
+)
 
 
 def serialize_database(
@@ -686,11 +692,6 @@ def serialize_database(
         .all()
         if warehouse_table_names
         else []
-    )
-
-    # Fetch all views in a single query
-    all_views = (
-        DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team_id=context.team_id).all() if views else []
     )
 
     # Process warehouse tables
@@ -759,6 +760,11 @@ def serialize_database(
             source=source,
         )
 
+    # Fetch all views in a single query
+    all_views = (
+        DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team_id=context.team_id).all() if views else []
+    )
+
     # Process views using prefetched data
     views_dict = {view.name: view for view in all_views}
     for view_name in views:
@@ -766,12 +772,22 @@ def serialize_database(
         if view is None:
             continue
 
+        fields = serialize_fields(view.fields, context, view_name, table_type="external")
+        fields_dict = {field.name: field for field in fields}
+
+        if isinstance(view, RevenueAnalyticsRevenueView):
+            tables[view_name] = DatabaseSchemaManagedViewTable(
+                fields=fields_dict,
+                id=view.name,  # We don't have a UUID for revenue views because they're not saved, just reuse the name
+                name=view.name,
+                query=HogQLQuery(query=view.query),
+            )
+
+            continue
+
         saved_query = views_dict.get(view_name)
         if not saved_query:
             continue
-
-        fields = serialize_fields(view.fields, context, view_name, table_type="external")
-        fields_dict = {field.name: field for field in fields}
 
         tables[view_name] = DatabaseSchemaViewTable(
             fields=fields_dict,

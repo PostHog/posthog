@@ -261,7 +261,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def get_group_types(self, team: Team) -> list[dict[str, Any]]:
         return list(
-            GroupTypeMapping.objects.filter(project_id=team.project_id).values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+            GroupTypeMapping.objects.filter(project_id=team.project_id)
+            .order_by("group_type_index")
+            .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
         )
 
     def get_live_events_token(self, team: Team) -> Optional[str]:
