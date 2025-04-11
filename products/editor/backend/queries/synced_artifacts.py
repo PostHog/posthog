@@ -47,8 +47,9 @@ class SyncedArtifactsQueryRunner(QueryRunner):
                 argMax(DISTINCT artifact_id, version) AS synced_artifact_id
             FROM
                 codebase_embeddings
+            FINAL
             WHERE
-                is_deleted = 0 AND user_id = {user_id} AND codebase_id = {codebase_id} AND artifact_id IN {artifact_ids}
+                user_id = {user_id} AND codebase_id = {codebase_id} AND artifact_id IN {artifact_ids}
             GROUP BY
                 artifact_id
             """,

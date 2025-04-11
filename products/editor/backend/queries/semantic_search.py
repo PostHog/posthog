@@ -53,8 +53,9 @@ class EditorSemanticSearchQueryRunner(TaxonomyCacheMixin, QueryRunner):
                 argMax(properties.lineEnd, version) as lineEnd
             FROM
                 codebase_embeddings
+            FINAL
             WHERE
-                is_deleted = 0 AND artifact_id IN {subquery}
+                user_id = {user_id} AND codebase_id = {codebase_id} AND artifact_id IN {subquery}
             GROUP BY
                 artifact_id
             ORDER BY
@@ -62,6 +63,8 @@ class EditorSemanticSearchQueryRunner(TaxonomyCacheMixin, QueryRunner):
             LIMIT 50
             """,
             placeholders={
+                "user_id": ast.Constant(value=self.query.user_id),
+                "codebase_id": ast.Constant(value=self.query.codebase_id),
                 "embedding": ast.Constant(value=self.query.embedding),
             },
         )
@@ -74,8 +77,9 @@ class EditorSemanticSearchQueryRunner(TaxonomyCacheMixin, QueryRunner):
                 DISTINCT artifact_id as artifact_id
             FROM
                 codebase_embeddings
+            FINAL
             WHERE
-                is_deleted = 0 AND user_id = {user_id} AND codebase_id = {codebase_id} AND branch = {branch}
+                user_id = {user_id} AND codebase_id = {codebase_id} AND branch = {branch}
             """,
             placeholders={
                 "user_id": ast.Constant(value=self.query.user_id),

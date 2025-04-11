@@ -57,20 +57,22 @@ class CodebaseTreeQueryRunner(QueryRunner):
                 (artifact_type = 'dir' OR any(embeddings.synced_artifact_id) != '') AS synced
             FROM
                 codebase_catalog
+            FINAL
             LEFT JOIN (
                 SELECT
                     argMax(DISTINCT artifact_id, version) AS synced_artifact_id
                 FROM
                     codebase_embeddings
+                FINAL
                 PREWHERE
-                    is_deleted = 0 AND user_id = {user_id} AND codebase_id = {codebase_id}
+                    user_id = {user_id} AND codebase_id = {codebase_id}
                 GROUP BY
                     artifact_id
             ) AS embeddings
             ON
                 codebase_catalog.artifact_id = embeddings.synced_artifact_id
             PREWHERE
-                is_deleted = 0 AND user_id = {user_id} AND codebase_id = {codebase_id} AND branch = {branch}
+                user_id = {user_id} AND codebase_id = {codebase_id} AND branch = {branch}
             GROUP BY
                 artifact_id
             """,

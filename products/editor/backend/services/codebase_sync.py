@@ -1,5 +1,5 @@
 from collections.abc import Generator, Sequence
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql.constants import LimitContext
@@ -22,6 +22,7 @@ class SerializedArtifact(TypedDict):
     id: str
     type: CodebaseCatalogType
     parent_id: str | None
+    synced: NotRequired[bool]
 
 
 class ArtifactNode:
@@ -161,7 +162,12 @@ class CodebaseSyncService:
         self, client_tree_nodes: list[SerializedArtifact], server_nodes: list[CodebaseTreeResponseItem]
     ) -> list[str]:
         server_tree_nodes = [
-            {"id": server_node.id, "parent_id": server_node.parentId, "type": server_node.type}
+            {
+                "id": server_node.id,
+                "parent_id": server_node.parentId,
+                "type": server_node.type,
+                "synced": server_node.synced,
+            }
             for server_node in server_nodes
         ]
 
@@ -183,7 +189,9 @@ class CodebaseSyncService:
 
         # Tree comparison only finds new files.
         for client_node_id in added:
-            if client_nodes_mapping[client_node_id]["type"] == "file":
+            if client_nodes_mapping[client_node_id]["type"] == "file" and (
+                client_node_id not in server_nodes_mapping or not server_nodes_mapping[client_node_id].get("synced")
+            ):
                 files_to_sync.add(client_node_id)
 
         # Find files we haven't synced yet.
@@ -241,7 +249,7 @@ class CodebaseSyncService:
                 {
                     f"artifact_id_{i}": node["id"],
                     f"parent_artifact_id_{i}": node["parent_id"] if "parent_id" in node else "",
-                    f"is_deleted_{i}": is_deleted,
+                    f"is_deleted_{i}": 1 if is_deleted else 0,
                     f"type_{i}": node["type"],
                 }
             )
@@ -249,11 +257,11 @@ class CodebaseSyncService:
                 f"(%(team_id)s, %(user_id)s, %(codebase_id)s, %(branch)s, %(artifact_id_{i})s, %(parent_artifact_id_{i})s, %(type_{i})s, %(is_deleted_{i})s)"
             )
 
-        for i, node in enumerate(new_nodes):
-            insert_node(i, node, False)
-
         for i, node in enumerate(deleted_nodes):
-            insert_node(len(new_nodes) + i, node, True)
+            insert_node(i, node, True)
+
+        for i, node in enumerate(new_nodes):
+            insert_node(len(deleted_nodes) + i, node, False)
 
         prepared_query = query + ", ".join(rows)
         sync_execute(prepared_query, args, team_id=self.team.id)

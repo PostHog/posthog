@@ -77,7 +77,10 @@ class TestCodebaseSync(ClickhouseTestMixin, BaseTest):
 
     def _query_server_tree(self):
         response = self.service._retrieve_server_tree()
-        return [{"id": item.id, "type": item.type, "parent_id": item.parentId, "synced": False} for item in response]
+        nodes = [
+            {"id": item.id, "type": item.type, "parent_id": item.parentId, "synced": item.synced} for item in response
+        ]
+        return nodes
 
     def test_sync_new_codebase(self):
         pass
@@ -120,5 +123,4 @@ class TestCodebaseSync(ClickhouseTestMixin, BaseTest):
 
         diverging_nodes = self.service.sync(client_tree)
         self.assertEqual(diverging_nodes, ["file_3"])
-
-        self.assertListEqual(self._query_server_tree(), client_tree)
+        self.assertCountEqual(self._query_server_tree(), client_tree)
