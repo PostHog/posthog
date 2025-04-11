@@ -420,7 +420,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             posthoganalytics.capture_exception(
                 e, distinct_id=user_distinct_id, properties={"replay_feature": "listing_recordings"}
             )
-            return Response({"error": str(e)}, status=500)
+            return Response({"error": "An internal error has occurred. Please try again later."}, status=500)
 
     @extend_schema(
         exclude=True,
