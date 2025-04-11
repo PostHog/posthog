@@ -1,6 +1,7 @@
 from typing import Optional
 
 import structlog
+from django.conf import settings
 from django.contrib.gis.geoip2 import GeoIP2
 from posthog.exceptions_capture import capture_exception
 
@@ -11,8 +12,9 @@ try:
     # Cache setting corresponds to MODE_MEMORY: Load database into memory. Pure Python.
     # Provides faster performance but uses more memory.
 except Exception as e:
-    # Inform error tracking, but don't bring down the app
-    capture_exception(e)
+    if not settings.TEST:
+        # Inform error tracking, but don't bring down the app
+        capture_exception(e)
     geoip = None
 
 VALID_GEOIP_PROPERTIES = [
