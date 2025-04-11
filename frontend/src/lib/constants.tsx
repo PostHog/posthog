@@ -252,6 +252,7 @@ export const FEATURE_FLAGS = {
     B2B_ANALYTICS: 'b2b-analytics-alpha', // owner: @danielbachhuber #team-crm
     DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
     REPLAY_TRIGGER_TYPE_CHOICE: 'replay-trigger-type-choice', // owner: @pauldambra #team-replay
+    BILLING_FORECASTING_ISSUES: 'billing-forecasting-issues', // owner: @pato
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
