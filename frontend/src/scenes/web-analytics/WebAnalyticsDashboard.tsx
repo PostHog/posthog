@@ -101,9 +101,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
         tile.canOpenModal ? (
             <LemonButton
                 key="open-modal-button"
-                onClick={() => {
-                    openModal(tile.tileId)
-                }}
+                onClick={() => openModal(tile.tileId)}
                 icon={<IconExpand45 />}
                 size="small"
                 type="secondary"
@@ -263,9 +261,7 @@ export const WebTabs = ({
         activeTab?.canOpenModal ? (
             <LemonButton
                 key="open-modal-button"
-                onClick={() => {
-                    openModal(tileId, activeTabId)
-                }}
+                onClick={() => openModal(tileId, activeTabId)}
                 icon={<IconExpand45 />}
                 size="small"
                 type="secondary"

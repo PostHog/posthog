@@ -1,7 +1,12 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
+
+import { ProductKey } from '~/types'
 
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
@@ -13,7 +18,7 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
     } = useValues(webAnalyticsLogic)
     const { setDates } = useActions(webAnalyticsLogic)
 
-    const { modal } = useValues(webAnalyticsModalLogic)
+    const { modal, getNewInsightUrl } = useValues(webAnalyticsModalLogic)
     const { closeModal } = useActions(webAnalyticsModalLogic)
 
     if (!modal) {
@@ -45,7 +50,7 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
                     />
                 </LemonModal.Content>
                 <div className="flex flex-row justify-end">
-                    {/* {modal.canOpenInsight ? (
+                    {modal.canOpenInsight ? (
                         <LemonButton
                             to={getNewInsightUrl(modal.tileId, modal.tabId)}
                             icon={<IconOpenInNew />}
@@ -61,7 +66,7 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
                         >
                             Open as new Insight
                         </LemonButton>
-                    ) : null} */}
+                    ) : null}
                 </div>
             </div>
         </LemonModal>

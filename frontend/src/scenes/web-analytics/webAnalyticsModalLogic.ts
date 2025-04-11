@@ -1,14 +1,14 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { urls } from 'scenes/urls'
 
 import { NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
+import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import { pageReportsLogic } from './pageReportsLogic'
 import { TileId, WEB_ANALYTICS_DATA_COLLECTION_NODE_ID, webAnalyticsLogic, WebAnalyticsTile } from './webAnalyticsLogic'
 import type { webAnalyticsModalLogicType } from './webAnalyticsModalLogicType'
 
-interface WebAnalyticsModalQuery {
+export interface WebAnalyticsModalQuery {
     tileId: TileId
     tabId?: string
     title?: string | JSX.Element
@@ -17,30 +17,6 @@ interface WebAnalyticsModalQuery {
     showIntervalSelect?: boolean
     control?: JSX.Element
     canOpenInsight?: boolean
-}
-
-// Utility to generate dashboard item IDs for the modal
-const getDashboardItemId = (section: TileId, tab: string | undefined, isModal?: boolean): `new-${string}` => {
-    return `new-AdHoc.web-analytics.${section}.${tab || 'default'}.${isModal ? 'modal' : 'default'}`
-}
-
-export type WebAnalyticsModalLogicType = {
-    actions: {
-        openModal: (tileId: TileId, tabId?: string) => { tileId: TileId; tabId?: string }
-        closeModal: () => boolean
-    }
-    values: {
-        combinedTiles: WebAnalyticsTile[]
-        modal: WebAnalyticsModalQuery | null
-        modalTileAndTab: { tileId: TileId; tabId?: string } | null
-        getNewInsightUrl: (tileId: TileId, tabId?: string) => string | undefined
-    }
-    selectors: {
-        combinedTiles: (state: any) => WebAnalyticsTile[]
-        modal: (state: any) => WebAnalyticsModalQuery | null
-        modalTileAndTab: (state: any) => { tileId: TileId; tabId?: string } | null
-        getNewInsightUrl: (state: any) => (tileId: TileId, tabId?: string) => string | undefined
-    }
 }
 
 /**
@@ -73,7 +49,7 @@ export const webAnalyticsModalLogic = kea<webAnalyticsModalLogicType>([
     }),
 
     selectors({
-        // Combine tiles from both webAnalyticsLogic and pageReportsLogic
+        // Combine tiles from both webAnalyticsLogic and flattened pageReportsLogic section tiles.
         combinedTiles: [
             (s) => [s.webAnalyticsTiles, s.pageReportsTiles],
             (webAnalyticsTiles: WebAnalyticsTile[], pageReportsTiles: WebAnalyticsTile[]): WebAnalyticsTile[] => {
@@ -88,7 +64,6 @@ export const webAnalyticsModalLogic = kea<webAnalyticsModalLogicType>([
             },
         ],
 
-        // Build the modal data from the combined tiles
         modal: [
             (s) => [s.combinedTiles, s.modalTileAndTab],
             (
@@ -165,48 +140,6 @@ export const webAnalyticsModalLogic = kea<webAnalyticsModalLogicType>([
             },
         ],
 
-        // Helper to get a URL for opening a tile as a new insight
-        getNewInsightUrl: [
-            (s) => [s.combinedTiles],
-            (tiles: WebAnalyticsTile[]) => {
-                return function getNewInsightUrl(tileId: TileId, tabId?: string): string | undefined {
-                    const formatQueryForNewInsight = (query: QuerySchema): QuerySchema => {
-                        if (query.kind === NodeKind.InsightVizNode) {
-                            return {
-                                ...query,
-                                embedded: undefined,
-                                hidePersonsModal: undefined,
-                            }
-                        }
-                        return query
-                    }
-
-                    const tile = tiles.find((t: any) => t.tileId === tileId)
-                    if (!tile) {
-                        return undefined
-                    }
-
-                    if (tile.kind === 'tabs') {
-                        const tab = tile.tabs.find((t: any) => t.id === tabId)
-                        if (!tab) {
-                            return undefined
-                        }
-                        return urls.insightNew({ query: formatQueryForNewInsight(tab.query) })
-                    } else if (tile.kind === 'query') {
-                        return urls.insightNew({ query: formatQueryForNewInsight(tile.query) })
-                    } else if (tile.kind === 'section' && 'tiles' in tile) {
-                        // For section tiles, find the first query tile inside
-                        const queryTiles = tile.tiles.filter((t: any) => t.kind === 'query')
-                        if (queryTiles.length > 0 && queryTiles[0].kind === 'query') {
-                            return urls.insightNew({ query: formatQueryForNewInsight(queryTiles[0].query) })
-                        }
-                    } else if (tile.kind === 'replay') {
-                        return urls.replay()
-                    }
-
-                    return undefined
-                }
-            },
-        ],
+        getNewInsightUrl: [(s) => [s.combinedTiles], (tiles: WebAnalyticsTile[]) => getNewInsightUrlFactory(tiles)],
     }),
 ])

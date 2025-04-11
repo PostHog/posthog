@@ -49,7 +49,7 @@ export function createUrlPropertyFilter(url: string, stripQueryParams: boolean):
     }
 }
 
-export const pageReportsLogic: pageReportsLogicType = kea<pageReportsLogicType>({
+export const pageReportsLogic = kea<pageReportsLogicType>({
     path: ['scenes', 'web-analytics', 'pageReportsLogic'],
 
     connect: {
