@@ -1,6 +1,5 @@
 import posthogEE from '@posthog/ee/exports'
 import { customEvent, EventType, eventWithTime } from '@posthog/rrweb-types'
-import { captureException } from '@sentry/react'
 import {
     actions,
     afterMount,
@@ -567,9 +566,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     } catch (e) {
                         // NOTE: This is not ideal but should happen so rarely that it is tolerable.
                         existingEvents.forEach((e) => (e.fullyLoaded = true))
-                        captureException(e, {
-                            tags: { feature: 'session-recording-load-full-event-data' },
-                        })
+                        posthog.captureException(e, { feature: 'session-recording-load-full-event-data' })
                     }
 
                     // here we map the events list because we want the result to be a new instance to trigger downstream recalculation

@@ -26,7 +26,6 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { lemonToast, Spinner } from '@posthog/lemon-ui'
-import { captureException } from '@sentry/react'
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -35,6 +34,7 @@ import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, isNotNil } from 'lib/utils'
+import posthog from 'posthog-js'
 import React from 'react'
 import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -269,7 +269,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 }
                 await category.onAdd(itemName)
             } catch (e) {
-                captureException(e)
+                posthog.captureException(e)
                 console.error(e)
                 lemonToast.error('Something went wrong while saving the item. Please try again.')
             } finally {

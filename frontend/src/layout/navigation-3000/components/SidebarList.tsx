@@ -1,6 +1,5 @@
 import { IconCheckCircle, IconEllipsis, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag, lemonToast } from '@posthog/lemon-ui'
-import { captureException } from '@sentry/react'
 import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -10,6 +9,7 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
+import posthog from 'posthog-js'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { InfiniteLoader } from 'react-virtualized/dist/es/InfiniteLoader'
@@ -270,7 +270,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
               try {
                   await item.onRename?.(newName)
               } catch (error) {
-                  captureException(error)
+                  posthog.captureException(error)
                   lemonToast.error('Could not rename item')
               } finally {
                   setIsSavingName(false)

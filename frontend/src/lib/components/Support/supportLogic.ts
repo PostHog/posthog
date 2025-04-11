@@ -1,4 +1,3 @@
-import { captureException } from '@sentry/react'
 import * as Sentry from '@sentry/react'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
@@ -558,9 +557,9 @@ export const supportLogic = kea<supportLogicType>([
                             body_size: body?.length,
                         },
                     }
-                    captureException(error, {
-                        extra,
-                        contexts,
+                    posthog.captureException(error, {
+                        ...extra,
+                        ...contexts,
                     })
                     lemonToast.error(`There was an error sending the message.`)
                     return
@@ -592,7 +591,7 @@ export const supportLogic = kea<supportLogicType>([
                 })
                 lemonToast.success("Got the message! If we have follow-up information for you, we'll reply via email.")
             } catch (e) {
-                captureException(e)
+                posthog.captureException(e)
                 lemonToast.error(`There was an error sending the message.`)
             }
         },
