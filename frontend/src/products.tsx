@@ -9,6 +9,7 @@ import {
     IconNotebook,
     IconPerson,
     IconPieChart,
+    IconPiggyBank,
     IconRewindPlay,
     IconRocket,
     IconTestTube,
@@ -16,6 +17,7 @@ import {
 } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
 import { AlertType } from 'lib/components/Alerts/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { toParams } from 'lib/utils'
 import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
