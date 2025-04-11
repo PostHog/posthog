@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n    INSERT INTO posthog_organization\n    (id, name, slug, created_at, updated_at, plugins_access_level,\n     for_internal_metrics, is_member_join_email_enabled, setup_section_2_completed,\n     personalization, domain_whitelist)\n    VALUES('019621ef-58dd-745e-8998-16e2c2ee29f7', 'foo', 'bar', now(), now(),\n           1, true, true, true, '{}', ARRAY['baz'])",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "8377278219a668bb77c59f5721d9cecca26d90534bfcbb019b492176dcfb2f73"
+}

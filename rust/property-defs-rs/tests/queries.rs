@@ -606,9 +606,41 @@ async fn query_with_illegal_group_type_index_fails() {
 }
 
 async fn bootstrap_seed_data(test_pool: PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        r#"
+    INSERT INTO posthog_organization
+    (id, name, slug, created_at, updated_at, plugins_access_level,
+     for_internal_metrics, is_member_join_email_enabled, setup_section_2_completed,
+     personalization, domain_whitelist)
+    VALUES('019621ef-58dd-745e-8998-16e2c2ee29f7', 'foo', 'bar', now(), now(),
+           1, true, true, true, '{}', ARRAY['baz'])"#
+    )
+    .execute(&test_pool)
+    .await?;
+
     sqlx::query!("INSERT INTO posthog_project (id, organization_id, name, created_at) VALUES(1, '019621ef-58dd-745e-8998-16e2c2ee29f7', 'foobar', now())")
         .execute(&test_pool)
         .await?;
+
+    for ndx in 0..=31 {
+        let next_uuid = Uuid::now_v7().to_string();
+        sqlx::query(&format!(r#"
+            INSERT INTO posthog_user
+            (id, password, first_name, last_name, is_staff, date_joined, uuid, email, is_active, events_column_config)
+            VALUES ({0}, 'posthog', 'Max', 'Hedgehog', true, now(), '{1}', 'max_{0}@posthog.com', true, '{}')
+        "#, ndx, &next_uuid)).execute(&test_pool).await?;
+    }
+
+    sqlx::query(r#"
+    INSERT INTO posthog_team
+    (id, uuid, organization_id, parent_team_id, project_id, api_token, app_urls, name, created_at, updated_at,
+     anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control,
+     test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage,
+     event_properties, event_properties_with_usage, event_properties_numerical)
+    VALUES ($1, '01962200-176d-79bd-947d-75f9d40ae9a4', '019621ef-58dd-745e-8998-16e2c2ee29f7', 1, 1, 'abc123',
+            ARRAY['example.com'], 'foobar', now(), now(), false, true, true, true, false, false, '{}', 'PST',
+            '{}', true, false, '{}', '{}' , '{}', '{}', '{}')
+    "#).bind(1).execute(&test_pool).await?;
 
     // posthog_propertydefinition: (id, name, project_id, team_id, is_numerical, type, property_type, group_type_index)
     let pd_rows = [
