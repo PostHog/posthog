@@ -166,7 +166,7 @@ export const pipelineNodeLogic = kea<pipelineNodeLogicType>([
             const match = path.match(/\/pipeline\/([^/]+)\/hog-([^/]+)\/?/)
             if (match) {
                 const { projectTreeRef } = values
-                const type = 'hog/'
+                const type = 'hog_function/'
                 const ref = match[2]
                 if (!projectTreeRef || projectTreeRef.type !== type || projectTreeRef.ref !== ref) {
                     actions.setProjectTreeRef({ type, ref })

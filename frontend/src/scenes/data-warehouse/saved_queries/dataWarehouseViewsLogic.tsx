@@ -1,17 +1,18 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { DatabaseSchemaViewTable } from '~/queries/schema/schema-general'
-import { DataWarehouseSavedQuery } from '~/types'
+import { DataModelingJob, DataWarehouseSavedQuery } from '~/types'
 
 import type { dataWarehouseViewsLogicType } from './dataWarehouseViewsLogicType'
 
 const REFRESH_INTERVAL = 10000
+const DEFAULT_JOBS_PAGE_SIZE = 10
 
 export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     path(['scenes', 'warehouse', 'dataWarehouseSavedQueriesLogic']),
@@ -38,6 +39,8 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     }),
     actions({
         runDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
+        loadOlderDataModelingJobs: () => {},
+        resetDataModelingJobs: () => {},
     }),
     loaders(({ values }) => ({
         dataWarehouseSavedQueries: [
@@ -79,6 +82,31 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 },
             },
         ],
+        dataModelingJobs: [
+            null as PaginatedResponse<DataModelingJob> | null,
+            {
+                loadDataModelingJobs: async (savedQueryId: string) => {
+                    return await api.dataWarehouseSavedQueries.dataWarehouseDataModelingJobs.list(
+                        savedQueryId,
+                        values.dataModelingJobs?.results.length ?? DEFAULT_JOBS_PAGE_SIZE,
+                        0
+                    )
+                },
+                loadOlderDataModelingJobs: async () => {
+                    const nextUrl = values.dataModelingJobs?.next
+
+                    if (!nextUrl) {
+                        return values.dataModelingJobs
+                    }
+
+                    const res = await api.get<PaginatedResponse<DataModelingJob>>(nextUrl)
+                    res.results = [...(values.dataModelingJobs?.results ?? []), ...res.results]
+
+                    return res
+                },
+                resetDataModelingJobs: () => null,
+            },
+        ],
     })),
     listeners(({ actions, cache }) => ({
         createDataWarehouseSavedQuerySuccess: () => {
@@ -89,6 +117,15 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
 
             cache.savedQueriesRefreshTimeout = setTimeout(() => {
                 actions.loadDataWarehouseSavedQueries()
+            }, REFRESH_INTERVAL)
+        },
+        loadDataModelingJobsSuccess: ({ payload }) => {
+            clearTimeout(cache.dataModelingJobsRefreshTimeout)
+
+            cache.dataModelingJobsRefreshTimeout = setTimeout(() => {
+                if (payload) {
+                    actions.loadDataModelingJobs(payload)
+                }
             }, REFRESH_INTERVAL)
         },
         updateDataWarehouseSavedQuerySuccess: ({ payload }) => {
@@ -149,6 +186,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 )
             },
         ],
+        hasMoreJobsToLoad: [(s) => [s.dataModelingJobs], (dataModelingJobs) => !!dataModelingJobs?.next],
     }),
     events(({ actions, cache }) => ({
         afterMount: () => {

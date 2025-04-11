@@ -19,3 +19,4 @@ pub mod util;
 
 // Persons
 pub use person::Person;
+pub use person::PersonId;

@@ -216,6 +216,15 @@ class Team(UUIDClassicModel):
         related_name="teams",
         related_query_name="team",
     )
+    # NOTE: The deletion is not cascade due to us wanting to first of all solve deletion properly before allowing cascading deletes
+    parent_team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.SET_NULL,
+        related_name="child_teams",
+        related_query_name="child_team",
+        null=True,
+    )
+    # NOTE: To be removed in favour of parent_team
     project = models.ForeignKey(
         "posthog.Project", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
     )
@@ -271,6 +280,7 @@ class Team(UUIDClassicModel):
     session_recording_event_trigger_config = ArrayField(
         models.TextField(null=True, blank=True), default=list, blank=True, null=True
     )
+    session_recording_trigger_match_type_config = models.CharField(null=True, blank=True, max_length=24)
     session_replay_config = models.JSONField(null=True, blank=True)
     survey_config = models.JSONField(null=True, blank=True)
     capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)

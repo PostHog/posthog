@@ -517,7 +517,7 @@ def per_request_logging_context_middleware(
     for details. They include e.g. request_id, user_id. In some cases e.g. we
     add the team_id to the context like the get_events and decide endpoints.
 
-    This middleware adds some additional context at the beggining of the
+    This middleware adds some additional context at the beginning of the
     request. Feel free to add anything that's relevant for the request here.
     """
 

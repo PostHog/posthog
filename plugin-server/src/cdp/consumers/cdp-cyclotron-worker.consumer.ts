@@ -137,6 +137,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             pool: {
                 dbUrl: this.hub.CYCLOTRON_DATABASE_URL,
                 shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
+                shouldUseBulkCopyJob: this.hub.CDP_CYCLOTRON_USE_BULK_COPY_JOB,
             },
             queueName: this.queue,
             includeVmState: true,

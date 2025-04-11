@@ -283,6 +283,8 @@ class StickinessQueryRunner(QueryRunner):
 
                 data = val[0]
 
+                # Count doesn't change if we alter the data to cumulative
+                count = sum(data)
                 # Calculate cumulative values if requested
                 if (
                     self.query.stickinessFilter
@@ -295,7 +297,7 @@ class StickinessQueryRunner(QueryRunner):
                     data = cumulative_data
 
                 series_object = {
-                    "count": sum(data),
+                    "count": count,
                     "data": data,
                     "days": val[1],
                     "label": "All events" if series_label is None else series_label,
