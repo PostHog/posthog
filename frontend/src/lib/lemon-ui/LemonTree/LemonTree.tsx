@@ -244,7 +244,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                   .join(', ')}`
                             : isEmptyFolder
                             ? 'empty folder'
-                            : `tree item: ${typeof item.name === 'string' ? item.name : 'item'}`
+                            : `tree item: ${item.name}`
 
                     if (item.type === 'separator') {
                         return (
