@@ -53,7 +53,7 @@ jobs:
                   dockerhub-username: buildpulseapp
                   dockerhub-password: ${{ secrets.BP_DOCKERHUB_TOKEN }}
                   pr-number: ${{ github.event.number }}
-                  no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
+                  no-cache: true
 
     deploy_preview:
         name: Deploy preview environment
