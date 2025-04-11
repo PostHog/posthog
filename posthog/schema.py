@@ -1453,6 +1453,7 @@ class NodeKind(StrEnum):
     VECTOR_SEARCH_QUERY = "VectorSearchQuery"
     EDITOR_SEMANTIC_SEARCH_QUERY = "EditorSemanticSearchQuery"
     CODEBASE_TREE_QUERY = "CodebaseTreeQuery"
+    SYNCED_ARTIFACTS_QUERY = "SyncedArtifactsQuery"
 
 
 class PageURL(BaseModel):
@@ -1854,6 +1855,13 @@ class SuggestedQuestionsQueryResponse(BaseModel):
         extra="forbid",
     )
     questions: list[str]
+
+
+class SyncedArtifactsResponseItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
 
 
 class TaxonomicFilterGroupType(StrEnum):
@@ -4881,6 +4889,36 @@ class CachedSuggestedQuestionsQueryResponse(BaseModel):
     timezone: str
 
 
+class CachedSyncedArtifactsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[SyncedArtifactsResponseItem]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class CachedTeamTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7577,6 +7615,27 @@ class SessionsTimelineQuery(BaseModel):
     response: Optional[SessionsTimelineQueryResponse] = None
 
 
+class SyncedArtifactsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[SyncedArtifactsResponseItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class TeamTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8526,6 +8585,20 @@ class StickinessQuery(BaseModel):
     stickinessFilter: Optional[StickinessFilter] = Field(
         default=None, description="Properties specific to the stickiness insight"
     )
+
+
+class SyncedArtifactsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifactIds: list[str]
+    codebaseId: str
+    kind: Literal["SyncedArtifactsQuery"] = "SyncedArtifactsQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[SyncedArtifactsQueryResponse] = None
+    userId: float
 
 
 class TeamTaxonomyQuery(BaseModel):

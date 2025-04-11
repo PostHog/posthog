@@ -1,15 +1,22 @@
 from collections.abc import Sequence
 
 from attr import dataclass
-from django.forms import ValidationError
 
 from posthog.clickhouse.client import sync_execute
+from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
-from posthog.schema import CachedCodebaseTreeQueryResponse, CodebaseTreeQuery, CodebaseTreeResponseItem
+from posthog.schema import (
+    CachedCodebaseTreeQueryResponse,
+    CachedSyncedArtifactsQueryResponse,
+    CodebaseTreeQuery,
+    CodebaseTreeResponseItem,
+    SyncedArtifactsQuery,
+)
 from products.editor.backend.models.catalog_tree import ArtifactNode, SerializedArtifact
 from products.editor.backend.models.codebase import Codebase
 from products.editor.backend.queries.codebase_tree import CodebaseTreeQueryRunner
+from products.editor.backend.queries.synced_artifacts import SyncedArtifactsQueryRunner
 
 
 @dataclass
@@ -36,10 +43,11 @@ class CodebaseSyncService:
                 branch=self.branch,
             ),
             team=self.team,
+            limit_context=LimitContext.EDITOR,
         )
         response = query_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         if not isinstance(response, CachedCodebaseTreeQueryResponse):
-            raise ValidationError("Failed to load the tree.")
+            raise ValueError("Failed to load the synced tree.")
 
         # handle new codebase
         if not response.results:
@@ -85,8 +93,28 @@ class CodebaseSyncService:
 
     def _sync_new_tree(self, client_tree_nodes: list[SerializedArtifact]) -> list[str]:
         self._insert_catalog_nodes(client_tree_nodes, [])
-        # check integrity
-        return [node["id"] for node in client_tree_nodes if node["type"] == "file"]
+        leaf_nodes = {node["id"] for node in client_tree_nodes if node["type"] == "file"}
+
+        # Check integrity
+        query_runner = SyncedArtifactsQueryRunner(
+            query=SyncedArtifactsQuery(
+                userId=self.user.id,
+                codebaseId=str(self.codebase.id),
+                artifactIds=list(leaf_nodes),
+            ),
+            team=self.team,
+            limit_context=LimitContext.EDITOR,
+        )
+        response = query_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        if not isinstance(response, CachedSyncedArtifactsQueryResponse):
+            raise ValueError("Failed to load synced artifacts.")
+
+        # Remove synced artifacts from the leaf nodes.
+        for synced_artifact in response.results:
+            if synced_artifact.id in leaf_nodes:
+                leaf_nodes.remove(synced_artifact.id)
+
+        return list(leaf_nodes)
 
     def _insert_catalog_nodes(
         self, new_nodes: Sequence[SerializedArtifact], deleted_nodes: Sequence[SerializedArtifact]

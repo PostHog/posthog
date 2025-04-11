@@ -860,7 +860,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         # Don't cache debug queries with errors and export queries
         has_error: Optional[list] = fresh_response_dict.get("error", None)
-        if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT:
+        if (has_error is None or len(has_error) == 0) and self.limit_context not in (
+            LimitContext.EXPORT,
+            LimitContext.EDITOR,
+        ):
             cache_manager.set_cache_data(
                 response=fresh_response_dict,
                 # This would be a possible place to decide to not ever keep this cache warm

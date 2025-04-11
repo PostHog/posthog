@@ -2,7 +2,6 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     CachedCodebaseTreeQueryResponse,
@@ -12,7 +11,7 @@ from posthog.schema import (
 )
 
 
-class CodebaseTreeQueryRunner(TaxonomyCacheMixin, QueryRunner):
+class CodebaseTreeQueryRunner(QueryRunner):
     query: CodebaseTreeQuery
     response: CodebaseTreeQueryResponse
     cached_response: CachedCodebaseTreeQueryResponse
@@ -22,7 +21,7 @@ class CodebaseTreeQueryRunner(TaxonomyCacheMixin, QueryRunner):
         hogql = to_printed_hogql(query, self.team)
 
         response = execute_hogql_query(
-            query_type="EditorSemanticSearchQuery",
+            query_type="CodebaseTreeQuery",
             query=query,
             team=self.team,
             timings=self.timings,

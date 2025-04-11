@@ -130,8 +130,11 @@ export enum NodeKind {
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
     VectorSearchQuery = 'VectorSearchQuery',
+
+    // Editor queries
     EditorSemanticSearchQuery = 'EditorSemanticSearchQuery',
     CodebaseTreeQuery = 'CodebaseTreeQuery',
+    SyncedArtifactsQuery = 'SyncedArtifactsQuery',
 }
 
 export type AnyDataNode =
@@ -2627,6 +2630,23 @@ export interface CodebaseTreeQuery extends DataNode<CodebaseTreeQueryResponse> {
 export type CodebaseTreeQueryResponse = AnalyticsQueryResponseBase<CodebaseTreeResponse>
 
 export type CachedCodebaseTreeQueryResponse = CachedQueryResponse<CodebaseTreeQueryResponse>
+
+export interface SyncedArtifactsResponseItem {
+    id: string
+}
+
+export type SyncedArtifactsResponse = SyncedArtifactsResponseItem[]
+
+export interface SyncedArtifactsQuery extends DataNode<SyncedArtifactsQueryResponse> {
+    kind: NodeKind.SyncedArtifactsQuery
+    userId: number
+    codebaseId: string
+    artifactIds: string[]
+}
+
+export type SyncedArtifactsQueryResponse = AnalyticsQueryResponseBase<SyncedArtifactsResponse>
+
+export type CachedSyncedArtifactsQueryResponse = CachedQueryResponse<SyncedArtifactsQueryResponse>
 
 export enum CustomChannelField {
     UTMSource = 'utm_source',
