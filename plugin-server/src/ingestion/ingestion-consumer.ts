@@ -78,7 +78,6 @@ export class IngestionConsumer {
     private tokensToDrop: string[] = []
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
-    private tokensToForceOverflow: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
 
     constructor(
