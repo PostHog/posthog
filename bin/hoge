@@ -1,7 +1,9 @@
 #!/bin/bash
 set -e
 
-if [[ "$@" == *".hog"* ]]; then
+if [[ "$@" == *".json"* ]]; then
+  exec python3 -m posthog.hogql.cli --compile-filters "$@"
+elif [[ "$@" == *".hog"* ]]; then
   exec python3 -m posthog.hogql.cli --compile "$@"
 elif [[ "$@" == *".js"* ]]; then
   exec python3 -m posthog.hogql.cli --compile "$@"

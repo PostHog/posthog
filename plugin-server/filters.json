@@ -1,0 +1,10 @@
+{
+    "actions": [],
+    "events": [
+        {
+            "id": "$pageview",
+            "name": "Pageview",
+            "type": "events"
+        }
+    ]
+}

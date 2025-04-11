@@ -2,6 +2,7 @@ import sys
 import json
 
 from common.hogvm.python.execute import execute_bytecode
+from posthog.cdp.filters import compile_filters_bytecode
 from posthog.hogql.compiler.bytecode import create_bytecode, parse_program
 from posthog.hogql.compiler.javascript import to_js_program
 
@@ -9,8 +10,8 @@ modifiers = [arg for arg in sys.argv if arg.startswith("-")]
 args = [arg for arg in sys.argv if arg != "" and not arg.startswith("-")]
 filename = args[1]
 
-if not filename.endswith(".hog") and not filename.endswith(".hoge"):
-    raise ValueError("Filename must end with '.hog' or '.hoge'")
+if not filename.endswith(".hog") and not filename.endswith(".hoge") and not "--compile-filters" in modifiers:
+    raise ValueError("Filename must end with '.hog' or '.hoge'", modifiers)
 
 with open(filename) as file:
     code = file.read()
@@ -63,5 +64,32 @@ else:
             elif line != "":
                 file.write(line + "\n")
 
+    elif "--compile-filters" in modifiers:
+        if len(args) == 3:
+            target = args[2]
+        else:
+            target = filename[:-4] + ".hoge"
+            if len(args) != 2:
+                raise ValueError("Must specify exactly one filename")
+        print('abc')
+
+        code = compile_filters_bytecode(bytecode, "Default Project")
+        # with open(target, 'w') as file:
+        #     file.write(code)
+        # # write bytecode to file
+        # with open(target, "w") as file:
+        #     max_length = 120
+        #     line = "["
+        #     for index, op in enumerate(bytecode):
+        #         encoded = json.dumps(op)
+        #         if len(line) + len(encoded) > max_length - 2:
+        #             file.write(line + "\n")
+        #             line = ""
+        #         line += (" " if len(line) > 1 else "") + encoded + ("]" if index == len(bytecode) - 1 else ",")
+        #     if line == "[":
+        #         file.write(line + "]\n")
+        #     elif line != "":
+        #         file.write(line + "\n")
+
     else:
-        raise ValueError("Must specify either --run or --compile")
+        raise ValueError("Must specify either --run, --compile, or --compile-filters")
