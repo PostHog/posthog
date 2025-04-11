@@ -1,12 +1,12 @@
 # serializer version: 1
 # name: TestRevenueExampleDataWarehouseTablesQueryRunner.test_database_query
   '''
-  SELECT 'stripe_posthog_test__revenue' AS view_name,
-         stripe_posthog_test__revenue.id AS distinct_id,
-         stripe_posthog_test__revenue.adjusted_original_amount AS original_revenue,
-         stripe_posthog_test__revenue.original_currency AS original_currency,
-         stripe_posthog_test__revenue.amount AS revenue,
-         stripe_posthog_test__revenue.currency AS currency
+  SELECT 'stripe.posthog_test.revenue_view' AS view_name,
+         `stripe.posthog_test.revenue_view`.id AS distinct_id,
+         `stripe.posthog_test.revenue_view`.adjusted_original_amount AS original_revenue,
+         `stripe.posthog_test.revenue_view`.original_currency AS original_currency,
+         `stripe.posthog_test.revenue_view`.amount AS revenue,
+         `stripe.posthog_test.revenue_view`.currency AS currency
   FROM
     (SELECT stripe_charge.id AS id,
             parseDateTime64BestEffortOrNull(toString(stripe_charge.created), 6, 'UTC') AS timestamp,
@@ -19,8 +19,8 @@
               'GBP' AS currency,
               if(equals(original_currency, currency), toDecimal64(adjusted_original_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(adjusted_original_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
      FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue.stripe_charges/stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS stripe_charge
-     WHERE equals(stripe_charge.status, 'succeeded')) AS stripe_posthog_test__revenue
-  ORDER BY stripe_posthog_test__revenue.timestamp DESC
+     WHERE equals(stripe_charge.status, 'succeeded')) AS `stripe.posthog_test.revenue_view`
+  ORDER BY `stripe.posthog_test.revenue_view`.timestamp DESC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
