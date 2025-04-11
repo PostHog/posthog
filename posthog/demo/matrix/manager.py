@@ -253,8 +253,8 @@ class MatrixManager:
         bulk_persons: dict[str, Person] = {}
         person_fields = {f.name for f in Person._meta.get_fields()}
         for row in clickhouse_persons:
-            properties = json.loads(row.pop("properties", "{}"))
             filtered_row = {k: v for k, v in row.items() if k in person_fields}
+            properties = json.loads(filtered_row.pop("properties", "{}"))
             bulk_persons[row["uuid"]] = Person(team_id=target_team_id, properties=properties, **filtered_row)
         # This sets the pk in the bulk_persons dict so we can use them later
         Person.objects.bulk_create(bulk_persons.values())
