@@ -66,7 +66,7 @@ function YourComponent() {
             name="your_tool_name"  // Must match backend tool name - enforced by the AssistantContextualTool enum
             displayName="Human-friendly name"
             context={{
-                // Context data passed to backend - can be empty if there truly is not context
+                // Context data passed to backend - can be empty if there truly is no context
                 context_var: relevantData,
             }}
             callback={(toolOutput) => {
