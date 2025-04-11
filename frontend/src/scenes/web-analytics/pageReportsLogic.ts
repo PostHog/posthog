@@ -7,6 +7,7 @@ import {
     NodeKind,
     QuerySchema,
     TrendsQuery,
+    WebOverviewQueryResponse,
     WebPageURLSearchQuery,
 } from '~/queries/schema/schema-general'
 import {
@@ -50,6 +51,25 @@ export interface PageStats {
     errors: number
     surveysShown: number
     surveysAnswered: number
+    sessions: number
+    sessionDuration: number
+    bounceRate: number
+    isLoading: boolean
+}
+
+interface WebOverviewStats {
+    pageviews: number
+    visitors: number
+    recordings: number
+    clicks: number
+    rageClicks: number
+    deadClicks: number
+    errors: number
+    surveysShown: number
+    surveysAnswered: number
+    sessions: number
+    sessionDuration: number
+    bounceRate: number
     isLoading: boolean
 }
 
@@ -144,11 +164,14 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 errors: 0,
                 surveysShown: 0,
                 surveysAnswered: 0,
+                sessions: 0,
+                sessionDuration: 0,
+                bounceRate: 0,
                 isLoading: true,
             } as PageStats,
             {
                 loadPageStats: (state) => ({ ...state, isLoading: true }),
-                loadPageStatsSuccess: (_, { stats }) => ({ 
+                loadPageStatsSuccess: (_, { stats }) => ({
                     pageviews: stats?.pageviews ?? 0,
                     visitors: stats?.visitors ?? 0,
                     recordings: stats?.recordings ?? 0,
@@ -158,7 +181,10 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     errors: stats?.errors ?? 0,
                     surveysShown: stats?.surveysShown ?? 0,
                     surveysAnswered: stats?.surveysAnswered ?? 0,
-                    isLoading: false 
+                    sessions: stats?.sessions ?? 0,
+                    sessionDuration: stats?.sessionDuration ?? 0,
+                    bounceRate: stats?.bounceRate ?? 0,
+                    isLoading: false,
                 }),
                 loadPageStatsFailure: (state) => ({ ...state, isLoading: false }),
             },
@@ -191,7 +217,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             },
         ],
         stats: [
-            null as PageStats | null,
+            null as WebOverviewStats | null,
             {
                 loadPageStats: async ({ pageUrl }: { pageUrl: string | null }) => {
                     try {
@@ -199,68 +225,47 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             return null
                         }
 
-                        // Single optimized query to get all metrics at once
-                        const statsQuery = {
-                            kind: NodeKind.HogQLQuery,
-                            query: hogql`
-                                SELECT countIf(event = '$pageview') AS pageviews,
-                                    countDistinctIf(distinct_id, event = '$pageview') AS visitors,
-                                    countDistinctIf(properties.$session_id, properties.$session_id IS NOT NULL) AS recordings,
-                                    countIf(event = '$autocapture' AND properties.$event_type = 'click') AS clicks,
-                                    countIf(event = 'rage_click') AS rageClicks,
-                                    countIf(event = 'dead_click') AS deadClicks,
-                                    countIf(event = '$exception') AS errors,
-                                    countIf(event = 'survey shown') AS surveysShown,
-                                    countIf(event = 'survey sent') AS surveysAnswered
-                                FROM events
-                            `,
+                        // Use the web overview query with extended stats
+                        const query = {
+                            kind: NodeKind.WebOverviewQuery,
+                            dateRange: { date_from: '-7d', date_to: null },
+                            properties: [
+                                {
+                                    key: '$current_url',
+                                    value: pageUrl,
+                                    operator: PropertyOperator.Exact,
+                                    type: PropertyFilterType.Event,
+                                },
+                            ],
+                            includeExtendedStats: true,
                         }
-                        
-                        // Execute the single query
-                        type QueryResponse = { 
-                            results: Array<Array<number>>,
-                            columns: Array<string>
+
+                        const response = (await api.query(query)) as WebOverviewQueryResponse
+
+                        // Convert array of metrics to object format
+                        const findMetricValue = (key: string): number => {
+                            const metric = response.results?.find((r) => r.key === key)
+                            return metric?.value ?? 0
                         }
-                        
-                        const response = await api.query(statsQuery) as QueryResponse
-                        
-                        // Extract results based on column order in the response
-                        // The API returns an array of arrays where each inner array contains values in the order of columns
-                        const columnIndices: Record<string, number> = {}
-                        response.columns?.forEach((column, index) => {
-                            columnIndices[column] = index
-                        })
-                        
-                        const resultRow = response.results?.[0] || []
-                        
-                        const result = {
-                            pageviews: Number(resultRow[columnIndices['pageviews']] || 0),
-                            visitors: Number(resultRow[columnIndices['visitors']] || 0),
-                            recordings: Number(resultRow[columnIndices['recordings']] || 0),
-                            clicks: Number(resultRow[columnIndices['clicks']] || 0),
-                            rageClicks: Number(resultRow[columnIndices['rageClicks']] || 0),
-                            deadClicks: Number(resultRow[columnIndices['deadClicks']] || 0),
-                            errors: Number(resultRow[columnIndices['errors']] || 0),
-                            surveysShown: Number(resultRow[columnIndices['surveysShown']] || 0),
-                            surveysAnswered: Number(resultRow[columnIndices['surveysAnswered']] || 0),
+
+                        return {
+                            pageviews: findMetricValue('views'),
+                            visitors: findMetricValue('visitors'),
+                            recordings: findMetricValue('recordings'),
+                            clicks: findMetricValue('clicks'),
+                            rageClicks: findMetricValue('rage clicks'),
+                            deadClicks: findMetricValue('dead clicks'),
+                            errors: findMetricValue('errors'),
+                            surveysShown: findMetricValue('surveys shown'),
+                            surveysAnswered: findMetricValue('surveys answered'),
+                            sessions: findMetricValue('sessions'),
+                            sessionDuration: findMetricValue('session duration'),
+                            bounceRate: findMetricValue('bounce rate') / 100, // Convert from percentage back to decimal
                             isLoading: false,
                         }
-                        
-                        return result
                     } catch (error) {
                         console.error('Error loading page stats:', error)
-                        return {
-                            pageviews: 0,
-                            visitors: 0,
-                            recordings: 0,
-                            clicks: 0,
-                            rageClicks: 0,
-                            deadClicks: 0,
-                            errors: 0,
-                            surveysShown: 0,
-                            surveysAnswered: 0,
-                            isLoading: false,
-                        }
+                        return null
                     }
                 },
             },
@@ -271,7 +276,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         hasPageUrl: [(selectors) => [selectors.pageUrl], (pageUrl: string | null) => !!pageUrl],
         isLoading: [
             (selectors) => [selectors.pagesUrlsLoading, selectors.isInitialLoad, selectors.pageStats],
-            (pagesUrlsLoading: boolean, isInitialLoad: boolean, pageStats: PageStats) => 
+            (pagesUrlsLoading: boolean, isInitialLoad: boolean, pageStats: PageStats) =>
                 pagesUrlsLoading || isInitialLoad || pageStats.isLoading,
         ],
         queries: [
@@ -608,7 +613,13 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         },
     }),
 
-    afterMount: ({ actions, values }: { actions: pageReportsLogicType['actions'], values: pageReportsLogicType['values'] }) => {
+    afterMount: ({
+        actions,
+        values,
+    }: {
+        actions: pageReportsLogicType['actions']
+        values: pageReportsLogicType['values']
+    }) => {
         actions.loadPages('')
         if (values.pageUrl) {
             actions.loadPageStats(values.pageUrl)

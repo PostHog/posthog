@@ -95,9 +95,7 @@ function StatCard({ title, value, icon, tooltip }: StatCardProps): JSX.Element {
                 {icon}
                 <span>{title}</span>
             </div>
-            <div className="text-lg font-semibold">
-                {humanFriendlyNumber(Number(value))}
-            </div>
+            <div className="text-lg font-semibold">{humanFriendlyNumber(Number(value))}</div>
         </div>
     )
 
@@ -125,67 +123,88 @@ export function PageStatsRow(): JSX.Element {
         return <></>
     }
 
-    // If stats aren't loaded yet, use zeroed/empty values
-    const pageStats = stats || {
-        pageviews: 0,
-        visitors: 0,
-        recordings: 0,
-        clicks: 0,
-        rageClicks: 0,
-        deadClicks: 0,
-        errors: 0,
-        surveysShown: 0,
-        surveysAnswered: 0,
+    // If stats aren't loaded yet, show loading state
+    if (!stats) {
+        return (
+            <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-1 my-2">
+                {Array(11)
+                    .fill(null)
+                    .map((_, i) => (
+                        <div key={i} className="border rounded bg-bg-light p-4 flex flex-col animate-pulse">
+                            <div className="h-4 bg-border w-1/2 rounded" />
+                            <div className="h-6 bg-border w-3/4 rounded mt-2" />
+                        </div>
+                    ))}
+            </div>
+        )
     }
 
     return (
         <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-1 my-2">
-            <StatCard 
-                title="Pageviews" 
-                value={pageStats.pageviews} 
-                icon={<IconGlobe className="text-primary" />} 
+            <StatCard
+                title="Pageviews"
+                value={stats.pageviews}
+                icon={<IconGlobe className="text-primary" />}
                 tooltip="Total number of times this page was viewed"
             />
-            <StatCard 
-                title="Visitors" 
-                value={pageStats.visitors} 
-                icon={<IconPerson className="text-primary" />} 
+            <StatCard
+                title="Visitors"
+                value={stats.visitors}
+                icon={<IconPerson className="text-primary" />}
                 tooltip="Unique visitors who viewed this page"
             />
-            <StatCard 
-                title="Recordings" 
-                value={pageStats.recordings} 
-                icon={<IconPlayCircle className="text-primary" />} 
+            <StatCard
+                title="Sessions"
+                value={stats.sessions}
+                icon={<IconGlobe className="text-primary" />}
+                tooltip="Total number of sessions on this page"
+            />
+            <StatCard
+                title="Session Duration"
+                value={Math.round(stats.sessionDuration)}
+                icon={<IconGlobe className="text-primary" />}
+                tooltip="Average session duration in seconds"
+            />
+            <StatCard
+                title="Bounce Rate"
+                value={`${Math.round(stats.bounceRate * 100)}%`}
+                icon={<IconGlobe className="text-primary" />}
+                tooltip="Percentage of sessions with only one pageview"
+            />
+            <StatCard
+                title="Recordings"
+                value={stats.recordings}
+                icon={<IconPlayCircle className="text-primary" />}
                 tooltip="Session recordings containing this page"
             />
-            <StatCard 
-                title="Clicks" 
-                value={pageStats.clicks} 
-                icon={<IconMouse className="text-primary" />} 
+            <StatCard
+                title="Clicks"
+                value={stats.clicks}
+                icon={<IconMouse className="text-primary" />}
                 tooltip="Total clicks on this page"
             />
-            <StatCard 
-                title="Rage clicks" 
-                value={pageStats.rageClicks} 
-                icon={<IconWarning className="text-warning" />} 
+            <StatCard
+                title="Rage clicks"
+                value={stats.rageClicks}
+                icon={<IconWarning className="text-warning" />}
                 tooltip="Multiple rapid clicks in the same area"
             />
-            <StatCard 
-                title="Dead clicks" 
-                value={pageStats.deadClicks} 
-                icon={<IconAsterisk className="text-primary" />} 
+            <StatCard
+                title="Dead clicks"
+                value={stats.deadClicks}
+                icon={<IconAsterisk className="text-primary" />}
                 tooltip="Clicks that didn't result in any action"
             />
-            <StatCard 
-                title="Errors" 
-                value={pageStats.errors} 
-                icon={<IconWarning className="text-danger" />} 
+            <StatCard
+                title="Errors"
+                value={stats.errors}
+                icon={<IconWarning className="text-danger" />}
                 tooltip="JavaScript exceptions on this page"
             />
-            <StatCard 
-                title="Surveys" 
-                value={`${pageStats.surveysAnswered}/${pageStats.surveysShown}`} 
-                icon={<IconGlobe className="text-primary" />} 
+            <StatCard
+                title="Surveys"
+                value={`${stats.surveysAnswered}/${stats.surveysShown}`}
+                icon={<IconGlobe className="text-primary" />}
                 tooltip="Surveys answered vs. shown on this page"
             />
         </div>

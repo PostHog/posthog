@@ -1616,6 +1616,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
 
 export interface WebOverviewQuery extends WebAnalyticsQueryBase<WebOverviewQueryResponse> {
     kind: NodeKind.WebOverviewQuery
+    includeExtendedStats?: boolean
 }
 
 export type WebOverviewItemKind = 'unit' | 'duration_s' | 'percentage' | 'currency'
