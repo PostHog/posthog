@@ -250,9 +250,9 @@ exports[`processAiEvent() smoke test every model processes codestral-mamba 1`] =
 
 exports[`processAiEvent() smoke test every model processes command 1`] = `
 {
-  "$ai_input_cost_usd": 0.000095,
-  "$ai_output_cost_usd": 0.000095,
-  "$ai_total_cost_usd": 0.00019,
+  "$ai_input_cost_usd": 0.0001,
+  "$ai_output_cost_usd": 0.0001,
+  "$ai_total_cost_usd": 0.0002,
 }
 `;
 
@@ -266,49 +266,49 @@ exports[`processAiEvent() smoke test every model processes command-a 1`] = `
 
 exports[`processAiEvent() smoke test every model processes command-r 1`] = `
 {
-  "$ai_input_cost_usd": 0.0000475,
-  "$ai_output_cost_usd": 0.00007125,
-  "$ai_total_cost_usd": 0.00011875,
+  "$ai_input_cost_usd": 0.00005,
+  "$ai_output_cost_usd": 0.000075,
+  "$ai_total_cost_usd": 0.000125,
 }
 `;
 
 exports[`processAiEvent() smoke test every model processes command-r-03-2024 1`] = `
 {
-  "$ai_input_cost_usd": 0.0000475,
-  "$ai_output_cost_usd": 0.00007125,
-  "$ai_total_cost_usd": 0.00011875,
+  "$ai_input_cost_usd": 0.00005,
+  "$ai_output_cost_usd": 0.000075,
+  "$ai_total_cost_usd": 0.000125,
 }
 `;
 
 exports[`processAiEvent() smoke test every model processes command-r-08-2024 1`] = `
 {
-  "$ai_input_cost_usd": 0.00001425,
-  "$ai_output_cost_usd": 0.0000285,
-  "$ai_total_cost_usd": 0.00004275,
+  "$ai_input_cost_usd": 0.000015,
+  "$ai_output_cost_usd": 0.00003,
+  "$ai_total_cost_usd": 0.000045,
 }
 `;
 
 exports[`processAiEvent() smoke test every model processes command-r-plus 1`] = `
 {
-  "$ai_input_cost_usd": 0.000285,
-  "$ai_output_cost_usd": 0.0007125,
-  "$ai_total_cost_usd": 0.0009975,
+  "$ai_input_cost_usd": 0.0003,
+  "$ai_output_cost_usd": 0.00075,
+  "$ai_total_cost_usd": 0.00105,
 }
 `;
 
 exports[`processAiEvent() smoke test every model processes command-r-plus-04-2024 1`] = `
 {
-  "$ai_input_cost_usd": 0.000285,
-  "$ai_output_cost_usd": 0.0007125,
-  "$ai_total_cost_usd": 0.0009975,
+  "$ai_input_cost_usd": 0.0003,
+  "$ai_output_cost_usd": 0.00075,
+  "$ai_total_cost_usd": 0.00105,
 }
 `;
 
 exports[`processAiEvent() smoke test every model processes command-r-plus-08-2024 1`] = `
 {
-  "$ai_input_cost_usd": 0.0002375,
-  "$ai_output_cost_usd": 0.000475,
-  "$ai_total_cost_usd": 0.0007125,
+  "$ai_input_cost_usd": 0.00025,
+  "$ai_output_cost_usd": 0.0005,
+  "$ai_total_cost_usd": 0.00075,
 }
 `;
 
@@ -440,6 +440,14 @@ exports[`processAiEvent() smoke test every model processes deepseek-r1-zero:free
 }
 `;
 
+exports[`processAiEvent() smoke test every model processes deepseek-v3-base:free 1`] = `
+{
+  "$ai_input_cost_usd": 0,
+  "$ai_output_cost_usd": 0,
+  "$ai_total_cost_usd": 0,
+}
+`;
+
 exports[`processAiEvent() smoke test every model processes deepseek-v3-fireworks 1`] = `
 {
   "$ai_input_cost_usd": 0.00009,
@@ -480,14 +488,6 @@ exports[`processAiEvent() smoke test every model processes gemini-2.0-flash-lite
 }
 `;
 
-exports[`processAiEvent() smoke test every model processes gemini-2.0-flash-lite-preview-02-05:free 1`] = `
-{
-  "$ai_input_cost_usd": 0,
-  "$ai_output_cost_usd": 0,
-  "$ai_total_cost_usd": 0,
-}
-`;
-
 exports[`processAiEvent() smoke test every model processes gemini-2.0-flash-thinking-exp:free 1`] = `
 {
   "$ai_input_cost_usd": 0,
@@ -512,7 +512,7 @@ exports[`processAiEvent() smoke test every model processes gemini-2.0-pro-exp-02
 }
 `;
 
-exports[`processAiEvent() smoke test every model processes gemini-exp-1206:free 1`] = `
+exports[`processAiEvent() smoke test every model processes gemini-2.5-pro-exp-03-25:free 1`] = `
 {
   "$ai_input_cost_usd": 0,
   "$ai_output_cost_usd": 0,
@@ -570,9 +570,9 @@ exports[`processAiEvent() smoke test every model processes gemini-pro-vision 1`]
 
 exports[`processAiEvent() smoke test every model processes gemma-2-9b-it 1`] = `
 {
-  "$ai_input_cost_usd": 0.000003,
-  "$ai_output_cost_usd": 0.000003,
-  "$ai_total_cost_usd": 0.000006,
+  "$ai_input_cost_usd": 0.000007,
+  "$ai_output_cost_usd": 0.0000035,
+  "$ai_total_cost_usd": 0.0000105,
 }
 `;
 
@@ -586,9 +586,9 @@ exports[`processAiEvent() smoke test every model processes gemma-2-9b-it:free 1`
 
 exports[`processAiEvent() smoke test every model processes gemma-2-27b-it 1`] = `
 {
-  "$ai_input_cost_usd": 0.000027,
-  "$ai_output_cost_usd": 0.0000135,
-  "$ai_total_cost_usd": 0.0000405,
+  "$ai_input_cost_usd": 0.00008,
+  "$ai_output_cost_usd": 0.00004,
+  "$ai_total_cost_usd": 0.00012,
 }
 `;
 
@@ -600,11 +600,27 @@ exports[`processAiEvent() smoke test every model processes gemma-3-1b-it:free 1`
 }
 `;
 
+exports[`processAiEvent() smoke test every model processes gemma-3-4b-it 1`] = `
+{
+  "$ai_input_cost_usd": 0.000002,
+  "$ai_output_cost_usd": 0.000002,
+  "$ai_total_cost_usd": 0.000004,
+}
+`;
+
 exports[`processAiEvent() smoke test every model processes gemma-3-4b-it:free 1`] = `
 {
   "$ai_input_cost_usd": 0,
   "$ai_output_cost_usd": 0,
   "$ai_total_cost_usd": 0,
+}
+`;
+
+exports[`processAiEvent() smoke test every model processes gemma-3-12b-it 1`] = `
+{
+  "$ai_input_cost_usd": 0.000005,
+  "$ai_output_cost_usd": 0.000005,
+  "$ai_total_cost_usd": 0.00001,
 }
 `;
 
@@ -618,9 +634,9 @@ exports[`processAiEvent() smoke test every model processes gemma-3-12b-it:free 1
 
 exports[`processAiEvent() smoke test every model processes gemma-3-27b-it 1`] = `
 {
-  "$ai_input_cost_usd": 0.00003,
-  "$ai_output_cost_usd": 0.000025,
-  "$ai_total_cost_usd": 0.000055,
+  "$ai_input_cost_usd": 0.00001,
+  "$ai_output_cost_usd": 0.00001,
+  "$ai_total_cost_usd": 0.00002,
 }
 `;
 
@@ -629,14 +645,6 @@ exports[`processAiEvent() smoke test every model processes gemma-3-27b-it:free 1
   "$ai_input_cost_usd": 0,
   "$ai_output_cost_usd": 0,
   "$ai_total_cost_usd": 0,
-}
-`;
-
-exports[`processAiEvent() smoke test every model processes gemma-7b-it 1`] = `
-{
-  "$ai_input_cost_usd": 0.000015,
-  "$ai_output_cost_usd": 0.0000075,
-  "$ai_total_cost_usd": 0.0000225,
 }
 `;
 
@@ -989,14 +997,6 @@ exports[`processAiEvent() smoke test every model processes llama-3-8b-instruct 1
   "$ai_input_cost_usd": 0.000003,
   "$ai_output_cost_usd": 0.000003,
   "$ai_total_cost_usd": 0.000006,
-}
-`;
-
-exports[`processAiEvent() smoke test every model processes llama-3-8b-instruct:free 1`] = `
-{
-  "$ai_input_cost_usd": 0,
-  "$ai_output_cost_usd": 0,
-  "$ai_total_cost_usd": 0,
 }
 `;
 

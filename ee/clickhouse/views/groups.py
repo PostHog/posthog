@@ -21,7 +21,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, load_ac
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.group import Group
 from posthog.models.group.util import raw_create_group_ch
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.group_type_mapping import GroupTypeMapping, GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
 from loginas.utils import is_impersonated_session
 
 from posthog.models.user import User
@@ -30,14 +30,7 @@ from posthog.models.user import User
 class GroupTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = GroupTypeMapping
-        fields = [
-            "group_type",
-            "group_type_index",
-            "name_singular",
-            "name_plural",
-            "detail_dashboard",
-            "default_columns",
-        ]
+        fields = GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
         read_only_fields = ["group_type", "group_type_index"]
 
 
@@ -175,7 +168,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             ),
         ]
     )
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def find(self, request: request.Request, **kw) -> response.Response:
         try:
             group = self.get_queryset().get(group_key=request.GET["group_key"])
@@ -200,7 +193,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             ),
         ]
     )
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["group:write"])
     def update_property(self, request: request.Request, **kw) -> response.Response:
         try:
             group = self.get_queryset().get()
@@ -291,7 +284,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             ),
         ]
     )
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["group:write"])
     def delete_property(self, request: request.Request, **kw) -> response.Response:
         try:
             group = self.get_queryset().get()
@@ -410,7 +403,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
             ),
         ]
     )
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def related(self, request: request.Request, pk=None, **kw) -> response.Response:
         group_type_index = request.GET.get("group_type_index")
         id = request.GET["id"]
@@ -418,7 +411,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
         results = RelatedActorsQuery(self.team, group_type_index, id).run()
         return response.Response(results)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_definitions(self, request: request.Request, **kw):
         rows = sync_execute(
             f"""
@@ -438,7 +431,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
 
         return response.Response(group_type_index_to_properties)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_values(self, request: request.Request, **kw):
         value_filter = request.GET.get("value")
 

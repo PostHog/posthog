@@ -1,4 +1,3 @@
-import { IconGear } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
@@ -18,16 +17,12 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -37,7 +32,7 @@ import { userLogic } from 'scenes/userLogic'
 import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
 import { SurveyQuestionLabel } from './constants'
-import { openSurveysSettingsDialog, SurveySettings } from './SurveySettings'
+import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
 import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
 
 export const scene: SceneExport = {
@@ -54,9 +49,7 @@ export function Surveys(): JSX.Element {
         surveysResponsesCountLoading,
         searchTerm,
         filters,
-        showSurveysDisabledBanner,
         tab,
-        globalSurveyAppearanceConfigAvailable,
         hasNextPage,
         hasNextSearchPage,
     } = useValues(surveysLogic)
@@ -65,10 +58,7 @@ export function Surveys(): JSX.Element {
         useActions(surveysLogic)
 
     const { user } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const shouldShowEmptyState = !dataLoading && surveys.length === 0
-    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
-    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
         <div>
@@ -112,15 +102,16 @@ export function Surveys(): JSX.Element {
                 }
                 tabbedPage
             />
+            <SurveysDisabledBanner />
             <LemonTabs
                 activeKey={tab}
                 onChange={(newTab) => setTab(newTab as SurveysTabs)}
                 tabs={[
                     { key: SurveysTabs.Active, label: 'Active' },
                     { key: SurveysTabs.Archived, label: 'Archived' },
-                    showLinkedHogFunctions ? { key: SurveysTabs.Notifications, label: 'Notifications' } : null,
+                    { key: SurveysTabs.Notifications, label: 'Notifications' },
                     { key: SurveysTabs.History, label: 'History' },
-                    globalSurveyAppearanceConfigAvailable ? { key: SurveysTabs.Settings, label: 'Settings' } : null,
+                    { key: SurveysTabs.Settings, label: 'Settings' },
                 ]}
             />
             {tab === SurveysTabs.Settings && <SurveySettings />}
@@ -150,22 +141,6 @@ export function Surveys(): JSX.Element {
                 <>
                     <div className="deprecated-space-y-2">
                         <VersionCheckerBanner />
-
-                        {showSurveysDisabledBanner ? (
-                            <LemonBanner
-                                type="warning"
-                                action={{
-                                    type: 'secondary',
-                                    icon: <IconGear />,
-                                    onClick: () => openSurveysSettingsDialog(),
-                                    children: 'Configure',
-                                }}
-                                className="mb-2"
-                            >
-                                Survey popovers are currently disabled for this {settingLevel}. Re-enable them in the
-                                settings, otherwise surveys will not be visible.
-                            </LemonBanner>
-                        ) : null}
                     </div>
 
                     {(shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.SURVEYS]) && (
@@ -238,7 +213,7 @@ export function Surveys(): JSX.Element {
                                                 className="min-w-full text-center"
                                                 disabledReason={dataLoading ? 'Loading surveys' : ''}
                                             >
-                                                <span className="text-center flex-1">
+                                                <span className="flex-1 text-center">
                                                     {dataLoading ? 'Loading...' : 'Load more'}
                                                 </span>
                                             </LemonButton>

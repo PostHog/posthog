@@ -334,7 +334,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         showIntervalSelect: false,
                         insightProps: createInsightProps(tileId),
                         layout: layout ?? {
-                            className: '',
+                            className: 'flex flex-col h-full min-h-[400px]',
                         },
                         docs: {
                             title,
@@ -347,7 +347,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     {
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_COMBINED_METRICS_CHART,
-                        title: '', // Intentionally empty to avoid showing section title + tile title
                         tiles: [
                             {
                                 kind: 'query',
@@ -375,22 +374,27 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     {
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_PATHS_SECTION,
-                        title: 'Page Paths Analysis',
                         layout: {
-                            className: 'grid-cols-1 md:grid-cols-3 gap-2',
+                            className: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-8',
                         },
                         tiles: [
                             createQueryTile(
                                 TileId.PAGE_REPORTS_ENTRY_PATHS,
                                 'Entry Paths',
                                 'How users arrive at this page',
-                                queries.entryPathsQuery
+                                queries.entryPathsQuery,
+                                {
+                                    className: 'flex flex-col h-full min-h-[400px]',
+                                }
                             ),
                             createQueryTile(
                                 TileId.PAGE_REPORTS_EXIT_PATHS,
                                 'Exit Paths',
                                 'Where users go after viewing this page',
-                                queries.exitPathsQuery
+                                queries.exitPathsQuery,
+                                {
+                                    className: 'flex flex-col h-full min-h-[400px]',
+                                }
                             ),
                             createQueryTile(
                                 TileId.PAGE_REPORTS_OUTBOUND_CLICKS,
@@ -403,9 +407,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     {
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_TRAFFIC_SECTION,
-                        title: 'Traffic Sources',
                         layout: {
-                            className: 'grid-cols-1 md:grid-cols-2 gap-2',
+                            className: 'grid grid-cols-1 md:grid-cols-2 gap-4 mb-8',
                         },
                         tiles: [
                             createQueryTile(
@@ -425,9 +428,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     {
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_DEVICE_INFORMATION_SECTION,
-                        title: 'Device Information',
                         layout: {
-                            className: 'grid-cols-1 md:grid-cols-3 gap-2',
+                            className: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-8',
                         },
                         tiles: [
                             createQueryTile(
@@ -453,9 +455,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     {
                         kind: 'section',
                         tileId: TileId.PAGE_REPORTS_GEOGRAPHY_SECTION,
-                        title: 'Geography',
                         layout: {
-                            className: 'grid-cols-1 md:grid-cols-3 gap-2 gap-y-8',
+                            className: 'grid grid-cols-1 md:grid-cols-3 gap-4 mb-8',
                         },
                         tiles: [
                             createQueryTile(
@@ -520,14 +521,14 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 actions.setPageUrl(searchParams.pageURL)
             }
 
-            if (!!searchParams.stripQueryParams !== values.stripQueryParams) {
+            // Only toggle stripQueryParams if it's explicitly present in the URL
+            if ('stripQueryParams' in searchParams && !!searchParams.stripQueryParams !== values.stripQueryParams) {
                 actions.toggleStripQueryParams()
             }
         },
     }),
 
     actionToUrl: ({ values }) => ({
-        // So far we don't need to do anything for dateFilters because webAnalyticsLogic handles it.
         setPageUrl: () => {
             const searchParams = { ...router.values.searchParams }
 
@@ -537,14 +538,16 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 delete searchParams.pageURL
             }
 
-            searchParams.stripQueryParams = Boolean(values.stripQueryParams)
+            // Only include stripQueryParams if it's different from the URL
+            if (!!router.values.searchParams.stripQueryParams !== values.stripQueryParams) {
+                searchParams.stripQueryParams = values.stripQueryParams
+            }
 
             return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
         },
         toggleStripQueryParams: () => {
             const searchParams = { ...router.values.searchParams }
-
-            searchParams.stripQueryParams = Boolean(values.stripQueryParams)
+            searchParams.stripQueryParams = values.stripQueryParams
 
             return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
         },

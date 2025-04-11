@@ -40,7 +40,9 @@ export interface DateFilterProps {
     /* True when we're not dealing with ranges, but a single date / relative date */
     isFixedDateMode?: boolean
     placeholder?: string
+    fullWidth?: boolean
 }
+
 interface RawDateFilterProps extends DateFilterProps {
     dateFrom?: string | null | dayjs.Dayjs
     dateTo?: string | null | dayjs.Dayjs
@@ -68,6 +70,7 @@ export function DateFilter({
     allowedRollingDateOptions,
     allowTimePrecision = false,
     placeholder,
+    fullWidth = false,
 }: RawDateFilterProps): JSX.Element {
     const key = useRef(uuid()).current
     const logicProps: DateFilterLogicProps = {
@@ -249,6 +252,7 @@ export function DateFilter({
                 data-attr="date-filter"
                 icon={<IconCalendar />}
                 onClick={isVisible ? close : open}
+                fullWidth={fullWidth}
             >
                 <span className={clsx('text-nowrap', className)}>{label}</span>
             </LemonButton>
