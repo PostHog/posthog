@@ -353,18 +353,19 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @action(methods=["POST"], detail=False, url_path="startups/apply")
     def apply_startup_program(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
-        organization_id = request.data.get("organization_id")
+        user = self.request.user
+        if not isinstance(user, AbstractUser):
+            raise PermissionDenied("You must be logged in to apply for the startup program")
 
+        organization_id = request.data.get("organization_id")
         if not organization_id:
             raise ValidationError({"organization_id": "This field is required."})
 
         organization = Organization.objects.get(id=organization_id)
-
         if not organization:
             raise ValidationError({"organization_id": "Organization not found."})
 
-        membership = OrganizationMembership.objects.get(user=request.user, organization=organization)
-
+        membership = OrganizationMembership.objects.get(user=user, organization=organization)
         if membership.level < OrganizationMembership.Level.ADMIN:
             raise PermissionDenied("You need to be an organization admin or owner to apply for the startup program")
 
@@ -373,13 +374,13 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Add user info to the request
         data = {
             **request.data,
-            "email": self.request.user.email,
+            "email": user.email,
         }
 
-        if self.request.user.first_name:
-            data["first_name"] = self.request.user.first_name
-        if self.request.user.last_name:
-            data["last_name"] = self.request.user.last_name
+        if user.first_name:
+            data["first_name"] = user.first_name
+        if user.last_name:
+            data["last_name"] = user.last_name
 
         try:
             res = billing_manager.apply_startup_program(organization, data)
