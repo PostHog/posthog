@@ -16,7 +16,7 @@ describe('tiktok template', () => {
     })
 
     it('works with single product event', async () => {
-        const responses = await tester.invoke(
+        const response = await tester.invoke(
             {
                 accessToken: 'access-token',
                 pixelId: 'pixel-id',
@@ -63,9 +63,6 @@ describe('tiktok template', () => {
             }
         )
 
-        expect(responses.length).toBe(1)
-        const response = responses[0]
-
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
         expect(response.invocation.queue).toEqual('fetch')
@@ -92,7 +89,7 @@ describe('tiktok template', () => {
     })
 
     it('works with multi product event', async () => {
-        const responses = await tester.invoke(
+        const response = await tester.invoke(
             {
                 accessToken: 'access-token',
                 pixelId: 'pixel-id',
@@ -160,9 +157,6 @@ describe('tiktok template', () => {
             }
         )
 
-        expect(responses.length).toBe(1)
-        const response = responses[0]
-
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
         expect(response.invocation.queue).toEqual('fetch')
@@ -199,7 +193,7 @@ describe('tiktok template', () => {
         ['Product Viewed', 'ViewContent'],
         ['Signed Up', 'CompleteRegistration'],
     ])('correctly maps event names: %s', async (event, expectedEvent) => {
-        const responses = await tester.invoke(
+        const response = await tester.invoke(
             {
                 accessToken: 'access-token',
                 pixelId: 'pixel-id',
@@ -211,14 +205,11 @@ describe('tiktok template', () => {
             }
         )
 
-        expect(responses.length).toBe(1)
-        const response = responses[0]
-
         expect(response.invocation.queueParameters?.body).toContain(`"event":"${expectedEvent}"`)
     })
 
     it('works with empty product properties', async () => {
-        const responses = await tester.invoke(
+        const response = await tester.invoke(
             {
                 accessToken: 'access-token',
                 pixelId: 'pixel-id',
@@ -243,9 +234,6 @@ describe('tiktok template', () => {
                 },
             }
         )
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
@@ -273,7 +261,7 @@ describe('tiktok template', () => {
     })
 
     it('handles error responses', async () => {
-        const responses = await tester.invoke(
+        const response = await tester.invoke(
             {
                 accessToken: 'access-token',
                 pixelId: 'pixel-id',
@@ -298,9 +286,6 @@ describe('tiktok template', () => {
                 },
             }
         )
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
@@ -330,7 +315,7 @@ describe('tiktok template', () => {
     })
 
     it('sends test event code if specified', async () => {
-        const responses = await tester.invoke(
+        const response = await tester.invoke(
             {
                 accessToken: 'access-token',
                 pixelId: 'pixel-id',
@@ -356,9 +341,6 @@ describe('tiktok template', () => {
                 },
             }
         )
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
@@ -386,7 +368,7 @@ describe('tiktok template', () => {
     })
 
     it('sensitive values are hashed', async () => {
-        const responses = await tester.invoke(
+        const response = await tester.invoke(
             {
                 accessToken: 'access-token',
                 pixelId: 'pixel-id',
@@ -419,9 +401,6 @@ describe('tiktok template', () => {
             }
         )
 
-        expect(responses.length).toBe(1)
-        const response = responses[0]
-
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
         expect(response.invocation.queue).toEqual('fetch')
@@ -448,7 +427,7 @@ describe('tiktok template', () => {
     })
 
     it('handles missing pixel id', async () => {
-        const responses = await tester.invoke(
+        const response = await tester.invoke(
             {
                 accessToken: 'access-token',
             },
@@ -473,15 +452,12 @@ describe('tiktok template', () => {
             }
         )
 
-        expect(responses.length).toBe(1)
-        const response = responses[0]
-
         expect(response.error).toMatchInlineSnapshot(`"Pixel ID and access token are required"`)
         expect(response.finished).toEqual(true)
     })
 
     it('handles missing access token', async () => {
-        const responses = await tester.invoke(
+        const response = await tester.invoke(
             {
                 pixelId: 'pixel-id',
             },
@@ -505,9 +481,6 @@ describe('tiktok template', () => {
                 },
             }
         )
-
-        expect(responses.length).toBe(1)
-        const response = responses[0]
 
         expect(response.error).toMatchInlineSnapshot(`"Pixel ID and access token are required"`)
         expect(response.finished).toEqual(true)
