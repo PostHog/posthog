@@ -31,13 +31,19 @@ def mock_team() -> MagicMock:
 
 
 @pytest.fixture
-def summarizer(mock_recording, mock_user, mock_team) -> ReplaySummarizer:
+def summarizer(
+    mock_recording: MagicMock,
+    mock_user: MagicMock,
+    mock_team: MagicMock,
+) -> ReplaySummarizer:
     return ReplaySummarizer(mock_recording, mock_user, mock_team)
 
 
 @pytest.fixture
 def mock_prompt_data(
-    mock_raw_metadata, mock_raw_events, mock_recording
+    mock_raw_metadata: dict[str, Any],
+    mock_raw_events: list[list[Any]],
+    mock_recording: MagicMock,
 ) -> tuple[SessionSummaryPromptData, dict[str, list[Any]]]:
     prompt_data = SessionSummaryPromptData()
     raw_columns = [
@@ -58,7 +64,11 @@ def mock_prompt_data(
 
 class TestReplaySummarizer:
     def test_summarize_recording_success(
-        self, summarizer, mock_raw_metadata, mock_raw_events, mock_prompt_data, mock_chat_completion
+        self,
+        summarizer: ReplaySummarizer,
+        mock_raw_metadata: dict[str, Any],
+        mock_raw_events: list[list[Any]],
+        mock_prompt_data: tuple[SessionSummaryPromptData, dict[str, list[Any]]],
     ):
         """
         Basic test to ensure the operations are called in the correct order.
@@ -111,14 +121,17 @@ class TestReplaySummarizer:
             assert "timings" in result
             assert result["content"] == {"summary": "test", "key_events": []}
 
-    def test_summarize_recording_no_metadata(self, summarizer):
+    def test_summarize_recording_no_metadata(self, summarizer: ReplaySummarizer):
         with patch.object(SessionReplayEvents, "get_metadata", return_value=None):
             with pytest.raises(
                 ValueError, match=f"no session metadata found for session_id {summarizer.recording.session_id}"
             ):
                 summarizer.summarize_recording()
 
-    def test_summarize_recording_no_events(self, summarizer, mock_raw_metadata):
-        with patch.object(SessionReplayEvents, "get_events", return_value=(None, None)):
+    def test_summarize_recording_no_events(self, summarizer: ReplaySummarizer, mock_raw_metadata: dict[str, Any]):
+        with (
+            patch.object(SessionReplayEvents, "get_metadata", return_value=mock_raw_metadata),
+            patch.object(SessionReplayEvents, "get_events", return_value=(None, None)),
+        ):
             with pytest.raises(ValueError, match=f"no events found for session_id {summarizer.recording.session_id}"):
                 summarizer.summarize_recording()
