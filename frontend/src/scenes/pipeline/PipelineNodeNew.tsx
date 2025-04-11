@@ -31,7 +31,7 @@ const paramsToProps = ({
     searchParams: { kind } = {},
 }: {
     params: { stage?: string; id?: string }
-    searchParams: { kind?: string }
+    searchParams?: { kind?: string }
 }): PipelineNodeNewLogicProps => {
     const numericId = id && /^\d+$/.test(id) ? parseInt(id) : undefined
     const pluginId = numericId && !isNaN(numericId) ? numericId : null
