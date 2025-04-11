@@ -52,29 +52,29 @@ class CodebaseTreeQueryRunner(QueryRunner):
             """
             SELECT
                 artifact_id,
-                argMax(parent_artifact_id, timestamp) AS parent_artifact_id,
-                argMax(type, timestamp) AS artifact_type,
+                argMaxIf(parent_artifact_id, timestamp, sign = 1) AS parent_artifact_id,
+                argMaxIf(type, timestamp, sign = 1) AS artifact_type,
                 (artifact_type = 'dir' OR any(embeddings.synced_artifact_id) != '') AS synced
             FROM
                 codebase_catalog
-            FINAL
             LEFT JOIN (
                 SELECT
-                    argMax(DISTINCT artifact_id, version) AS synced_artifact_id
+                    argMax(DISTINCT artifact_id, timestamp) AS synced_artifact_id
                 FROM
                     codebase_embeddings
-                FINAL
-                PREWHERE
+                WHERE
                     user_id = {user_id} AND codebase_id = {codebase_id}
                 GROUP BY
                     artifact_id
             ) AS embeddings
             ON
                 codebase_catalog.artifact_id = embeddings.synced_artifact_id
-            PREWHERE
+            WHERE
                 user_id = {user_id} AND codebase_id = {codebase_id} AND branch = {branch}
             GROUP BY
                 artifact_id
+            HAVING
+                sum(sign) > 0
             """,
             placeholders={
                 "user_id": ast.Constant(value=self.query.userId),

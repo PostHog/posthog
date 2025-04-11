@@ -235,7 +235,7 @@ class CodebaseSyncService:
         if not new_nodes and not deleted_nodes:
             return
 
-        query = "INSERT INTO codebase_catalog (team_id, user_id, codebase_id, branch, artifact_id, parent_artifact_id, type, is_deleted) VALUES"
+        query = "INSERT INTO codebase_catalog (team_id, user_id, codebase_id, branch, artifact_id, parent_artifact_id, type, sign) VALUES"
         rows: list[str] = []
         args = {
             "team_id": self.team.id,
@@ -249,12 +249,12 @@ class CodebaseSyncService:
                 {
                     f"artifact_id_{i}": node["id"],
                     f"parent_artifact_id_{i}": node["parent_id"] if "parent_id" in node else "",
-                    f"is_deleted_{i}": 1 if is_deleted else 0,
+                    f"sign_{i}": -1 if is_deleted else 1,
                     f"type_{i}": node["type"],
                 }
             )
             rows.append(
-                f"(%(team_id)s, %(user_id)s, %(codebase_id)s, %(branch)s, %(artifact_id_{i})s, %(parent_artifact_id_{i})s, %(type_{i})s, %(is_deleted_{i})s)"
+                f"(%(team_id)s, %(user_id)s, %(codebase_id)s, %(branch)s, %(artifact_id_{i})s, %(parent_artifact_id_{i})s, %(type_{i})s, %(sign_{i})s)"
             )
 
         for i, node in enumerate(deleted_nodes):

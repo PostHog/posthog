@@ -46,14 +46,13 @@ class EditorSemanticSearchQueryRunner(TaxonomyCacheMixin, QueryRunner):
         return parse_select(
             """
             SELECT
-                argMax(vector, version) as artifact_id,
-                cosineDistance(argMax(vector, version), {embedding}) as distance,
-                argMax(properties.path, version) as obfuscatedPath,
-                argMax(properties.lineStart, version) as lineStart,
-                argMax(properties.lineEnd, version) as lineEnd
+                argMax(vector, timestamp) as artifact_id,
+                cosineDistance(argMax(vector, timestamp), {embedding}) as distance,
+                argMax(properties.path, timestamp) as obfuscatedPath,
+                argMax(properties.lineStart, timestamp) as lineStart,
+                argMax(properties.lineEnd, timestamp) as lineEnd
             FROM
                 codebase_embeddings
-            FINAL
             WHERE
                 user_id = {user_id} AND codebase_id = {codebase_id} AND artifact_id IN {subquery}
             GROUP BY
@@ -74,12 +73,15 @@ class EditorSemanticSearchQueryRunner(TaxonomyCacheMixin, QueryRunner):
         return parse_select(
             """
             SELECT
-                DISTINCT artifact_id as artifact_id
+                artifact_id
             FROM
-                codebase_embeddings
-            FINAL
+                codebase_catalog
             WHERE
                 user_id = {user_id} AND codebase_id = {codebase_id} AND branch = {branch}
+            GROUP BY
+                artifact_id
+            HAVING
+                sum(sign) > 0
             """,
             placeholders={
                 "user_id": ast.Constant(value=self.query.user_id),

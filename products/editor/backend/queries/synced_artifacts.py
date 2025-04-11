@@ -44,10 +44,9 @@ class SyncedArtifactsQueryRunner(QueryRunner):
         return parse_select(
             """
             SELECT
-                argMax(DISTINCT artifact_id, version) AS synced_artifact_id
+                argMax(DISTINCT artifact_id, timestamp) AS synced_artifact_id
             FROM
                 codebase_embeddings
-            FINAL
             WHERE
                 user_id = {user_id} AND codebase_id = {codebase_id} AND artifact_id IN {artifact_ids}
             GROUP BY

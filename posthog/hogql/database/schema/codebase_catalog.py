@@ -17,7 +17,7 @@ class CodebaseCatalogTable(Table):
         "parent_artifact_id": StringDatabaseField(name="parent_artifact_id", nullable=False),
         "type": StringDatabaseField(name="type", nullable=False),
         "timestamp": DateTimeDatabaseField(name="timestamp", nullable=False),
-        "is_deleted": IntegerDatabaseField(name="is_deleted", nullable=False),
+        "sign": IntegerDatabaseField(name="sign", nullable=False),
     }
 
     def to_printed_clickhouse(self, context):

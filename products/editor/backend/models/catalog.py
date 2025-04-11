@@ -2,7 +2,7 @@ from enum import StrEnum
 from typing import Literal
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
+from posthog.clickhouse.table_engines import CollapsingMergeTree, ReplicationScheme
 
 CodebaseCatalogType = Literal["file", "dir"]
 
@@ -27,14 +27,14 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     parent_artifact_id String,
     type LowCardinality(String),
     timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
-    is_deleted UInt8,
+    sign Int8,
 ) ENGINE = {engine}
 """
 
 
 def CODEBASE_CATALOG_TABLE_ENGINE():
-    return ReplacingMergeTree(
-        CODEBASE_CATALOG_TABLE_NAME(), replication_scheme=ReplicationScheme.REPLICATED, ver="timestamp, is_deleted"
+    return CollapsingMergeTree(
+        CODEBASE_CATALOG_TABLE_NAME(), replication_scheme=ReplicationScheme.REPLICATED, ver="sign"
     )
 
 
