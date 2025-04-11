@@ -12,25 +12,11 @@ use axum::http::{HeaderMap, Method};
 use axum::{debug_handler, Json};
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
-use tracing::instrument;
+use uuid::Uuid;
 
 /// Feature flag evaluation endpoint.
 /// Only supports a specific shape of data, and rejects any malformed data.
 
-#[instrument(
-    skip_all,
-    fields(
-        path,
-        token,
-        batch_size,
-        user_agent,
-        content_encoding,
-        content_type,
-        version,
-        compression,
-        historical_migration
-    )
-)]
 #[debug_handler]
 pub async fn flags(
     state: State<router::State>,
@@ -41,9 +27,18 @@ pub async fn flags(
     path: MatchedPath,
     body: Bytes,
 ) -> Result<Json<ServiceResponse>, FlagError> {
-    record_request_metadata(&headers, &method, &path, &ip, &Query(query_params.clone()));
+    let request_id = uuid::Uuid::new_v4();
+    record_request_metadata(
+        &headers,
+        &method,
+        &path,
+        &ip,
+        &Query(query_params.clone()),
+        &request_id,
+    );
 
     let context = RequestContext {
+        request_id,
         state,
         ip,
         headers,
@@ -82,6 +77,7 @@ fn record_request_metadata(
     path: &MatchedPath,
     ip: &IpAddr,
     meta: &Query<FlagsQueryParams>,
+    request_id: &Uuid,
 ) {
     let user_agent = headers
         .get("user-agent")
@@ -107,6 +103,7 @@ fn record_request_metadata(
     tracing::Span::current().record("path", path.as_str().trim_end_matches('/'));
     tracing::Span::current().record("ip", ip.to_string());
     tracing::Span::current().record("sent_at", meta.sent_at.unwrap_or(0).to_string());
+    tracing::Span::current().record("request_id", request_id.to_string());
 }
 
 #[cfg(test)]
