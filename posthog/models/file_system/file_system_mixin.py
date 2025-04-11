@@ -1,19 +1,19 @@
 # posthog/models/file_system/file_system_mixin.py
 
 import dataclasses
+import posthoganalytics
+from django.db.models import Exists, OuterRef, CharField, Model, F, Q, QuerySet
+from django.db.models.functions import Cast
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
-from django.db import models
-from typing import TYPE_CHECKING, Any
-from django.db.models import QuerySet
-import posthoganalytics
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 
 
-class FileSystemSyncMixin(models.Model):
+class FileSystemSyncMixin(Model):
     """
     Mixin that:
       - Defines signals to auto-create/update/delete a FileSystem entry on save/delete.
@@ -39,20 +39,35 @@ class FileSystemSyncMixin(models.Model):
         raise NotImplementedError()
 
     @classmethod
-    def _filter_unfiled_queryset(cls, qs: QuerySet, team: "Team", type: str | list[str], ref_field: str) -> QuerySet:
+    def _filter_unfiled_queryset(
+        cls,
+        qs: QuerySet,
+        team: "Team",
+        ref_field: str,
+        type: Optional[str | list[str]] = None,
+        type__startswith: Optional[str] = None,
+    ) -> QuerySet:
         """
         Given a base queryset `qs`, annotate a 'ref_id' from `ref_field`,
         then exclude rows that are already saved to FileSystem for (team, file_type).
         """
-        from django.db.models import Exists, OuterRef, CharField
-        from django.db.models.functions import Cast
-        from django.db.models import F
         from posthog.models.file_system.file_system import FileSystem
 
-        types = [type] if isinstance(type, str) else type
+        if type:
+            types = [type] if isinstance(type, str) else type
+            already_saved = FileSystem.objects.filter(team=team, type__in=types, ref=OuterRef("ref_id")).filter(
+                ~Q(shortcut=True)
+            )
+        elif type__startswith:
+            already_saved = FileSystem.objects.filter(
+                team=team, type__startswith=type__startswith, ref=OuterRef("ref_id")
+            ).filter(~Q(shortcut=True))
+        else:
+            raise ValueError("Either 'type' or 'type__startswith' must be provided")
+
         # Annotate a 'ref_id' from the chosen model field (e.g. 'id', 'short_id')
         annotated_qs = qs.annotate(ref_id=Cast(F(ref_field), output_field=CharField())).annotate(
-            already_saved=Exists(FileSystem.objects.filter(team=team, type__in=types, ref=OuterRef("ref_id")))
+            already_saved=Exists(already_saved)
         )
         return annotated_qs.filter(already_saved=False)
 

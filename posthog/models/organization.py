@@ -41,6 +41,7 @@ class OrganizationUsageResource(TypedDict):
 # as well as for enforcing limits.
 class OrganizationUsageInfo(TypedDict):
     events: Optional[OrganizationUsageResource]
+    exceptions: Optional[OrganizationUsageResource]
     recordings: Optional[OrganizationUsageResource]
     rows_synced: Optional[OrganizationUsageResource]
     feature_flag_requests: Optional[OrganizationUsageResource]
@@ -140,6 +141,8 @@ class Organization(UUIDModel):
 
     ## Managed by Billing
     customer_id = models.CharField(max_length=200, null=True, blank=True)
+
+    # looking for feature? check: is_feature_available, get_available_feature
     available_product_features = ArrayField(models.JSONField(blank=False), null=True, blank=True)
     # Managed by Billing, cached here for usage controls
     # Like {
@@ -221,9 +224,15 @@ class Organization(UUIDModel):
 
         return self.available_product_features
 
+    def get_available_feature(self, feature: Union[AvailableFeature, str]) -> Optional[dict]:
+        vals: list[dict[str, Any]] = self.available_product_features or []
+        return next(
+            filter(lambda f: f and f.get("key") == feature, vals),
+            None,
+        )
+
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
-        available_product_feature_keys = [feature["key"] for feature in self.available_product_features or []]
-        return feature in available_product_feature_keys
+        return bool(self.get_available_feature(feature))
 
     @property
     def active_invites(self) -> QuerySet:

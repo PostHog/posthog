@@ -21,6 +21,7 @@ import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
+import { UUIDT } from '../utils/utils'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
@@ -76,6 +77,7 @@ export class IngestionConsumer {
     private ingestionWarningLimiter: MemoryRateLimiter
     private tokensToDrop: string[] = []
     private tokenDistinctIdsToDrop: string[] = []
+    private tokenDistinctIdsToSkipPersons: string[] = []
     private tokensToForceOverflow: string[] = []
 
     constructor(
@@ -98,6 +100,9 @@ export class IngestionConsumer {
         this.dlqTopic = overrides.INGESTION_CONSUMER_DLQ_TOPIC ?? hub.INGESTION_CONSUMER_DLQ_TOPIC
         this.tokensToDrop = hub.DROP_EVENTS_BY_TOKEN.split(',').filter((x) => !!x)
         this.tokenDistinctIdsToDrop = hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
+        this.tokenDistinctIdsToSkipPersons = hub.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID.split(',').filter(
+            (x) => !!x
+        )
         this.tokensToForceOverflow = hub.INGESTION_FORCE_OVERFLOW_TOKENS.split(',').filter((x) => !!x)
         this.testingTopic = overrides.INGESTION_CONSUMER_TESTING_TOPIC ?? hub.INGESTION_CONSUMER_TESTING_TOPIC
 
@@ -239,7 +244,13 @@ export class IngestionConsumer {
                         logger.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
                     }
 
-                    void this.scheduleWork(this.emitToOverflow([message], shouldForceOverflow ? true : undefined))
+                    // NOTE: If we are forcing to overflow we typically want to keep the partition key
+                    // If the event is marked for skipping persons however locality doesn't matter so we would rather have the higher throughput
+                    // of random partitioning.
+                    const preserveLocality =
+                        shouldForceOverflow && !this.shouldSkipPerson(event.token, event.distinct_id) ? true : undefined
+
+                    void this.scheduleWork(this.emitToOverflow([message], preserveLocality))
                     continue
                 }
 
@@ -305,7 +316,16 @@ export class IngestionConsumer {
                 continue
             }
 
-            const eventKey = `${event.token}:${event.distinct_id}`
+            let eventKey = `${event.token}:${event.distinct_id}`
+
+            if (this.shouldSkipPerson(event.token, event.distinct_id)) {
+                // If we are skipping person processing, then we can parallelize processing of this event for dramatic performance gains
+                eventKey = new UUIDT().toString()
+                event.properties = {
+                    ...(event.properties ?? {}),
+                    $process_person_profile: false,
+                }
+            }
 
             // We collect the events grouped by token and distinct_id so that we can process batches in parallel whilst keeping the order of events
             // for a given distinct_id
@@ -440,6 +460,12 @@ export class IngestionConsumer {
         )
     }
 
+    private shouldSkipPerson(token?: string, distinctId?: string) {
+        return (
+            (token && this.tokenDistinctIdsToSkipPersons.includes(token)) ||
+            (token && distinctId && this.tokenDistinctIdsToSkipPersons.includes(`${token}:${distinctId}`))
+        )
+    }
     private overflowEnabled() {
         return (
             !!this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC &&

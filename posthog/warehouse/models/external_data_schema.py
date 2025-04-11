@@ -16,6 +16,7 @@ from psycopg2 import sql
 import pymysql
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionMode
+from posthog.warehouse.s3 import get_s3_client
 from .external_data_source import ExternalDataSource
 from posthog.warehouse.data_load.service import (
     external_data_workflow_exists,
@@ -217,6 +218,17 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         self.deleted = True
         self.deleted_at = datetime.now()
         self.save()
+
+    def delete_table(self):
+        if self.table is not None:
+            client = get_s3_client()
+            client.delete(f"{settings.BUCKET_URL}/{self.folder_path()}", recursive=True)
+
+            self.table.soft_delete()
+            self.table_id = None
+            self.last_synced_at = None
+            self.status = None
+            self.save()
 
 
 @database_sync_to_async

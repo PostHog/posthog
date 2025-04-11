@@ -193,6 +193,7 @@ class RemoteConfig(UUIDModel):
                 "urlTriggers": team.session_recording_url_trigger_config,
                 "urlBlocklist": team.session_recording_url_blocklist_config,
                 "eventTriggers": team.session_recording_event_trigger_config,
+                "triggerMatchType": team.session_recording_trigger_match_type_config,
                 "scriptConfig": rrweb_script_config,
                 # NOTE: This is cached but stripped out at the api level depending on the caller
                 "domains": team.recording_domains or [],
@@ -233,10 +234,14 @@ class RemoteConfig(UUIDModel):
 
         if surveys_opt_in:
             surveys_response = get_surveys_response(team)
-            config["surveys"] = surveys_response["surveys"]
+            surveys = surveys_response["surveys"]
+            if len(surveys) > 0:
+                config["surveys"] = surveys_response["surveys"]
 
-            if surveys_response["survey_config"]:
-                config["survey_config"] = surveys_response["survey_config"]
+                if surveys_response["survey_config"]:
+                    config["survey_config"] = surveys_response["survey_config"]
+            else:
+                config["surveys"] = False
         else:
             config["surveys"] = False
 

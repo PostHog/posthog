@@ -4,7 +4,7 @@ import { urls } from 'scenes/urls'
 
 import type { messagingTabsLogicType } from './messagingTabsLogicType'
 
-export type MessagingTab = 'broadcasts' | 'providers' | 'automations' | 'library'
+export type MessagingTab = 'broadcasts' | 'campaigns' | 'library'
 
 export const messagingTabsLogic = kea<messagingTabsLogicType>([
     path(['products', 'messaging', 'frontend', 'messagingTabsLogic']),
@@ -20,9 +20,8 @@ export const messagingTabsLogic = kea<messagingTabsLogicType>([
             if (!fromUrl) {
                 return (
                     {
-                        automations: urls.messagingAutomations(),
+                        campaigns: urls.messagingCampaigns(),
                         broadcasts: urls.messagingBroadcasts(),
-                        providers: urls.messagingProviders(),
                         library: urls.messagingLibrary(),
                     }[values.currentTab] ?? urls.messagingBroadcasts()
                 )

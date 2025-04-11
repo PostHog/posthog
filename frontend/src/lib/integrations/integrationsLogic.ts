@@ -10,6 +10,7 @@ import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 import IconHubspot from 'public/services/hubspot.png'
 import IconIntercom from 'public/services/intercom.png'
 import IconLinkedIn from 'public/services/linkedin.png'
+import IconMailjet from 'public/services/mailjet.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
 import IconSnapchat from 'public/services/snapchat.png'
@@ -30,19 +31,25 @@ const ICONS: Record<IntegrationKind, any> = {
     snapchat: IconSnapchat,
     intercom: IconIntercom,
     'linkedin-ads': IconLinkedIn,
+    email: IconMailjet,
 }
 
 export const integrationsLogic = kea<integrationsLogicType>([
     path(['lib', 'integrations', 'integrationsLogic']),
-    connect({
+    connect(() => ({
         values: [preflightLogic, ['siteUrlMisconfigured', 'preflight']],
-    }),
+    })),
 
     actions({
         handleOauthCallback: (kind: IntegrationKind, searchParams: any) => ({ kind, searchParams }),
         newGoogleCloudKey: (kind: string, key: File, callback?: (integration: IntegrationType) => void) => ({
             kind,
             key,
+            callback,
+        }),
+        newMailjetKey: (apiKey: string, secretKey: string, callback?: (integration: IntegrationType) => void) => ({
+            apiKey,
+            secretKey,
             callback,
         }),
         deleteIntegration: (id: number) => ({ id }),
@@ -90,6 +97,23 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         return [...(values.integrations ?? []), responseWithIcon]
                     } catch (e) {
                         lemonToast.error('Failed to upload Google Cloud key.')
+                        throw e
+                    }
+                },
+                newMailjetKey: async ({ apiKey, secretKey, callback }) => {
+                    try {
+                        const response = await api.integrations.create({
+                            kind: 'email',
+                            config: { api_key: apiKey, secret_key: secretKey },
+                        })
+                        const responseWithIcon = { ...response, icon_url: ICONS['email'] }
+
+                        // run onChange after updating the integrations loader
+                        window.setTimeout(() => callback?.(responseWithIcon), 0)
+
+                        return [...(values.integrations ?? []), responseWithIcon]
+                    } catch (e) {
+                        lemonToast.error('Failed to upload Mailjet key.')
                         throw e
                     }
                 },

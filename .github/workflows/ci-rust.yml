@@ -128,14 +128,15 @@ jobs:
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
               uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
               with:
-                  python-version: 3.11.9
-                  cache: 'pip'
-                  cache-dependency-path: '**/requirements*.txt'
+                  python-version-file: 'pyproject.toml'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
-            # uv is a fast pip alternative: https://github.com/astral-sh/uv/
-            - run: pip install uv
+            - name: Install uv
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              with:
+                  enable-cache: true
+                  pyproject-file: 'pyproject.toml'
 
             - name: Install SAML (python3-saml) dependencies
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
@@ -146,8 +147,7 @@ jobs:
             - name: Install python dependencies
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
               run: |
-                  uv pip install --system -r ../requirements-dev.txt
-                  uv pip install --system -r ../requirements.txt
+                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev --directory ..
 
             - name: Set up databases
               if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'

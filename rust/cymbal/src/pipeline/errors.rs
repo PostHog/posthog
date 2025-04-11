@@ -78,5 +78,9 @@ pub async fn report_error(_context: Arc<AppContext>, error: EventError) {
             error!("{}", error);
             counter!(DROPPED_EVENTS, "reason" => "failed_to_deserialize").increment(1);
         }
+        EventError::FilteredByTeamId => {
+            // Totally mundane
+            counter!(DROPPED_EVENTS, "reason" => "filtered_by_team_id").increment(1);
+        }
     }
 }

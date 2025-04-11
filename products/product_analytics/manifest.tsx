@@ -3,7 +3,8 @@ import { combineUrl } from 'kea-router'
 import { AlertType } from 'lib/components/Alerts/types'
 import { urls } from 'scenes/urls'
 
-import { HogQLFilters, HogQLVariable } from '~/queries/schema/schema-general'
+import { HogQLFilters, HogQLVariable, Node, NodeKind } from '~/queries/schema/schema-general'
+import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 
 import { DashboardType, InsightShortId, InsightType, ProductManifest } from '../../frontend/src/types'
 
@@ -15,23 +16,29 @@ export const manifest: ProductManifest = {
             type,
             dashboardId,
             query,
-        }: { type?: InsightType; dashboardId?: DashboardType['id'] | null; query?: Node } = {}): string =>
-            combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
+        }: { type?: InsightType; dashboardId?: DashboardType['id'] | null; query?: Node } = {}): string => {
+            // Redirect HogQL queries to SQL editor
+            if (isHogQLQuery(query)) {
+                return urls.sqlEditor(query.query)
+            }
+
+            // Redirect DataNode and DataViz queries with HogQL source to SQL editor
+            if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
+                return urls.sqlEditor(query.source.query)
+            }
+
+            return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
                 ...(type ? { insight: type } : {}),
                 ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
-            }).url,
+            }).url
+        },
         insightNewHogQL: ({ query, filters }: { query: string; filters?: HogQLFilters }): string =>
-            combineUrl(
-                `/data-warehouse`,
-                {},
-                {
-                    q: JSON.stringify({
-                        kind: 'DataTableNode',
-                        full: true,
-                        source: { kind: 'HogQLQuery', query, filters },
-                    }),
-                }
-            ).url,
+            urls.insightNew({
+                query: {
+                    kind: NodeKind.DataTableNode,
+                    source: { kind: 'HogQLQuery', query, filters },
+                } as any,
+            }),
         insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
         insightView: (
             id: InsightShortId,
@@ -64,34 +71,34 @@ export const manifest: ProductManifest = {
             href: (ref: string) => urls.insightView(ref as InsightShortId),
         },
     },
-    treeItems: [
+    treeItemsNew: [
         {
-            path: `Create new/Insight/Trends`,
+            path: `Trends`,
             type: 'insight',
             href: () => urls.insightNew({ type: InsightType.TRENDS }),
         },
         {
-            path: `Create new/Insight/Funnels`,
+            path: `Funnels`,
             type: 'insight',
             href: () => urls.insightNew({ type: InsightType.FUNNELS }),
         },
         {
-            path: `Create new/Insight/Retention`,
+            path: `Retention`,
             type: 'insight',
             href: () => urls.insightNew({ type: InsightType.RETENTION }),
         },
         {
-            path: `Create new/Insight/User paths`,
+            path: `User paths`,
             type: 'insight',
             href: () => urls.insightNew({ type: InsightType.PATHS }),
         },
         {
-            path: `Create new/Insight/Stickiness`,
+            path: `Stickiness`,
             type: 'insight',
             href: () => urls.insightNew({ type: InsightType.STICKINESS }),
         },
         {
-            path: `Create new/Insight/Lifecycle`,
+            path: `Lifecycle`,
             type: 'insight',
             href: () => urls.insightNew({ type: InsightType.LIFECYCLE }),
         },

@@ -1,51 +1,39 @@
-import { TimeUnit } from 'chart.js'
 import { useValues } from 'kea'
 import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { useCallback, useMemo } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { ErrorTrackingIssueAggregations, ErrorTrackingSparklineConfig } from '~/queries/schema/schema-general'
+import { DateRange } from '~/queries/schema/schema-general'
 
-import { errorTrackingLogic } from './errorTrackingLogic'
-import { sparklineLabels } from './utils'
+import { SparklineData, SparklineOptions } from './components/SparklineChart/SparklineChart'
+import { useDefaultSparklineColorVars, useSparklineOptions } from './hooks/use-sparkline-options'
+import { generateSparklineLabels } from './utils'
 
 export function OccurrenceSparkline({
-    values,
-    unit,
-    interval,
+    data,
     className,
     displayXAxis = false,
 }: {
-    values: number[]
-    unit: TimeUnit
-    interval: number
+    data: SparklineData
     className?: string
     displayXAxis?: boolean
+    loading?: boolean
 }): JSX.Element {
-    const colors = useSparklineColors()
-
-    const [data, labels, labelRenderer] = useMemo(() => {
+    const colorVars = useDefaultSparklineColorVars()
+    const options = useSparklineOptions({
+        backgroundColor: colorVars[0],
+        hoverBackgroundColor: colorVars[1],
+    })
+    const [occurrences, labels, labelRenderer] = useMemo(() => {
         return [
-            wrapDataWithColor(values, colors),
-            sparklineLabels({ value: interval, interval: unit } as ErrorTrackingSparklineConfig),
+            wrapDataWithColor(data, options),
+            data.map((value) => dayjs(value.date).toISOString()),
             (label: string) => {
-                switch (unit) {
-                    case 'hour':
-                    case 'minute':
-                        return dayjs(label).format('D MMM YYYY HH:mm (UTC)')
-                    case 'day':
-                        return dayjs(label).format('D MMM YYYY (UTC)')
-                    case 'week':
-                        return dayjs(label).format('D MMM YYYY (UTC)')
-                    case 'month':
-                        return dayjs(label).format('MMM YYYY (UTC)')
-                    default:
-                        return dayjs(label).format('D MMM YYYY (UTC)')
-                }
+                return dayjs(label).format('D MMM YYYY HH:mm (UTC)')
             },
         ]
-    }, [values, unit, interval, colors])
+    }, [data, options])
 
     const withXScale = useCallback((scale: AnyScaleOptions) => {
         return {
@@ -72,7 +60,7 @@ export function OccurrenceSparkline({
     return (
         <Sparkline
             className={className}
-            data={data}
+            data={occurrences}
             labels={labels}
             renderLabel={labelRenderer}
             withXScale={displayXAxis ? withXScale : undefined}
@@ -80,46 +68,39 @@ export function OccurrenceSparkline({
     )
 }
 
-function useSparklineColors(): { color: string; hoverColor: string } {
+export function useSparklineColors(): { color: string; hoverColor: string } {
     const { isDarkModeOn } = useValues(themeLogic)
 
     return useMemo(() => {
         return {
-            color: isDarkModeOn ? 'primitive-neutral-800' : 'primitive-neutral-200',
-            hoverColor: isDarkModeOn ? 'primitive-neutral-200' : 'primitive-neutral-800',
+            color: isDarkModeOn ? 'primitive-neutral-600' : 'primitive-neutral-200',
+            hoverColor: isDarkModeOn ? 'primitive-neutral-200' : 'primitive-neutral-700',
         }
     }, [isDarkModeOn])
 }
 
-export function useSparklineData(aggregations?: ErrorTrackingIssueAggregations): [number[], TimeUnit, number] {
-    const { sparklineSelectedPeriod, customSparklineConfig } = useValues(errorTrackingLogic)
-
-    const result: [number[], TimeUnit, number] = useMemo(() => {
-        if (!aggregations) {
-            return [[], 'hour', 0]
+export function useSparklineData(
+    resolution: number,
+    dateRange: DateRange,
+    values?: number[]
+): { values: number[]; labels: string[] } {
+    const result = useMemo(() => {
+        const labels = generateSparklineLabels(dateRange, resolution).map((label) => label.toISOString())
+        if (!values) {
+            return { values: new Array(resolution).fill(0), labels }
         }
-        switch (sparklineSelectedPeriod) {
-            case '24h':
-                return [aggregations.volumeDay, 'hour', 24]
-            case '30d':
-                return [aggregations.volumeMonth, 'day', 31]
-            default:
-                if (customSparklineConfig && aggregations.customVolume) {
-                    return [aggregations.customVolume, customSparklineConfig.interval, customSparklineConfig.value]
-                }
-        }
-        return [[], 'hour', 0]
-    }, [aggregations, customSparklineConfig, sparklineSelectedPeriod])
-
+        return { values, labels }
+    }, [values, dateRange, resolution])
     return result
 }
 
-function wrapDataWithColor(data: any[] | null, colors: { color: string; hoverColor: string }): any[] {
+function wrapDataWithColor(data: SparklineData, options: SparklineOptions): any[] {
     return [
         {
-            values: data || [],
+            values: data.map((d) => d.value),
             name: 'Occurrences',
-            ...colors,
+            color: options.backgroundColor,
+            hoverColor: options.hoverBackgroundColor,
         },
     ]
 }

@@ -12,11 +12,7 @@ import { ReplayTabs } from '~/types'
 import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
-import {
-    DEFAULT_RECORDING_FILTERS,
-    SessionRecordingPlaylistLogicProps,
-    sessionRecordingsPlaylistLogic,
-} from './sessionRecordingsPlaylistLogic'
+import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistTopSettings } from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
 
@@ -179,8 +175,7 @@ export function SessionRecordingsPlaylist({
 }
 
 const ListEmptyState = (): JSX.Element => {
-    const { filters, sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters } = useActions(sessionRecordingsPlaylistLogic)
+    const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
         <div className="p-3 text-sm text-secondary">
@@ -190,20 +185,7 @@ const ListEmptyState = (): JSX.Element => {
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
             ) : (
                 <div className="flex flex-col gap-2">
-                    {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from ? (
-                        <>
-                            <span>No matching recordings found</span>
-                            <LemonButton
-                                type="secondary"
-                                data-attr="expand-replay-listing-from-default-seven-days-to-twenty-one"
-                                onClick={() => setFilters({ date_from: '-30d' })}
-                            >
-                                Search over the last 30 days
-                            </LemonButton>
-                        </>
-                    ) : (
-                        <SessionRecordingsPlaylistTroubleshooting />
-                    )}
+                    <SessionRecordingsPlaylistTroubleshooting />
                 </div>
             )}
         </div>

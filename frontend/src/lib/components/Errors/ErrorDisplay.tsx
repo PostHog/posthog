@@ -4,19 +4,21 @@ import { TitledSnack } from 'lib/components/TitledSnack'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
-import { getExceptionAttributes, hasAnyInAppFrames, hasStacktrace } from 'scenes/error-tracking/utils'
+import { getExceptionAttributes } from 'scenes/error-tracking/utils'
 
 import { EventType } from '~/types'
 
-import { stackFrameLogic } from './stackFrameLogic'
+import { FingerprintRecordPart, stackFrameLogic } from './stackFrameLogic'
 import { ChainedStackTraces } from './StackTraces'
 import { ErrorTrackingException } from './types'
+import { hasInAppFrames, hasStacktrace } from './utils'
 
 export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['properties'] }): JSX.Element {
     const { type, value, library, browser, os, sentryUrl, exceptionList, level, ingestionErrors, unhandled } =
         getExceptionAttributes(eventProperties)
 
     const exceptionWithStack = hasStacktrace(exceptionList)
+    const fingerprintRecords: FingerprintRecordPart[] = eventProperties.$exception_fingerprint_record || []
 
     return (
         <div className="flex flex-col deprecated-space-y-2 pb-2">
@@ -41,7 +43,7 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                     }
                 />
                 <TitledSnack title="unhandled" value={String(unhandled)} />
-                <TitledSnack title="library" value={library} />
+                <TitledSnack title="library" value={library ?? 'unknown'} />
                 <TitledSnack title="browser" value={browser ?? 'unknown'} />
                 <TitledSnack title="os" value={os ?? 'unknown'} />
             </div>
@@ -58,21 +60,27 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                     </LemonBanner>
                 </>
             )}
-            {exceptionWithStack && <StackTrace exceptionList={exceptionList} />}
+            {exceptionWithStack && <StackTrace exceptionList={exceptionList} fingerprintRecords={fingerprintRecords} />}
         </div>
     )
 }
 
-const StackTrace = ({ exceptionList }: { exceptionList: ErrorTrackingException[] }): JSX.Element => {
+const StackTrace = ({
+    exceptionList,
+    fingerprintRecords,
+}: {
+    exceptionList: ErrorTrackingException[]
+    fingerprintRecords: FingerprintRecordPart[]
+}): JSX.Element => {
     const { showAllFrames } = useValues(stackFrameLogic)
     const { setShowAllFrames } = useActions(stackFrameLogic)
-    const hasAnyInApp = hasAnyInAppFrames(exceptionList)
+    const hasInApp = hasInAppFrames(exceptionList)
 
     return (
         <>
             <div className="flex gap-1 mt-6 justify-between items-center">
                 <h3 className="mb-0">Stack Trace</h3>
-                {hasAnyInApp ? (
+                {hasInApp ? (
                     <LemonSwitch
                         checked={showAllFrames}
                         label="Show entire stack trace"
@@ -80,7 +88,11 @@ const StackTrace = ({ exceptionList }: { exceptionList: ErrorTrackingException[]
                     />
                 ) : null}
             </div>
-            <ChainedStackTraces exceptionList={exceptionList} showAllFrames={hasAnyInApp ? showAllFrames : true} />
+            <ChainedStackTraces
+                exceptionList={exceptionList}
+                showAllFrames={hasInApp && showAllFrames}
+                fingerprintRecords={fingerprintRecords}
+            />
         </>
     )
 }

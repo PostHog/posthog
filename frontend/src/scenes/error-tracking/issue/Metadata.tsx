@@ -1,86 +1,156 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { TZLabel } from 'lib/components/TZLabel'
-import { ClampedText } from 'lib/lemon-ui/ClampedText'
+import { dayjs } from 'lib/dayjs'
 import { humanFriendlyLargeNumber } from 'lib/utils'
+import { useState } from 'react'
 import { errorTrackingIssueSceneLogic } from 'scenes/error-tracking/errorTrackingIssueSceneLogic'
+import { match } from 'ts-pattern'
 
-import { OccurrenceSparkline, useSparklineData } from '../OccurrenceSparkline'
+import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
+
+import { SparklineChart, SparklineDatum, SparklineEvent } from '../components/SparklineChart/SparklineChart'
+import { DateRangeFilter, FilterGroup, InternalAccountsFilter } from '../ErrorTrackingFilters'
+import { useSparklineDataIssueScene } from '../hooks/use-sparkline-data'
+import { useSparklineEvents } from '../hooks/use-sparkline-events'
+import { useSparklineOptions } from '../hooks/use-sparkline-options'
+
+type SelectedDataType =
+    | {
+          type: 'datum'
+          data: SparklineDatum
+      }
+    | {
+          type: 'event'
+          data: SparklineEvent<string>
+      }
+    | null
 
 export const Metadata = (): JSX.Element => {
-    const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
-    const [values, unit, interval] = useSparklineData(issue?.aggregations)
-
-    const hasSessionCount = issue && issue.aggregations && issue.aggregations.sessions !== 0
-
-    const Count = ({ value }: { value: number | undefined }): JSX.Element => {
-        return issue && issue.aggregations ? (
-            <div className="text-2xl font-semibold">{value ? humanFriendlyLargeNumber(value) : '-'}</div>
-        ) : (
-            <div className="flex flex-1 items-center">
-                <LemonSkeleton />
-            </div>
-        )
-    }
-
-    const Sessions = (
-        <div className="flex flex-col flex-1">
-            <div className="flex text-muted text-xs deprecated-space-x-px">
-                <span>Sessions</span>
-                {!hasSessionCount && <IconInfo className="mt-0.5" />}
-            </div>
-            <Count value={issue?.aggregations?.sessions} />
-        </div>
+    const { aggregations, summaryLoading } = useValues(errorTrackingIssueSceneLogic)
+    const [hoveredDatum, setHoveredDatum] = useState<SelectedDataType>(null)
+    const sparklineData = useSparklineDataIssueScene()
+    const sparklineEvents = useSparklineEvents()
+    const sparklineOptions = useSparklineOptions(
+        {
+            onDatumMouseEnter: (d: SparklineDatum) => {
+                setHoveredDatum({ type: 'datum', data: d })
+            },
+            onDatumMouseLeave: () => {
+                setHoveredDatum(null)
+            },
+            onEventMouseEnter: (d: SparklineEvent<string>) => {
+                setHoveredDatum({ type: 'event', data: d })
+            },
+            onEventMouseLeave: () => {
+                setHoveredDatum(null)
+            },
+        },
+        [setHoveredDatum]
     )
 
     return (
-        <div className="space-y-2 pb-5">
-            {issue && issue.description ? <ClampedText text={issue.description} lines={2} /> : <LemonSkeleton />}
-            <div className="flex flex-1 justify-between py-3">
-                <div className="flex items-end deprecated-space-x-6">
-                    <div>
-                        <div className="text-muted text-xs">First seen</div>
-                        {issue && !issueLoading ? (
-                            <TZLabel time={issue.first_seen} className="border-dotted border-b" />
-                        ) : (
-                            <LemonSkeleton />
-                        )}
-                    </div>
-                    <div>
-                        <div className="text-muted text-xs">Last seen</div>
-                        {issue && !issueLoading && issue.last_seen ? (
-                            <TZLabel time={issue.last_seen} className="border-dotted border-b" />
-                        ) : (
-                            <LemonSkeleton />
-                        )}
-                    </div>
-                </div>
-                <div className="flex deprecated-space-x-2 gap-8 items-end">
-                    <div className="flex flex-col flex-1">
-                        <div className="text-muted text-xs">Occurrences</div>
-                        <Count value={issue?.aggregations?.occurrences} />
-                    </div>
-                    {hasSessionCount ? (
-                        Sessions
-                    ) : (
-                        <Tooltip title="No $session_id was set for any event in this issue" delayMs={0}>
-                            {Sessions}
-                        </Tooltip>
-                    )}
-                    <div className="flex flex-col flex-1">
-                        <div className="text-muted text-xs">Users</div>
-                        <Count value={issue?.aggregations?.users} />
-                    </div>
-                </div>
+        <LemonCard
+            hoverEffect={false}
+            className="grid grid-cols-[minmax(180px,min-content)_1fr] grid-rows-[50px_minmax(200px,_1fr)] p-0 overflow-hidden items-center"
+        >
+            <div className="h-full flex items-center justify-center p-1 pl-2 border-b w-full gap-2">
+                <DateRangeFilter fullWidth className="w-full" />
             </div>
-            <OccurrenceSparkline
-                className="h-32 w-full"
-                values={values}
-                unit={unit}
-                interval={interval}
-                displayXAxis={true}
-            />
+            <div className="h-full flex items-center justify-center p-1 border-b w-full gap-2">
+                <FilterGroup />
+                <InternalAccountsFilter />
+            </div>
+            <div className="border-r h-full">
+                {match(hoveredDatum)
+                    .when(shouldRenderIssueMetrics, () => (
+                        <IssueMetrics aggregations={aggregations} summaryLoading={summaryLoading} />
+                    ))
+                    .with({ type: 'datum' }, (s) => renderDataPoint(s.data))
+                    .with({ type: 'event' }, (s) => renderEventPoint(s.data))
+                    .otherwise(() => null)}
+            </div>
+            <div className="h-full p-1">
+                <SparklineChart
+                    data={sparklineData}
+                    events={sparklineEvents}
+                    options={sparklineOptions}
+                    className="h-full"
+                />
+            </div>
+        </LemonCard>
+    )
+}
+
+function shouldRenderIssueMetrics(data: SelectedDataType): boolean {
+    if (data == null) {
+        return true
+    }
+    if (data.type == 'datum' && data.data.value == 0) {
+        return true
+    }
+    return false
+}
+
+function IssueMetrics({
+    aggregations,
+    summaryLoading,
+}: {
+    aggregations: ErrorTrackingIssueAggregations | undefined
+    summaryLoading: boolean
+}): JSX.Element {
+    const hasSessionCount = aggregations && aggregations.sessions !== 0
+    return (
+        <div className="flex flex-col justify-around items-start h-full p-4">
+            {renderMetric('Occurrences', aggregations?.occurrences, summaryLoading)}
+            {renderMetric(
+                'Sessions',
+                aggregations?.sessions,
+                summaryLoading,
+                hasSessionCount ? undefined : 'No $session_id was set for any event in this issue'
+            )}
+            {renderMetric('Users', aggregations?.users, summaryLoading)}
+        </div>
+    )
+}
+
+function renderMetric(name: string, value: number | undefined, loading: boolean, tooltip?: string): JSX.Element {
+    return (
+        <div className="flex items-end gap-2">
+            {match([loading])
+                .with([true], () => <LemonSkeleton className="w-[80px] h-2" />)
+                .with([false], () => (
+                    <Tooltip title={tooltip} delayMs={0} placement="right">
+                        <div className="text-2xl font-bold">
+                            {value == null ? '0' : humanFriendlyLargeNumber(value)}
+                        </div>
+                        <div className="text-xs text-muted">{name}</div>
+                    </Tooltip>
+                ))
+                .exhaustive()}
+        </div>
+    )
+}
+
+function renderDataPoint(d: SparklineDatum): JSX.Element {
+    return (
+        <div className="flex flex-col justify-between items-center h-full p-2">
+            <div className="flex flex-col justify-center items-center  flex-grow">
+                <div className="text-3xl font-bold">{humanFriendlyLargeNumber(d.value)}</div>
+                <div className="text-xs text-muted">Occurrences</div>
+            </div>
+            <div className="text-xs text-muted">{dayjs(d.date).format('D MMM YYYY HH:mm (UTC)')}</div>
+        </div>
+    )
+}
+
+function renderEventPoint(d: SparklineEvent<string>): JSX.Element {
+    return (
+        <div className="flex flex-col justify-between items-center h-full p-2">
+            <div className="flex flex-col justify-center items-center  flex-grow">
+                <div className="text-2xl font-bold whitespace-nowrap">{dayjs(d.date).fromNow()}</div>
+                <div className="text-xs text-muted">{d.payload}</div>
+            </div>
+            <div className="text-xs text-muted whitespace-nowrap">{dayjs(d.date).format('D MMM YYYY HH:mm (UTC)')}</div>
         </div>
     )
 }

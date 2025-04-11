@@ -200,7 +200,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: true,
     },
     [NodeKind.DataVisualizationNode]: {
-        name: 'Data visualization',
+        name: 'SQL',
         description: 'Slice and dice your data in a table or chart.',
         icon: IconTableChart,
         inMenu: false,
@@ -361,33 +361,9 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconFlask,
         inMenu: false,
     },
-    [NodeKind.ExperimentEventMetricConfig]: {
-        name: 'Experiment Event Metric Config',
-        description: 'Configuration for experiment event metrics.',
-        icon: IconFlask,
-        inMenu: false,
-    },
-    [NodeKind.ExperimentActionMetricConfig]: {
-        name: 'Experiment Action Metric Config',
-        description: 'Configuration for experiment action metrics.',
-        icon: IconFlask,
-        inMenu: false,
-    },
-    [NodeKind.ExperimentDataWarehouseMetricConfig]: {
-        name: 'Experiment Data Warehouse Metric Config',
-        description: 'Configuration for experiment data warehouse metrics.',
-        icon: IconFlask,
-        inMenu: false,
-    },
-    [NodeKind.ExperimentFunnelMetricConfig]: {
-        name: 'Experiment Funnel Metric Config',
-        description: 'Configuration for experiment funnel metrics.',
-        icon: IconFlask,
-        inMenu: false,
-    },
-    [NodeKind.ExperimentFunnelStepConfig]: {
-        name: 'Experiment Funnel Step Config',
-        description: 'Configuration for experiment funnel steps.',
+    [NodeKind.ExperimentDataWarehouseNode]: {
+        name: 'Experiment Data Warehouse',
+        description: 'Experiment data warehouse source configuration.',
         icon: IconFlask,
         inMenu: false,
     },

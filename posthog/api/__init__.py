@@ -2,6 +2,7 @@ from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
 import products.early_access_features.backend.api as early_access_feature
+import products.editor.backend.api as editorApi
 from posthog.api import data_color_theme, metalytics, project, wizard
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
@@ -14,6 +15,7 @@ from posthog.warehouse.api import (
     table,
     view_link,
     query_tab_state,
+    data_modeling_job,
 )
 
 from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
@@ -87,6 +89,7 @@ router.register(
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plugin_configs")
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
+router.register(r"llm_proxy", editorApi.LLMProxyViewSet, "llm_proxy")
 
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
@@ -634,3 +637,10 @@ environments_router.register(
 )
 
 router.register(r"wizard", wizard.SetupWizardViewSet, "wizard")
+
+register_grandfathered_environment_nested_viewset(
+    r"data_modeling_jobs",
+    data_modeling_job.DataModelingJobViewSet,
+    "environment_data_modeling_jobs",
+    ["team_id"],
+)

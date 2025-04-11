@@ -30,6 +30,11 @@ use crate::{
     teams::TeamManager,
 };
 
+pub enum FilterMode {
+    In,
+    Out,
+}
+
 pub struct AppContext {
     pub health_registry: HealthRegistry,
     pub worker_liveness: HealthHandle,
@@ -44,6 +49,9 @@ pub struct AppContext {
 
     pub team_manager: TeamManager,
     pub billing_limiter: RedisLimiter,
+
+    pub filtered_teams: Vec<i32>,
+    pub filter_mode: FilterMode,
 }
 
 impl AppContext {
@@ -147,6 +155,18 @@ impl AppContext {
         )
         .expect("Redis billing limiter construction succeeds");
 
+        let filtered_teams = config
+            .filtered_teams
+            .split(",")
+            .filter(|s| !s.is_empty())
+            .map(|tid| tid.parse().expect("Filtered team id's must be i32s"))
+            .collect();
+        let filter_mode = match config.filter_mode.to_lowercase().as_str() {
+            "in" => FilterMode::In,
+            "out" => FilterMode::Out,
+            _ => panic!("Invalid filter mode"),
+        };
+
         Ok(Self {
             health_registry,
             worker_liveness,
@@ -160,6 +180,8 @@ impl AppContext {
             team_manager,
             geoip_client,
             billing_limiter,
+            filtered_teams,
+            filter_mode,
         })
     }
 }

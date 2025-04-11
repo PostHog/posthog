@@ -8,3 +8,7 @@ false
 ['banana']
 ['apple', 'cherry']
 []
+--- arrayReduce ----
+15
+30
+15
