@@ -6,6 +6,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import {
+    ActionsNode,
     AnyEntityNode,
     EventsNode,
     ExperimentEventExposureConfig,
@@ -14,6 +15,7 @@ import {
     ExperimentFunnelsQuery,
     ExperimentMeanMetricTypeProps,
     ExperimentMetric,
+    ExperimentMetricSource,
     ExperimentMetricType,
     ExperimentMetricTypeProps,
     ExperimentTrendsQuery,
@@ -29,13 +31,10 @@ import {
     FeatureFlagType,
     FilterType,
     FunnelConversionWindowTimeUnit,
-    FunnelTimeConversionMetrics,
     FunnelVizType,
-    InsightType,
     PropertyFilterType,
     PropertyOperator,
     type QueryBasedInsightModel,
-    TrendResult,
     UniversalFiltersGroupValue,
 } from '~/types'
 
@@ -56,64 +55,6 @@ export function percentageDistribution(variantCount: number): number[] {
         percentages[i] += 1
     }
     return percentages
-}
-
-export function getMinimumDetectableEffect(
-    metricType: InsightType,
-    conversionMetrics: FunnelTimeConversionMetrics,
-    trendResults: TrendResult[]
-): number | null {
-    if (metricType === InsightType.FUNNELS) {
-        // FUNNELS
-        // Given current CR, find a realistic target CR increase and return MDE based on it
-        if (!conversionMetrics) {
-            return null
-        }
-
-        let currentConversionRate = conversionMetrics.totalRate * 100
-        // 40% should have the same MDE as 60% -> perform a flip above 50%
-        if (currentConversionRate > 50) {
-            currentConversionRate = 100 - currentConversionRate
-        }
-
-        // Multiplication would result in 0; return MDE = 1
-        if (currentConversionRate === 0) {
-            return 1
-        }
-
-        // CR = 50% requires a high running time
-        // CR = 1% or 99% requires a low running time
-        const midpointDistance = Math.abs(50 - currentConversionRate)
-
-        let targetConversionRateIncrease
-        if (midpointDistance <= 20) {
-            targetConversionRateIncrease = 0.1
-        } else if (midpointDistance <= 35) {
-            targetConversionRateIncrease = 0.2
-        } else {
-            targetConversionRateIncrease = 0.5
-        }
-
-        const targetConversionRate = Math.round(currentConversionRate * (1 + targetConversionRateIncrease))
-        const mde = Math.ceil(targetConversionRate - currentConversionRate)
-
-        return mde || 30
-    }
-
-    // TRENDS
-    // Given current count of the Trend metric, what percentage increase are we targeting?
-    if (trendResults[0]?.count === undefined) {
-        return null
-    }
-
-    const baselineCount = trendResults[0].count
-
-    if (baselineCount <= 200) {
-        return 100
-    } else if (baselineCount <= 1000) {
-        return 20
-    }
-    return 5
 }
 
 export function transformFiltersForWinningVariant(
@@ -445,98 +386,66 @@ export function filterToExposureConfig(
 }
 
 export function metricToFilter(metric: ExperimentMetric): FilterType {
-    const getFunnelEvents = (metric: ExperimentMetric): EventsNode[] => {
-        if (metric.metric_type !== ExperimentMetricType.FUNNEL) {
-            return []
+    const createSourceNode = (source: any, type: string): ExperimentMetricSource => {
+        return {
+            id: type === 'events' ? source.event : source.id,
+            name: type === 'events' ? source.event : source.name,
+            kind: source.kind,
+            type,
+            math: source.math,
+            math_property: source.math_property,
+            math_hogql: source.math_hogql,
+            properties: source.properties,
+            ...(type === 'data_warehouse' && {
+                timestamp_field: source.timestamp_field,
+                events_join_key: source.events_join_key,
+                data_warehouse_join_key: source.data_warehouse_join_key,
+            }),
+        } as ExperimentMetricSource
+    }
+
+    // Handle funnel metrics
+    if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+        const funnelSteps = metric.series.map((step, index: number) => {
+            const type = step.kind === NodeKind.EventsNode ? 'events' : 'actions'
+            return {
+                ...createSourceNode(step, type),
+                order: index,
+                type,
+            }
+        })
+
+        return {
+            events: funnelSteps.filter((step) => step.type === 'events'),
+            actions: funnelSteps.filter((step) => step.type === 'actions'),
+            data_warehouse: [],
         }
-
-        return (
-            metric.series.map((step, index: number) => {
-                if (step.kind !== NodeKind.EventsNode) {
-                    throw new Error('Funnel metric must only contain events')
-                }
-
-                return {
-                    id: step.event,
-                    name: step.event ?? undefined,
-                    event: step.event,
-                    order: index,
-                    type: 'events',
-                    kind: NodeKind.EventsNode,
-                    properties: step.properties,
-                }
-            }) || []
-        )
     }
 
-    const getEventMetricFilter = (metric: ExperimentMetric): EventsNode[] => {
-        if (metric.metric_type !== ExperimentMetricType.MEAN || metric.source.kind !== NodeKind.EventsNode) {
-            return []
+    // Handle mean metrics
+    if (metric.metric_type === ExperimentMetricType.MEAN) {
+        if (metric.source.kind === NodeKind.EventsNode) {
+            return {
+                events: [createSourceNode(metric.source, 'events')],
+                actions: [],
+                data_warehouse: [],
+            }
+        } else if (metric.source.kind === NodeKind.ActionsNode) {
+            return {
+                events: [],
+                actions: [createSourceNode(metric.source, 'actions')],
+                data_warehouse: [],
+            }
+        } else if (metric.source.kind === NodeKind.ExperimentDataWarehouseNode) {
+            return {
+                events: [],
+                actions: [],
+                data_warehouse: [createSourceNode(metric.source, 'data_warehouse')],
+            }
         }
-
-        return [
-            {
-                id: metric.source.event,
-                name: metric.source.event,
-                kind: NodeKind.EventsNode,
-                type: 'events',
-                math: metric.source.math,
-                math_property: metric.source.math_property,
-                math_hogql: metric.source.math_hogql,
-                properties: metric.source.properties,
-            } as EventsNode,
-        ]
     }
 
-    const getActionMetricFilter = (metric: ExperimentMetric): EventsNode[] => {
-        if (metric.metric_type !== ExperimentMetricType.MEAN || metric.source.kind !== NodeKind.ActionsNode) {
-            return []
-        }
-
-        return [
-            {
-                id: metric.source.id,
-                name: metric.source.name,
-                kind: NodeKind.EventsNode,
-                type: 'actions',
-                math: metric.source.math,
-                math_property: metric.source.math_property,
-                math_hogql: metric.source.math_hogql,
-                properties: metric.source.properties,
-            } as EventsNode,
-        ]
-    }
-
-    const getDataWarehouseMetricFilter = (metric: ExperimentMetric): EventsNode[] => {
-        if (
-            metric.metric_type !== ExperimentMetricType.MEAN ||
-            metric.source.kind !== NodeKind.ExperimentDataWarehouseNode
-        ) {
-            return []
-        }
-
-        return [
-            {
-                kind: NodeKind.EventsNode,
-                type: 'data_warehouse',
-                id: metric.source.table_name,
-                name: metric.source.name,
-                timestamp_field: metric.source.timestamp_field,
-                events_join_key: metric.source.events_join_key,
-                data_warehouse_join_key: metric.source.data_warehouse_join_key,
-                math: metric.source.math,
-                math_property: metric.source.math_property,
-                math_hogql: metric.source.math_hogql,
-            } as EventsNode,
-        ]
-    }
-
-    return {
-        events:
-            metric.metric_type === ExperimentMetricType.FUNNEL ? getFunnelEvents(metric) : getEventMetricFilter(metric),
-        actions: getActionMetricFilter(metric),
-        data_warehouse: getDataWarehouseMetricFilter(metric),
-    }
+    return { events: [], actions: [], data_warehouse: [] }
 }
 
 export function filterToMetricConfig(
@@ -550,17 +459,38 @@ export function filterToMetricConfig(
             return undefined
         }
 
+        // Combine events and actions and sort by order
+        const eventSteps =
+            events?.map(
+                (event) =>
+                    ({
+                        kind: NodeKind.EventsNode,
+                        event: event.id,
+                        properties: event.properties,
+                        order: event.order,
+                    } as EventsNode & { order: number })
+            ) || []
+
+        const actionSteps =
+            actions?.map(
+                (action) =>
+                    ({
+                        kind: NodeKind.ActionsNode,
+                        id: action.id,
+                        name: action.name,
+                        properties: action.properties,
+                        order: action.order,
+                    } as ActionsNode & { order: number })
+            ) || []
+
+        const combinedSteps = [...eventSteps, ...actionSteps].sort((a, b) => a.order - b.order)
+
+        // Remove the temporary order field
+        const series = combinedSteps.map(({ order, ...step }) => step as ExperimentFunnelMetricStep)
+
         return {
             metric_type: ExperimentMetricType.FUNNEL,
-            series:
-                events?.map(
-                    (event) =>
-                        ({
-                            kind: NodeKind.EventsNode,
-                            event: event.id,
-                            properties: event.properties,
-                        } as ExperimentFunnelMetricStep)
-                ) || [],
+            series,
         }
     }
 
@@ -677,7 +607,7 @@ export function metricToQuery(
             }
         case ExperimentMetricType.FUNNEL: {
             const filter = metricToFilter(metric)
-            const { events } = filter
+            const { events, actions } = filter
             // NOTE: hack for now
             // insert a pageview event at the beginning of the funnel to simulate the exposure criteria
             events?.unshift({
@@ -700,7 +630,7 @@ export function metricToQuery(
                     layout: FunnelLayout.horizontal,
                 },
                 series: actionsAndEventsToSeries(
-                    { actions: [], events, data_warehouse: [] } as any,
+                    { actions: actions, events, data_warehouse: [] } as any,
                     true,
                     MathAvailability.None
                 ),

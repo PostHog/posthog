@@ -114,11 +114,17 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
 
     useEffect(() => {
         // NOTE: This is an optimization to make sure we don't needlessly re-render the component every second.
-        const interval = setInterval(() => {
+        const run = (): void => {
             if (format() !== formattedContent) {
                 setFormattedContent(format())
             }
-        }, 1000)
+        }
+
+        const interval = setInterval(run, 1000)
+
+        // Run immediately and dont wait 1000ms
+        run()
+
         return () => clearInterval(interval)
     }, [parsedTime, format])
 

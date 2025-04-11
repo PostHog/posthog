@@ -1909,6 +1909,7 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     text?: TextModel
     deleted?: boolean
     is_cached?: boolean
+    order?: number
 }
 
 export interface DashboardTileBasicType {

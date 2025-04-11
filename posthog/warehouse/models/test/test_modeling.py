@@ -70,6 +70,20 @@ class TestModelPath(BaseTest):
         self.assertIn(["events", saved_query.id.hex], paths)
         self.assertIn(["persons", saved_query.id.hex], paths)
 
+    def test_create_from_table_functions_root_nodes_query(self):
+        query = "select * from numbers(10)"
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="my_model",
+            query={"query": query},
+        )
+
+        model_paths = DataWarehouseModelPath.objects.create_from_saved_query(saved_query)
+        paths = [model_path.path for model_path in model_paths]
+
+        self.assertEqual(len(paths), 1)
+        self.assertIn(["numbers", saved_query.id.hex], paths)
+
     def test_create_from_existing_path(self):
         """Test creation of a model path from a query that reads from another query."""
         parent_query = """\
