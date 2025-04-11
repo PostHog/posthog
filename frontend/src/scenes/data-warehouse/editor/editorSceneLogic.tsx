@@ -1,12 +1,13 @@
 import { IconDatabase, IconDocument } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { ProductIntentContext } from 'lib/utils/product-intents'
+import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -64,6 +65,10 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
     })),
     actions({
         setSidebarOverlayOpen: (isOpen: boolean) => ({ isOpen }),
+        reportAIQueryPrompted: true,
+        reportAIQueryAccepted: true,
+        reportAIQueryRejected: true,
+        reportAIQueryPromptOpen: true,
     }),
     reducers({
         sidebarOverlayOpen: [
@@ -74,6 +79,20 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
     }),
+    listeners(() => ({
+        reportAIQueryPrompted: () => {
+            posthog.capture('ai_query_prompted')
+        },
+        reportAIQueryAccepted: () => {
+            posthog.capture('ai_query_accepted')
+        },
+        reportAIQueryRejected: () => {
+            posthog.capture('ai_query_rejected')
+        },
+        reportAIQueryPromptOpen: () => {
+            posthog.capture('ai_query_prompt_open')
+        },
+    })),
     selectors(({ actions }) => ({
         contents: [
             (s) => [

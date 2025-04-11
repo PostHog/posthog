@@ -63,7 +63,7 @@ class AssistantBaseMultipleBreakdownFilter(BaseModel):
 
 class AssistantContextualTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
-    FIELD_ = "_"
+    GENERATE_HOGQL_QUERY = "generate_hogql_query"
 
 
 class AssistantDateRange(BaseModel):
