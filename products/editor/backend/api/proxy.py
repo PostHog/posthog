@@ -3,25 +3,27 @@ ViewSet for Editor Proxy
 """
 
 import json
-import posthoganalytics
-from rest_framework import viewsets
-from posthog.auth import PersonalAPIKeyAuthentication
-from rest_framework.permissions import IsAuthenticated
-from rest_framework import serializers
-from rest_framework.renderers import BaseRenderer
-from rest_framework.decorators import action
-from rest_framework.request import Request
-from django.http import StreamingHttpResponse
-from rest_framework.response import Response
-from posthog.rate_limit import EditorProxyBurstRateThrottle, EditorProxySustainedRateThrottle
-from .providers.anthropic import AnthropicProvider, AnthropicConfig
-from .providers.codestral import CodestralProvider
-from .providers.inkeep import InkeepProvider
-from posthog.settings import SERVER_GATEWAY_INTERFACE
-from ee.hogai.utils.asgi import SyncIterableToAsync
-from collections.abc import Generator, Callable
-from typing import Any
 import logging
+from collections.abc import Callable, Generator
+from typing import Any
+
+import posthoganalytics
+from django.http import StreamingHttpResponse
+from rest_framework import serializers, viewsets
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.renderers import BaseRenderer
+from rest_framework.request import Request
+from rest_framework.response import Response
+
+from ee.hogai.utils.asgi import SyncIterableToAsync
+from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.rate_limit import EditorProxyBurstRateThrottle, EditorProxySustainedRateThrottle
+from posthog.settings import SERVER_GATEWAY_INTERFACE
+
+from ..providers.anthropic import AnthropicConfig, AnthropicProvider
+from ..providers.codestral import CodestralProvider
+from ..providers.inkeep import InkeepProvider
 
 logger = logging.getLogger(__name__)
 

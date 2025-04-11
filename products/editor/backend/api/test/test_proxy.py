@@ -1,7 +1,14 @@
 from unittest.mock import patch
+
 from rest_framework import status
+
 from posthog.test.base import APIBaseTest
-from products.editor.backend.api import SUPPORTED_MODELS_WITH_THINKING, PersonalAPIKeyAuthentication, LLMProxyViewSet
+
+from ..proxy import (
+    SUPPORTED_MODELS_WITH_THINKING,
+    LLMProxyViewSet,
+    PersonalAPIKeyAuthentication,
+)
 
 
 class TestLLMProxyViewSet(APIBaseTest):

@@ -1,6 +1,5 @@
 from typing import Literal, get_args
 
-
 ## API Scopes
 # These are the scopes that are used to define the permissions of the API tokens.
 # Not every model needs a scope - it should more be for top-level things
@@ -16,6 +15,7 @@ APIScopeObject = Literal[
     "dashboard",
     "dashboard_template",
     "early_access_feature",
+    "editor_artifacts",
     "error_tracking",
     "event_definition",
     "experiment",

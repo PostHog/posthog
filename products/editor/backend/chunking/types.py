@@ -10,3 +10,9 @@ class Chunk(BaseModel):
     """Headers of the chunk (class declaration, function declaration, etc)."""
     content: str
     """Chunk body."""
+
+    @property
+    def text(self) -> str:
+        if self.context:
+            return f"{self.context}\n{self.content}"
+        return self.content

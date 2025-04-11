@@ -1,8 +1,10 @@
-from unittest.mock import patch, MagicMock
 import json
-from django.test import TestCase
-from products.editor.backend.providers.anthropic import AnthropicProvider, AnthropicConfig
 from typing import Any
+from unittest.mock import MagicMock, patch
+
+from django.test import TestCase
+
+from ..anthropic import AnthropicConfig, AnthropicProvider
 
 
 class TestAnthropicProvider(TestCase):

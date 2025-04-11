@@ -406,6 +406,9 @@
                 },
                 {
                     "$ref": "#/definitions/VectorSearchQuery"
+                },
+                {
+                    "$ref": "#/definitions/EditorSemanticSearchQuery"
                 }
             ]
         },
@@ -2342,6 +2345,136 @@
             ],
             "type": "object"
         },
+        "CachedCodebaseTreeQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/CodebaseTreeResponse"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedEditorSemanticSearchQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/EditorSemanticSearchResponse"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedErrorTrackingQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -4093,6 +4226,71 @@
             ],
             "type": "object"
         },
+        "CachedSyncedArtifactsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/SyncedArtifactsResponse"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
         "CachedTeamTaxonomyQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -4995,6 +5193,92 @@
                 }
             },
             "required": ["bytes_read", "rows_read", "estimated_rows_total", "time_elapsed", "active_cpu_time"],
+            "type": "object"
+        },
+        "CodebaseTreeQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "branch": {
+                    "type": ["string", "null"]
+                },
+                "codebaseId": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "CodebaseTreeQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/CodebaseTreeQueryResponse"
+                },
+                "userId": {
+                    "type": "number"
+                }
+            },
+            "required": ["branch", "codebaseId", "kind", "userId"],
+            "type": "object"
+        },
+        "CodebaseTreeQueryResponse": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/CodebaseTreeResponse"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "CodebaseTreeResponse": {
+            "items": {
+                "$ref": "#/definitions/CodebaseTreeResponseItem"
+            },
+            "type": "array"
+        },
+        "CodebaseTreeResponseItem": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "parentId": {
+                    "type": ["string", "null"]
+                },
+                "synced": {
+                    "type": "boolean"
+                },
+                "type": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "parentId", "type", "synced"],
             "type": "object"
         },
         "CohortPropertyFilter": {
@@ -6969,6 +7253,101 @@
         "DurationType": {
             "enum": ["duration", "active_seconds", "inactive_seconds"],
             "type": "string"
+        },
+        "EditorSemanticSearchQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "branch": {
+                    "type": ["string", "null"]
+                },
+                "codebaseId": {
+                    "type": "string"
+                },
+                "embedding": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "EditorSemanticSearchQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/EditorSemanticSearchQueryResponse"
+                },
+                "userId": {
+                    "type": "number"
+                }
+            },
+            "required": ["branch", "codebaseId", "embedding", "kind", "userId"],
+            "type": "object"
+        },
+        "EditorSemanticSearchQueryResponse": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/EditorSemanticSearchResponse"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "EditorSemanticSearchResponse": {
+            "items": {
+                "$ref": "#/definitions/EditorSemanticSearchResponseItem"
+            },
+            "type": "array"
+        },
+        "EditorSemanticSearchResponseItem": {
+            "additionalProperties": false,
+            "properties": {
+                "artifactId": {
+                    "type": "string"
+                },
+                "distance": {
+                    "type": "number"
+                },
+                "lineEnd": {
+                    "type": "string"
+                },
+                "lineStart": {
+                    "type": "string"
+                },
+                "obfuscatedPath": {
+                    "type": "string"
+                }
+            },
+            "required": ["artifactId", "obfuscatedPath", "lineStart", "lineEnd", "distance"],
+            "type": "object"
         },
         "ElementPropertyFilter": {
             "additionalProperties": false,
@@ -11303,7 +11682,10 @@
                 "EventTaxonomyQuery",
                 "ActorsPropertyTaxonomyQuery",
                 "TracesQuery",
-                "VectorSearchQuery"
+                "VectorSearchQuery",
+                "EditorSemanticSearchQuery",
+                "CodebaseTreeQuery",
+                "SyncedArtifactsQuery"
             ],
             "type": "string"
         },
@@ -14371,6 +14753,39 @@
                     },
                     "required": ["results"],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {
+                            "$ref": "#/definitions/EditorSemanticSearchResponse"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
                 }
             ]
         },
@@ -14516,6 +14931,9 @@
                 },
                 {
                     "$ref": "#/definitions/VectorSearchQuery"
+                },
+                {
+                    "$ref": "#/definitions/EditorSemanticSearchQuery"
                 }
             ],
             "required": ["kind"],
@@ -16147,6 +16565,86 @@
                 }
             },
             "required": ["questions"],
+            "type": "object"
+        },
+        "SyncedArtifactsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "artifactIds": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "codebaseId": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "SyncedArtifactsQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/SyncedArtifactsQueryResponse"
+                },
+                "userId": {
+                    "type": "number"
+                }
+            },
+            "required": ["artifactIds", "codebaseId", "kind", "userId"],
+            "type": "object"
+        },
+        "SyncedArtifactsQueryResponse": {
+            "additionalProperties": false,
+            "description": "All analytics query responses must inherit from this.",
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/SyncedArtifactsResponse"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "SyncedArtifactsResponse": {
+            "items": {
+                "$ref": "#/definitions/SyncedArtifactsResponseItem"
+            },
+            "type": "array"
+        },
+        "SyncedArtifactsResponseItem": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                }
+            },
+            "required": ["id"],
             "type": "object"
         },
         "TableSettings": {

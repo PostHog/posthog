@@ -1,7 +1,9 @@
-from unittest.mock import patch, MagicMock
 import json
+from unittest.mock import MagicMock, patch
+
 from django.test import TestCase
-from products.editor.backend.providers.codestral import CodestralProvider, CodestralConfig
+
+from ..codestral import CodestralConfig, CodestralProvider
 
 
 class TestCodestralProvider(TestCase):

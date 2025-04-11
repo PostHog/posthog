@@ -124,6 +124,11 @@ export enum NodeKind {
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
     VectorSearchQuery = 'VectorSearchQuery',
+
+    // Editor queries
+    EditorSemanticSearchQuery = 'EditorSemanticSearchQuery',
+    CodebaseTreeQuery = 'CodebaseTreeQuery',
+    SyncedArtifactsQuery = 'SyncedArtifactsQuery',
 }
 
 export type AnyDataNode =
@@ -155,6 +160,7 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | VectorSearchQuery
+    | EditorSemanticSearchQuery
 
 /**
  * @discriminator kind
@@ -217,6 +223,7 @@ export type QuerySchema =
     | ActorsPropertyTaxonomyQuery
     | TracesQuery
     | VectorSearchQuery
+    | EditorSemanticSearchQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
 export type QuerySchemaRoot = QuerySchema
@@ -2510,6 +2517,65 @@ export interface VectorSearchQuery extends DataNode<VectorSearchQueryResponse> {
 export type VectorSearchQueryResponse = AnalyticsQueryResponseBase<VectorSearchResponse>
 
 export type CachedVectorSearchQueryResponse = CachedQueryResponse<VectorSearchQueryResponse>
+
+export interface EditorSemanticSearchResponseItem {
+    artifactId: string
+    obfuscatedPath: string
+    lineStart: string
+    lineEnd: string
+    distance: number
+}
+
+export type EditorSemanticSearchResponse = EditorSemanticSearchResponseItem[]
+
+export interface EditorSemanticSearchQuery extends DataNode<EditorSemanticSearchQueryResponse> {
+    kind: NodeKind.EditorSemanticSearchQuery
+    embedding: number[]
+    userId: number
+    codebaseId: string
+    branch: string | null
+}
+
+export type EditorSemanticSearchQueryResponse = AnalyticsQueryResponseBase<EditorSemanticSearchResponse>
+
+export type CachedEditorSemanticSearchQueryResponse = CachedQueryResponse<EditorSemanticSearchQueryResponse>
+
+export interface CodebaseTreeResponseItem {
+    id: string
+    parentId: string | null
+    type: string
+    synced: boolean
+}
+
+export type CodebaseTreeResponse = CodebaseTreeResponseItem[]
+
+export interface CodebaseTreeQuery extends DataNode<CodebaseTreeQueryResponse> {
+    kind: NodeKind.CodebaseTreeQuery
+    userId: number
+    codebaseId: string
+    branch: string | null
+}
+
+export type CodebaseTreeQueryResponse = AnalyticsQueryResponseBase<CodebaseTreeResponse>
+
+export type CachedCodebaseTreeQueryResponse = CachedQueryResponse<CodebaseTreeQueryResponse>
+
+export interface SyncedArtifactsResponseItem {
+    id: string
+}
+
+export type SyncedArtifactsResponse = SyncedArtifactsResponseItem[]
+
+export interface SyncedArtifactsQuery extends DataNode<SyncedArtifactsQueryResponse> {
+    kind: NodeKind.SyncedArtifactsQuery
+    userId: number
+    codebaseId: string
+    artifactIds: string[]
+}
+
+export type SyncedArtifactsQueryResponse = AnalyticsQueryResponseBase<SyncedArtifactsResponse>
+
+export type CachedSyncedArtifactsQueryResponse = CachedQueryResponse<SyncedArtifactsQueryResponse>
 
 export enum CustomChannelField {
     UTMSource = 'utm_source',

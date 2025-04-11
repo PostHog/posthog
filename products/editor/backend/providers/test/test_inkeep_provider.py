@@ -1,8 +1,10 @@
-from unittest.mock import patch, MagicMock
 import json
-from django.test import TestCase
+from unittest.mock import MagicMock, patch
+
 import openai
-from products.editor.backend.providers.inkeep import InkeepProvider
+from django.test import TestCase
+
+from ..inkeep import InkeepProvider
 
 
 class TestInkeepProvider(TestCase):
