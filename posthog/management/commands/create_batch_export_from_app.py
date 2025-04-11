@@ -2,7 +2,7 @@ import datetime as dt
 import json
 
 from django.core.management.base import BaseCommand, CommandError
-from psycopg2.extensions import parse_dsn
+from psycopg import dsn
 
 from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.batch_exports.service import backfill_export, sync_batch_export
@@ -204,7 +204,7 @@ def map_plugin_config_to_destination(plugin_config: PluginConfig) -> tuple[str, 
 
     elif plugin.name == "PostgreSQL Export Plugin":
         if database_url := plugin_config.config.get("databaseUrl", None):
-            raw_config = parse_dsn(database_url)
+            raw_config = dsn.parse(database_url)
         else:
             raw_config = {
                 "host": plugin_config.config["host"],

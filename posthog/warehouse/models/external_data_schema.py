@@ -11,8 +11,8 @@ from django.conf import settings
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
 import uuid
-import psycopg2
-from psycopg2 import sql
+import psycopg
+from psycopg import sql
 import pymysql
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionMode
@@ -431,7 +431,7 @@ def get_postgres_row_count(
     host: str, port: str, database: str, user: str, password: str, schema: str, ssh_tunnel: SSHTunnel
 ) -> dict[str, int]:
     def get_row_count(postgres_host: str, postgres_port: int):
-        connection = psycopg2.connect(
+        connection = psycopg.connect(
             host=postgres_host,
             port=postgres_port,
             dbname=database,
@@ -484,7 +484,7 @@ def get_postgres_schemas(
     host: str, port: str, database: str, user: str, password: str, schema: str, ssh_tunnel: SSHTunnel
 ) -> dict[str, list[tuple[str, str]]]:
     def get_schemas(postgres_host: str, postgres_port: int):
-        connection = psycopg2.connect(
+        connection = psycopg.connect(
             host=postgres_host,
             port=postgres_port,
             dbname=database,
