@@ -86,6 +86,7 @@ const LUMON_THEME = `:root {
     --lumon-bg: #000000;
     --glow: 0 0 10px rgba(147, 196, 255, 0.25);
     --bloom: 0 0 25px rgba(147, 196, 255, 0.5);
+    --monkey-glow: 0 0 20px rgba(243, 210, 0, 0.5);
 }
 
 /* === Base Body Styling === */
@@ -94,17 +95,23 @@ body[theme='dark'] {
     background: var(--lumon-bg);
     color: var(--lumon-blue);
     font-family: var(--font-mono);
-    text-shadow: var(--glow);
+    text-shadow: var(--glow), var(--monkey-glow);
     position: relative;
     overflow: hidden;
     filter: contrast(1.8) brightness(1.4) saturate(1.3);
-    animation: flicker 0.2s infinite;
+    animation: flicker 0.2s infinite, glow 0.4s ease infinite;
 }
 
 @keyframes flicker {
     0%, 100% { opacity: 0.98; }
     50% { opacity: 1; }
     25%, 75% { opacity: 0.96; }
+}
+
+@keyframes glow {
+    0% { text-shadow: 0 0 10px rgba(147, 196, 255, 0.3), 0 0 20px rgba(147, 196, 255, 0.5); }
+    50% { text-shadow: 0 0 20px rgba(147, 196, 255, 0.5), 0 0 40px rgba(147, 196, 255, 0.7); }
+    100% { text-shadow: 0 0 10px rgba(147, 196, 255, 0.3), 0 0 20px rgba(147, 196, 255, 0.5); }
 }
 
 /* === CRT Rounded Tube Shadow === */
