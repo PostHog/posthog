@@ -523,6 +523,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                           : undefined,
                               }
                             : null,
+
+                        featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]
+                            ? {
+                                  identifier: Scene.RevenueAnalytics,
+                                  label: 'Revenue analytics',
+                                  icon: <IconPiggyBank />,
+                                  to: urls.revenueAnalytics(),
+                                  tag: 'beta' as const,
+                              }
+                            : null,
                         {
                             identifier: Scene.Replay,
                             label: 'Session replay',
@@ -641,15 +651,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   icon: <IconMegaphone />,
                                   to: urls.messagingBroadcasts(),
                                   tag: 'alpha' as const,
-                              }
-                            : null,
-                        featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]
-                            ? {
-                                  identifier: Scene.RevenueAnalytics,
-                                  label: 'Revenue analytics',
-                                  icon: <IconPiggyBank />,
-                                  to: urls.revenueAnalytics(),
-                                  tag: 'beta' as const,
                               }
                             : null,
                     ].filter(isNotNil) as NavbarItem[],
