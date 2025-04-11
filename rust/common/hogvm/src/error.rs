@@ -59,4 +59,8 @@ pub enum VmError {
     CaptureOutOfBounds(usize),
     #[error("Not enough arguments for function {0}: {1} available, {2} required")]
     NotEnoughArguments(String, usize, usize),
+    #[error("Unknown function {0}")]
+    UnknownFunction(String),
+    #[error("Native call failed: {0}")]
+    NativeCallFailed(String),
 }

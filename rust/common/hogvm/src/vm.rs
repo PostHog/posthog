@@ -1,4 +1,4 @@
-use std::{any::Any, collections::HashMap};
+use std::{any::Any, cmp::min, collections::HashMap};
 
 use serde::de::DeserializeOwned;
 use serde_json::{Number, Value as JsonValue};
@@ -7,14 +7,15 @@ use crate::{
     error::VmError,
     memory::{HeapReference, VmHeap},
     ops::Operation,
+    stl::{stl, NativeFunction},
     util::{like, regex_match},
     values::{Callable, Closure, FromHogLiteral, HogLiteral, HogValue, LocalCallable, Num, NumOp},
 };
 
 pub struct ExecutionContext<'a> {
-    bytecode: &'a [JsonValue],
-    globals: HashMap<String, HogValue>,
-    max_stack_depth: usize,
+    pub bytecode: &'a [JsonValue],
+    pub globals: HashMap<String, HogValue>,
+    pub max_stack_depth: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -25,27 +26,27 @@ pub enum StepOutcome {
 }
 
 pub struct CallFrame {
-    ret_ptr: usize,               // Where to jump back to when we're done
-    stack_start: usize,           // Point in the stack the frame values start
-    captures: Vec<HeapReference>, // Values captured from the parent scope/frame
+    pub ret_ptr: usize,               // Where to jump back to when we're done
+    pub stack_start: usize,           // Point in the stack the frame values start
+    pub captures: Vec<HeapReference>, // Values captured from the parent scope/frame
 }
 
 pub struct ThrowFrame {
-    catch_ptr: usize,   // The ptr to jump to if we throw
-    stack_start: usize, // The stack size when we entered the try
-    call_depth: usize,  // The depth of the call stack when we entered the try
+    pub catch_ptr: usize,   // The ptr to jump to if we throw
+    pub stack_start: usize, // The stack size when we entered the try
+    pub call_depth: usize,  // The depth of the call stack when we entered the try
 }
 
 pub struct VmState<'a> {
-    stack: Vec<HogValue>,
-    heap: VmHeap,
+    pub stack: Vec<HogValue>,
+    pub heap: VmHeap,
 
-    stack_frames: Vec<CallFrame>,
-    throw_frames: Vec<ThrowFrame>,
-    ip: usize,
+    pub stack_frames: Vec<CallFrame>,
+    pub throw_frames: Vec<ThrowFrame>,
+    pub ip: usize,
 
-    context: &'a ExecutionContext<'a>,
-    version: usize,
+    pub context: &'a ExecutionContext<'a>,
+    pub version: usize,
 }
 
 fn next_type_name(next: &JsonValue) -> String {
@@ -215,6 +216,21 @@ impl<'a> VmState<'a> {
 
     fn prep_native_call(&self, name: String, args: Vec<HogValue>) -> StepOutcome {
         return StepOutcome::NativeCall(name, args);
+    }
+
+    // TODO - should use Write trait
+    pub fn debug_step(&mut self, output: &dyn Fn(String)) -> Result<StepOutcome, VmError> {
+        let op: Operation = self.next()?;
+        self.ip -= 1;
+        output(format!(
+            "Op ({}): {:?} [{:?}], Stack: {:?}",
+            self.ip,
+            op,
+            &self.context.bytecode
+                [self.ip.saturating_sub(1)..min(self.ip + 2, self.context.bytecode.len())],
+            self.stack
+        ));
+        self.step()
     }
 
     pub fn step(&mut self) -> Result<StepOutcome, VmError> {
@@ -701,16 +717,22 @@ pub struct VmFailure {
     pub step: usize,
 }
 
-// A "native function" is a function that can be called from within the VM. It takes a list
-// of arguments, and returns either a value, or null.
-pub type NativeFunction = fn(&VmState, Vec<HogValue>) -> Result<HogValue, VmError>;
-
-pub fn sync_execute(bytecode: &[JsonValue], max_steps: usize) -> Result<HogLiteral, VmFailure> {
+pub fn sync_execute(
+    bytecode: &[JsonValue],
+    max_steps: usize,
+    stl_extensions: HashMap<String, NativeFunction>,
+    debug: bool,
+) -> Result<HogLiteral, VmFailure> {
     let context = ExecutionContext {
         bytecode,
         globals: HashMap::new(),
         max_stack_depth: 1024,
     };
+
+    let mut native_fns: HashMap<String, NativeFunction> =
+        stl().iter().map(|(a, b)| (a.to_string(), *b)).collect();
+
+    native_fns.extend(stl_extensions);
 
     let fail = |e, vm: Option<&VmState>, step: usize| VmFailure {
         error: e,
@@ -723,18 +745,28 @@ pub fn sync_execute(bytecode: &[JsonValue], max_steps: usize) -> Result<HogLiter
 
     let mut i = 0;
     while i < max_steps {
-        let res = vm.step().map_err(|e| fail(e, Some(&vm), i))?;
+        let res = if debug {
+            vm.debug_step(&|s| println!("{}", s))
+                .map_err(|e| fail(e, Some(&vm), i))?
+        } else {
+            vm.step().map_err(|e| fail(e, Some(&vm), i))?
+        };
 
         match res {
             StepOutcome::Continue => {
                 i += 1;
             }
             StepOutcome::Finished(res) => return Ok(res),
-            StepOutcome::NativeCall(_, _) => todo!(),
-        }
-
-        if let StepOutcome::Finished(returned) = res {
-            return Ok(returned);
+            StepOutcome::NativeCall(name, args) => {
+                let Some(native_fn) = native_fns.get(&name) else {
+                    return Err(fail(VmError::UnknownFunction(name), Some(&vm), i));
+                };
+                let result = native_fn(&vm, args);
+                match result {
+                    Ok(value) => vm.push_stack(value).map_err(|e| fail(e, Some(&vm), i))?,
+                    Err(err) => return Err(fail(err, Some(&vm), i)),
+                };
+            }
         }
         i += 1;
     }

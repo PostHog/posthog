@@ -23,10 +23,6 @@ pub struct VmHeap {
     freed: Vec<HeapReference>, // Indices of freed heap values, for reuse
 }
 
-pub struct VmStack {
-    inner: Vec<HogValue>,
-}
-
 impl VmHeap {
     pub fn emplace(&mut self, value: HogValue) -> Result<HeapReference, VmError> {
         let (next_idx, next_epoch) = match self.freed.pop() {

@@ -516,3 +516,22 @@ impl Num {
         }
     }
 }
+
+impl ToString for Callable {
+    fn to_string(&self) -> String {
+        match self {
+            Self::Local(c) => {
+                format!(
+                    "local fn {}({}, {}) [{}]",
+                    c.name, c.stack_arg_count, c.capture_count, c.ip
+                )
+            }
+        }
+    }
+}
+
+impl ToString for Closure {
+    fn to_string(&self) -> String {
+        format!("closure of {}", self.callable.to_string())
+    }
+}
