@@ -175,13 +175,28 @@ export function OutputPane(): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
-    const { sourceQuery, exportContext, editorKey, editingInsight, updateInsightButtonEnabled, showLegacyFilters } =
-        useValues(multitabEditorLogic)
+    const {
+        sourceQuery,
+        exportContext,
+        editorKey,
+        editingInsight,
+        updateInsightButtonEnabled,
+        showLegacyFilters,
+        localStorageResponse,
+    } = useValues(multitabEditorLogic)
     const { saveAsInsight, updateInsight, setSourceQuery, runQuery } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-    const { response, responseLoading, responseError, queryId, pollResponse } = useValues(dataNodeLogic)
+    const {
+        response: dataNodeResponse,
+        responseLoading,
+        responseError,
+        queryId,
+        pollResponse,
+    } = useValues(dataNodeLogic)
     const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
+
+    const response = dataNodeResponse ?? localStorageResponse
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
 
@@ -390,7 +405,7 @@ export function OutputPane(): JSX.Element {
                     {activeTab === OutputTab.Results && (
                         <LemonButton
                             disabledReason={!hasColumns ? 'No results to visualize' : undefined}
-                            type="primary"
+                            type="secondary"
                             onClick={() => setActiveTab(OutputTab.Visualization)}
                         >
                             Visualize
@@ -421,7 +436,9 @@ export function OutputPane(): JSX.Element {
                 />
             </div>
             <div className="flex justify-between px-2 border-t">
-                <div>{response && !responseError ? <LoadPreviewText /> : <></>}</div>
+                <div>
+                    {response && !responseError ? <LoadPreviewText localResponse={localStorageResponse} /> : <></>}
+                </div>
                 <ElapsedTime />
             </div>
             <RowDetailsModal

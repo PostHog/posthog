@@ -81,8 +81,9 @@ class DashboardTileSerializer(serializers.ModelSerializer):
     def to_representation(self, instance: DashboardTile):
         representation = super().to_representation(instance)
 
-        insight_representation = representation["insight"] or {}  # May be missing for text tiles
+        representation["order"] = self.context.get("order", None)
 
+        insight_representation = representation["insight"] or {}  # May be missing for text tiles
         representation["last_refresh"] = insight_representation.get("last_refresh", None)
         representation["is_cached"] = insight_representation.get("is_cached", False)
 
@@ -434,15 +435,6 @@ class DashboardSerializer(DashboardBasicSerializer):
         )
         self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
 
-        # Sort tiles by layout to ensure insights are computed in order of appearance on dashboard
-        sorted_tiles = sorted(
-            tiles,
-            key=lambda tile: (
-                tile.layouts.get("xs", {}).get("y", 0),
-                tile.layouts.get("xs", {}).get("x", 0),
-            ),
-        )
-
         team = self.context["get_team"]()
         chained_tile_refresh_enabled = posthoganalytics.feature_enabled(
             "chained_dashboard_tile_refresh",
@@ -451,13 +443,24 @@ class DashboardSerializer(DashboardBasicSerializer):
             group_properties={"organization": {"id": str(team.organization_id)}},
         )
 
-        # In case of a large number of tiles on a dashboard,
-        # ensure all tiles are computed one at a time to avoid overwhelming the database
-        large_dashboard = len(sorted_tiles) > 5
+        # Sort tiles by layout to ensure insights are computed in order of appearance on dashboard
+        # sm more common than xs, so we sort by sm
+        sorted_tiles = sorted(
+            tiles,
+            key=lambda tile: (
+                tile.layouts.get("sm", {}).get("y", 100),
+                tile.layouts.get("sm", {}).get("x", 100),
+            ),
+        )
 
-        with task_chain_context() if chained_tile_refresh_enabled and large_dashboard else nullcontext():
-            for tile in sorted_tiles:
-                self.context.update({"dashboard_tile": tile})
+        with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
+            for order, tile in enumerate(sorted_tiles):
+                self.context.update(
+                    {
+                        "dashboard_tile": tile,
+                        "order": order,
+                    }
+                )
 
                 if isinstance(tile.layouts, str):
                     tile.layouts = json.loads(tile.layouts)
