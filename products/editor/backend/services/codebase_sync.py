@@ -63,35 +63,33 @@ class CodebaseSyncService:
         client_nodes_mapping: dict[str, SerializedArtifact] = {node["id"]: node for node in client_tree_nodes}
         server_nodes_mapping: dict[str, SerializedArtifact] = {node["id"]: node for node in server_tree_nodes}
 
-        self._insert_catalog_nodes(added, deleted, {**client_nodes_mapping, **server_nodes_mapping})
+        self._insert_catalog_nodes(
+            [client_nodes_mapping[client_node_id] for client_node_id in added],
+            [server_nodes_mapping[server_node_id] for server_node_id in deleted],
+        )
 
         # Find files to sync and check integrity
-        files_to_sync = []
+        files_to_sync: set[str] = set()
 
         # Tree comparison only finds new files.
         for client_node_id in added:
             if client_nodes_mapping[client_node_id]["type"] == "file":
-                files_to_sync.append(client_node_id)
+                files_to_sync.add(client_node_id)
 
         # Find files we haven't synced yet.
         for server_node in server_nodes:
             if server_node.id not in deleted and not server_node.synced:
-                files_to_sync.append(server_node.id)
+                files_to_sync.add(server_node.id)
 
-        return files_to_sync
+        return list(files_to_sync)
 
     def _sync_new_tree(self, client_tree_nodes: list[SerializedArtifact]) -> list[str]:
-        client_nodes: dict[str, SerializedArtifact] = {node["id"]: node for node in client_tree_nodes}
-        added = [node["id"] for node in client_tree_nodes]
-        self._insert_catalog_nodes(added, [], client_nodes)
+        self._insert_catalog_nodes(client_tree_nodes, [])
         # check integrity
-        return added
+        return [node["id"] for node in client_tree_nodes if node["type"] == "file"]
 
     def _insert_catalog_nodes(
-        self,
-        new_nodes: Sequence[str],
-        deleted_nodes: Sequence[str],
-        mapping: dict[str, SerializedArtifact],
+        self, new_nodes: Sequence[SerializedArtifact], deleted_nodes: Sequence[SerializedArtifact]
     ):
         if not new_nodes and not deleted_nodes:
             return
@@ -105,25 +103,24 @@ class CodebaseSyncService:
             "branch": self.branch,
         }
 
-        def insert_node(i: int, node_id: str, is_deleted: bool):
-            artifact = mapping[node_id]
+        def insert_node(i: int, node: SerializedArtifact, is_deleted: bool):
             args.update(
                 {
-                    f"artifact_id_{i}": artifact["id"],
-                    f"parent_artifact_id_{i}": artifact["parent_id"] if "parent_id" in artifact else "",
+                    f"artifact_id_{i}": node["id"],
+                    f"parent_artifact_id_{i}": node["parent_id"] if "parent_id" in node else "",
                     f"is_deleted_{i}": is_deleted,
-                    f"type_{i}": artifact["type"],
+                    f"type_{i}": node["type"],
                 }
             )
             rows.append(
                 f"(%(team_id)s, %(user_id)s, %(codebase_id)s, %(branch)s, %(artifact_id_{i})s, %(parent_artifact_id_{i})s, %(type_{i})s, %(is_deleted_{i})s)"
             )
 
-        for i, node_id in enumerate(new_nodes):
-            insert_node(i, node_id, False)
+        for i, node in enumerate(new_nodes):
+            insert_node(i, node, False)
 
-        for i, node_id in enumerate(deleted_nodes):
-            insert_node(len(new_nodes) + i, node_id, True)
+        for i, node in enumerate(deleted_nodes):
+            insert_node(len(new_nodes) + i, node, True)
 
         prepared_query = query + ", ".join(rows)
         sync_execute(prepared_query, args, team_id=self.team.id)

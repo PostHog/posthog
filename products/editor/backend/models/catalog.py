@@ -40,7 +40,7 @@ def CODEBASE_CATALOG_TABLE_SQL(on_cluster=True):
         CODEBASE_CATALOG_TABLE_BASE_SQL
         + """
     -- artifact_id for uniqueness
-    ORDER BY (team_id, user_id, codebase_id, branch, artifact_id, parent_artifact_id)
+    ORDER BY (team_id, user_id, codebase_id, branch, artifact_id)
     """
     ).format(
         table_name=CODEBASE_CATALOG_TABLE_NAME(),

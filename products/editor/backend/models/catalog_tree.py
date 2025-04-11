@@ -53,10 +53,10 @@ class ArtifactNode:
         # Base case: hashes are the same, no changes
         if server.hash == client.hash:
             return added_set, deleted_set
-
-        # Hashes don't match, update the state
-        added_set.add(client.hash)
-        deleted_set.add(server.hash)
+        else:
+            # Hashes don't match, update the state
+            added_set.add(client.hash)
+            deleted_set.add(server.hash)
 
         server_children_map = {child.hash: child for child in server.children}
         client_children_map = {child.hash: child for child in client.children}
@@ -74,18 +74,29 @@ class ArtifactNode:
 
         # For nodes that exist in both, compare recursively
         for hash in server_hashes & client_hashes:
-            child_result = ArtifactNode.compare(server_children_map[hash], client_children_map[hash])
-            added_set.update(child_result["added"])
-            deleted_set.update(child_result["deleted"])
+            # Relink parent_ids
+            added_set.add(hash)
+
+            # Compare children
+            child_added, child_deleted = ArtifactNode.compare(server_children_map[hash], client_children_map[hash])
+            added_set.update(child_added)
+            deleted_set.update(child_deleted)
 
         return added_set, deleted_set
 
     def traverse(self) -> Generator[str, None, None]:
         """Get all nested hashes."""
 
+        # Using a set avoids yielding duplicates if a hash appears multiple times
+        # (though in a content-addressed Merkle tree this shouldn't happen unless
+        # identical files/dirs exist at different paths, which is valid)
+        visited_hashes: set[str] = set()
+
         def dfs(node: "ArtifactNode"):
-            yield node.hash
-            for child in node.children:
-                yield from dfs(child)
+            if node.hash not in visited_hashes:
+                visited_hashes.add(node.hash)
+                yield node.hash
+                for child in node.children:
+                    yield from dfs(child)
 
         yield from dfs(self)

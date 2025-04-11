@@ -14,7 +14,7 @@ class CodebaseCatalogTable(Table):
         "codebase_id": StringDatabaseField(name="codebase_id", nullable=False),
         "artifact_id": StringDatabaseField(name="artifact_id", nullable=False),
         "branch": StringDatabaseField(name="branch", nullable=False),
-        "parent_artifact_id": StringDatabaseField(name="parent_artifact_id", nullable=True),
+        "parent_artifact_id": StringDatabaseField(name="parent_artifact_id", nullable=False),
         "type": StringDatabaseField(name="type", nullable=False),
         "timestamp": DateTimeDatabaseField(name="timestamp", nullable=False),
         "is_deleted": IntegerDatabaseField(name="is_deleted", nullable=False),
