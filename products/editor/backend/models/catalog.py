@@ -1,7 +1,10 @@
 from enum import StrEnum
+from typing import Literal
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
+
+CodebaseCatalogType = Literal["file", "dir"]
 
 
 class CodebaseCatalogStatus(StrEnum):
