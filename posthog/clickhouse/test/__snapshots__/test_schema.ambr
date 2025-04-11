@@ -626,6 +626,48 @@
   
   '''
 # ---
+# name: test_create_table_query[codebase_catalog]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS codebase_catalog ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      user_id Int64,
+      codebase_id String,
+      artifact_id String,
+      branch String,
+      parent_artifact_id String,
+      type LowCardinality(String),
+      timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
+      is_deleted UInt8,
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.codebase_catalog', '{replica}-{shard}', timestamp, is_deleted)
+  
+      -- artifact_id for uniqueness
+      ORDER BY (team_id, user_id, codebase_id, branch, artifact_id)
+      
+  '''
+# ---
+# name: test_create_table_query[codebase_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS codebase_embeddings ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      user_id Int64,
+      codebase_id String,
+      artifact_id String,
+      chunk_id String,
+      vector Array(Float32),
+      properties VARCHAR CODEC(ZSTD(3)),
+      version UInt32,
+      is_deleted UInt8,
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.codebase_embeddings', '{replica}-{shard}', version, is_deleted)
+  
+      -- artifact_id for uniqueness
+      ORDER BY (team_id, user_id, codebase_id, artifact_id, chunk_id)
+      
+  '''
+# ---
 # name: test_create_table_query[cohortpeople]
   '''
   
@@ -3434,6 +3476,48 @@
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.channel_definition', '{replica}-{shard}')
   ORDER BY (domain, kind);
   
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[codebase_catalog]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS codebase_catalog ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      user_id Int64,
+      codebase_id String,
+      artifact_id String,
+      branch String,
+      parent_artifact_id String,
+      type LowCardinality(String),
+      timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
+      is_deleted UInt8,
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.codebase_catalog', '{replica}-{shard}', timestamp, is_deleted)
+  
+      -- artifact_id for uniqueness
+      ORDER BY (team_id, user_id, codebase_id, branch, artifact_id)
+      
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[codebase_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS codebase_embeddings ON CLUSTER 'posthog'
+  (
+      team_id Int64,
+      user_id Int64,
+      codebase_id String,
+      artifact_id String,
+      chunk_id String,
+      vector Array(Float32),
+      properties VARCHAR CODEC(ZSTD(3)),
+      version UInt32,
+      is_deleted UInt8,
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.codebase_embeddings', '{replica}-{shard}', version, is_deleted)
+  
+      -- artifact_id for uniqueness
+      ORDER BY (team_id, user_id, codebase_id, artifact_id, chunk_id)
+      
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[cohortpeople]
