@@ -19,7 +19,7 @@ jobs:
     posthog_build:
         name: Build Docker image
         # run these on 4, if they're RAM constrained the FE build will fail randomly in Docker build
-        runs-on: depot-ubuntu-latest-4
+        runs-on: bp-ubuntu-latest-x64-4x
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
@@ -47,11 +47,11 @@ jobs:
               uses: ./.github/actions/build-n-cache-image
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-                  push-image: true
+                  push-image: false
                   aws-access-key: ${{ secrets.AWS_ACCESS_KEY_ID }}
                   aws-access-secret: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-                  dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
-                  dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  dockerhub-username: buildpulseapp
+                  dockerhub-password: ${{ secrets.BP_DOCKERHUB_TOKEN }}
                   pr-number: ${{ github.event.number }}
                   no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
 
@@ -64,7 +64,7 @@ jobs:
 
     lint:
         name: Lint changed Dockerfiles
-        runs-on: ubuntu-24.04
+        runs-on: bp-ubuntu-latest-x64-4x
         steps:
             - name: Check out
               uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3

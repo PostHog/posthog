@@ -53,8 +53,8 @@ runs:
         - name: Set up QEMU
           uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3
 
-        - name: Set up Depot CLI
-          uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
+        - name: Set up BuildPulse CLI
+          uses: buildpulse/setup-buildx-action@v3 # v1
 
         - name: Configure AWS credentials
           if: ${{ inputs.push-image == 'true' }}
@@ -91,12 +91,12 @@ runs:
 
         - name: Build image
           id: build
-          uses: depot/build-push-action@636daae76684e38c301daa0c5eca1c095b24e780 # v1
+          uses: buildpulse/build-push-action@v6 # v1
           with:
               context: .
               buildx-fallback: false # buildx is so slow it's better to just fail
               tags: ${{ steps.emit.outputs.tag }}
-              platforms: linux/amd64,linux/arm64
+              platforms: linux/amd64
               build-args: COMMIT_HASH=${{ github.sha }}
               save: ${{ inputs.save }}
               push: ${{ inputs.push-image }}
