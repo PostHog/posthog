@@ -31,6 +31,7 @@ from posthog.schema import (
     FunnelsQuery,
     RetentionQuery,
     PathsQuery,
+    PathsV2Query,
     StickinessQuery,
     LifecycleQuery,
     StickinessActorsQuery,
@@ -44,6 +45,7 @@ InsightQueryNode: TypeAlias = Union[
     FunnelsQuery,
     RetentionQuery,
     PathsQuery,
+    PathsV2Query,
     StickinessQuery,
     LifecycleQuery,
 ]

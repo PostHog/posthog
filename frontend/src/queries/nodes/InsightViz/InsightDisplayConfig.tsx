@@ -13,6 +13,7 @@ import posthog from 'posthog-js'
 import { ReactNode } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
+import { PathsV2MaxStepPicker } from '~/queries/nodes/InsightViz/PathsV2MaxStepPicker'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
@@ -36,6 +37,7 @@ import { useDebouncedCallback } from 'use-debounce'
 import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import { isValidBreakdown } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
+import { PathsV2MaxRowsPerStepPicker } from './PathsV2MaxRowsPerStepPicker'
 
 export function InsightDisplayConfig(): JSX.Element {
     const { insightProps, canEditInsight } = useValues(insightLogic)
@@ -45,6 +47,7 @@ export function InsightDisplayConfig(): JSX.Element {
         isFunnels,
         isRetention,
         isPaths,
+        isPathsV2,
         isStickiness,
         isLifecycle,
         supportsDisplay,
@@ -242,6 +245,12 @@ export function InsightDisplayConfig(): JSX.Element {
                 {!!isTimeToConvertFunnel && (
                     <ConfigFilter>
                         <FunnelBinsPicker />
+                    </ConfigFilter>
+                )}
+                {!!isPathsV2 && (
+                    <ConfigFilter>
+                        <PathsV2MaxStepPicker />
+                        <PathsV2MaxRowsPerStepPicker />
                     </ConfigFilter>
                 )}
             </div>

@@ -2,7 +2,7 @@ import { Layout } from 'react-grid-layout'
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardLogic'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { isFunnelsQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
+import { isFunnelsQuery, isPathsQuery, isPathsV2Query, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, DashboardLayoutSize, DashboardTile, QueryBasedInsightModel } from '~/types'
 
 export const sortTilesByLayout = (
@@ -58,7 +58,7 @@ export const calculateLayouts = (
             } else if (isRetentionQuery(query)) {
                 defaultW = 6
                 defaultH = 7
-            } else if (isPathsQuery(query)) {
+            } else if (isPathsQuery(query) || isPathsV2Query(query)) {
                 defaultW = columnCount // Paths take up so much space that they need to be full width to be readable
                 defaultH = 7
             } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.BoldNumber) {

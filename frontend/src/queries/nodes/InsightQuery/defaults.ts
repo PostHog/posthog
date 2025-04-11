@@ -5,6 +5,7 @@ import {
     LifecycleQuery,
     NodeKind,
     PathsQuery,
+    PathsV2Query,
     RetentionQuery,
     StickinessComputationModes,
     StickinessQuery,
@@ -66,6 +67,19 @@ const pathsQueryDefault: PathsQuery = {
     },
 }
 
+const pathsV2QueryDefault: PathsV2Query = {
+    kind: NodeKind.PathsV2Query,
+    series: [
+        {
+            kind: NodeKind.EventsNode,
+            event: null,
+            name: 'All events',
+            math: BaseMathType.TotalCount,
+        },
+    ],
+    pathsV2Filter: {},
+}
+
 const stickinessQueryDefault: StickinessQuery = {
     kind: NodeKind.StickinessQuery,
     series: [
@@ -97,6 +111,7 @@ export const nodeKindToDefaultQuery: Record<InsightNodeKind, InsightQueryNode> =
     [NodeKind.FunnelsQuery]: funnelsQueryDefault,
     [NodeKind.RetentionQuery]: retentionQueryDefault,
     [NodeKind.PathsQuery]: pathsQueryDefault,
+    [NodeKind.PathsV2Query]: pathsV2QueryDefault,
     [NodeKind.StickinessQuery]: stickinessQueryDefault,
     [NodeKind.LifecycleQuery]: lifecycleQueryDefault,
 }

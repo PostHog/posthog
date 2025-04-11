@@ -11,6 +11,7 @@ import {
     BreakdownType,
     ChartDisplayCategory,
     ChartDisplayType,
+    ConversionWindowIntervalUnit,
     CountPerActorMathType,
     EventPropertyFilter,
     EventType,
@@ -91,6 +92,7 @@ export enum NodeKind {
     FunnelsQuery = 'FunnelsQuery',
     RetentionQuery = 'RetentionQuery',
     PathsQuery = 'PathsQuery',
+    PathsV2Query = 'PathsV2Query',
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
     InsightActorsQuery = 'InsightActorsQuery',
@@ -203,6 +205,7 @@ export type QuerySchema =
     | FunnelsQuery
     | RetentionQuery
     | PathsQuery
+    | PathsV2Query
     | StickinessQuery
     | LifecycleQuery
     | FunnelCorrelationQuery
@@ -1236,6 +1239,36 @@ export interface PathsQuery extends InsightsQueryBase<PathsQueryResponse> {
     funnelPathsFilter?: FunnelPathsFilter
 }
 
+export type PathsV2Item = {
+    step_index: number
+    source_step: string | null
+    target_step: string | null
+    value: number
+}
+
+export interface PathsV2QueryResponse extends AnalyticsQueryResponseBase<PathsV2Item[]> {}
+
+export type CachedPathsV2QueryResponse = CachedQueryResponse<PathsV2QueryResponse>
+
+export type PathsV2Filter = {
+    // keep defaults in sync with constants in filter components
+    /** @default 5 */
+    maxSteps?: integer
+    /** @default 3 */
+    maxRowsPerStep?: integer
+    /** @default 14 */
+    windowInterval?: integer
+    /** @default day */
+    windowIntervalUnit?: ConversionWindowIntervalUnit
+    /** @default false */
+    collapseEvents?: boolean
+}
+export interface PathsV2Query extends InsightsQueryBase<PathsV2QueryResponse> {
+    kind: NodeKind.PathsV2Query
+    series?: AnyEntityNode[]
+    pathsV2Filter?: PathsV2Filter
+}
+
 /** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params  */
 export type StickinessFilterLegacy = Omit<StickinessFilterType, keyof FilterType | 'stickiness_days' | 'shown_as'>
 
@@ -1886,6 +1919,7 @@ export type InsightQueryNode =
     | FunnelsQuery
     | RetentionQuery
     | PathsQuery
+    | PathsV2Query
     | StickinessQuery
     | LifecycleQuery
 
@@ -2073,6 +2107,7 @@ export type InsightFilterProperty =
     | 'funnelsFilter'
     | 'retentionFilter'
     | 'pathsFilter'
+    | 'pathsV2Filter'
     | 'stickinessFilter'
     | 'lifecycleFilter'
 export type InsightFilter =
@@ -2080,6 +2115,7 @@ export type InsightFilter =
     | FunnelsFilter
     | RetentionFilter
     | PathsFilter
+    | PathsV2Filter
     | StickinessFilter
     | LifecycleFilter
 
