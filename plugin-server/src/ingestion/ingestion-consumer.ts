@@ -322,7 +322,9 @@ export class IngestionConsumer {
 
                 try {
                     this.compareResults(v1Result, v2Result, v1Error, v2Error)
-                } catch (e) {}
+                } catch (e) {
+                    logger.warn('[IngestionConsumer] comparison failed')
+                }
 
                 if (v1Error) {
                     // We want to rethrow the error of the existing processor if it errored here
