@@ -1,5 +1,6 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
+import { Payouts, Webhooks } from 'products/payments/frontend/scenes/settings/PaymentSettings'
 import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
 import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -666,6 +667,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                         to customize yourself outside of the app
                     </div>
                 ),
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-payments',
+        title: 'Payments',
+        settings: [
+            {
+                id: 'payments-webhooks',
+                title: 'Webhooks',
+                component: <Webhooks />,
+            },
+            {
+                id: 'payments-payouts',
+                title: 'Payouts',
+                component: <Payouts />,
             },
         ],
     },

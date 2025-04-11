@@ -5240,3 +5240,10 @@ export interface ProjectTreeRef {
      */
     ref: string
 }
+
+export enum PaymentsTab {
+    Overview = 'overview',
+    Products = 'products',
+    Transactions = 'transactions',
+    Settings = 'settings',
+}

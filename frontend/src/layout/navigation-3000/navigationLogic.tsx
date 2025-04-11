@@ -6,6 +6,7 @@ import {
     IconDatabase,
     IconGraph,
     IconGroups,
+    IconHandMoney,
     IconHome,
     IconLive,
     IconLogomark,
@@ -640,6 +641,15 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   label: 'Messaging',
                                   icon: <IconMegaphone />,
                                   to: urls.messagingBroadcasts(),
+                                  tag: 'alpha' as const,
+                              }
+                            : null,
+                        featureFlags[FEATURE_FLAGS.FEATURE_PAYMENTS]
+                            ? {
+                                  identifier: Scene.PaymentsOverview,
+                                  label: 'Payments',
+                                  icon: <IconHandMoney />,
+                                  to: urls.paymentsOverview(),
                                   tag: 'alpha' as const,
                               }
                             : null,

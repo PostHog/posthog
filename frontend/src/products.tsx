@@ -44,6 +44,11 @@ export const productScenes: Record<string, () => Promise<any>> = {
     MessagingCampaigns: () => import('../../products/messaging/frontend/Campaigns'),
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
     MessagingLibrary: () => import('../../products/messaging/frontend/Library'),
+    PaymentsOverview: () => import('../../products/payments/frontend/scenes/overview/PaymentsOverviewScene'),
+    PaymentsProducts: () => import('../../products/payments/frontend/scenes/products/PaymentsProductsScene'),
+    PaymentsTransactions: () =>
+        import('../../products/payments/frontend/scenes/transactions/PaymentsTransactionsScene'),
+    PaymentsSettings: () => import('../../products/payments/frontend/scenes/settings/PaymentsSettingsScene'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
 }
 
@@ -66,6 +71,10 @@ export const productRoutes: Record<string, [string, string]> = {
     '/messaging/library': ['MessagingLibrary', 'messagingLibrary'],
     '/messaging/library/new': ['MessagingLibrary', 'messagingLibraryNew'],
     '/messaging/library/:id': ['MessagingLibrary', 'messagingLibraryTemplate'],
+    '/payments': ['PaymentsOverview', 'paymentsOverview'],
+    '/payments/products': ['PaymentsProducts', 'paymentsProducts'],
+    '/payments/transactions': ['PaymentsTransactions', 'paymentsTransactions'],
+    '/payments/settings': ['PaymentsSettings', 'paymentsSettings'],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
 }
 
@@ -113,6 +122,10 @@ export const productConfiguration: Record<string, any> = {
     MessagingCampaigns: { name: 'Messaging', projectBased: true },
     MessagingBroadcasts: { name: 'Messaging', projectBased: true },
     MessagingLibrary: { name: 'Messaging', projectBased: true },
+    PaymentsOverview: { name: 'Payments overview', projectBased: true },
+    PaymentsProducts: { name: 'Payments products', projectBased: true },
+    PaymentsTransactions: { name: 'Payments transactions', projectBased: true },
+    PaymentsSettings: { name: 'Payments settings', projectBased: true },
     RevenueAnalytics: {
         name: 'Revenue Analytics',
         projectBased: true,
@@ -185,6 +198,10 @@ export const productUrls = {
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
+    paymentsOverview: (): string => `/payments`,
+    paymentsProducts: (): string => `/payments/products`,
+    paymentsTransactions: (): string => `/payments/transactions`,
+    paymentsSettings: (): string => `/payments/settings`,
     personByDistinctId: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     personByUUID: (uuid: string, encode: boolean = true): string =>
