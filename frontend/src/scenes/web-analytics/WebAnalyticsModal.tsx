@@ -1,9 +1,10 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
+import { urls } from 'scenes/urls'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
 import { ProductKey } from '~/types'
@@ -16,9 +17,9 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
     const {
         dateFilter: { dateFrom, dateTo },
     } = useValues(webAnalyticsLogic)
-    const { setDates } = useActions(webAnalyticsLogic)
+    const { modal } = useValues(webAnalyticsModalLogic)
 
-    const { modal, getNewInsightUrl } = useValues(webAnalyticsModalLogic)
+    const { setDates } = useActions(webAnalyticsLogic)
     const { closeModal } = useActions(webAnalyticsModalLogic)
 
     if (!modal) {
@@ -52,7 +53,7 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
                 <div className="flex flex-row justify-end">
                     {modal.canOpenInsight ? (
                         <LemonButton
-                            to={getNewInsightUrl(modal.tileId, modal.tabId)}
+                            to={urls.insightNew({ query: modal.query })}
                             icon={<IconOpenInNew />}
                             size="small"
                             type="secondary"
