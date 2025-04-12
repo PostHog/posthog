@@ -58,9 +58,7 @@ export class EventPipelineRunnerV2 {
     private shouldProcessPerson: boolean = true
     private timestamp?: DateTime
     private person?: Person
-
     private promises: Promise<any>[] = []
-    private kafkaMessages: TopicMessageWithErrorHandler[] = []
 
     constructor(
         private hub: Hub,
@@ -78,15 +76,15 @@ export class EventPipelineRunnerV2 {
         }
     }
 
-    public getKafkaMessages(): TopicMessageWithErrorHandler[] {
-        return this.kafkaMessages
-    }
-
     public getPromises(): Promise<any>[] {
         return this.promises
     }
 
     private captureIngestionWarning(warning: string, _details: Record<string, any> = {}): void {
+        if (this.comparisonMode) {
+            return
+        }
+
         // NOTE: There is a shared util for this but it is only used by ingestion so keeping it here now
         const details = {
             eventUuid: typeof this.event.uuid !== 'string' ? JSON.stringify(this.event.uuid) : this.event.uuid,
@@ -95,20 +93,22 @@ export class EventPipelineRunnerV2 {
             ..._details,
         }
 
-        this.kafkaMessages.push({
-            topic: KAFKA_INGESTION_WARNINGS,
-            messages: [
-                {
-                    value: JSON.stringify({
-                        team_id: this.team?.id,
-                        type: warning,
-                        source: 'plugin-server',
-                        details: JSON.stringify(details),
-                        timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-                    }),
-                },
-            ],
-        })
+        this.promises.push(
+            this.hub.kafkaProducer.queueMessages({
+                topic: KAFKA_INGESTION_WARNINGS,
+                messages: [
+                    {
+                        value: JSON.stringify({
+                            team_id: this.team?.id,
+                            type: warning,
+                            source: 'plugin-server',
+                            details: JSON.stringify(details),
+                            timestamp: castTimestampOrNow(null, TimestampFormat.ClickHouse),
+                        }),
+                    },
+                ],
+            })
+        )
     }
 
     private dropEvent(dropCause: string): undefined {
@@ -401,13 +401,15 @@ export class EventPipelineRunnerV2 {
             if (this.team?.heatmaps_opt_in !== false) {
                 const heatmapEvents = extractHeatmapData(this.event) ?? []
 
-                this.kafkaMessages.push({
-                    topic: this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
-                    messages: heatmapEvents.map((rawEvent) => ({
-                        key: this.event.uuid,
-                        value: Buffer.from(JSON.stringify(rawEvent)),
-                    })),
-                })
+                this.promises.push(
+                    this.hub.kafkaProducer.queueMessages({
+                        topic: this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                        messages: heatmapEvents.map((rawEvent) => ({
+                            key: this.event.uuid,
+                            value: Buffer.from(JSON.stringify(rawEvent)),
+                        })),
+                    })
+                )
             }
         } catch (e) {
             this.captureIngestionWarning('invalid_heatmap_data', {
@@ -482,38 +484,48 @@ export class EventPipelineRunnerV2 {
     }
 
     private produceExceptionSymbolificationEventStep(event: RawKafkaEvent) {
-        this.kafkaMessages.push({
-            topic: this.hub.EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC,
-            messages: [
-                {
-                    key: event.uuid,
-                    value: Buffer.from(JSON.stringify(event)),
-                },
-            ],
-        })
+        this.promises.push(
+            this.hub.kafkaProducer.queueMessages({
+                topic: this.hub.EXCEPTIONS_SYMBOLIFICATION_KAFKA_TOPIC,
+                messages: [
+                    {
+                        key: event.uuid,
+                        value: Buffer.from(JSON.stringify(event)),
+                    },
+                ],
+            })
+        )
     }
 
     private produceEventToKafka(event: RawKafkaEvent) {
-        this.kafkaMessages.push({
-            topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-            messages: [
-                {
-                    key: event.uuid,
+        if (this.comparisonMode) {
+            return
+        }
+        this.promises.push(
+            this.hub.kafkaProducer
+                .produce({
+                    topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                     value: Buffer.from(JSON.stringify(event)),
-                },
-            ],
-            errorHandler: async (error) => {
-                // Some messages end up significantly larger than the original
-                // after plugin processing, person & group enrichment, etc.
-                if (error instanceof MessageSizeTooLarge) {
-                    await captureIngestionWarning(this.hub.kafkaProducer, event.team_id, 'message_size_too_large', {
-                        eventUuid: event.uuid,
-                        distinctId: event.distinct_id,
-                    })
-                } else {
-                    throw error
-                }
-            },
-        })
+                    key: event.uuid,
+                    headers: [
+                        {
+                            key: 'team_id',
+                            value: this.team!.id.toString(),
+                        },
+                    ],
+                })
+                .catch(async (error) => {
+                    // Some messages end up significantly larger than the original
+                    // after plugin processing, person & group enrichment, etc.
+                    if (error instanceof MessageSizeTooLarge) {
+                        await captureIngestionWarning(this.hub.kafkaProducer, event.team_id, 'message_size_too_large', {
+                            eventUuid: event.uuid,
+                            distinctId: event.distinct_id,
+                        })
+                    } else {
+                        throw error
+                    }
+                })
+        )
     }
 }
