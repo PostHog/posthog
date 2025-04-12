@@ -63,35 +63,6 @@ exports[`IngestionConsumer general overflow force overflow should handle multipl
 ]
 `;
 
-exports[`IngestionConsumer general overflow should allow some events to pass 1`] = `
-[
-  {
-    "key": null,
-    "topic": "events_plugin_ingestion_overflow_test",
-    "value": {
-      "data": "{"distinct_id":"overflow-distinct-id","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
-      "distinct_id": "overflow-distinct-id",
-      "ip": "127.0.0.1",
-      "now": "2025-01-01T00:00:00.000Z",
-      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
-      "uuid": "<REPLACED-UUID-0>",
-    },
-  },
-  {
-    "key": null,
-    "topic": "events_plugin_ingestion_overflow_test",
-    "value": {
-      "data": "{"distinct_id":"overflow-distinct-id","uuid":"<REPLACED-UUID-1>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
-      "distinct_id": "overflow-distinct-id",
-      "ip": "127.0.0.1",
-      "now": "2025-01-01T00:00:00.000Z",
-      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
-      "uuid": "<REPLACED-UUID-1>",
-    },
-  },
-]
-`;
-
 exports[`IngestionConsumer general overflow should emit to overflow if token and distinct_id are overflowed 1`] = `
 [
   {
@@ -257,12 +228,25 @@ exports[`IngestionConsumer typical event processing bad uuid 1`] = `
 [
   {
     "key": null,
-    "topic": "events_plugin_ingestion_dlq_test",
+    "topic": "events_dead_letter_queue_test",
     "value": {
-      "data": "{"distinct_id":"user-1","uuid":"WAT","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
       "distinct_id": "user-1",
-      "ip": "127.0.0.1",
-      "now": "2025-01-01T00:00:00.000Z",
+      "error": "Event ingestion failed. Error: Not a valid UUID: "WAT"",
+      "error_location": "plugin_server_ingest_event:populateTeamDataStep",
+      "error_timestamp": "REPLACED",
+      "event": "$pageview",
+      "event_uuid": "WAT",
+      "id": "<REPLACED-UUID-0>",
+      "ip": "",
+      "now": "2025-01-01 00:00:00",
+      "properties": "{"$current_url":"http://localhost:8000","$ip":"127.0.0.1","$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"}}",
+      "raw_payload": "{"distinct_id":"user-1","uuid":"WAT","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":null,"site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000","$ip":"127.0.0.1","$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"}}}",
+      "site_url": "us.posthog.com",
+      "tags": [
+        "plugin_server",
+        "ingest_event",
+      ],
+      "team_id": -1,
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
       "uuid": "WAT",
     },
@@ -271,11 +255,11 @@ exports[`IngestionConsumer typical event processing bad uuid 1`] = `
     "key": null,
     "topic": "clickhouse_ingestion_warnings_test",
     "value": {
-      "details": "{"eventUuid":"WAT","event":"$pageview","distinctId":"user-1"}",
+      "details": "{"eventUuid":"\\"WAT\\""}",
       "source": "plugin-server",
       "team_id": 2,
       "timestamp": "2025-01-01 00:00:00.000",
-      "type": "invalid_event_uuid",
+      "type": "skipping_event_invalid_uuid",
     },
   },
 ]

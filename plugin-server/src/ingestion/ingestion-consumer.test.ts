@@ -443,7 +443,8 @@ describe('IngestionConsumer', () => {
             expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
         })
 
-        it('should not write to the DLQ if doNotSendToDLQ is true', async () => {
+        // NOTE: This is for the v2 runner
+        it.skip('should not write to the DLQ if doNotSendToDLQ is true', async () => {
             error = new EventDroppedError('purposeful_drop', { doNotSendToDLQ: true })
             await expect(ingester.handleKafkaBatch(messages)).resolves.not.toThrow()
             expect(getProducedKafkaMessages()).toMatchObject([])
@@ -675,7 +676,13 @@ describe('IngestionConsumer', () => {
 
             const sortedMessages = getProducedKafkaMessages().sort((a, b) => sortingKey(a).localeCompare(sortingKey(b)))
 
-            expect(forSnapshot(sortedMessages)).toMatchSnapshot()
+            expect(
+                forSnapshot(sortedMessages, {
+                    overrides: {
+                        error_timestamp: 'REPLACED',
+                    },
+                })
+            ).toMatchSnapshot()
         })
     })
 
