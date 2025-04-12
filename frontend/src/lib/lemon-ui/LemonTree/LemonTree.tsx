@@ -372,69 +372,92 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     )}
 
                                                     {/* Render contents */}
-                                                    {renderItem ? (
-                                                        <>
-                                                            {renderItem(
-                                                                item,
-                                                                <span
-                                                                    className={cn(
-                                                                        'truncate',
-                                                                        isFolder && 'font-semibold'
-                                                                    )}
-                                                                >
-                                                                    {displayName}
-                                                                </span>
-                                                            )}
-
-                                                            {/* Loading state */}
-                                                            {item.record?.loading && <Spinner className="ml-1" />}
-
-                                                            {/* Unapplied state */}
-                                                            {item.record?.unapplied && (
-                                                                <IconUpload className="ml-1 text-warning" />
-                                                            )}
-                                                        </>
-                                                    ) : (
-                                                        <span
-                                                            className={cn('truncate', {
-                                                                'w-full': mode === 'table',
-                                                                'grid gap-2': mode === 'table',
-                                                            })}
-                                                            // eslint-disable-next-line react/forbid-dom-props
-                                                            style={{
-                                                                gridTemplateColumns:
-                                                                    mode === 'table'
-                                                                        ? `repeat(${tableViewKeys?.headers.length}, minmax(100px, 265px))`
-                                                                        : undefined,
-                                                            }}
-                                                        >
-                                                            {mode === 'table' ? (
-                                                                tableViewKeys?.headers.map((header, index) => {
-                                                                    return (
-                                                                        <span
-                                                                            key={header.key}
-                                                                            className="truncate text-left"
+                                                    <span
+                                                        className={cn('truncate w-full text-left', {
+                                                            'grid gap-2': mode === 'table',
+                                                        })}
+                                                        // eslint-disable-next-line react/forbid-dom-props
+                                                        style={{
+                                                            gridTemplateColumns:
+                                                                mode === 'table'
+                                                                    ? `repeat(${tableViewKeys?.headers.length}, minmax(100px, 265px))`
+                                                                    : undefined,
+                                                        }}
+                                                    >
+                                                        {renderItem ? (
+                                                            <>
+                                                                {renderItem(
+                                                                    item,
+                                                                    <span
+                                                                        className={cn('xxxxx', {
+                                                                            'font-semibold': isFolder,
+                                                                        })}
+                                                                    >
+                                                                        <Tooltip
+                                                                            title={
+                                                                                mode === 'table'
+                                                                                    ? displayName
+                                                                                    : undefined
+                                                                            }
+                                                                            placement="top-start"
+                                                                            className="w-fit"
                                                                         >
-                                                                            {(() => {
-                                                                                const value = header.key
-                                                                                    .split('.')
-                                                                                    .reduce(
-                                                                                        (obj, key) =>
-                                                                                            (obj as any)?.[key],
-                                                                                        item
-                                                                                    )
-                                                                                return (
-                                                                                    <Tooltip
-                                                                                        title={
-                                                                                            typeof header.tooltip ===
-                                                                                            'function'
-                                                                                                ? header.tooltip(value)
-                                                                                                : header.tooltip
-                                                                                        }
-                                                                                        placement="top-start"
-                                                                                    >
-                                                                                        <span
-                                                                                            className={cn({
+                                                                            <span>{displayName}</span>
+                                                                        </Tooltip>
+                                                                    </span>
+                                                                )}
+                                                            </>
+                                                        ) : (
+                                                            <span
+                                                                className={cn('yyyyyy', {
+                                                                    'font-semibold': isFolder && !isEmptyFolder,
+                                                                })}
+                                                            >
+                                                                <Tooltip
+                                                                    title={mode === 'table' ? displayName : undefined}
+                                                                    placement="top-start"
+                                                                    className="w-fit"
+                                                                >
+                                                                    <span>{displayName}</span>
+                                                                </Tooltip>
+                                                            </span>
+                                                        )}
+
+                                                        {/* Loading state */}
+                                                        {item.record?.loading && <Spinner className="ml-1" />}
+
+                                                        {/* Unapplied state */}
+                                                        {item.record?.unapplied && (
+                                                            <IconUpload className="ml-1 text-warning" />
+                                                        )}
+                                                        {mode === 'table' &&
+                                                            tableViewKeys?.headers.slice(1).map((header, index) => {
+                                                                return (
+                                                                    <span
+                                                                        key={header.key}
+                                                                        className="truncate text-left"
+                                                                    >
+                                                                        {(() => {
+                                                                            const value = header.key
+                                                                                .split('.')
+                                                                                .reduce(
+                                                                                    (obj, key) => (obj as any)?.[key],
+                                                                                    item
+                                                                                )
+                                                                            return (
+                                                                                <Tooltip
+                                                                                    title={
+                                                                                        typeof header.tooltip ===
+                                                                                        'function'
+                                                                                            ? header.tooltip(value)
+                                                                                            : header.tooltip
+                                                                                    }
+                                                                                    placement="top-start"
+                                                                                >
+                                                                                    <span
+                                                                                        className={cn(
+                                                                                            'starting:opacity-0 opacity-100 delay-50 transition-opacity duration-100',
+                                                                                            {
                                                                                                 'font-normal':
                                                                                                     index !== 0 &&
                                                                                                     !isEmptyFolder,
@@ -446,31 +469,22 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                                                                 'opacity-0':
                                                                                                     index !== 0 &&
                                                                                                     isEmptyFolder,
-                                                                                            })}
-                                                                                        >
-                                                                                            {header.formatFunction
-                                                                                                ? header.formatFunction(
-                                                                                                      value
-                                                                                                  )
-                                                                                                : value}
-                                                                                        </span>
-                                                                                    </Tooltip>
-                                                                                )
-                                                                            })()}
-                                                                        </span>
-                                                                    )
-                                                                })
-                                                            ) : (
-                                                                <span
-                                                                    className={cn('truncate', {
-                                                                        'font-semibold': isFolder && !isEmptyFolder,
-                                                                    })}
-                                                                >
-                                                                    {displayName}
-                                                                </span>
-                                                            )}
-                                                        </span>
-                                                    )}
+                                                                                            }
+                                                                                        )}
+                                                                                    >
+                                                                                        {header.formatFunction
+                                                                                            ? header.formatFunction(
+                                                                                                  value
+                                                                                              )
+                                                                                            : value}
+                                                                                    </span>
+                                                                                </Tooltip>
+                                                                            )
+                                                                        })()}
+                                                                    </span>
+                                                                )
+                                                            })}
+                                                    </span>
                                                 </ButtonPrimitive>
 
                                                 {itemSideAction && !isEmptyFolder && (
@@ -1189,24 +1203,26 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 }}
             >
                 {mode === 'table' && tableViewKeys && (
-                    <div
-                        className="grid items-center gap-2 pl-8 pr-[calc(var(--button-height-base)+var(--button-padding-x-base))] px-1 overflow-hidden transition-[height] duration-200 starting:h-0 h-[30px]"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            gridTemplateColumns: `repeat(${tableViewKeys.headers.length}, minmax(100px, 265px))`,
-                        }}
-                    >
-                        {/* Headers */}
-                        {tableViewKeys.headers.map((header, index) => (
-                            <div
-                                key={header.key}
-                                className={cn('text-secondary font-bold text-xs uppercase flex gap-2', {
-                                    'pl-px': index === 0,
-                                })}
-                            >
-                                <span>{header.title}</span>
-                            </div>
-                        ))}
+                    <div className="px-1 border-b border-primary">
+                        <div
+                            className="grid items-center gap-2 pl-8 pr-[calc(var(--button-height-base)+var(--button-padding-x-base))] px-1 overflow-hidden transition-[height] duration-200 starting:h-0 h-[30px]"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                gridTemplateColumns: `repeat(${tableViewKeys.headers.length}, minmax(100px, 265px))`,
+                            }}
+                        >
+                            {/* Headers */}
+                            {tableViewKeys.headers.map((header, index) => (
+                                <div
+                                    key={header.key}
+                                    className={cn('text-secondary font-bold text-xs uppercase flex gap-2', {
+                                        'pl-px': index === 0,
+                                    })}
+                                >
+                                    <span>{header.title}</span>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
 
