@@ -299,55 +299,6 @@ describe('IngestionConsumer', () => {
                 }
             }
 
-            describe('with DROP_EVENTS_BY_TOKEN', () => {
-                beforeEach(async () => {
-                    hub.DROP_EVENTS_BY_TOKEN = `${team.api_token},phc_other`
-                    ingester = new IngestionConsumer(hub)
-                    await ingester.start()
-                })
-
-                it('should drop events with matching token', async () => {
-                    const messages = createKafkaMessages([createEvent({}), createEvent({})])
-                    addMessageHeaders(messages[0], team.api_token)
-                    await ingester.handleKafkaBatch(messages)
-                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
-                    expectDropLogs([
-                        [team.api_token, 'user-1'],
-                        [team.api_token, 'user-1'],
-                    ])
-                })
-
-                it('should not drop events for a different team token', async () => {
-                    const messages = createKafkaMessages([createEvent({ token: team2.api_token })])
-                    addMessageHeaders(messages[0], team2.api_token)
-                    await ingester.handleKafkaBatch(messages)
-                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
-                    expectDropLogs([])
-                })
-
-                it('should only drop events in batch matching', async () => {
-                    const messages = createKafkaMessages([
-                        createEvent({ token: team.api_token }),
-                        createEvent({ token: team2.api_token, distinct_id: 'team2-distinct-id' }),
-                        createEvent({ token: team.api_token }),
-                    ])
-                    addMessageHeaders(messages[0], team.api_token)
-                    addMessageHeaders(messages[1], team2.api_token)
-                    addMessageHeaders(messages[2], team.api_token)
-                    await ingester.handleKafkaBatch(messages)
-                    const eventsMessages = getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
-                    expect(eventsMessages).toHaveLength(1)
-                    expect(eventsMessages[0].value).toMatchObject({
-                        team_id: team2.id,
-                        distinct_id: 'team2-distinct-id',
-                    })
-                    expectDropLogs([
-                        [team.api_token, kind === 'headers' ? undefined : 'user-1'],
-                        [team.api_token, kind === 'headers' ? undefined : 'user-1'],
-                    ])
-                })
-            })
-
             describe('with DROP_EVENTS_BY_TOKEN_DISTINCT_ID', () => {
                 beforeEach(async () => {
                     hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID = `${team.api_token}:distinct-id-to-ignore,phc_other:distinct-id-to-ignore`

@@ -128,7 +128,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLOUD_DEPLOYMENT: null,
         EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
-        DROP_EVENTS_BY_TOKEN: '',
         SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
         PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30,
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
