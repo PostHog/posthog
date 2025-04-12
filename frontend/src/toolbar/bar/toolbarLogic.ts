@@ -12,6 +12,7 @@ import { inBounds, TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID } from '~/toolbar/utils'
 import type { toolbarLogicType } from './toolbarLogicType'
 
 const MARGIN = 2
+const SPRITE_SIZE = 60
 
 export type MenuState =
     | 'none'
@@ -73,7 +74,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
         toggleMinimized: (minimized?: boolean) => ({ minimized }),
         setHedgehogMode: (hedgehogMode: boolean) => ({ hedgehogMode }),
         setDragPosition: (x: number, y: number) => ({ x, y }),
-        setHedgehogActor: (actor: HedgehogActor | null) => ({ actor }),
+        setHedgehogActor: (actor: any) => ({ actor }),
         syncWithHedgehog: true,
         setVisibleMenu: (visibleMenu: MenuState) => ({
             visibleMenu,
@@ -168,7 +169,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
             },
         ],
         hedgehogActor: [
-            null as HedgehogActor | null,
+            null as any,
             {
                 setHedgehogActor: (_, { actor }) => actor,
             },
