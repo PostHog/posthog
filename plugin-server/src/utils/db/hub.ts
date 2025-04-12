@@ -201,7 +201,6 @@ export const closeHub = async (hub: Hub): Promise<void> => {
     if (isTestEnv()) {
         // Break circular references to allow the hub to be GCed when running unit tests
         // TODO: change these structs to not directly reference the hub
-        ;(hub as any).eventsProcessor = undefined
         ;(hub as any).appMetrics = undefined
     }
 }

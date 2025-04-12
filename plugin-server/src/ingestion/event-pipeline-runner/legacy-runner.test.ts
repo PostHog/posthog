@@ -32,11 +32,10 @@ import { PostgresUse } from '../../utils/db/postgres'
 import { personInitialAndUTMProperties } from '../../utils/db/utils'
 import { parseJSON } from '../../utils/json-parse'
 import { UUIDT } from '../../utils/utils'
-import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { EventPipelineRunner } from './event-pipeline-runner'
 
 jest.mock('../../utils/logger')
-jest.setTimeout(600000) // 600 sec timeout.
+jest.setTimeout(60000) // 600 sec timeout.
 jest.mock('../../utils/posthog', () => ({
     ...jest.requireActual('../../utils/posthog'),
     captureTeamEvent: jest.fn(),
@@ -96,7 +95,6 @@ let mockClientEventCounter = 0
 let team: Team
 let hub: Hub
 let redis: IORedis.Redis
-let eventsProcessor: EventsProcessor
 let now = DateTime.utc()
 
 // Simple client used to simulate sending events
@@ -124,13 +122,12 @@ describe('legacy runner', () => {
 
         hub = await createHub({ ...TEST_CONFIG })
         redis = await hub.redisPool.acquire()
+        hogTransformer = new HogTransformerService(hub)
 
-        eventsProcessor = new EventsProcessor(hub)
         processEventCounter = 0
         mockClientEventCounter = 0
         team = await getFirstTeam(hub)
         now = DateTime.utc()
-        hogTransformer = new HogTransformerService(hub)
 
         // clear the webhook redis cache
         const hooksCacheKey = `@posthog/plugin-server/hooks/${team.id}`
@@ -165,7 +162,6 @@ describe('legacy runner', () => {
             ...data,
         } as any as PluginEvent
 
-        const hogTransformer = new HogTransformerService(hub)
         const runner = new EventPipelineRunner(hub, pluginEvent, hogTransformer)
         await runner.run()
 
@@ -184,8 +180,8 @@ describe('legacy runner', () => {
             team_id: team.id,
             uuid: new UUIDT().toString(),
         }
-        const runner = new EventPipelineRunner(hub, event)
-        await runner.runEventPipeline(event)
+        const runner = new EventPipelineRunner(hub, event, hogTransformer)
+        await runner.run()
         await delayUntilEventIngested(() => hub.db.fetchEvents(), ++mockClientEventCounter)
     }
 
@@ -1668,11 +1664,8 @@ describe('legacy runner', () => {
                 properties: { price: 299.99, name: 'AirPods Pro' },
             }
 
-            const runner = new EventPipelineRunner(hub, pluginEvent)
-            const result = await runner.runEventPipeline(pluginEvent)
-
-            expect(result.error).toBeTruthy()
-            expect(result.error).toEqual('Not a valid UUID: "i_am_not_a_uuid"')
+            const runner = new EventPipelineRunner(hub, pluginEvent, hogTransformer)
+            await expect(runner.run()).rejects.toThrow('Not a valid UUID: "i_am_not_a_uuid"')
         })
         test('null value in eventUUID returns an error', async () => {
             const pluginEvent: PluginEvent = {
@@ -1687,11 +1680,8 @@ describe('legacy runner', () => {
                 properties: { price: 299.99, name: 'AirPods Pro' },
             }
 
-            const runner = new EventPipelineRunner(hub, pluginEvent)
-            const result = await runner.runEventPipeline(pluginEvent)
-
-            expect(result.error).toBeTruthy()
-            expect(result.error).toEqual('Not a valid UUID: "null"')
+            const runner = new EventPipelineRunner(hub, pluginEvent, hogTransformer)
+            await expect(runner.run()).rejects.toThrow('Not a valid UUID: "null"')
         })
     })
 
