@@ -58,18 +58,19 @@ class SessionSummaryPromptData:
             raise ValueError(f"No session events provided for summarizing session_id {session_id}")
         if not raw_session_metadata:
             raise ValueError(f"No session metadata provided for summarizing session_id {session_id}")
-        self.columns = [*raw_session_columns, "event_id"]
+        self.columns = [*raw_session_columns, "event_id", "event_index"]
         self.metadata = self._prepare_metadata(raw_session_metadata)
         simplified_events_mapping: dict[str, list[Any]] = {}
         # Pick indexes as we iterate over arrays
         window_id_index = get_column_index(self.columns, "$window_id")
         current_url_index = get_column_index(self.columns, "$current_url")
         timestamp_index = get_column_index(self.columns, "timestamp")
-        event_id_index = len(self.columns) - 1
+        event_id_index = len(self.columns) - 2
+        event_index_index = len(self.columns) - 1
         # Iterate session events once to decrease the number of tokens in the prompt through mappings
-        for event in raw_session_events:
+        for i, event in enumerate(raw_session_events):
             # Copy the event to avoid mutating the original
-            simplified_event = [*list(event), None]
+            simplified_event = [*list(event), None, None]
             # Stringify timestamp to avoid datetime objects in the prompt
             if timestamp_index is not None:
                 simplified_event[timestamp_index] = event[timestamp_index].isoformat()
@@ -85,6 +86,7 @@ class SessionSummaryPromptData:
                 # Skip repeated events
                 continue
             simplified_event[event_id_index] = event_id
+            simplified_event[event_index_index] = i
             simplified_events_mapping[event_id] = simplified_event
         self.results = list(simplified_events_mapping.values())
         return simplified_events_mapping
