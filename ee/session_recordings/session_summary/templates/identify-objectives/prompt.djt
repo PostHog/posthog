@@ -1,7 +1,3 @@
-<role>
-You are analyzing a sequence of user events from a web application session. Your task is to identify distinct user objectives throughout the session and categorize events accordingly.
-</role>
-
 <events_input_format>
 You'll receive a list of events with columns:
 - event: Type of event (e.g., $pageview, $autocapture)
@@ -76,8 +72,7 @@ Use this information to understand user navigation patterns and parallel browsin
 3. For each objective:
    - Provide a concise, descriptive name that captures the user's goal
    - Include a brief summary that incorporates both user actions AND any technical issues that affected this goal
-   - List all event index ranges that belong to this objective (use $event_index to identify the range)
-   - Note key UI elements and actions involved
+   - List key actions with their corresponding event_id and error status
 4. Important guidelines:
    - DO NOT create separate objectives for error states, technical issues, or general engagement metrics
    - DO NOT create overlapping objectives - each event should generally belong to only one primary objective
