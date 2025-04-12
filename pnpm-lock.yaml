@@ -557,8 +557,8 @@ importers:
         specifier: workspace:*
         version: link:../common/esbuilder
       '@posthog/hedgehog-mode':
-        specifier: ^0.0.25
-        version: 0.0.25(prop-types@15.8.1)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: ^0.0.26
+        version: 0.0.26(prop-types@15.8.1)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/hogvm':
         specifier: workspace:*
         version: link:../common/hogvm/typescript
@@ -4455,8 +4455,8 @@ packages:
     resolution: {integrity: sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==}
     engines: {node: '>=12'}
 
-  '@posthog/hedgehog-mode@0.0.25':
-    resolution: {integrity: sha512-WkIEPqzBsPljjSRQgeKJ2xSCOFlsVH4gTX6c8QxmjlZwa9snPc7X7ds4/JYi4/DJuw5rUYWT3jD703MJcuIx3A==}
+  '@posthog/hedgehog-mode@0.0.26':
+    resolution: {integrity: sha512-aSIrnLu8VgCwCmmeVxqWceMPf1cuPZ7nH3BWfTWiaSW5d1Ts47IX1SG6q2Mt3QnfpxjRPGc/MO/CVRDLfL6OwQ==}
     engines: {node: '>=18'}
     peerDependencies:
       react: ^17.0.0 || ^18.0.0
@@ -19452,7 +19452,7 @@ snapshots:
 
   '@posthog/clickhouse@1.7.0': {}
 
-  '@posthog/hedgehog-mode@0.0.25(prop-types@15.8.1)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+  '@posthog/hedgehog-mode@0.0.26(prop-types@15.8.1)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       gsap: 3.12.7
       lodash: 4.17.21

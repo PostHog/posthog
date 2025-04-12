@@ -1,5 +1,5 @@
 import type { HedgehogModeConfig } from '@posthog/hedgehog-mode'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { lazy, Suspense } from 'react'
 
 import { hedgehogModeLogic } from './hedgehogModeLogic'
@@ -16,9 +16,10 @@ const config: HedgehogModeConfig = {
 }
 
 export function HedgehogMode(): JSX.Element | null {
+    const { hedgehogModeEnabled } = useValues(hedgehogModeLogic)
     const { setHedgehogMode } = useActions(hedgehogModeLogic)
 
-    return typeof window !== 'undefined' && true ? (
+    return typeof window !== 'undefined' && hedgehogModeEnabled ? (
         <Suspense fallback={<span>Loading...</span>}>
             <HedgeHogModeRenderer
                 config={config}

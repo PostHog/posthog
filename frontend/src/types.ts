@@ -341,7 +341,8 @@ export type MinimalHedgehogConfig = Pick<HedgehogActorOptions, 'color' | 'access
 }
 
 export type HedgehogConfig = MinimalHedgehogConfig &
-    HedgehogActorOptions & {
+    Omit<HedgehogActorOptions, 'id'> & {
+        party_mode_enabled: boolean
         enabled: boolean
     }
 
