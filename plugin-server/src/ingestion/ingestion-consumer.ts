@@ -313,8 +313,6 @@ export class IngestionConsumer {
                 headers.push({ ['sentry-event-id']: sentryEventId })
                 headers.push({ ['event-id']: event.uuid })
 
-                // NOTE: Whilst we are comparing we don't want to send to the DLQ
-                // This is mostly a flag to remind us to remove this once we roll it out
                 await this.kafkaProducer!.produce({
                     topic: this.dlqTopic,
                     value: message.value,

@@ -237,18 +237,6 @@ exports[`IngestionConsumer typical event processing bad uuid 1`] = `
       "type": "invalid_event_uuid",
     },
   },
-  {
-    "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
-    "topic": "events_plugin_ingestion_dlq_test",
-    "value": {
-      "data": "{"distinct_id":"user-1","uuid":"WAT","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
-      "distinct_id": "user-1",
-      "ip": "127.0.0.1",
-      "now": "2025-01-01T00:00:00.000Z",
-      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
-      "uuid": "WAT",
-    },
-  },
 ]
 `;
 

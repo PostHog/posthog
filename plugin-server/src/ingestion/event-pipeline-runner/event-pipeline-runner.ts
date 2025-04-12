@@ -142,7 +142,7 @@ export class EventPipelineRunner {
         this.validateUuid()
         this.validatePersonProcessing()
 
-        // THis is where we cut off for heatmaps...
+        // This is where we cut off for heatmaps...
 
         if (this.event.event === '$$heatmap') {
             // Heatmaps are not typical events so we bypass alot of the usual processing
