@@ -79,6 +79,10 @@ Use this information to understand user navigation patterns and parallel browsin
 4. Key Actions Guidelines:
    - Include 1-5 key actions per objective, scaling based on complexity and duration
    - Always prioritize capturing error states within relevant objectives
+   - Consolidate repeated similar actions or errors into a single key action:
+     * For repeated actions (e.g., user entered incorrect password 3 times), use the event_id of the first occurrence
+     * Include the count or frequency in the description (e.g., "3 times" or "repeatedly")
+     * Only create separate key actions for repeated behaviors if they represent distinct phases of user interaction
    - For error actions, provide detailed context about:
      * What the user was attempting to do when the error occurred
      * The nature of the error (e.g., API failure, validation error, timeout)

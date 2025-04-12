@@ -20,10 +20,10 @@ objectives:
           - description: 'User selected second item for comparison'
             event_id: 'a123b456'
             error: false
-          - description: 'Comparison view failed to render properly due to API timeout when retrieving feature data, forcing user to refresh'
+          - description: 'Comparison view failed to render properly 3 times due to API timeout'
             event_id: 'c789d012'
             error: true
-          - description: 'User refreshed the page, resolving the display issue'
+          - description: 'User successfully loaded comparison after opening a new browser tab'
             event_id: 'd456e789'
             error: false
     - name: 'Checking Terms'
