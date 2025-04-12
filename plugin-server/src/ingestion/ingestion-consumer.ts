@@ -333,12 +333,11 @@ export class IngestionConsumer {
                     throw v1Error
                 }
 
-                return
+                continue
             }
 
             // If not comparing we just run it
             await this.runEventRunnerV1(incomingEvent)
-            return
         }
     }
 
