@@ -181,7 +181,9 @@ export class EventPipelineRunnerV2 {
             return
         }
 
-        const result = await this.hogTransformer.transformEventAndProduceMessages(this.event)
+        const result = await this.hogTransformer.transformEventAndProduceMessages(this.event, {
+            skipProduce: this.comparisonMode,
+        })
 
         if (!result.event) {
             droppedEventFromTransformationsCounter.inc()
