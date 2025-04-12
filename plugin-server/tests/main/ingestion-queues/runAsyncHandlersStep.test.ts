@@ -1,11 +1,11 @@
-import { ISOTimestamp, PostIngestionEvent } from '../../../../src/types'
 import {
     processOnEventStep,
     processWebhooksStep,
-} from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
-import { runOnEvent } from '../../../../src/worker/plugins/run'
+} from '../../../src/main/ingestion-queues/batch-processing/runAsyncHandlersStep'
+import { ISOTimestamp, PostIngestionEvent } from '../../../src/types'
+import { runOnEvent } from '../../../src/worker/plugins/run'
 
-jest.mock('../../../../src/worker/plugins/run')
+jest.mock('../../../src/worker/plugins/run')
 
 const testElements: any = ['element1', 'element2']
 

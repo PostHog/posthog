@@ -1,8 +1,8 @@
-import { runInstrumentedFunction } from '../../../main/utils'
+import { runInstrumentedFunction } from '../../utils'
 import { Hub, PostIngestionEvent } from '../../../types'
-import { runComposeWebhook, runOnEvent } from '../../plugins/run'
-import { ActionMatcher } from '../action-matcher'
-import { HookCommander, instrumentWebhookStep } from '../hooks'
+import { runComposeWebhook, runOnEvent } from '../../../worker/plugins/run'
+import { ActionMatcher } from '../../../worker/ingestion/action-matcher'
+import { HookCommander, instrumentWebhookStep } from '../../../worker/ingestion/hooks'
 
 export async function processOnEventStep(hub: Hub, event: PostIngestionEvent) {
     await runInstrumentedFunction({

@@ -13,11 +13,11 @@ import { convertToPostIngestionEvent } from '../../../utils/event'
 import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
 import { pipelineStepErrorCounter, pipelineStepMsSummary } from '../../../worker/ingestion/event-pipeline/metrics'
-import { processWebhooksStep } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { HookCommander } from '../../../worker/ingestion/hooks'
 import { runInstrumentedFunction } from '../../utils'
 import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 import { ingestEventBatchingBatchCountSummary, ingestEventBatchingInputLengthSummary } from './metrics'
+import { processWebhooksStep } from './runAsyncHandlersStep'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')

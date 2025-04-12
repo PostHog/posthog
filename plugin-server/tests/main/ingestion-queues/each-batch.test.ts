@@ -23,8 +23,10 @@ import { pluginConfig39 } from '../../helpers/plugins'
 
 jest.mock('../../../src/worker/plugins/run')
 
-jest.mock('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep', () => {
-    const originalModule = jest.requireActual('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep')
+jest.mock('../../../src/main/ingestion-queues/batch-processing/runAsyncHandlersStep', () => {
+    const originalModule = jest.requireActual(
+        '../../../src/main/ingestion-queues/batch-processing/runAsyncHandlersStep'
+    )
     return {
         ...originalModule,
         processWebhooksStep: jest.fn(originalModule.processWebhooksStep),
@@ -32,14 +34,6 @@ jest.mock('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep', (
 })
 jest.mock('../../../src/utils/logger')
 jest.mock('./../../../src/worker/ingestion/utils')
-
-const runEventPipeline = jest.fn().mockResolvedValue('default value')
-
-jest.mock('./../../../src/worker/ingestion/event-pipeline/runner', () => ({
-    EventPipelineRunner: jest.fn().mockImplementation(() => ({
-        runEventPipeline: runEventPipeline,
-    })),
-}))
 
 const event: PostIngestionEvent = {
     eventUuid: 'uuid1',

@@ -12,7 +12,10 @@ import { DateTime } from 'luxon'
 
 import { captureTeamEvent } from '~/src/utils/posthog'
 
-import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
+import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../tests/helpers/clickhouse'
+import { resetKafka } from '../../../tests/helpers/kafka'
+import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../../../tests/helpers/sql'
+import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../config/kafka-topics'
 import {
     ClickHouseEvent,
     Database,
@@ -22,17 +25,14 @@ import {
     Person,
     PluginsServerConfig,
     Team,
-} from '../../src/types'
-import { closeHub, createHub } from '../../src/utils/db/hub'
-import { PostgresUse } from '../../src/utils/db/postgres'
-import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
-import { parseJSON } from '../../src/utils/json-parse'
-import { UUIDT } from '../../src/utils/utils'
-import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
-import { EventsProcessor } from '../../src/worker/ingestion/process-event'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
-import { resetKafka } from '../helpers/kafka'
-import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
+} from '../../types'
+import { closeHub, createHub } from '../../utils/db/hub'
+import { PostgresUse } from '../../utils/db/postgres'
+import { personInitialAndUTMProperties } from '../../utils/db/utils'
+import { parseJSON } from '../../utils/json-parse'
+import { UUIDT } from '../../utils/utils'
+import { EventsProcessor } from '../../worker/ingestion/process-event'
+import { EventPipelineRunner } from './event-pipeline-runner'
 
 jest.mock('../../src/utils/logger')
 jest.setTimeout(600000) // 600 sec timeout.

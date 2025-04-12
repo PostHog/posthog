@@ -2,14 +2,11 @@ import { EachBatchPayload } from 'kafkajs'
 
 import { PostIngestionEvent, RawKafkaEvent } from '../../../types'
 import { convertToPostIngestionEvent } from '../../../utils/event'
-import {
-    processComposeWebhookStep,
-    processOnEventStep,
-} from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { runInstrumentedFunction } from '../../utils'
 import { KafkaJSIngestionConsumer } from '../kafka-queue'
 import { eventDroppedCounter } from '../metrics'
 import { eachBatchHandlerHelper } from './each-batch-webhooks'
+import { processComposeWebhookStep, processOnEventStep } from './runAsyncHandlersStep'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
