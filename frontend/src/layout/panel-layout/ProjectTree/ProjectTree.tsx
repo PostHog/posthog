@@ -18,7 +18,8 @@ import {
     DropdownMenuSub,
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
-} from 'lib/ui/DropdownMenu/DropdownMenu'import { cn } from 'lib/utils/css-classes'
+} from 'lib/ui/DropdownMenu/DropdownMenu'
+import { cn } from 'lib/utils/css-classes'
 import { RefObject, useEffect, useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
