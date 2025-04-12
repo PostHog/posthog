@@ -14,6 +14,18 @@ exports[`IngestionConsumer error handling should handled expected error failures
       "uuid": "<REPLACED-UUID-0>",
     },
   },
+  {
+    "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
+    "topic": "events_plugin_ingestion_dlq_test",
+    "value": {
+      "data": "{"distinct_id":"user-1","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
+      "distinct_id": "user-1",
+      "ip": "127.0.0.1",
+      "now": "2025-01-01T00:00:00.000Z",
+      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+      "uuid": "<REPLACED-UUID-0>",
+    },
+  },
 ]
 `;
 
@@ -260,6 +272,18 @@ exports[`IngestionConsumer typical event processing bad uuid 1`] = `
       "team_id": 2,
       "timestamp": "2025-01-01 00:00:00.000",
       "type": "skipping_event_invalid_uuid",
+    },
+  },
+  {
+    "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
+    "topic": "events_plugin_ingestion_dlq_test",
+    "value": {
+      "data": "{"distinct_id":"user-1","uuid":"WAT","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
+      "distinct_id": "user-1",
+      "ip": "127.0.0.1",
+      "now": "2025-01-01T00:00:00.000Z",
+      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+      "uuid": "WAT",
     },
   },
 ]

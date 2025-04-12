@@ -101,7 +101,6 @@ export class IngestionConsumer {
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
-
     private comparisonV2Percentage: number
 
     constructor(
@@ -488,12 +487,16 @@ export class IngestionConsumer {
                 headers.push({ ['sentry-event-id']: sentryEventId })
                 headers.push({ ['event-id']: event.uuid })
 
-                await this.kafkaProducer!.produce({
-                    topic: this.dlqTopic,
-                    value: message.value,
-                    key: message.key ?? null, // avoid undefined, just to be safe
-                    headers: headers,
-                })
+                // NOTE: Whilst we are comparing we don't want to send to the DLQ
+                // This is mostly a flag to remind us to remove this once we roll it out
+                if (this.comparisonV2Percentage) {
+                    await this.kafkaProducer!.produce({
+                        topic: this.dlqTopic,
+                        value: message.value,
+                        key: message.key ?? null, // avoid undefined, just to be safe
+                        headers: headers,
+                    })
+                }
             } catch (error) {
                 logger.error('🔥', `Error pushing to DLQ`, {
                     stack: error.stack,
