@@ -1,13 +1,11 @@
-from datetime import datetime
 from pathlib import Path
 
 import structlog
 from ee.session_recordings.ai.llm import get_raw_llm_session_summary
 from ee.session_recordings.ai.output_data import enrich_raw_session_summary_with_events_meta
 from ee.session_recordings.ai.prompt_data import SessionSummaryPromptData
+from ee.session_recordings.session_summary.base_summarizer import BaseReplaySummarizer
 from ee.session_recordings.session_summary.utils import load_custom_template, shorten_url
-from posthog.session_recordings.models.metadata import RecordingMetadata
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.api.activity_log import ServerTimingsGathered
 from posthog.models import User, Team
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -16,34 +14,9 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 logger = structlog.get_logger(__name__)
 
 
-class ReplaySummarizer:
+class ReplaySummarizer(BaseReplaySummarizer):
     def __init__(self, recording: SessionRecording, user: User, team: Team):
-        self.recording = recording
-        self.user = user
-        self.team = team
-
-    @staticmethod
-    def _get_session_metadata(session_id: str, team: Team) -> RecordingMetadata:
-        session_metadata = SessionReplayEvents().get_metadata(session_id=str(session_id), team=team)
-        if not session_metadata:
-            raise ValueError(f"no session metadata found for session_id {session_id}")
-        return session_metadata
-
-    @staticmethod
-    def _get_session_events(
-        session_id: str, session_metadata: RecordingMetadata, team: Team
-    ) -> tuple[list[str], list[list[str | datetime]]]:
-        session_events_columns, session_events = SessionReplayEvents().get_events(
-            session_id=str(session_id),
-            team=team,
-            metadata=session_metadata,
-            events_to_ignore=[
-                "$feature_flag_called",
-            ],
-        )
-        if not session_events_columns or not session_events:
-            raise ValueError(f"no events found for session_id {session_id}")
-        return session_events_columns, session_events
+        super().__init__(recording, user, team)
 
     def _generate_prompt(
         self,
@@ -106,11 +79,11 @@ class ReplaySummarizer:
             # Reverse mappings for easier reference in the prompt.
             url_mapping_reversed = {v: k for k, v in prompt_data.url_mapping.items()}
             window_mapping_reversed = {v: k for k, v in prompt_data.window_id_mapping.items()}
-            rendered_summary_prompt = self._generate_prompt(prompt_data, url_mapping_reversed, window_mapping_reversed)
+            summary_prompt = self._generate_prompt(prompt_data, url_mapping_reversed, window_mapping_reversed)
 
         with timer("openai_completion"):
             raw_session_summary = get_raw_llm_session_summary(
-                rendered_summary_template=rendered_summary_prompt,
+                summary_prompt=summary_prompt,
                 user=self.user,
                 allowed_event_ids=list(simplified_events_mapping.keys()),
                 session_id=self.recording.session_id,
