@@ -1,4 +1,4 @@
-import type { HedgehogActorOptions, HedgeHogMode as HedgeHogModeType } from '@posthog/hedgehog-mode'
+import { HedgehogActorOptions, HedgeHogMode, HedgeHogMode as HedgeHogModeType } from '@posthog/hedgehog-mode'
 import { HedgehogActor } from '@posthog/hedgehog-mode/dist/src/actors/Hedgehog'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -20,6 +20,7 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
         actions: [membersLogic, ['ensureAllMembersLoaded']],
     }),
     actions({
+        setHedgehogMode: (hedgeHogMode: HedgeHogMode) => ({ hedgeHogMode }),
         setHedgehogModeEnabled: (enabled: boolean) => ({ enabled }),
         addAccessory: (accessory: string) => ({ accessory }),
         removeAccessory: (accessory: string) => ({ accessory }),
@@ -34,6 +35,12 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
     }),
 
     reducers(() => ({
+        hedgehogMode: [
+            null as HedgeHogMode | null,
+            {
+                setHedgehogMode: (_, { hedgeHogMode }) => hedgeHogMode,
+            },
+        ],
         localConfig: [
             null as Partial<HedgehogConfig> | null,
             {
