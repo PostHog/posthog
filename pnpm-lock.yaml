@@ -557,8 +557,8 @@ importers:
         specifier: workspace:*
         version: link:../common/esbuilder
       '@posthog/hedgehog-mode':
-        specifier: ^0.0.15
-        version: 0.0.15
+        specifier: ^0.0.25
+        version: 0.0.25(prop-types@15.8.1)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/hogvm':
         specifier: workspace:*
         version: link:../common/hogvm/typescript
@@ -4454,6 +4454,13 @@ packages:
   '@posthog/clickhouse@1.7.0':
     resolution: {integrity: sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==}
     engines: {node: '>=12'}
+
+  '@posthog/hedgehog-mode@0.0.25':
+    resolution: {integrity: sha512-WkIEPqzBsPljjSRQgeKJ2xSCOFlsVH4gTX6c8QxmjlZwa9snPc7X7ds4/JYi4/DJuw5rUYWT3jD703MJcuIx3A==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      react: ^17.0.0 || ^18.0.0
+      react-dom: ^17.0.0 || ^18.0.0
 
   '@posthog/icons@0.11.6':
     resolution: {integrity: sha512-AQxDzr3W5ukP3k7ECxu6aTwTP765XticGE6zUMI2Fb8/4nPD8xzautY48W8d3NUFQkODSfedezIPmgZmgL4FHw==}
@@ -13808,6 +13815,13 @@ packages:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0
       react-dom: ^16.0.0 || ^17.0.0 || ^18.0.0
 
+  react-shadow@20.6.0:
+    resolution: {integrity: sha512-kY+w4OMNZ8Nj9YI9eiTgvvJ/wYO7XyX1D/LYhvwQZv5vw69iCiDtGB0BX/2U8gLUuZAMN+x/7rHJKqHh8wXFHQ==}
+    peerDependencies:
+      prop-types: ^15.0.0
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+      react-dom: ^16.0.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+
   react-style-singleton@2.2.1:
     resolution: {integrity: sha512-ZWj0fHEMyWkHzKYUr2Bs/4zU6XLmq9HsgBURm7g5pAVfyn49DgUiNgY2d4lXRlYSiCif9YBGpQleewkcqddc7g==}
     engines: {node: '>=10'}
@@ -19437,6 +19451,18 @@ snapshots:
   '@popperjs/core@2.11.6': {}
 
   '@posthog/clickhouse@1.7.0': {}
+
+  '@posthog/hedgehog-mode@0.0.25(prop-types@15.8.1)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+    dependencies:
+      gsap: 3.12.7
+      lodash: 4.17.21
+      matter-js: 0.20.0
+      pixi.js: 8.8.1
+      react: 18.2.0
+      react-dom: 18.2.0(react@18.2.0)
+      react-shadow: 20.6.0(prop-types@15.8.1)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+    transitivePeerDependencies:
+      - prop-types
 
   '@posthog/icons@0.11.6(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
@@ -30314,6 +30340,16 @@ snapshots:
       '@csstools/utilities': 2.0.0(postcss@8.5.2)
       postcss: 8.5.2
 
+  postcss-loader@4.3.0(postcss@8.5.3)(webpack@5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))):
+    dependencies:
+      cosmiconfig: 7.1.0
+      klona: 2.0.5
+      loader-utils: 2.0.4
+      postcss: 8.5.3
+      schema-utils: 3.3.0
+      semver: 7.7.0
+      webpack: 5.88.2(@swc/core@1.11.4(@swc/helpers@0.5.15))
+
   postcss-loader@4.3.0(postcss@8.5.3)(webpack@5.88.2):
     dependencies:
       cosmiconfig: 7.1.0
@@ -31427,6 +31463,13 @@ snapshots:
       - react-dom
 
   react-shadow@20.4.0(prop-types@15.8.1)(react-dom@18.2.0(react@18.2.0))(react@18.2.0):
+    dependencies:
+      humps: 2.0.1
+      prop-types: 15.8.1
+      react: 18.2.0
+      react-dom: 18.2.0(react@18.2.0)
+
+  react-shadow@20.6.0(prop-types@15.8.1)(react-dom@18.2.0(react@18.2.0))(react@18.2.0):
     dependencies:
       humps: 2.0.1
       prop-types: 15.8.1
