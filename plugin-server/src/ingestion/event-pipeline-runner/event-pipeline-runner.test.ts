@@ -71,7 +71,7 @@ describe('EventPipelineRunner', () => {
             expect(getProducedKafkaMessagesForTopic(KAFKA_EVENTS_JSON)).toHaveLength(0)
         })
 
-        it('should drop events without a found token', async () => {
+        it('should drop events without a found team_id', async () => {
             const runner = createRunner({
                 team_id: 9999,
             })
