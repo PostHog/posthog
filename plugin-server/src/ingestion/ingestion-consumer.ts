@@ -236,8 +236,8 @@ export class IngestionConsumer {
     }
 
     /**
-     * For a batch of events they will all be the same token:distinct_id allowing us to efficiently
-     * move them all at once for overflow or testing topics.
+     * Redirect events to overflow or testing topic based on their configuration
+     * returning events that have not been redirected
      */
     private redirectEvents(incomingEvents: IncomingEvent[]): IncomingEvent[] {
         if (!incomingEvents.length) {
