@@ -1,7 +1,7 @@
 import { offset } from '@floating-ui/react'
 import { useValues } from 'kea'
-import { HedgehogBuddy } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
-import { hedgehogBuddyLogic } from 'lib/components/HedgehogBuddy/hedgehogBuddyLogic'
+import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
+import { HedgehogModeStatic } from 'lib/components/HedgehogMode/HedgehogModeRender'
 import { uuid } from 'lib/utils'
 import { useMemo, useState } from 'react'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
@@ -16,7 +16,7 @@ const HEADLINES = [
 ]
 
 export function Intro(): JSX.Element {
-    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
+    const { hedgehogConfig } = useValues(hedgehogModeLogic)
     const { conversation } = useValues(maxLogic)
 
     const [hedgehogDirection, setHedgehogDirection] = useState<'left' | 'right'>('right')
@@ -37,29 +37,7 @@ export function Intro(): JSX.Element {
                     middleware={[offset(-12)]}
                     showArrow
                 >
-                    <HedgehogBuddy
-                        static
-                        hedgehogConfig={{
-                            ...hedgehogConfig,
-                            walking_enabled: false,
-                            controls_enabled: false,
-                        }}
-                        onClick={(actor) => {
-                            if (Math.random() < 0.01) {
-                                actor.setOnFire()
-                            } else {
-                                actor.setRandomAnimation()
-                            }
-                        }}
-                        onActorLoaded={(actor) =>
-                            setTimeout(() => {
-                                actor.setAnimation('wave')
-                                // Make the hedeghog face left, which looks better in the side panel
-                                actor.direction = 'left'
-                            }, 100)
-                        }
-                        onPositionChange={(actor) => setHedgehogDirection(actor.direction)}
-                    />
+                    <HedgehogModeStatic {...hedgehogConfig} size={100} />
                 </AIConsentPopoverWrapper>
             </div>
             <div className="mb-1 text-center">

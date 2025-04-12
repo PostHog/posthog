@@ -4,19 +4,19 @@ import { useEffect, useState } from 'react'
 
 import { HedgehogConfig } from '~/types'
 
-export type HedgehogBuddyStaticProps = Partial<HedgehogConfig> & { size?: number | string }
+export type HedgehogModeStaticProps = Partial<HedgehogConfig> & { size?: number | string }
 
 const staticHedgehogRenderer = new StaticHedgehogRenderer({
     assetsUrl: '/static/hedgehog-mode/',
 })
 
 // Takes a range of options and renders a static hedgehog
-export function HedgehogBuddyStatic({
+export function HedgehogModeStatic({
     accessories,
     color,
     size,
     skin = 'default',
-}: HedgehogBuddyStaticProps): JSX.Element | null {
+}: HedgehogModeStaticProps): JSX.Element | null {
     const imgSize = size ?? 60
 
     const [dataUrl, setDataUrl] = useState<string | null>(null)
@@ -54,7 +54,7 @@ export function HedgehogBuddyStatic({
     )
 }
 
-export function HedgehogBuddyProfile({ size, ...props }: HedgehogBuddyStaticProps): JSX.Element {
+export function HedgehogModeProfile({ size, ...props }: HedgehogModeStaticProps): JSX.Element {
     return (
         <div
             className="relative overflow-hidden rounded-full"
@@ -65,7 +65,7 @@ export function HedgehogBuddyProfile({ size, ...props }: HedgehogBuddyStaticProp
             }}
         >
             <div className="absolute top-0 left-0 w-full h-full transform translate-x-[-3%] translate-y-[10%] scale-[1.8]">
-                <HedgehogBuddyStatic {...props} size={size} />
+                <HedgehogModeStatic {...props} size={size} />
             </div>
         </div>
     )

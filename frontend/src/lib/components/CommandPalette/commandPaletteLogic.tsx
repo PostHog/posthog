@@ -68,7 +68,7 @@ import { InsightType } from '~/types'
 
 import { commandBarLogic } from '../CommandBar/commandBarLogic'
 import { BarStatus } from '../CommandBar/types'
-import { hedgehogModeLogic } from '../HedgehogBuddy/hedgehogModeLogic'
+import { hedgehogModeLogic } from '../HedgehogMode/hedgehogModeLogic'
 import type { commandPaletteLogicType } from './commandPaletteLogicType'
 import { openCHQueriesDebugModal } from './DebugCHQueries'
 

@@ -1,7 +1,6 @@
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { hedgehogModeLogic } from 'lib/components/HedgehogBuddy/hedgehogModeLogic'
-import { HedgehogOptions } from 'lib/components/HedgehogBuddy/HedgehogOptions'
+import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
 
 export function HedgehogModeSettings(): JSX.Element {
     const { hedgehogConfig } = useValues(hedgehogModeLogic)
@@ -26,7 +25,7 @@ export function HedgehogModeSettings(): JSX.Element {
             </div>
 
             <div className="p-2 mt-4 border rounded bg-surface-primary">
-                <HedgehogOptions />
+                <p>TODO!</p>
             </div>
         </>
     )
