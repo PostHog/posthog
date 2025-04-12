@@ -1,4 +1,6 @@
+import { IconTestTube } from '@posthog/icons'
 import { toParams } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 
@@ -18,4 +20,17 @@ export const manifest: ProductManifest = {
         experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
         experimentsSharedMetric: (id: string | number): string => `/experiments/shared-metrics/${id}`,
     },
+    fileSystemTypes: {
+        experiment: {
+            icon: <IconTestTube />,
+            href: (ref: string) => urls.experiment(ref),
+        },
+    },
+    treeItemsNew: [
+        {
+            path: `Experiment`,
+            type: 'experiment',
+            href: () => urls.experiment('new'),
+        },
+    ],
 }

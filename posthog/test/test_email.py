@@ -107,7 +107,7 @@ class TestEmail(BaseTest):
                     "to": "test@posthog.com",
                     "identifiers": {"email": "test@posthog.com"},
                     "transactional_message_id": CUSTOMER_IO_TEMPLATE_ID_MAP["2fa_enabled"],
-                    "message_data": {},
+                    "message_data": {"utm_tags": "utm_source=posthog&utm_medium=email&utm_campaign=2fa_enabled"},
                 },
             )
 
@@ -122,7 +122,7 @@ class TestEmail(BaseTest):
                 campaign_key="test_campaign",
                 subject="Test subject",
                 template_name="2fa_enabled",
-                properties={"decimal_value": Decimal("1.23")},
+                template_context={"decimal_value": Decimal("1.23")},
                 use_http=True,
             )
             message.add_recipient("test@posthog.com")
@@ -138,7 +138,10 @@ class TestEmail(BaseTest):
                     "to": "test@posthog.com",
                     "identifiers": {"email": "test@posthog.com"},
                     "transactional_message_id": CUSTOMER_IO_TEMPLATE_ID_MAP["2fa_enabled"],
-                    "message_data": {"decimal_value": 1.23},
+                    "message_data": {
+                        "decimal_value": 1.23,
+                        "utm_tags": "utm_source=posthog&utm_medium=email&utm_campaign=2fa_enabled",
+                    },
                 },
             )
 

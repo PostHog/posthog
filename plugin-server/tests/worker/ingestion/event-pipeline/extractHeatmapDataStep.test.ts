@@ -1,5 +1,6 @@
 import { KafkaProducerWrapper, TopicMessage } from '../../../../src/kafka/producer'
 import { ISOTimestamp, PreIngestionEvent, ProjectId } from '../../../../src/types'
+import { parseJSON } from '../../../../src/utils/json-parse'
 import { cloneObject } from '../../../../src/utils/utils'
 import { extractHeatmapDataStep } from '../../../../src/worker/ingestion/event-pipeline/extractHeatmapDataStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
@@ -153,7 +154,7 @@ describe('extractHeatmapDataStep()', () => {
         expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
         const messages = (mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages
         expect(messages).toHaveLength(16)
-        const parsed = JSON.parse(messages[0].value!.toString())
+        const parsed = parseJSON(messages[0].value!.toString())
 
         expect(parsed).toMatchInlineSnapshot(`
             {
@@ -195,7 +196,7 @@ describe('extractHeatmapDataStep()', () => {
         const messages = (mockProducer.queueMessages.mock.calls[0][0] as TopicMessage).messages
         expect(messages).toHaveLength(17)
 
-        const allParsedMessages = messages.map((call) => JSON.parse(call.value!.toString()))
+        const allParsedMessages = messages.map((call) => parseJSON(call.value!.toString()))
 
         expect(allParsedMessages.find((x) => x.type === 'scrolldepth')).toMatchInlineSnapshot(`
             {

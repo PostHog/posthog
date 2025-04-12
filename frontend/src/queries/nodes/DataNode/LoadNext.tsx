@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useMemo } from 'react'
 
@@ -67,13 +68,34 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
     )
 }
 
-export function LoadPreviewText(): JSX.Element {
-    const { numberOfRows, hasMoreData } = useValues(dataNodeLogic)
+export function LoadPreviewText({ localResponse }: { localResponse?: Record<string, any> | null }): JSX.Element {
+    const { response: dataNodeResponse, hasMoreData, responseLoading } = useValues(dataNodeLogic)
+
+    const response = dataNodeResponse ?? localResponse
+
+    if (responseLoading) {
+        return <div />
+    }
+
+    const resultCount = response?.results?.length ?? 0
+    const isSingleEntry = resultCount === 1
+    const showFirstPrefix = hasMoreData && resultCount > 1
+
+    const lastRefreshTimeUtc: string | null | undefined =
+        response && 'last_refresh' in response ? response['last_refresh'] : null
 
     return (
         <>
-            Showing {hasMoreData && (numberOfRows ?? 0) > 1 ? 'first ' : ' '}
-            {numberOfRows === 1 ? 'one' : numberOfRows} {numberOfRows === 1 ? 'entry' : 'entries'}
+            <span>
+                Showing {showFirstPrefix ? 'first ' : ' '}
+                {isSingleEntry ? 'one' : resultCount} {isSingleEntry ? 'entry' : 'entries'}
+            </span>
+            {lastRefreshTimeUtc && (
+                <>
+                    <span className="ml-2 mr-2">|</span>
+                    <TZLabel noStyles time={lastRefreshTimeUtc} />
+                </>
+            )}
         </>
     )
 }

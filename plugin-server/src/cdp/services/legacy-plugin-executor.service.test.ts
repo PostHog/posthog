@@ -14,11 +14,16 @@ import {
 } from '../_tests/fixtures'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { LegacyDestinationPlugin, LegacyTransformationPlugin } from '../legacy-plugins/types'
-import { HogFunctionInvocation, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
+import { HogFunctionInvocation, HogFunctionInvocationGlobalsWithInputs, HogFunctionType, LogEntry } from '../types'
 import { LegacyPluginExecutorService } from './legacy-plugin-executor.service'
 
 jest.setTimeout(1000)
 
+const getLogMessages = (logs: LogEntry[]) => {
+    return logs.map((l) => {
+        return l.message.replace(/\d+\.\d+ms/, 'REPLACED-TIME-ms')
+    })
+}
 /**
  * NOTE: The internal and normal events consumers are very similar so we can test them together
  */
@@ -125,7 +130,7 @@ describe('LegacyPluginExecutorService', () => {
                 service.execute(createInvocation(fn, globals)),
             ])
 
-            expect(service['pluginState'][fn.id]).toBeDefined()
+            expect(service['pluginState'][fn.id]).toBeTruthy()
 
             expect(await results).toMatchObject([{ finished: true }, { finished: true }, { finished: true }])
 
@@ -235,12 +240,13 @@ describe('LegacyPluginExecutorService', () => {
             `)
 
             expect(res.finished).toBe(true)
-            expect(res.logs.map((l) => l.message)).toMatchInlineSnapshot(`
+            expect(getLogMessages(res.logs)).toMatchInlineSnapshot(`
                 [
                   "Successfully authenticated with Customer.io. Completing setupPlugin.",
                   "Detected email, null",
                   "{"status":{},"existsAlready":false,"email":null}",
                   "true",
+                  "Function completed in REPLACED-TIME-ms.",
                 ]
             `)
         })
@@ -262,14 +268,15 @@ describe('LegacyPluginExecutorService', () => {
 
             expect(customerIoPlugin.onEvent).toHaveBeenCalledTimes(1)
 
-            expect(forSnapshot(res.logs.map((l) => l.message))).toMatchInlineSnapshot(`
+            expect(forSnapshot(getLogMessages(res.logs))).toMatchInlineSnapshot(`
                 [
                   "Successfully authenticated with Customer.io. Completing setupPlugin.",
                   "Detected email, null",
                   "{"status":{},"existsAlready":false,"email":null}",
                   "true",
-                  "Fetch called but mocked due to test function",
-                  "Fetch called but mocked due to test function",
+                  "Fetch called but mocked due to test function, {"url":"https://track.customer.io/api/v1/customers/distinct_id","method":"PUT"}",
+                  "Fetch called but mocked due to test function, {"url":"https://track.customer.io/api/v1/customers/distinct_id/events","method":"POST"}",
+                  "Function completed in REPLACED-TIME-ms.",
                 ]
             `)
         })
@@ -299,7 +306,7 @@ describe('LegacyPluginExecutorService', () => {
             expect(customerIoPlugin.onEvent).toHaveBeenCalledTimes(1)
 
             expect(res.error).toBeInstanceOf(Error)
-            expect(forSnapshot(res.logs.map((l) => l.message))).toMatchInlineSnapshot(`
+            expect(forSnapshot(getLogMessages(res.logs))).toMatchInlineSnapshot(`
                 [
                   "Successfully authenticated with Customer.io. Completing setupPlugin.",
                   "Detected email, null",
@@ -467,7 +474,7 @@ describe('LegacyPluginExecutorService', () => {
                 invocation.globals.inputs.legacy_plugin_config_id = pluginConfig.id
             }
             const res = await service.execute(invocation)
-            expect(res.logs.map((l) => l.message)).toMatchSnapshot()
+            expect(getLogMessages(res.logs)).toMatchSnapshot()
         })
 
         const testCasesTransformation = Object.entries(TRANSFORMATION_PLUGINS_BY_ID).map(([pluginId, plugin]) => ({
@@ -481,7 +488,7 @@ describe('LegacyPluginExecutorService', () => {
             invocation.hogFunction.type = 'transformation'
             invocation.globals.event.event = '$pageview'
             const res = await service.execute(invocation)
-            expect(res.logs.map((l) => l.message)).toMatchSnapshot()
+            expect(getLogMessages(res.logs)).toMatchSnapshot()
         })
     })
 

@@ -1,8 +1,12 @@
-use crate::limiters::redis::RedisLimiter;
+use crate::api::CaptureError;
+use crate::config::KafkaConfig;
+use crate::prometheus::report_dropped_events;
+use crate::sinks::Event;
 use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
-
 use health::HealthHandle;
+use limiters::overflow::OverflowLimiter;
+use limiters::redis::RedisLimiter;
 use metrics::{counter, gauge, histogram};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::message::{Header, OwnedHeaders};
@@ -13,12 +17,6 @@ use std::time::Duration;
 use tokio::task::JoinSet;
 use tracing::log::{debug, error, info};
 use tracing::{info_span, instrument, Instrument};
-
-use crate::api::CaptureError;
-use crate::config::KafkaConfig;
-use crate::limiters::overflow::OverflowLimiter;
-use crate::prometheus::report_dropped_events;
-use crate::sinks::Event;
 
 struct KafkaContext {
     liveness: HealthHandle,
@@ -140,6 +138,10 @@ impl KafkaSink {
             .set(
                 "metadata.max.age.ms",
                 config.kafka_metadata_max_age_ms.to_string(),
+            )
+            .set(
+                "topic.metadata.refresh.interval.ms",
+                config.kafka_topic_metadata_refresh_interval_ms.to_string(),
             )
             .set(
                 "message.send.max.retries",
@@ -376,13 +378,13 @@ impl Event for KafkaSink {
 mod tests {
     use crate::api::CaptureError;
     use crate::config;
-    use crate::limiters::overflow::OverflowLimiter;
     use crate::sinks::kafka::KafkaSink;
     use crate::sinks::Event;
     use crate::utils::uuid_v7;
     use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
     use health::HealthRegistry;
+    use limiters::overflow::OverflowLimiter;
     use rand::distributions::Alphanumeric;
     use rand::Rng;
     use rdkafka::mocking::MockCluster;
@@ -408,6 +410,7 @@ mod tests {
             kafka_producer_linger_ms: 0,
             kafka_producer_queue_mib: 50,
             kafka_message_timeout_ms: 500,
+            kafka_topic_metadata_refresh_interval_ms: 20000,
             kafka_producer_message_max_bytes: message_max_bytes.unwrap_or(1000000),
             kafka_compression_codec: "none".to_string(),
             kafka_hosts: cluster.bootstrap_servers(),

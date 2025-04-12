@@ -3,6 +3,7 @@ import { ConfirmUpgradeModal } from 'lib/components/ConfirmUpgradeModal/ConfirmU
 import { HedgehogBuddyWithLogic } from 'lib/components/HedgehogBuddy/HedgehogBuddyWithLogic'
 import { HedgehogMode } from 'lib/components/HedgehogBuddy/HedgehogMode'
 import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
+import { GlobalCustomUnitModal } from 'lib/components/UnitPicker/GlobalCustomUnitModal'
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
 import { TwoFactorSetupModal } from 'scenes/authentication/TwoFactorSetupModal'
 import { PaymentEntryModal } from 'scenes/billing/PaymentEntryModal'
@@ -74,6 +75,7 @@ export function GlobalModals(): JSX.Element {
             <HedgehogMode />
             <HedgehogBuddyWithLogic />
             <PaymentEntryModal />
+            <GlobalCustomUnitModal />
         </>
     )
 }

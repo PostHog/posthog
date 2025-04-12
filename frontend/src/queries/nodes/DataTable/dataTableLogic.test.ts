@@ -61,9 +61,9 @@ describe('dataTableLogic', () => {
         })
 
         expect(performQuery).toHaveBeenCalledWith(
-            dataTableQuery.source,
-            expect.anything(),
-            false,
+            { kind: 'EventsQuery', select: ['*', 'event', 'timestamp'] },
+            { signal: expect.any(Object) },
+            'blocking',
             expect.any(String),
             expect.any(Function),
             undefined,

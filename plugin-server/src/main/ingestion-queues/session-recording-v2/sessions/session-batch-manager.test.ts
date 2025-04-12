@@ -2,6 +2,7 @@ import { KafkaOffsetManager } from '../kafka/offset-manager'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchManager } from './session-batch-manager'
 import { SessionBatchRecorder } from './session-batch-recorder'
+import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionMetadataStore } from './session-metadata-store'
 
 jest.setTimeout(1000)
@@ -14,6 +15,7 @@ describe('SessionBatchManager', () => {
     let mockFileStorage: jest.Mocked<SessionBatchFileStorage>
     let mockWriter: jest.Mocked<SessionBatchFileWriter>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
+    let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
 
     const createMockBatch = (): jest.Mocked<SessionBatchRecorder> =>
         ({
@@ -50,12 +52,17 @@ describe('SessionBatchManager', () => {
             storeSessionBlocks: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionMetadataStore>
 
+        mockConsoleLogStore = {
+            storeSessionConsoleLogs: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<SessionConsoleLogStore>
+
         manager = new SessionBatchManager({
             maxBatchSizeBytes: 100,
             maxBatchAgeMs: 1000,
             offsetManager: mockOffsetManager,
             fileStorage: mockFileStorage,
             metadataStore: mockMetadataStore,
+            consoleLogStore: mockConsoleLogStore,
         })
     })
 
@@ -68,7 +75,12 @@ describe('SessionBatchManager', () => {
         await manager.flush()
 
         expect(firstBatch.flush).toHaveBeenCalled()
-        expect(SessionBatchRecorder).toHaveBeenCalledWith(mockOffsetManager, mockFileStorage, mockMetadataStore)
+        expect(SessionBatchRecorder).toHaveBeenCalledWith(
+            mockOffsetManager,
+            mockFileStorage,
+            mockMetadataStore,
+            mockConsoleLogStore
+        )
 
         const secondBatch = manager.getCurrentBatch()
         expect(secondBatch).not.toBe(firstBatch)

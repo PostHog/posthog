@@ -1,31 +1,31 @@
-from rest_framework import serializers
+from typing import Any, Optional
+
 import structlog
 import temporalio
-from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING
-from posthog.temporal.data_imports.pipelines.bigquery import (
-    get_schemas as get_bigquery_schemas,
-    filter_incremental_fields as filter_bigquery_incremental_fields,
-)
-from posthog.warehouse.models import ExternalDataSchema, ExternalDataJob
-from typing import Optional, Any
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from rest_framework import viewsets, filters, status
-from posthog.api.utils import action
+from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from posthog.hogql.database.database import create_hogql_database
-from posthog.api.log_entries import LogEntryMixin
 
+from posthog.api.log_entries import LogEntryMixin
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
+from posthog.hogql.database.database import create_hogql_database
+from posthog.temporal.data_imports.pipelines.bigquery import (
+    filter_incremental_fields as filter_bigquery_incremental_fields,
+    get_schemas as get_bigquery_schemas,
+)
+from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_INCREMENTAL_FIELDS_MAPPING
 from posthog.warehouse.data_load.service import (
+    cancel_external_data_workflow,
     external_data_workflow_exists,
     is_any_external_data_schema_paused,
-    sync_external_data_job_workflow,
     pause_external_data_schedule,
+    sync_external_data_job_workflow,
     trigger_external_data_workflow,
     unpause_external_data_schedule,
-    cancel_external_data_workflow,
 )
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
 from posthog.warehouse.models.external_data_schema import (
     filter_mssql_incremental_fields,
     filter_mysql_incremental_fields,
@@ -128,40 +128,34 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         validated_data["sync_type"] = sync_type
 
-        # Check whether we need a full table refresh
         trigger_refresh = False
-        if instance.sync_type is not None and sync_type is not None:
-            # If sync type changes
-            if instance.sync_type != sync_type:
-                trigger_refresh = True
-
-            # If sync type is incremental and the incremental field changes
-            if sync_type == ExternalDataSchema.SyncType.INCREMENTAL and instance.sync_type_config.get(
-                "incremental_field"
-            ) != data.get("incremental_field"):
-                trigger_refresh = True
-
         # Update the validated_data with incremental fields
-        if sync_type == "incremental":
+        if sync_type == ExternalDataSchema.SyncType.INCREMENTAL:
+            incremental_field_changed = (
+                instance.sync_type_config.get("incremental_field") != data.get("incremental_field")
+                or instance.sync_type_config.get("incremental_field_last_value") is None
+            )
+
             payload = instance.sync_type_config
             payload["incremental_field"] = data.get("incremental_field")
             payload["incremental_field_type"] = data.get("incremental_field_type")
-            payload["incremental_field_last_value"] = None
-            payload["partitioning_enabled"] = None
-            payload["partitioning_size"] = None
-            payload["partitioning_keys"] = None
+
+            # If the incremental field has changed
+            if incremental_field_changed:
+                if instance.table is not None:
+                    # Get the max_value and set it on incremental_field_last_value
+                    max_value = instance.table.get_max_value_for_column(data.get("incremental_field"))
+                    if max_value:
+                        instance.update_incremental_field_last_value(max_value, save=False)
+                    else:
+                        # if we can't get the max value, reset the table
+                        payload["incremental_field_last_value"] = None
+                        trigger_refresh = True
 
             validated_data["sync_type_config"] = payload
         else:
-            payload = instance.sync_type_config
-            payload.pop("incremental_field", None)
-            payload.pop("incremental_field_type", None)
-            payload.pop("incremental_field_last_value", None)
-            payload.pop("partitioning_enabled", None)
-            payload.pop("partitioning_size", None)
-            payload.pop("partitioning_keys", None)
-
-            validated_data["sync_type_config"] = payload
+            # No need to update sync_type_config for full refresh sync_type - it'll happen on the next sync
+            pass
 
         should_sync = validated_data.get("should_sync", None)
         sync_frequency = data.get("sync_frequency", None)
@@ -294,6 +288,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
         instance.save()
         return Response(status=status.HTTP_200_OK)
 
+    @action(methods=["DELETE"], detail=True)
+    def delete_data(self, request: Request, *args: Any, **kwargs: Any):
+        instance: ExternalDataSchema = self.get_object()
+        instance.delete_table()
+
+        return Response(status=status.HTTP_200_OK)
+
     @action(methods=["POST"], detail=True)
     def incremental_fields(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
@@ -408,6 +409,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.
                 private_key_id=private_key_id,
                 client_email=client_email,
                 token_uri=token_uri,
+                logger=logger,
             )
 
             columns = bq_schemas.get(instance.name, [])

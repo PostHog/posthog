@@ -13,6 +13,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _get_max_decimal_type,
     should_partition_table,
     table_from_py_list,
+    normalize_table_column_names,
 )
 
 
@@ -98,11 +99,11 @@ def test_table_from_py_list_with_lists():
 def test_table_from_py_list_with_nan():
     table = table_from_py_list([{"column": 1.0}, {"column": float("NaN")}])
 
-    assert table.equals(pa.table({"column": [decimal.Decimal("1.0"), None]}))
+    assert table.equals(pa.table({"column": [1.0, None]}))
     assert table.schema.equals(
         pa.schema(
             [
-                ("column", pa.decimal128(2, 1)),
+                ("column", pa.float64()),
             ]
         )
     )
@@ -111,11 +112,11 @@ def test_table_from_py_list_with_nan():
 def test_table_from_py_list_with_inf():
     table = table_from_py_list([{"column": 1.0}, {"column": float("Inf")}])
 
-    assert table.equals(pa.table({"column": [decimal.Decimal("1.0"), None]}))
+    assert table.equals(pa.table({"column": [1.0, None]}))
     assert table.schema.equals(
         pa.schema(
             [
-                ("column", pa.decimal128(2, 1)),
+                ("column", pa.float64()),
             ]
         )
     )
@@ -124,11 +125,11 @@ def test_table_from_py_list_with_inf():
 def test_table_from_py_list_with_negative_inf():
     table = table_from_py_list([{"column": 1.0}, {"column": -float("Inf")}])
 
-    assert table.equals(pa.table({"column": [decimal.Decimal("1.0"), None]}))
+    assert table.equals(pa.table({"column": [1.0, None]}))
     assert table.schema.equals(
         pa.schema(
             [
-                ("column", pa.decimal128(2, 1)),
+                ("column", pa.float64()),
             ]
         )
     )
@@ -163,11 +164,11 @@ def test_table_from_py_list_with_negative_decimal_inf():
 def test_table_from_py_list_with_binary_column():
     table = table_from_py_list([{"column": 1.0, "some_bytes": b"hello"}])
 
-    assert table.equals(pa.table({"column": [decimal.Decimal("1.0")]}))
+    assert table.equals(pa.table({"column": [1.0]}))
     assert table.schema.equals(
         pa.schema(
             [
-                ("column", pa.decimal128(2, 1)),
+                ("column", pa.float64()),
             ]
         )
     )
@@ -378,3 +379,22 @@ def test_should_partition_table_with_table_and_key():
 
     res = should_partition_table(delta_table, schema, source)
     assert res is True
+
+
+def test_normalize_table_column_names_prevents_collisions():
+    # Create a table with columns that would collide when normalized
+    table = pa.table({"foo___bar": ["value1"], "foo_bar": ["value2"], "another___field": ["value3"]})
+
+    normalized_table = normalize_table_column_names(table)
+
+    # First column gets normalized
+    assert "foo_bar" in normalized_table.column_names
+    # Second column that would collide gets underscore prefix
+    assert "_foo_bar" in normalized_table.column_names
+    # Non-colliding column gets normalized
+    assert "another_field" in normalized_table.column_names
+
+    # Verify the data is preserved
+    assert normalized_table.column("foo_bar").to_pylist() == ["value2"]
+    assert normalized_table.column("_foo_bar").to_pylist() == ["value1"]
+    assert normalized_table.column("another_field").to_pylist() == ["value3"]

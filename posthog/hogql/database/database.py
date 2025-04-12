@@ -3,13 +3,12 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, TypeAlias, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from django.db.models import Q, Prefetch
+from django.db.models import Prefetch, Q
 from pydantic import BaseModel, ConfigDict
-from posthog.exceptions_capture import capture_exception
 
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -32,6 +31,11 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
+from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
+    ErrorTrackingIssueFingerprintOverridesTable,
+    RawErrorTrackingIssueFingerprintOverridesTable,
+    join_with_error_tracking_issue_fingerprint_overrides_table,
+)
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
@@ -47,11 +51,6 @@ from posthog.hogql.database.schema.person_distinct_id_overrides import (
     RawPersonDistinctIdOverridesTable,
     join_with_person_distinct_id_overrides_table,
 )
-from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides import (
-    ErrorTrackingIssueFingerprintOverridesTable,
-    RawErrorTrackingIssueFingerprintOverridesTable,
-    join_with_error_tracking_issue_fingerprint_overrides_table,
-)
 from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     RawPersonDistinctIdsTable,
@@ -61,6 +60,7 @@ from posthog.hogql.database.schema.persons import (
     RawPersonsTable,
     join_with_persons_table,
 )
+from posthog.hogql.database.schema.pg_embeddings import PgEmbeddingsTable
 from posthog.hogql.database.schema.query_log import QueryLogTable, RawQueryLogTable
 from posthog.hogql.database.schema.session_replay_events import (
     RawSessionReplayEventsTable,
@@ -76,6 +76,7 @@ from posthog.hogql.database.schema.sessions_v2 import (
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.timings import HogQLTimings
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
 from posthog.schema import (
@@ -84,6 +85,7 @@ from posthog.schema import (
     DatabaseSchemaPostHogTable,
     DatabaseSchemaSchema,
     DatabaseSchemaSource,
+    DatabaseSchemaManagedViewTable,
     DatabaseSchemaViewTable,
     DatabaseSerializedFieldType,
     HogQLQuery,
@@ -91,11 +93,14 @@ from posthog.schema import (
     PersonsOnEventsMode,
     SessionTableVersion,
 )
+from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.table import (
     DataWarehouseTable,
     DataWarehouseTableColumns,
 )
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from products.revenue_analytics.backend.models import RevenueAnalyticsRevenueView
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -137,6 +142,7 @@ class Database(BaseModel):
     )
     raw_sessions: Union[RawSessionsTableV1, RawSessionsTableV2] = RawSessionsTableV1()
     raw_query_log: RawQueryLogTable = RawQueryLogTable()
+    pg_embeddings: PgEmbeddingsTable = PgEmbeddingsTable()
 
     # system tables
     numbers: NumbersTable = NumbersTable()
@@ -146,19 +152,12 @@ class Database(BaseModel):
         "events",
         "groups",
         "persons",
-        "person_distinct_ids",
-        "session_replay_events",
-        "cohort_people",
-        "static_cohort_people",
-        "log_entries",
-        "app_metrics",
         "sessions",
-        "heatmaps",
         "query_log",
-        "exchange_rate",
     ]
 
     _warehouse_table_names: list[str] = []
+    _warehouse_self_managed_table_names: list[str] = []
     _view_table_names: list[str] = []
 
     _timezone: Optional[str]
@@ -187,13 +186,20 @@ class Database(BaseModel):
         raise QueryError(f'Unknown table "{table_name}".')
 
     def get_all_tables(self) -> list[str]:
-        return self._table_names + self._warehouse_table_names + self._view_table_names
+        warehouse_table_names = list(filter(lambda x: "." in x, self._warehouse_table_names))
+
+        return (
+            self._table_names
+            + warehouse_table_names
+            + self._warehouse_self_managed_table_names
+            + self._view_table_names
+        )
 
     def get_posthog_tables(self) -> list[str]:
         return self._table_names
 
     def get_warehouse_tables(self) -> list[str]:
-        return self._warehouse_table_names
+        return self._warehouse_table_names + self._warehouse_self_managed_table_names
 
     def get_views(self) -> list[str]:
         return self._view_table_names
@@ -202,6 +208,11 @@ class Database(BaseModel):
         for f_name, f_def in field_definitions.items():
             setattr(self, f_name, f_def)
             self._warehouse_table_names.append(f_name)
+
+    def add_warehouse_self_managed_tables(self, **field_definitions: Any):
+        for f_name, f_def in field_definitions.items():
+            setattr(self, f_name, f_def)
+            self._warehouse_self_managed_table_names.append(f_name)
 
     def add_views(self, **field_definitions: Any):
         for f_name, f_def in field_definitions.items():
@@ -253,9 +264,10 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
 
 
 def create_hogql_database(
-    team_id: int,
+    team_id: Optional[int] = None,
+    *,
+    team: Optional["Team"] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
-    team_arg: Optional["Team"] = None,
     timings: Optional[HogQLTimings] = None,
 ) -> Database:
     from posthog.hogql.database.s3_table import S3Table
@@ -270,7 +282,18 @@ def create_hogql_database(
     if timings is None:
         timings = HogQLTimings()
 
-    team = team_arg or Team.objects.get(pk=team_id)
+    with timings.measure("team"):
+        if team_id is None and team is None:
+            raise ValueError("Either team_id or team must be provided")
+
+        if team is not None and team_id is not None and team.pk != team_id:
+            raise ValueError("team_id and team must be the same")
+
+        if team is None:
+            team = Team.objects.get(pk=team_id)
+
+        # Team is definitely not None at this point, make mypy believe that
+        team = cast("Team", team)
 
     with timings.measure("modifiers"):
         modifiers = create_default_modifiers_for_team(team, modifiers)
@@ -345,6 +368,7 @@ def create_hogql_database(
                 database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
     warehouse_tables: dict[str, Table] = {}
+    self_managed_warehouse_tables: dict[str, Table] = {}
     views: dict[str, Table] = {}
 
     with timings.measure("data_warehouse_saved_query"):
@@ -385,41 +409,76 @@ def create_hogql_database(
 
                     s3_table.fields["properties"] = WarehouseProperties(hidden=True)
 
-                warehouse_tables[table.name] = s3_table
+                if table.external_data_source:
+                    warehouse_tables[table.name] = s3_table
+                else:
+                    self_managed_warehouse_tables[table.name] = s3_table
 
-    def define_mappings(warehouse: dict[str, Table], get_table: Callable):
-        if "id" not in warehouse[warehouse_modifier.table_name].fields.keys():
-            warehouse[warehouse_modifier.table_name].fields["id"] = ExpressionField(
+                # Add warehouse table using dot notation
+                if table.external_data_source:
+                    source_type = table.external_data_source.source_type
+                    prefix = table.external_data_source.prefix
+                    if prefix is not None and isinstance(prefix, str) and prefix != "":
+                        table_name_stripped = table.name.replace(f"{prefix}{source_type}_".lower(), "")
+                        dot_name = f"{source_type}.{prefix.strip('_')}.{table_name_stripped}".lower()
+                    else:
+                        table_name_stripped = table.name.replace(f"{source_type}_".lower(), "")
+                        dot_name = f"{source_type}.{table_name_stripped}".lower()
+
+                    warehouse_tables[dot_name] = s3_table
+
+    # For every Stripe source, let's generate its own revenue view
+    # Prefetch related schemas and tables to avoid N+1
+    with timings.measure("revenue_analytics_views"):
+        with timings.measure("select"):
+            stripe_sources = list(
+                ExternalDataSource.objects.filter(team_id=team.pk, source_type=ExternalDataSource.Type.STRIPE)
+                .exclude(deleted=True)
+                .prefetch_related(Prefetch("schemas", queryset=ExternalDataSchema.objects.prefetch_related("table")))
+            )
+
+        with timings.measure("for_schema_source"):
+            for stripe_source in stripe_sources:
+                view = RevenueAnalyticsRevenueView.for_schema_source(stripe_source)
+                if view is not None:
+                    views[view.name] = view
+
+    def define_mappings(store: dict[str, Table], get_table: Callable):
+        if warehouse_modifier.table_name not in store:
+            return store
+
+        if "id" not in store[warehouse_modifier.table_name].fields.keys():
+            store[warehouse_modifier.table_name].fields["id"] = ExpressionField(
                 name="id",
                 expr=parse_expr(warehouse_modifier.id_field),
             )
 
-        if "timestamp" not in warehouse[warehouse_modifier.table_name].fields.keys() or not isinstance(
-            warehouse[warehouse_modifier.table_name].fields.get("timestamp"), DateTimeDatabaseField
+        if "timestamp" not in store[warehouse_modifier.table_name].fields.keys() or not isinstance(
+            store[warehouse_modifier.table_name].fields.get("timestamp"), DateTimeDatabaseField
         ):
             table_model = get_table(team=team, warehouse_modifier=warehouse_modifier)
             timestamp_field_type = table_model.get_clickhouse_column_type(warehouse_modifier.timestamp_field)
 
             # If field type is none or datetime, we can use the field directly
             if timestamp_field_type is None or timestamp_field_type.startswith("DateTime"):
-                warehouse[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
+                store[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
                     name="timestamp",
                     expr=ast.Field(chain=[warehouse_modifier.timestamp_field]),
                 )
             else:
-                warehouse[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
+                store[warehouse_modifier.table_name].fields["timestamp"] = ExpressionField(
                     name="timestamp",
                     expr=ast.Call(name="toDateTime", args=[ast.Field(chain=[warehouse_modifier.timestamp_field])]),
                 )
 
         # TODO: Need to decide how the distinct_id and person_id fields are going to be handled
-        if "distinct_id" not in warehouse[warehouse_modifier.table_name].fields.keys():
-            warehouse[warehouse_modifier.table_name].fields["distinct_id"] = ExpressionField(
+        if "distinct_id" not in store[warehouse_modifier.table_name].fields.keys():
+            store[warehouse_modifier.table_name].fields["distinct_id"] = ExpressionField(
                 name="distinct_id",
                 expr=parse_expr(warehouse_modifier.distinct_id_field),
             )
 
-        if "person_id" not in warehouse[warehouse_modifier.table_name].fields.keys():
+        if "person_id" not in store[warehouse_modifier.table_name].fields.keys():
             events_join = (
                 DataWarehouseJoin.objects.filter(
                     team_id=team.pk,
@@ -430,40 +489,49 @@ def create_hogql_database(
                 .first()
             )
             if events_join:
-                warehouse[warehouse_modifier.table_name].fields["person_id"] = FieldTraverser(
+                store[warehouse_modifier.table_name].fields["person_id"] = FieldTraverser(
                     chain=[events_join.field_name, "person_id"]
                 )
             else:
-                warehouse[warehouse_modifier.table_name].fields["person_id"] = ExpressionField(
+                store[warehouse_modifier.table_name].fields["person_id"] = ExpressionField(
                     name="person_id",
                     expr=parse_expr(warehouse_modifier.distinct_id_field),
                 )
 
-        return warehouse
+        return store
 
     if modifiers.dataWarehouseEventsModifiers:
-        for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
-            # TODO: add all field mappings
+        with timings.measure("data_warehouse_event_modifiers"):
+            for warehouse_modifier in modifiers.dataWarehouseEventsModifiers:
+                with timings.measure(f"data_warehouse_event_modifier_{warehouse_modifier.table_name}"):
+                    # TODO: add all field mappings
+                    is_view = warehouse_modifier.table_name in views.keys()
 
-            is_view = warehouse_modifier.table_name in views.keys()
-
-            if is_view:
-                views = define_mappings(
-                    views,
-                    lambda team, warehouse_modifier: DataWarehouseSavedQuery.objects.exclude(deleted=True)
-                    .filter(team_id=team.pk, name=warehouse_modifier.table_name)
-                    .latest("created_at"),
-                )
-            else:
-                warehouse_tables = define_mappings(
-                    warehouse_tables,
-                    lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
-                    .filter(team_id=team.pk, name=warehouse_modifier.table_name)
-                    .select_related("credential", "external_data_source")
-                    .latest("created_at"),
-                )
+                    if is_view:
+                        views = define_mappings(
+                            views,
+                            lambda team, warehouse_modifier: DataWarehouseSavedQuery.objects.exclude(deleted=True)
+                            .filter(team_id=team.pk, name=warehouse_modifier.table_name)
+                            .latest("created_at"),
+                        )
+                    else:
+                        warehouse_tables = define_mappings(
+                            warehouse_tables,
+                            lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
+                            .filter(team_id=team.pk, name=warehouse_modifier.table_name)
+                            .select_related("credential", "external_data_source")
+                            .latest("created_at"),
+                        )
+                        self_managed_warehouse_tables = define_mappings(
+                            self_managed_warehouse_tables,
+                            lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
+                            .filter(team_id=team.pk, name=warehouse_modifier.table_name)
+                            .select_related("credential", "external_data_source")
+                            .latest("created_at"),
+                        )
 
     database.add_warehouse_tables(**warehouse_tables)
+    database.add_warehouse_self_managed_tables(**self_managed_warehouse_tables)
     database.add_views(**views)
 
     with timings.measure("data_warehouse_joins"):
@@ -567,7 +635,12 @@ class SerializedField:
     chain: Optional[list[str | int]] = None
 
 
-DatabaseSchemaTable: TypeAlias = DatabaseSchemaPostHogTable | DatabaseSchemaDataWarehouseTable | DatabaseSchemaViewTable
+DatabaseSchemaTable: TypeAlias = (
+    DatabaseSchemaPostHogTable
+    | DatabaseSchemaDataWarehouseTable
+    | DatabaseSchemaViewTable
+    | DatabaseSchemaManagedViewTable
+)
 
 
 def serialize_database(
@@ -615,28 +688,14 @@ def serialize_database(
             ),
         )
         .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id, name__in=warehouse_table_names)
+        .order_by("external_data_source__prefix", "external_data_source__source_type", "name")
         .all()
         if warehouse_table_names
         else []
     )
 
-    # Fetch all views in a single query
-    all_views = (
-        DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team_id=context.team_id).all() if views else []
-    )
-
     # Process warehouse tables
     for warehouse_table in warehouse_tables_with_data:
-        table_key = warehouse_table.name
-
-        field_input = {}
-        table = getattr(context.database, table_key, None)
-        if isinstance(table, Table):
-            field_input = table.fields
-
-        fields = serialize_fields(field_input, context, table_key, warehouse_table.columns, table_type="external")
-        fields_dict = {field.name: field for field in fields}
-
         # Get schema from prefetched data
         schema_data = list(warehouse_table.externaldataschema_set.all())
         if not schema_data:
@@ -670,6 +729,27 @@ def serialize_database(
                 last_synced_at=str(latest_completed_run.created_at) if latest_completed_run else None,
             )
 
+        # Temp until we migrate all table names in the DB to use dot notation
+        if warehouse_table.external_data_source:
+            source_type = warehouse_table.external_data_source.source_type
+            prefix = warehouse_table.external_data_source.prefix
+            if prefix is not None and isinstance(prefix, str) and prefix != "":
+                table_name_stripped = warehouse_table.name.replace(f"{prefix}{source_type}_".lower(), "")
+                table_key = f"{source_type}.{prefix.strip('_')}.{table_name_stripped}".lower()
+            else:
+                table_name_stripped = warehouse_table.name.replace(f"{source_type}_".lower(), "")
+                table_key = f"{source_type}.{table_name_stripped}".lower()
+        else:
+            table_key = warehouse_table.name
+
+        field_input = {}
+        table = getattr(context.database, table_key, None)
+        if isinstance(table, Table):
+            field_input = table.fields
+
+        fields = serialize_fields(field_input, context, table_key, warehouse_table.columns, table_type="external")
+        fields_dict = {field.name: field for field in fields}
+
         tables[table_key] = DatabaseSchemaDataWarehouseTable(
             fields=fields_dict,
             id=str(warehouse_table.id),
@@ -679,6 +759,11 @@ def serialize_database(
             schema=schema,
             source=source,
         )
+
+    # Fetch all views in a single query
+    all_views = (
+        DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team_id=context.team_id).all() if views else []
+    )
 
     # Process views using prefetched data
     views_dict = {view.name: view for view in all_views}
@@ -690,14 +775,26 @@ def serialize_database(
         fields = serialize_fields(view.fields, context, view_name, table_type="external")
         fields_dict = {field.name: field for field in fields}
 
-        saved_query = views_dict.get(view_name)
-        if saved_query:
-            tables[view_name] = DatabaseSchemaViewTable(
+        if isinstance(view, RevenueAnalyticsRevenueView):
+            tables[view_name] = DatabaseSchemaManagedViewTable(
                 fields=fields_dict,
-                id=str(saved_query.pk),
+                id=view.name,  # We don't have a UUID for revenue views because they're not saved, just reuse the name
                 name=view.name,
-                query=HogQLQuery(query=saved_query.query["query"]),
+                query=HogQLQuery(query=view.query),
             )
+
+            continue
+
+        saved_query = views_dict.get(view_name)
+        if not saved_query:
+            continue
+
+        tables[view_name] = DatabaseSchemaViewTable(
+            fields=fields_dict,
+            id=str(saved_query.pk),
+            name=view.name,
+            query=HogQLQuery(query=saved_query.query["query"]),
+        )
 
     return tables
 

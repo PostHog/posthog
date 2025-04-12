@@ -1,6 +1,4 @@
-import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
-
-import { generateViolinPath, getDefaultMetricTitle } from './DeltaChart'
+import { generateViolinPath } from './DeltaChart'
 
 /**
  * Helper function to parse SVG path string into points, optionally skipping the initial move command
@@ -150,33 +148,5 @@ describe('generateViolinPath', () => {
         expect(typeof path).toBe('string')
         expect(path).toContain('M')
         expect(path).toContain('Z')
-    })
-})
-
-describe('getDefaultMetricTitle', () => {
-    it('handles ExperimentEventMetricConfig with math and math_property', () => {
-        const metric: ExperimentMetric = {
-            kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.MEAN,
-            metric_config: {
-                kind: NodeKind.ExperimentEventMetricConfig,
-                event: 'purchase completed',
-            },
-        }
-        expect(getDefaultMetricTitle(metric)).toBe('purchase completed')
-    })
-
-    it('returns action name for ExperimentActionMetricConfig', () => {
-        const metric: ExperimentMetric = {
-            kind: NodeKind.ExperimentMetric,
-            metric_type: ExperimentMetricType.MEAN,
-            metric_config: {
-                kind: NodeKind.ExperimentActionMetricConfig,
-                action: 1,
-                name: 'purchase',
-            },
-        }
-
-        expect(getDefaultMetricTitle(metric)).toBe('purchase')
     })
 })

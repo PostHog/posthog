@@ -14,6 +14,9 @@ import uuid
 import psycopg2
 from psycopg2 import sql
 import pymysql
+
+from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionMode
+from posthog.warehouse.s3 import get_s3_client
 from .external_data_source import ExternalDataSource
 from posthog.warehouse.data_load.service import (
     external_data_workflow_exists,
@@ -53,7 +56,7 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partitioning_keys": list[str] }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str] }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -131,28 +134,52 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         return None
 
     @property
+    def partition_size(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("partition_size", None)
+
+        return None
+
+    @property
+    def partition_mode(self) -> PartitionMode | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("partition_mode", None)
+
+        return None
+
+    @property
     def partitioning_keys(self) -> list[str] | None:
         if self.sync_type_config:
             return self.sync_type_config.get("partitioning_keys", None)
 
         return None
 
-    def set_partitioning_enabled(self, partitioning_keys: list[str], partition_count: int) -> None:
+    def set_partitioning_enabled(
+        self,
+        partitioning_keys: list[str],
+        partition_count: int,
+        partition_size: int,
+        partition_mode: PartitionMode,
+    ) -> None:
         self.sync_type_config["partitioning_enabled"] = True
         self.sync_type_config["partition_count"] = partition_count
+        self.sync_type_config["partition_size"] = partition_size
         self.sync_type_config["partitioning_keys"] = partitioning_keys
+        self.sync_type_config["partition_mode"] = partition_mode
         self.save()
 
     def update_sync_type_config_for_reset_pipeline(self) -> None:
         self.sync_type_config.pop("reset_pipeline", None)
         self.sync_type_config.pop("incremental_field_last_value", None)
         self.sync_type_config.pop("partitioning_enabled", None)
-        self.sync_type_config.pop("partitioning_size", None)  # Legacy key
+        self.sync_type_config.pop("partition_size", None)
         self.sync_type_config.pop("partition_count", None)
         self.sync_type_config.pop("partitioning_keys", None)
+        self.sync_type_config.pop("partition_mode", None)
+
         self.save()
 
-    def update_incremental_field_last_value(self, last_value: Any) -> None:
+    def update_incremental_field_last_value(self, last_value: Any, save: bool = True) -> None:
         incremental_field_type = self.sync_type_config.get("incremental_field_type")
 
         last_value_py = last_value.item() if isinstance(last_value, numpy.generic) else last_value
@@ -183,12 +210,25 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             last_value_json = str(last_value_py)
 
         self.sync_type_config["incremental_field_last_value"] = last_value_json
-        self.save()
+
+        if save:
+            self.save()
 
     def soft_delete(self):
         self.deleted = True
         self.deleted_at = datetime.now()
         self.save()
+
+    def delete_table(self):
+        if self.table is not None:
+            client = get_s3_client()
+            client.delete(f"{settings.BUCKET_URL}/{self.folder_path()}", recursive=True)
+
+            self.table.soft_delete()
+            self.table_id = None
+            self.last_synced_at = None
+            self.status = None
+            self.save()
 
 
 @database_sync_to_async

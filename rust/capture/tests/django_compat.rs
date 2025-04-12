@@ -6,21 +6,22 @@ use base64::engine::general_purpose;
 use base64::Engine;
 use capture::api::{CaptureError, CaptureResponse, CaptureResponseCode};
 use capture::config::CaptureMode;
-use capture::limiters::redis::{QuotaResource, RedisLimiter, QUOTA_LIMITER_CACHE_KEY};
-use capture::limiters::token_dropper::TokenDropper;
-use capture::redis::MockRedisClient;
 use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
 use capture::v0_request::{DataType, ProcessedEvent};
+use common_redis::MockRedisClient;
 use health::HealthRegistry;
+use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
+use limiters::token_dropper::TokenDropper;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use time::format_description::well_known::{Iso8601, Rfc3339};
-use time::{Duration, OffsetDateTime};
+use time::OffsetDateTime;
 
 #[derive(Debug, Deserialize)]
 struct RequestDump {
@@ -104,11 +105,12 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
 
         let redis = Arc::new(MockRedisClient::new());
         let billing_limiter = RedisLimiter::new(
-            Duration::weeks(1),
+            Duration::from_secs(60 * 60 * 24 * 7),
             redis.clone(),
             QUOTA_LIMITER_CACHE_KEY.to_string(),
             None,
             QuotaResource::Events,
+            ServiceName::Capture,
         )
         .expect("failed to create billing limiter");
 

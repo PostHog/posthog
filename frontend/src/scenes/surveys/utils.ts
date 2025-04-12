@@ -2,7 +2,7 @@ import DOMPurify from 'dompurify'
 import { SURVEY_RESPONSE_PROPERTY } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
-import { EventPropertyFilter, Survey, SurveyAppearance } from '~/types'
+import { EventPropertyFilter, Survey, SurveyAppearance, SurveyDisplayConditions } from '~/types'
 
 const sanitizeConfig = { ADD_ATTR: ['target'] }
 
@@ -44,6 +44,52 @@ export const getResponseFieldWithId = (
     return {
         indexBasedKey: getSurveyResponseKey(questionIndex),
         idBasedKey: questionId ? `${SURVEY_RESPONSE_PROPERTY}_${questionId}` : undefined,
+    }
+}
+
+// Helper function to generate the HogQL condition for checking survey responses in both formats
+export const getResponseFieldCondition = (questionIndex: number, questionId?: string): string => {
+    const ids = getResponseFieldWithId(questionIndex, questionId)
+
+    if (!ids.idBasedKey) {
+        return `JSONExtractString(properties, '${ids.indexBasedKey}')`
+    }
+
+    // For ClickHouse, we need to use coalesce to check both fields
+    // This will return the first non-null value, prioritizing the ID-based format if available
+    return `coalesce(
+        nullIf(JSONExtractString(properties, '${ids.idBasedKey}'), ''),
+        nullIf(JSONExtractString(properties, '${ids.indexBasedKey}'), '')
+    )`
+}
+
+// Helper function to generate the HogQL condition for checking multiple choice survey responses in both formats
+export const getMultipleChoiceResponseFieldCondition = (questionIndex: number, questionId?: string): string => {
+    const ids = getResponseFieldWithId(questionIndex, questionId)
+
+    if (!ids.idBasedKey) {
+        return `JSONExtractArrayRaw(properties, '${ids.indexBasedKey}')`
+    }
+
+    // For multiple choice, we need to check if either field has a value and use that one
+    return `if(
+        JSONHas(properties, '${ids.idBasedKey}') AND length(JSONExtractArrayRaw(properties, '${ids.idBasedKey}')) > 0,
+        JSONExtractArrayRaw(properties, '${ids.idBasedKey}'),
+        JSONExtractArrayRaw(properties, '${ids.indexBasedKey}')
+    )`
+}
+
+export function sanitizeSurveyDisplayConditions(
+    displayConditions: SurveyDisplayConditions | null
+): SurveyDisplayConditions | null {
+    if (!displayConditions) {
+        return null
+    }
+
+    return {
+        ...displayConditions,
+        url: displayConditions.url.trim(),
+        selector: displayConditions.selector?.trim(),
     }
 }
 

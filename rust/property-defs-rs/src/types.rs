@@ -311,7 +311,9 @@ impl Event {
     }
 }
 
-fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
+pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
+    let key = key.to_lowercase();
+
     // There are a whole set of special cases here, taken from the TS
     if key.starts_with("utm_") {
         // utm_ prefixed properties should always be detected as strings.
@@ -344,40 +346,48 @@ fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
         return Some(PropertyValueType::String);
     }
 
+    if detect_timestamp_property_by_key_and_value(&key, value) {
+        return Some(PropertyValueType::DateTime);
+    }
+
+    // OK, attempt to classify prop type on value alone
     match value {
         Value::String(s) => {
             let s = &s.trim();
             if *s == "true" || *s == "false" || *s == "TRUE" || *s == "FALSE" {
                 Some(PropertyValueType::Boolean)
             // Try to parse this as an ISO 8601 date, and if we can, use that as the type instead
-            } else if is_valid_date_string(s) {
+            } else if is_likely_date_string(s) {
                 Some(PropertyValueType::DateTime)
             } else {
                 Some(PropertyValueType::String)
             }
         }
-        Value::Number(n) => {
-            // TODO - this is a divergence from the TS impl - the TS also checks if the contained number is
-            // "likely" to be a unix timestamp on the basis of the number of characters. I have mixed feelings about this,
-            // so I'm going to leave it as just checking the key for now. This means we're being /less/ strict with datetime
-            // detection here than in the TS (NOTE: updated by eli.r@posthog.com 3/2025)
-            let candidate = key.to_lowercase();
-            if DATETIME_PROPERTY_NAME_KEYWORDS
-                .iter()
-                .any(|kw| candidate.contains(*kw))
-                || is_likely_unix_timestamp(n)
-            {
-                Some(PropertyValueType::DateTime)
-            } else {
-                Some(PropertyValueType::Numeric)
-            }
-        }
+
+        Value::Number(_) => Some(PropertyValueType::Numeric),
+
         Value::Bool(_) => Some(PropertyValueType::Boolean),
+
         _ => None,
     }
 }
 
-fn is_valid_date_string(s: &str) -> bool {
+fn detect_timestamp_property_by_key_and_value(key: &str, value: &Value) -> bool {
+    if DATETIME_PROPERTY_NAME_KEYWORDS
+        .iter()
+        .any(|kw| key.contains(*kw))
+    {
+        return match value {
+            Value::String(s) if is_likely_date_string(s) => true,
+            Value::Number(n) if is_likely_unix_timestamp(n) => true,
+            _ => false,
+        };
+    }
+
+    false
+}
+
+fn is_likely_date_string(s: &str) -> bool {
     if DateTime::parse_from_rfc3339(s).is_ok() || DateTime::parse_from_rfc2822(s).is_ok() {
         return true;
     }
@@ -564,373 +574,5 @@ impl EventProperty {
         metrics::counter!(UPDATES_ISSUED, &[("type", "event_property")]).increment(1);
 
         res
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use chrono::{Timelike, Utc};
-    use serde_json::Value;
-
-    use crate::types::{detect_property_type, get_floored_last_seen, PropertyValueType};
-
-    #[test]
-    fn test_date_flooring() {
-        let now = Utc::now();
-        let rounded = get_floored_last_seen();
-
-        // Time should be rounded to the nearest hour
-        assert_eq!(rounded.minute(), 0);
-        assert_eq!(rounded.second(), 0);
-        assert_eq!(rounded.nanosecond(), 0);
-        assert!(rounded <= now);
-
-        // The difference between now and rounded should be less than 1 hour
-        assert!(now - rounded < chrono::Duration::hours(1));
-    }
-
-    #[test]
-    fn test_rfc3339_timestamp_detection() {
-        // Test RFC 3339 timestamp detection for string values
-        assert_eq!(
-            detect_property_type(
-                "random_property",
-                &Value::String("2023-12-13T15:45:30Z".to_string())
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-
-        assert_eq!(
-            detect_property_type(
-                "random_property",
-                &Value::String("2023-12-13T15:45:30.123Z".to_string())
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-
-        assert_eq!(
-            detect_property_type(
-                "random_property",
-                &Value::String("2023-12-13T15:45:30+00:00".to_string())
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-
-        assert_eq!(
-            detect_property_type(
-                "random_property",
-                &Value::String("2023-12-13T15:45:30-07:00".to_string())
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-
-        assert_eq!(
-            detect_property_type(
-                "random_property",
-                &Value::String("2023/12/13 15:45:30Z".to_string())
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-
-        assert_eq!(
-            detect_property_type(
-                "random_property",
-                &Value::String("2023/12/13 15:45:30".to_string())
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-
-        assert_eq!(
-            detect_property_type(
-                "random_property",
-                &Value::String("12-13-2023 15:45:30-07:00".to_string())
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-
-        assert_eq!(
-            detect_property_type(
-                "random_property",
-                &Value::String("12/13/2023 15:45:30-07".to_string())
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-
-        assert_eq!(
-            detect_property_type(
-                "random_property",
-                &Value::String("2023/12/13 15:45:30".to_string())
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-
-        assert_eq!(
-            detect_property_type(
-                "random_property",
-                &Value::String("2023-13-12 15:45:30".to_string())
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-
-        assert_eq!(
-            detect_property_type(
-                "random_property",
-                &Value::String("12/13/2023T15:45:30".to_string())
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-
-        assert_eq!(
-            detect_property_type(
-                "random_property",
-                &Value::String("2023-13-12T15:45:30".to_string())
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-
-        assert_eq!(
-            detect_property_type("random_property", &Value::String("2023-12-13".to_string())),
-            Some(PropertyValueType::DateTime)
-        );
-
-        assert_eq!(
-            detect_property_type("random_property", &Value::String("2023/12/13".to_string())),
-            Some(PropertyValueType::DateTime)
-        );
-
-        assert_eq!(
-            detect_property_type("random_property", &Value::String("12-13-2023".to_string())),
-            Some(PropertyValueType::DateTime)
-        );
-
-        assert_eq!(
-            detect_property_type("random_property", &Value::String("12/13/2023".to_string())),
-            Some(PropertyValueType::DateTime)
-        );
-
-        // Test invalid timestamp formats (should be detected as String)
-        assert_eq!(
-            detect_property_type("random_property", &Value::String("15:45:30".to_string())),
-            Some(PropertyValueType::String)
-        );
-
-        assert_eq!(
-            detect_property_type("random_property", &Value::String("not a date".to_string())),
-            Some(PropertyValueType::String)
-        );
-
-        // Test property name-based detection for numeric values (should be DateTime)
-        assert_eq!(
-            detect_property_type(
-                "timestamp",
-                &Value::Number(serde_json::Number::from(
-                    Utc::now().timestamp_millis() as u64 / 1000u64
-                ))
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-
-        assert_eq!(
-            detect_property_type(
-                "created_time",
-                &Value::Number(serde_json::Number::from(
-                    Utc::now().timestamp_millis() as u64 / 1000u64
-                ))
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-
-        // this should also now be a DateTime classification due to the UNIX timestamp-like value
-        assert_eq!(
-            detect_property_type(
-                "sent_at",
-                &Value::Number(serde_json::Number::from(
-                    Utc::now().timestamp_millis() as u64 / 1000u64
-                ))
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-
-        // Test property name-based detection for string values (should NOT be DateTime)
-        assert_eq!(
-            detect_property_type("timestamp", &Value::String("any value".to_string())),
-            Some(PropertyValueType::String)
-        );
-
-        assert_eq!(
-            detect_property_type("created_time", &Value::String("any value".to_string())),
-            Some(PropertyValueType::String)
-        );
-
-        assert_eq!(
-            detect_property_type("sent_at", &Value::String("any value".to_string())),
-            Some(PropertyValueType::String)
-        );
-    }
-
-    #[test]
-    fn test_property_name_based_detection() {
-        // Test all timestamp-related keywords for numeric values
-
-        // Test property-name based matching. Note: the hardcoded UNIX timestamp
-        // value used in these unit tests is older than (now - 6 months)
-        // so shouldn't trigger a match based on numerical classification step.
-        assert_eq!(
-            detect_property_type(
-                "timestamp",
-                &Value::Number(serde_json::Number::from(1639400730))
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-        assert_eq!(
-            detect_property_type(
-                "TIMESTAMP",
-                &Value::Number(serde_json::Number::from(1639400730))
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-        assert_eq!(
-            detect_property_type(
-                "user_timestamp",
-                &Value::Number(serde_json::Number::from(1639400730))
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-        assert_eq!(
-            detect_property_type(
-                "user_TIMESTAMP",
-                &Value::Number(serde_json::Number::from(1639400730))
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-        assert_eq!(
-            detect_property_type(
-                "timestampValue",
-                &Value::Number(serde_json::Number::from(1639400730))
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-
-        // Test "time" in different positions and cases
-        assert_eq!(
-            detect_property_type("time", &Value::Number(serde_json::Number::from(1639400730))),
-            Some(PropertyValueType::DateTime)
-        );
-        assert_eq!(
-            detect_property_type("TIME", &Value::Number(serde_json::Number::from(1639400730))),
-            Some(PropertyValueType::DateTime)
-        );
-        assert_eq!(
-            detect_property_type(
-                "created_time",
-                &Value::Number(serde_json::Number::from(1639400730))
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-        assert_eq!(
-            detect_property_type(
-                "created_at",
-                &Value::Number(serde_json::Number::from(1639400730))
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-        assert_eq!(
-            detect_property_type(
-                "createdAt",
-                &Value::Number(serde_json::Number::from(1639400730))
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-        assert_eq!(
-            detect_property_type(
-                "updated_at",
-                &Value::Number(serde_json::Number::from(1639400730))
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-        assert_eq!(
-            detect_property_type(
-                "sent_at",
-                &Value::Number(serde_json::Number::from(1639400730))
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-        assert_eq!(
-            detect_property_type(
-                "signup_date",
-                &Value::Number(serde_json::Number::from(1639400730))
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-        assert_eq!(
-            detect_property_type(
-                "created_TIME",
-                &Value::Number(serde_json::Number::from(1639400730))
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-        assert_eq!(
-            detect_property_type(
-                "timeValue",
-                &Value::Number(serde_json::Number::from(1639400730))
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-        assert_eq!(
-            detect_property_type(
-                "sent-at",
-                &Value::Number(serde_json::Number::from(1639400730))
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-        assert_eq!(
-            detect_property_type(
-                "updated-at",
-                &Value::Number(serde_json::Number::from(1639400730))
-            ),
-            Some(PropertyValueType::DateTime)
-        );
-        assert_eq!(
-            detect_property_type(
-                "hedgehogs_enumerated",
-                &Value::Number(serde_json::Number::from(1639400730))
-            ),
-            Some(PropertyValueType::Numeric)
-        );
-        assert_eq!(
-            detect_property_type(
-                "not_a_thyme",
-                &Value::Number(serde_json::Number::from(1639400730))
-            ),
-            Some(PropertyValueType::Numeric)
-        );
-
-        // Test non-matching property names (should be Numeric)
-        assert_eq!(
-            detect_property_type("count", &Value::Number(serde_json::Number::from(42))),
-            Some(PropertyValueType::Numeric)
-        );
-        assert_eq!(
-            detect_property_type("amount", &Value::Number(serde_json::Number::from(100))),
-            Some(PropertyValueType::Numeric)
-        );
-
-        // Verify that string values are never detected as DateTime based on property name
-        assert_eq!(
-            detect_property_type("timestamp", &Value::String("not a date".to_string())),
-            Some(PropertyValueType::String)
-        );
-        assert_eq!(
-            detect_property_type("TIMESTAMP", &Value::String("not a date".to_string())),
-            Some(PropertyValueType::String)
-        );
-        assert_eq!(
-            detect_property_type("time", &Value::String("not a date".to_string())),
-            Some(PropertyValueType::String)
-        );
-        assert_eq!(
-            detect_property_type("TIME", &Value::String("not a date".to_string())),
-            Some(PropertyValueType::String)
-        );
     }
 }

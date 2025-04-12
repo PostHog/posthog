@@ -3,6 +3,7 @@ import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
 import { PassThrough } from 'stream'
 
+import { parseJSON } from '../../../../utils/json-parse'
 import { LegacyDestinationPluginMeta } from '../../types'
 
 type gcsMeta = LegacyDestinationPluginMeta & {
@@ -74,7 +75,7 @@ export const setupPlugin = async ({ attachments, global, config }: gcsMeta): Pro
 
     let credentials: GCSCredentials
     try {
-        credentials = JSON.parse(attachments.googleCloudKeyJson.contents.toString())
+        credentials = parseJSON(attachments.googleCloudKeyJson.contents.toString())
     } catch {
         throw new Error('Credentials JSON file has invalid JSON!')
     }

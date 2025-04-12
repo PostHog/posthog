@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from enum import Enum
 from typing import Any, Optional, cast
 
@@ -37,7 +37,7 @@ def build_billing_token(license: License, organization: Organization, user: Opti
     license_secret = license.key.split("::")[1]
 
     payload = {
-        "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=15),
+        "exp": datetime.now(tz=UTC) + timedelta(minutes=15),
         "id": license_id,
         "organization_id": str(organization.id),
         "organization_name": organization.name,
@@ -313,9 +313,11 @@ class BillingManager:
         if usage_summary:
             usage_info = OrganizationUsageInfo(
                 events=usage_summary["events"],
+                exceptions=usage_summary.get("exceptions", {}),
                 recordings=usage_summary["recordings"],
                 rows_synced=usage_summary.get("rows_synced", {}),
                 feature_flag_requests=usage_summary.get("feature_flag_requests", {}),
+                api_queries_read_bytes=usage_summary.get("api_queries_read_bytes", {}),
                 period=[
                     data["billing_period"]["current_period_start"],
                     data["billing_period"]["current_period_end"],

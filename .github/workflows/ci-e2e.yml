@@ -22,7 +22,7 @@ jobs:
             shouldTriggerCypress: ${{ steps.changes.outputs.shouldTriggerCypress }}
         steps:
             # For pull requests it's not necessary to check out the code
-            - uses: dorny/paths-filter@v2
+            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: changes
               with:
                   filters: |
@@ -56,7 +56,7 @@ jobs:
             chunks: ${{ steps.chunk.outputs.chunks }}
         steps:
             - name: Check out
-              uses: actions/checkout@v3
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
             - name: Group spec files into chunks of three
               id: chunk
@@ -88,7 +88,8 @@ jobs:
 
     container:
         name: Build and cache container image
-        runs-on: ubuntu-24.04
+        # run these on 4, if they're RAM constrained the FE build will fail randomly
+        runs-on: depot-ubuntu-latest-4
         timeout-minutes: 60
         needs: [changes]
         permissions:
@@ -100,7 +101,7 @@ jobs:
         steps:
             - name: Checkout
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              uses: actions/checkout@v3
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
             - name: Build the Docker image with Depot
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               # Build the container image in preparation for the E2E tests
@@ -109,6 +110,7 @@ jobs:
               with:
                   save: true
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+                  no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
 
     cypress:
         name: Cypress E2E tests (${{ strategy.job-index }})
@@ -129,15 +131,15 @@ jobs:
         steps:
             - name: Checkout
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              uses: actions/checkout@v3
+              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
 
             - name: Install pnpm
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              uses: pnpm/action-setup@v4
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
               with:
                   node-version: 18.12.1
                   cache: 'pnpm'
@@ -152,7 +154,7 @@ jobs:
               id: cypress-cache-dir
               run: echo "CYPRESS_BIN_PATH=$(npx cypress cache path)" >> $GITHUB_OUTPUT
 
-            - uses: actions/cache@v4
+            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               id: pnpm-cache
               with:
@@ -186,11 +188,11 @@ jobs:
 
             - name: Install Depot CLI
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              uses: depot/setup-action@v1
+              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
 
             - name: Get Docker image cached in Depot
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              uses: depot/pull-action@v1
+              uses: depot/pull-action@8a922bdade29cf5facf3a13020cccd3b7a8127c2 # v1
               with:
                   build-id: ${{ needs.container.outputs.build-id }}
                   tags: ${{ needs.container.outputs.tag }}
@@ -243,8 +245,8 @@ jobs:
               # this action might be abandoned - but v1 doesn't point to latest of v1 (which it should)
               # so pointing to v1.1.0 to remove warnings about node version with v1
               # todo check https://github.com/iFaxity/wait-on-action/releases for new releases
-              uses: iFaxity/wait-on-action@v1.2.1
-              timeout-minutes: 3
+              uses: iFaxity/wait-on-action@a7d13170ec542bdca4ef8ac4b15e9c6aa00a6866 # v1.2.1
+              timeout-minutes: 5
               with:
                   verbose: true
                   log: true
@@ -253,7 +255,7 @@ jobs:
             - name: Cypress run
               # these are required checks so, we can't skip entire sections
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              uses: cypress-io/github-action@v6
+              uses: cypress-io/github-action@108b8684ae52e735ff7891524cbffbcd4be5b19f # v6
               with:
                   install-command: 'pnpm --filter=@posthog/cypress... install --frozen-lockfile'
                   command: 'pnpm --filter=@posthog/cypress exec cypress run --config-file cypress.e2e.config.ts --spec ${{ matrix.chunk }} --headed'
@@ -265,21 +267,21 @@ jobs:
                   GITHUB_ACTION_RUN_URL: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
 
             - name: Archive test screenshots
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
               with:
                   name: screenshots-${{ strategy.job-index }}
                   path: cypress/screenshots
               if: ${{ failure() }}
 
             - name: Archive test downloads
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
               with:
                   name: downloads-${{ strategy.job-index }}
                   path: cypress/downloads
               if: ${{ failure() }}
 
             - name: Archive test videos
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
               with:
                   name: videos-${{ strategy.job-index }}
                   path: cypress/videos
@@ -287,7 +289,7 @@ jobs:
 
             - name: Archive accessibility violations
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
               with:
                   name: accessibility-violations-${{ strategy.job-index }}
                   path: '**/a11y/'
@@ -295,7 +297,7 @@ jobs:
 
             - name: Show logs on failure
               # use artefact here, as I think the output will be too large for display in an action
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
               with:
                   name: logs-${{ strategy.job-index }}
                   path: /tmp/logs

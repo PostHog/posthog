@@ -23,7 +23,7 @@ function calculateRank(query: string): number {
     return query.length / (query.length + 2.0)
 }
 
-function rankPersons(persons: PersonType[], query: string): PersonResult[] {
+export function rankPersons(persons: PersonType[], query: string): PersonResult[] {
     const rank = calculateRank(query)
     return persons.map((person) => ({
         type: 'person',
@@ -45,7 +45,7 @@ function rankGroups(groups: Group[], query: string): GroupResult[] {
 
 export const searchBarLogic = kea<searchBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'searchBarLogic']),
-    connect({
+    connect(() => ({
         values: [commandBarLogic, ['initialQuery', 'barStatus'], groupsModel, ['groupTypes', 'aggregationLabel']],
         actions: [
             commandBarLogic,
@@ -53,7 +53,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
             eventUsageLogic,
             ['reportCommandBarSearch', 'reportCommandBarSearchResultOpened'],
         ],
-    }),
+    })),
     actions({
         search: true,
         setSearchQuery: (query: string) => ({ query }),

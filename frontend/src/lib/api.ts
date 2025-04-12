@@ -1,12 +1,13 @@
+import { EventSourceMessage, fetchEventSource } from '@microsoft/fetch-event-source'
 import { decompressSync, strFromU8 } from 'fflate'
 import { encodeParams } from 'kea-router'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
-import { ChatCompletionUserMessageParam } from 'openai/resources/chat/completions'
 import posthog from 'posthog-js'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import { SessionSummaryResponse } from 'scenes/session-recordings/player/player-meta/types'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
@@ -17,8 +18,8 @@ import {
     DatabaseSerializedFieldType,
     ErrorTrackingIssue,
     ErrorTrackingRelationalIssue,
+    FileSystemCount,
     FileSystemEntry,
-    FileSystemType,
     HogCompileResponse,
     HogQLVariable,
     QuerySchema,
@@ -35,7 +36,10 @@ import {
     AppMetricsV2Response,
     BatchExportBackfill,
     BatchExportConfiguration,
+    BatchExportConfigurationTest,
+    BatchExportConfigurationTestStep,
     BatchExportRun,
+    BatchExportService,
     CohortType,
     CommentType,
     CoreMemory,
@@ -45,6 +49,7 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataColorThemeModel,
+    DataModelingJob,
     DataWarehouseSavedQuery,
     DataWarehouseTable,
     DataWarehouseViewLink,
@@ -68,6 +73,7 @@ import {
     Group,
     GroupListParams,
     HogFunctionIconResponse,
+    HogFunctionKind,
     HogFunctionStatus,
     HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
@@ -76,6 +82,7 @@ import {
     HogFunctionTypeType,
     InsightModel,
     IntegrationType,
+    LinearTeamType,
     LinkedInAdsAccountType,
     LinkedInAdsConversionRuleType,
     ListOrganizationMembersParams,
@@ -121,6 +128,7 @@ import {
     SlackChannelType,
     SubscriptionType,
     Survey,
+    SurveyStats,
     TeamType,
     UserBasicType,
     UserGroup,
@@ -168,7 +176,6 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 export interface ApiMethodOptions {
     signal?: AbortSignal
     headers?: Record<string, any>
-    async?: boolean
 }
 
 export class ApiError extends Error {
@@ -374,7 +381,7 @@ class ApiRequest {
     public fileSystem(projectId?: ProjectType['id']): ApiRequest {
         return this.projectsDetail(projectId).addPathComponent('file_system')
     }
-    public fileSystemUnfiled(type?: FileSystemType, projectId?: ProjectType['id']): ApiRequest {
+    public fileSystemUnfiled(type?: string, projectId?: ProjectType['id']): ApiRequest {
         const path = this.fileSystem(projectId).addPathComponent('unfiled')
         if (type) {
             path.withQueryString({ type })
@@ -383,6 +390,18 @@ class ApiRequest {
     }
     public fileSystemDetail(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
         return this.fileSystem(projectId).addPathComponent(id)
+    }
+    public fileSystemMove(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
+        return this.fileSystem(projectId).addPathComponent(id).addPathComponent('move')
+    }
+    public fileSystemLink(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
+        return this.fileSystem(projectId).addPathComponent(id).addPathComponent('link')
+    }
+    public fileSystemCount(id: NonNullable<FileSystemEntry['id']>, projectId?: ProjectType['id']): ApiRequest {
+        return this.fileSystem(projectId).addPathComponent(id).addPathComponent('count')
+    }
+    public fileSystemCountByPath(path: string, projectId?: ProjectType['id']): ApiRequest {
+        return this.fileSystem(projectId).addPathComponent('count_by_path').withQueryString({ path })
     }
 
     // # Plugins
@@ -648,6 +667,17 @@ class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('groups')
     }
 
+    public group(index: number, key: string, teamId?: TeamType['id']): ApiRequest {
+        return this.groups(teamId).withQueryString({
+            group_type_index: index,
+            group_key: key,
+        })
+    }
+
+    public groupActivity(teamId?: TeamType['id']): ApiRequest {
+        return this.groups(teamId).addPathComponent('activity')
+    }
+
     // # Search
     public search(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('search')
@@ -750,7 +780,7 @@ class ApiRequest {
 
     // Error tracking
     public errorTracking(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('error_tracking')
+        return this.environmentsDetail(teamId).addPathComponent('error_tracking')
     }
 
     public errorTrackingIssues(teamId?: TeamType['id']): ApiRequest {
@@ -781,21 +811,13 @@ class ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent(id)
     }
 
-    public errorTrackingStackFrames({
-        raw_ids,
-        symbol_set,
-    }: {
-        raw_ids?: ErrorTrackingStackFrame['raw_id'][]
-        symbol_set?: ErrorTrackingSymbolSet['id']
-    }): ApiRequest {
-        return this.errorTracking()
-            .addPathComponent('stack_frames')
-            .withQueryString(toParams({ raw_ids, symbol_set }, true))
+    public errorTrackingStackFrames(): ApiRequest {
+        return this.errorTracking().addPathComponent('stack_frames/batch_get')
     }
 
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('warehouse_tables')
+        return this.environmentsDetail(teamId).addPathComponent('warehouse_tables')
     }
     public dataWarehouseTable(id: DataWarehouseTable['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseTables(teamId).addPathComponent(id)
@@ -803,15 +825,27 @@ class ApiRequest {
 
     // # Warehouse view
     public dataWarehouseSavedQueries(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('warehouse_saved_queries')
+        return this.environmentsDetail(teamId).addPathComponent('warehouse_saved_queries')
     }
     public dataWarehouseSavedQuery(id: DataWarehouseSavedQuery['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseSavedQueries(teamId).addPathComponent(id)
     }
 
+    // # Data Modeling Jobs (ie) materialized view runs
+    public dataWarehouseDataModelingJobs(
+        savedQueryId: DataWarehouseSavedQuery['id'],
+        pageSize = 10,
+        offset = 0,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.environmentsDetail(teamId)
+            .addPathComponent('data_modeling_jobs')
+            .withQueryString({ saved_query_id: savedQueryId, limit: pageSize, offset })
+    }
+
     // # Warehouse view link
     public dataWarehouseViewLinks(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('warehouse_view_link')
+        return this.environmentsDetail(teamId).addPathComponent('warehouse_view_link')
     }
     public dataWarehouseViewLink(id: DataWarehouseViewLink['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataWarehouseViewLinks(teamId).addPathComponent(id)
@@ -859,6 +893,10 @@ class ApiRequest {
             .addPathComponent(id)
             .addPathComponent('channels')
             .withQueryString({ channel_id: channelId })
+    }
+
+    public integrationLinearTeams(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('linear_teams')
     }
 
     public integrationGoogleAdsAccounts(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1015,7 +1053,7 @@ class ApiRequest {
 
     // External Data Source
     public externalDataSources(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('external_data_sources')
+        return this.environmentsDetail(teamId).addPathComponent('external_data_sources')
     }
 
     public externalDataSource(sourceId: ExternalDataSource['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1023,7 +1061,7 @@ class ApiRequest {
     }
 
     public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('external_data_schemas')
+        return this.environmentsDetail(teamId).addPathComponent('external_data_schemas')
     }
 
     public externalDataSourceSchema(schemaId: ExternalDataSourceSchema['id'], teamId?: TeamType['id']): ApiRequest {
@@ -1221,15 +1259,33 @@ const api = {
     },
 
     fileSystem: {
-        async list(
-            parent?: string,
-            depth?: number,
-            limit?: number,
+        async list({
+            parent,
+            path,
+            depth,
+            limit,
+            offset,
+            search,
+            ref,
+            type,
+            type__startswith,
+        }: {
+            parent?: string
+            path?: string
+            depth?: number
+            limit?: number
             offset?: number
-        ): Promise<CountedPaginatedResponse<FileSystemEntry>> {
-            return await new ApiRequest().fileSystem().withQueryString({ parent, depth, limit, offset }).get()
+            search?: string
+            ref?: string
+            type?: string
+            type__startswith?: string
+        }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+            return await new ApiRequest()
+                .fileSystem()
+                .withQueryString({ parent, path, depth, limit, offset, search, ref, type, type__startswith })
+                .get()
         },
-        async unfiled(type?: FileSystemType): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+        async unfiled(type?: string): Promise<CountedPaginatedResponse<FileSystemEntry>> {
             return await new ApiRequest().fileSystemUnfiled(type).get()
         },
         async create(data: FileSystemEntry): Promise<FileSystemEntry> {
@@ -1240,6 +1296,18 @@ const api = {
         },
         async delete(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemDetail(id).delete()
+        },
+        async move(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemMove(id).create({ data: { new_path: newPath } })
+        },
+        async link(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemLink(id).create({ data: { new_path: newPath } })
+        },
+        async count(id: NonNullable<FileSystemEntry['id']>): Promise<FileSystemCount> {
+            return await new ApiRequest().fileSystemCount(id).create()
+        },
+        async countByPath(path: string): Promise<FileSystemCount> {
+            return await new ApiRequest().fileSystemCountByPath(path).create()
         },
     },
 
@@ -1352,6 +1420,9 @@ const api = {
                 [ActivityScope.PERSON]: () => {
                     return new ApiRequest().personActivity(props.id)
                 },
+                [ActivityScope.GROUP]: () => {
+                    return new ApiRequest().groupActivity()
+                },
                 [ActivityScope.INSIGHT]: () => {
                     return new ApiRequest().insightsActivity(projectId)
                 },
@@ -1384,10 +1455,16 @@ const api = {
                 },
             }
 
-            const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
+            let parameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE } as Record<string, any>
             const request = requestForScope[scopes[0]]?.()
+            // :KLUDGE: Groups don't expose a unique ID so we need to pass the index and the key
+            if (scopes[0] === ActivityScope.GROUP && props.id) {
+                const groupTypeIndex = (props.id as string)[0]
+                const groupKey = (props.id as string).substring(2)
+                parameters = { ...parameters, group_type_index: groupTypeIndex, group_key: groupKey }
+            }
             return request
-                ? request.withQueryString(toParams(pagingParameters)).get()
+                ? request.withQueryString(toParams(parameters)).get()
                 : Promise.resolve({ results: [], count: 0 })
         },
     },
@@ -1575,6 +1652,7 @@ const api = {
         }: {
             event_names?: string[]
             excluded_properties?: string[]
+            exclude_core_properties?: boolean
             properties?: string[]
             filter_by_event_names?: boolean
             type?: PropertyDefinitionType
@@ -1601,6 +1679,7 @@ const api = {
         }: {
             event_names?: string[]
             excluded_properties?: string[]
+            exclude_core_properties?: boolean
             filter_by_event_names?: boolean
             is_feature_flag?: boolean
             limit?: number
@@ -1871,6 +1950,27 @@ const api = {
         async list(params: GroupListParams): Promise<CountedPaginatedResponse<Group>> {
             return await new ApiRequest().groups().withQueryString(toParams(params, true)).get()
         },
+        async updateProperty(index: number, key: string, property: string, value: any): Promise<void> {
+            return new ApiRequest()
+                .group(index, key)
+                .withAction('update_property')
+                .create({
+                    data: {
+                        key: property,
+                        value: value,
+                    },
+                })
+        },
+        async deleteProperty(index: number, key: string, property: string): Promise<void> {
+            return new ApiRequest()
+                .group(index, key)
+                .withAction('delete_property')
+                .create({
+                    data: {
+                        $unset: property,
+                    },
+                })
+        },
     },
 
     search: {
@@ -1975,9 +2075,13 @@ const api = {
         async list({
             filters,
             types,
+            kinds,
+            excludeKinds,
         }: {
             filters?: any
             types?: HogFunctionTypeType[]
+            kinds?: HogFunctionKind[]
+            excludeKinds?: HogFunctionKind[]
         }): Promise<PaginatedResponse<HogFunctionType>> {
             return await new ApiRequest()
                 .hogFunctions()
@@ -1985,6 +2089,8 @@ const api = {
                     filters,
                     // NOTE: The API expects "type" as thats the DB level name
                     ...(types ? { type: types.join(',') } : {}),
+                    ...(kinds ? { kind: kinds.join(',') } : {}),
+                    ...(excludeKinds ? { exclude_kind: excludeKinds.join(',') } : {}),
                 })
                 .get()
         },
@@ -1996,6 +2102,9 @@ const api = {
         },
         async update(id: HogFunctionType['id'], data: Partial<HogFunctionType>): Promise<HogFunctionType> {
             return await new ApiRequest().hogFunction(id).update({ data })
+        },
+        async sendBroadcast(id: HogFunctionType['id']): Promise<HogFunctionType> {
+            return await new ApiRequest().hogFunction(id).withAction('broadcast').create()
         },
         async logs(
             id: HogFunctionType['id'],
@@ -2099,8 +2208,13 @@ const api = {
             return await new ApiRequest().errorTrackingAssignIssue(id).update({ data: { assignee } })
         },
 
-        async bulkResolve(ids: ErrorTrackingIssue['id'][]): Promise<{ content: string }> {
-            return await new ApiRequest().errorTrackingIssueBulk().create({ data: { action: 'resolve', ids } })
+        async bulkMarkStatus(
+            ids: ErrorTrackingIssue['id'][],
+            status: ErrorTrackingIssue['status']
+        ): Promise<{ content: string }> {
+            return await new ApiRequest()
+                .errorTrackingIssueBulk()
+                .create({ data: { action: 'set_status', ids, status: status } })
         },
 
         async bulkAssign(
@@ -2134,13 +2248,13 @@ const api = {
         async symbolSetStackFrames(
             id: ErrorTrackingSymbolSet['id']
         ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
-            return await new ApiRequest().errorTrackingStackFrames({ symbol_set: id }).get()
+            return await new ApiRequest().errorTrackingStackFrames().create({ data: { symbol_set: id } })
         },
 
         async stackFrames(
             raw_ids: ErrorTrackingStackFrame['raw_id'][]
         ): Promise<{ results: ErrorTrackingStackFrameRecord[] }> {
-            return await new ApiRequest().errorTrackingStackFrames({ raw_ids }).get()
+            return await new ApiRequest().errorTrackingStackFrames().create({ data: { raw_ids: raw_ids } })
         },
     },
 
@@ -2190,7 +2304,7 @@ const api = {
             return await new ApiRequest().recording(recordingId).withAction('persist').create()
         },
 
-        async summarize(recordingId: SessionRecordingType['id']): Promise<{ content: string }> {
+        async summarize(recordingId: SessionRecordingType['id']): Promise<SessionSummaryResponse> {
             return await new ApiRequest().recording(recordingId).withAction('summarize').create()
         },
 
@@ -2290,12 +2404,14 @@ const api = {
                 .delete()
         },
 
-        async aiFilters(messages: ChatCompletionUserMessageParam[]): Promise<{ result: string; data: any }> {
-            return await new ApiRequest().recordings().withAction('ai/filters').create({ data: { messages } })
-        },
-
         async aiRegex(regex: string): Promise<{ result: string; data: any }> {
             return await new ApiRequest().recordings().withAction('ai/regex').create({ data: { regex } })
+        },
+
+        async getSimilarRecordings(
+            session_recording_id: SessionRecordingType['id']
+        ): Promise<{ count: number; results: string[] }> {
+            return await new ApiRequest().recording(session_recording_id).withAction('analyze/similar').get()
         },
     },
 
@@ -2430,6 +2546,25 @@ const api = {
         ): Promise<PaginatedResponse<LogEntry>> {
             return await new ApiRequest().batchExport(id).withAction('logs').withQueryString(params).get()
         },
+        async test(destination: BatchExportService['type']): Promise<BatchExportConfigurationTest> {
+            return await new ApiRequest().batchExports().withAction('test').withQueryString({ destination }).get()
+        },
+        async runTestStep(
+            id: BatchExportConfiguration['id'],
+            step: number,
+            data: Record<string, any>
+        ): Promise<BatchExportConfigurationTestStep> {
+            return await new ApiRequest()
+                .batchExport(id)
+                .withAction('run_test_step')
+                .create({ data: { ...{ step: step }, ...data } })
+        },
+        async runTestStepNew(step: number, data: Record<string, any>): Promise<BatchExportConfigurationTestStep> {
+            return await new ApiRequest()
+                .batchExports()
+                .withAction('run_test_step_new')
+                .create({ data: { ...{ step: step }, ...data } })
+        },
     },
 
     earlyAccessFeatures: {
@@ -2486,6 +2621,43 @@ const api = {
                 apiRequest = apiRequest.withQueryString('questionIndex=' + questionIndex)
             }
             return await apiRequest.create()
+        },
+        async getSurveyStats({
+            surveyId,
+            dateFrom = null,
+            dateTo = null,
+        }: {
+            surveyId: Survey['id']
+            dateFrom?: string | null
+            dateTo?: string | null
+        }): Promise<SurveyStats> {
+            const apiRequest = new ApiRequest().survey(surveyId).withAction('stats')
+            const queryParams: Record<string, string> = {}
+            if (dateFrom) {
+                queryParams['date_from'] = dateFrom
+            }
+            if (dateTo) {
+                queryParams['date_to'] = dateTo
+            }
+
+            return await apiRequest.withQueryString(queryParams).get()
+        },
+        async getGlobalSurveyStats({
+            dateFrom = null,
+            dateTo = null,
+        }: {
+            dateFrom?: string | null
+            dateTo?: string | null
+        }): Promise<SurveyStats> {
+            const apiRequest = new ApiRequest().surveys().withAction('stats')
+            const queryParams: Record<string, string> = {}
+            if (dateFrom) {
+                queryParams['date_from'] = dateFrom
+            }
+            if (dateTo) {
+                queryParams['date_to'] = dateTo
+            }
+            return await apiRequest.get()
         },
     },
 
@@ -2552,6 +2724,15 @@ const api = {
                 .dataWarehouseSavedQuery(viewId)
                 .withAction('descendants')
                 .create({ data: { level } })
+        },
+        dataWarehouseDataModelingJobs: {
+            async list(
+                savedQueryId: DataWarehouseSavedQuery['id'],
+                pageSize: number,
+                offset: number
+            ): Promise<PaginatedResponse<DataModelingJob>> {
+                return await new ApiRequest().dataWarehouseDataModelingJobs(savedQueryId, pageSize, offset).get()
+            },
         },
     },
     externalDataSources: {
@@ -2622,6 +2803,9 @@ const api = {
         },
         async incremental_fields(schemaId: ExternalDataSourceSchema['id']): Promise<SchemaIncrementalFieldsResponse> {
             return await new ApiRequest().externalDataSourceSchema(schemaId).withAction('incremental_fields').create()
+        },
+        async delete_data(schemaId: ExternalDataSourceSchema['id']): Promise<SchemaIncrementalFieldsResponse> {
+            return await new ApiRequest().externalDataSourceSchema(schemaId).withAction('delete_data').delete()
         },
         async logs(
             schemaId: ExternalDataSourceSchema['id'],
@@ -2754,6 +2938,9 @@ const api = {
             channelId: string
         ): Promise<{ channels: SlackChannelType[] }> {
             return await new ApiRequest().integrationSlackChannelsById(id, channelId).get()
+        },
+        async linearTeams(id: IntegrationType['id']): Promise<{ teams: LinearTeamType[] }> {
+            return await new ApiRequest().integrationLinearTeams(id).get()
         },
         async googleAdsAccounts(
             id: IntegrationType['id']
@@ -2934,7 +3121,12 @@ const api = {
 
     conversations: {
         async stream(
-            data: { content: string; conversation?: string | null; trace_id: string },
+            data: {
+                content: string
+                contextual_tools?: Record<string, any>
+                conversation?: string | null
+                trace_id: string
+            },
             options?: ApiMethodOptions
         ): Promise<Response> {
             return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data, options)
@@ -3038,6 +3230,54 @@ const api = {
                 },
             })
         )
+    },
+
+    /** Stream server-sent events over an EventSource. */
+    async stream(
+        url: string,
+        {
+            method = 'GET',
+            data,
+            onMessage,
+            onError,
+            headers,
+            signal,
+        }:
+            | {
+                  method?: 'GET'
+                  /** GET requests cannot contain a body, use URL params instead. */
+                  data?: never
+                  onMessage: (data: EventSourceMessage) => void
+                  onError: (error: any) => void
+                  headers?: Record<string, string>
+                  signal?: AbortSignal
+              }
+            | {
+                  method: 'POST'
+                  /** Any JSON-serializable object. */
+                  data: any
+                  onMessage: (data: EventSourceMessage) => void
+                  onError: (error: any) => void
+                  headers?: Record<string, string>
+                  signal?: AbortSignal
+              }
+    ): Promise<void> {
+        await fetchEventSource(url, {
+            method,
+            headers: {
+                ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
+                'X-CSRFToken': getCookie('posthog_csrftoken') || '',
+                ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
+                ...objectClean(headers ?? {}),
+            },
+            body: data !== undefined ? JSON.stringify(data) : undefined,
+            signal,
+            onmessage: onMessage,
+            onerror: onError,
+            // By default fetch-event-source stops connection when document is no longer focused, but that is not how
+            // EventSource works normally, hence reverting (https://github.com/Azure/fetch-event-source/issues/36)
+            openWhenHidden: true,
+        })
     },
 
     async loadPaginatedResults<T extends Record<string, any>>(

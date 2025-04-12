@@ -1,7 +1,20 @@
-from posthog.clickhouse.query_tagging import tag_queries, get_query_tags, tags_context
+from posthog.clickhouse.query_tagging import tag_queries, get_query_tags, tags_context, clear_tag, reset_query_tags
+
+
+def test_clear_tag():
+    clear_tag("some")
+    reset_query_tags()
+    assert get_query_tags() == {}
+    tag_queries(another=True)
+    assert get_query_tags() == {"another": True}
+    clear_tag("some")
+    assert get_query_tags() == {"another": True}
+    clear_tag("another")
+    assert get_query_tags() == {}
 
 
 def test_tags_context():
+    reset_query_tags()
     # Set initial tags
     tag_queries(initial="value")
     assert get_query_tags() == {"initial": "value"}

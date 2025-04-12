@@ -38,7 +38,7 @@ jest.mock('../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep', (
         processWebhooksStep: jest.fn(originalModule.processWebhooksStep),
     }
 })
-jest.mock('../../../src/utils/status')
+jest.mock('../../../src/utils/logger')
 jest.mock('./../../../src/worker/ingestion/utils')
 
 const runEventPipeline = jest.fn().mockResolvedValue('default value')

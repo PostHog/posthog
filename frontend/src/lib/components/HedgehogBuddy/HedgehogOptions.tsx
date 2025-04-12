@@ -135,23 +135,23 @@ function HedgehogAccessories(): JSX.Element {
                     <h4>{capitalizeFirstLetter(group)}</h4>
 
                     <div className="flex flex-wrap gap-2 pt-px pb-2 overflow-y-auto">
-                        {HedgehogActorAccessoryOptions.filter(
-                            (acc) => HedgehogActorAccessories[acc].group === group
-                        ).map((acc) => (
-                            <LemonButton
-                                key={acc}
-                                className={clsx(
-                                    'border-2',
-                                    accessories.includes(acc) ? 'border-accent-primary' : 'border-transparent'
-                                )}
-                                size="small"
-                                onClick={() => onClick(acc)}
-                                noPadding
-                                tooltip={<>{capitalizeFirstLetter(acc)}</>}
-                            >
-                                <HedgehogBuddyStatic accessories={[acc]} />
-                            </LemonButton>
-                        ))}
+                        {Object.keys(standardAccessories)
+                            .filter((acc) => standardAccessories[acc].group === group)
+                            .map((acc) => (
+                                <LemonButton
+                                    key={acc}
+                                    className={clsx(
+                                        'border-2',
+                                        accessories.includes(acc) ? 'border-accent' : 'border-transparent'
+                                    )}
+                                    size="small"
+                                    onClick={() => onClick(acc)}
+                                    noPadding
+                                    tooltip={<>{capitalizeFirstLetter(acc)}</>}
+                                >
+                                    <HedgehogBuddyStatic accessories={[acc]} />
+                                </LemonButton>
+                            ))}
                     </div>
                 </React.Fragment>
             ))}
@@ -180,7 +180,13 @@ function HedgehogSkins(): JSX.Element | null {
                         key={option}
                         className={clsx(
                             'border-2',
+<<<<<<< HEAD
                             hedgehogConfig.skin === option ? 'border-accent-primary' : 'border-transparent'
+=======
+                            !hedgehogConfig.color && hedgehogConfig.skin === option
+                                ? 'border-accent'
+                                : 'border-transparent'
+>>>>>>> master
                         )}
                         size="small"
                         onClick={() => patchHedgehogConfig({ skin: option as any })}
@@ -209,7 +215,7 @@ function HedgehogColor(): JSX.Element {
                         key={option}
                         className={clsx(
                             'border-2',
-                            hedgehogConfig.color === option ? 'border-accent-primary' : 'border-transparent'
+                            hedgehogConfig.color === option ? 'border-accent' : 'border-transparent'
                         )}
                         size="small"
                         onClick={() => patchHedgehogConfig({ color: option === 'none' ? null : (option as any) })}

@@ -98,6 +98,18 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics/web-vitals',
     },
+    [Scene.WebAnalyticsPageReports]: {
+        projectBased: true,
+        name: 'Page reports',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics',
+    },
+    [Scene.RevenueAnalytics]: {
+        projectBased: true,
+        name: 'Revenue analytics',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/revenue-analytics',
+    },
     [Scene.Cohort]: {
         projectBased: true,
         name: 'Cohort',
@@ -164,6 +176,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
     },
+    [Scene.ReplaySettings]: {
+        projectBased: true,
+        name: 'Settings',
+        activityScope: ActivityScope.REPLAY,
+        defaultDocsPath: '/docs/session-replay',
+    },
     [Scene.Person]: {
         projectBased: true,
         name: 'Person',
@@ -180,6 +198,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Action',
         defaultDocsPath: '/docs/data/actions',
+    },
+    [Scene.Groups]: {
+        projectBased: true,
+        name: 'Groups',
+        defaultDocsPath: '/docs/product-analytics/group-analytics',
     },
     [Scene.Group]: {
         projectBased: true,
@@ -239,11 +262,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.FEATURE_FLAG,
         defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
     },
-    [Scene.FeatureManagement]: {
-        projectBased: true,
-        name: 'Features',
-        defaultDocsPath: '/docs/feature-flags',
-    },
     [Scene.Surveys]: {
         projectBased: true,
         name: 'Surveys',
@@ -261,29 +279,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'New survey',
         defaultDocsPath: '/docs/surveys/creating-surveys',
     },
-    [Scene.DataWarehouse]: {
-        projectBased: true,
-        name: 'Data warehouse',
-        defaultDocsPath: '/docs/data-warehouse',
-    },
     [Scene.SQLEditor]: {
         projectBased: true,
         name: 'SQL editor',
-        defaultDocsPath: '/docs/data-warehouse/setup',
+        defaultDocsPath: '/docs/cdp/sources',
         layout: 'app-raw-no-header',
-    },
-    [Scene.DataWarehouseExternal]: {
-        projectBased: true,
-        name: 'Data warehouse',
-        defaultDocsPath: '/docs/data-warehouse/setup',
-    },
-    [Scene.DataWarehouseRedirect]: {
-        name: 'Data warehouse redirect',
-    },
-    [Scene.DataWarehouseTable]: {
-        projectBased: true,
-        name: 'Data warehouse table',
-        defaultDocsPath: '/docs/data-warehouse',
+        hideProjectNotice: true,
     },
     [Scene.SavedInsights]: {
         projectBased: true,
@@ -445,6 +446,18 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Wizard',
         layout: 'plain',
     },
+    [Scene.MessagingBroadcasts]: {
+        projectBased: true,
+        name: 'Messaging Broadcasts',
+    },
+    [Scene.MessagingCampaigns]: {
+        projectBased: true,
+        name: 'Messaging Campaigns',
+    },
+    [Scene.MessagingLibrary]: {
+        projectBased: true,
+        name: 'Message Library',
+    },
     ...productConfiguration,
 }
 
@@ -461,6 +474,7 @@ export const redirects: Record<
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/action/:id': ({ id }) => urls.action(id),
     '/action': urls.createAction(),
+    '/activity': urls.activity(),
     '/events': urls.activity(),
     '/events/actions': urls.actions(),
     '/events/stats': urls.eventDefinitions(),
@@ -490,6 +504,7 @@ export const redirects: Record<
     '/recordings/:id': ({ id }) => urls.replaySingle(id),
     '/recordings/playlists/:id': ({ id }) => urls.replayPlaylist(id),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
+    '/recordings/settings': () => urls.replaySettings(),
     '/recordings': (_params, _searchParams, hashParams) => {
         if (hashParams.sessionRecordingId) {
             // Previous URLs for an individual recording were like: /recordings/#sessionRecordingId=foobar
@@ -507,6 +522,7 @@ export const redirects: Record<
     '/me/settings': urls.settings('user'),
     '/pipeline': urls.pipeline(),
     '/instance': urls.instanceStatus(),
+    '/data-management': urls.eventDefinitions(),
     '/data-management/database': urls.pipeline(PipelineTab.Sources),
     '/pipeline/data-import': urls.pipeline(PipelineTab.Sources),
     '/batch_exports/:id': ({ id }) => urls.pipelineNode(PipelineStage.Destination, id),
@@ -541,7 +557,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.savedInsights()]: [Scene.SavedInsights, 'savedInsights'],
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
-    [urls.revenue()]: [Scene.DataManagement, 'revenue'],
+    [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
+    [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
+    [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.actions()]: [Scene.DataManagement, 'actions'],
     [urls.eventDefinitions()]: [Scene.DataManagement, 'eventDefinitions'],
     [urls.eventDefinition(':id')]: [Scene.EventDefinition, 'eventDefinition'],
@@ -561,11 +579,12 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.replayFilePlayback()]: [Scene.ReplayFilePlayback, 'replayFilePlayback'],
     [urls.replaySingle(':id')]: [Scene.ReplaySingle, 'replaySingle'],
     [urls.replayPlaylist(':id')]: [Scene.ReplayPlaylist, 'replayPlaylist'],
+    [urls.replaySettings()]: [Scene.ReplaySettings, 'replaySettings'],
     [urls.personByDistinctId('*', false)]: [Scene.Person, 'personByDistinctId'],
     [urls.personByUUID('*', false)]: [Scene.Person, 'personByUUID'],
     [urls.persons()]: [Scene.PersonsManagement, 'persons'],
     [urls.pipelineNodeNew(':stage')]: [Scene.PipelineNodeNew, 'pipelineNodeNew'],
-    [urls.pipelineNodeNew(':stage', ':id')]: [Scene.PipelineNodeNew, 'pipelineNodeNewWithId'],
+    [urls.pipelineNodeNew(':stage', { id: ':id' })]: [Scene.PipelineNodeNew, 'pipelineNodeNewWithId'],
     [urls.pipeline(':tab')]: [Scene.Pipeline, 'pipeline'],
     [urls.pipelineNode(':stage', ':id', ':nodeTab')]: [Scene.PipelineNode, 'pipelineNode'],
     [urls.pipelineNode(':stage', ':id')]: [Scene.PipelineNode, 'pipelineNodeWithId'],
@@ -586,15 +605,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.surveys()]: [Scene.Surveys, 'surveys'],
     [urls.survey(':id')]: [Scene.Survey, 'survey'],
     [urls.surveyTemplates()]: [Scene.SurveyTemplates, 'surveyTemplates'],
-    [urls.dataWarehouse()]: [Scene.DataWarehouse, 'dataWarehouse'],
-    [urls.dataWarehouseView(':id')]: [Scene.DataWarehouse, 'dataWarehouseView'],
-    [urls.dataWarehouseTable()]: [Scene.DataWarehouseTable, 'dataWarehouseTable'],
-    [urls.dataWarehouseRedirect(':kind')]: [Scene.DataWarehouseRedirect, 'dataWarehouseRedirect'],
     [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
-    [urls.featureManagement()]: [Scene.FeatureManagement, 'featureManagement'],
-    [urls.featureManagement(':id')]: [Scene.FeatureManagement, 'featureManagementWithId'],
     [urls.annotations()]: [Scene.DataManagement, 'annotations'],
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],

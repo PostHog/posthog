@@ -54,4 +54,6 @@ export const manifest: ProductManifest = {
         },
         llmObservabilityUsers: (): string => '/llm-observability/users',
     },
+    fileSystemTypes: {},
+    treeItemsNew: [],
 }

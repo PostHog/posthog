@@ -18,8 +18,6 @@ import {
     CohortPeople,
     Database,
     DeadLetterQueueEvent,
-    EventDefinitionType,
-    EventPropertyType,
     Group,
     GroupKey,
     GroupTypeIndex,
@@ -35,7 +33,6 @@ import {
     ProjectId,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
-    PropertyDefinitionType,
     RawClickHouseEvent,
     RawGroup,
     RawOrganization,
@@ -49,9 +46,10 @@ import { fetchAction, fetchAllActionsGroupedByTeam } from '../../worker/ingestio
 import { fetchOrganization } from '../../worker/ingestion/organization-manager'
 import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
 import { parseRawClickHouseEvent } from '../event'
+import { parseJSON } from '../json-parse'
+import { logger } from '../logger'
 import { instrumentQuery } from '../metrics'
 import { captureException } from '../posthog'
-import { status } from '../status'
 import {
     castTimestampOrNow,
     escapeClickHouseString,
@@ -261,7 +259,7 @@ export class DB {
                 if (typeof value === 'undefined' || value === null) {
                     return defaultValue
                 }
-                return value ? (jsonSerialize ? JSON.parse(value) : value) : null
+                return value ? (jsonSerialize ? parseJSON(value) : value) : null
             } catch (error) {
                 if (error instanceof SyntaxError) {
                     // invalid JSON
@@ -459,6 +457,7 @@ export class DB {
     private toPerson(row: RawPerson): InternalPerson {
         return {
             ...row,
+            id: String(row.id),
             created_at: DateTime.fromISO(row.created_at).toUTC(),
             version: Number(row.version || 0),
         }
@@ -689,7 +688,7 @@ export class DB {
 
         const kafkaMessage = generateKafkaPersonUpdateMessage(updatedPerson)
 
-        status.debug(
+        logger.debug(
             '🧑‍🦰',
             `Updated person ${updatedPerson.uuid} of team ${updatedPerson.team_id} to version ${updatedPerson.version}.`
         )
@@ -1025,7 +1024,7 @@ export class DB {
         ).data.map((event) => {
             return {
                 ...event,
-                snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
+                snapshot_data: event.snapshot_data ? parseJSON(event.snapshot_data) : null,
             }
         })
         return events
@@ -1060,7 +1059,7 @@ export class DB {
 
         if (parsedEntry.message.length > 50_000) {
             const { message, ...rest } = parsedEntry
-            status.warn('⚠️', 'Plugin log entry too long, ignoring.', rest)
+            logger.warn('⚠️', 'Plugin log entry too long, ignoring.', rest)
             return Promise.resolve()
         }
 
@@ -1076,7 +1075,7 @@ export class DB {
                     messages: [{ key: parsedEntry.id, value: JSON.stringify(parsedEntry) }],
                 })
                 .catch((error) => {
-                    status.warn('⚠️', 'Failed to produce plugin log entry', {
+                    logger.warn('⚠️', 'Failed to produce plugin log entry', {
                         error,
                         entry: parsedEntry,
                     })
@@ -1089,63 +1088,6 @@ export class DB {
             console.error('Failed to produce message', e, parsedEntry)
             return Promise.resolve()
         }
-    }
-
-    // EventDefinition
-
-    public async fetchEventDefinitions(teamId?: number): Promise<EventDefinitionType[]> {
-        return (
-            await this.postgres.query(
-                PostgresUse.COMMON_READ,
-                `
-                SELECT * FROM posthog_eventdefinition
-                ${teamId ? 'WHERE team_id = $1' : ''}
-                -- Order by something that gives a deterministic order. Note
-                -- that this is a unique index.
-                ORDER BY (team_id, name)
-                `,
-                teamId ? [teamId] : undefined,
-                'fetchEventDefinitions'
-            )
-        ).rows as EventDefinitionType[]
-    }
-
-    // PropertyDefinition
-
-    public async fetchPropertyDefinitions(teamId?: number): Promise<PropertyDefinitionType[]> {
-        return (
-            await this.postgres.query(
-                PostgresUse.COMMON_READ,
-                `
-                SELECT * FROM posthog_propertydefinition
-                ${teamId ? 'WHERE team_id = $1' : ''}
-                -- Order by something that gives a deterministic order. Note
-                -- that this is a unique index.
-                ORDER BY (team_id, name, type, coalesce(group_type_index, -1))
-                `,
-                teamId ? [teamId] : undefined,
-                'fetchPropertyDefinitions'
-            )
-        ).rows as PropertyDefinitionType[]
-    }
-
-    // EventProperty
-
-    public async fetchEventProperties(teamId?: number): Promise<EventPropertyType[]> {
-        return (
-            await this.postgres.query(
-                PostgresUse.COMMON_READ,
-                `
-                    SELECT * FROM posthog_eventproperty
-                    ${teamId ? 'WHERE team_id = $1' : ''}
-                    -- Order by something that gives a deterministic order. Note
-                    -- that this is a unique index.
-                    ORDER BY (team_id, event, property)
-                `,
-                teamId ? [teamId] : undefined,
-                'fetchEventProperties'
-            )
-        ).rows as EventPropertyType[]
     }
 
     // Action & ActionStep & Action<>Event

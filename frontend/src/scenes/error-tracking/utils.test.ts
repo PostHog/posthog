@@ -1,6 +1,6 @@
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { mergeIssues } from './utils'
+import { generateDateRangeLabel, generateSparklineLabels, mergeIssues, resolveDate, resolveDateRange } from './utils'
 
 describe('mergeIssues', () => {
     it('arbitrary values', async () => {
@@ -16,8 +16,7 @@ describe('mergeIssues', () => {
                 sessions: 100,
                 users: 50,
                 volumeDay: [10, 5, 10, 20, 50],
-                volumeMonth: [0, 0, 10, 25, 95],
-                customVolume: [0, 0, 0, 0, 0],
+                volumeRange: [0, 0, 10, 25, 95],
             },
             status: 'active',
             earliest: '',
@@ -36,8 +35,7 @@ describe('mergeIssues', () => {
                     sessions: 5,
                     users: 1,
                     volumeDay: [1, 1, 2, 1, 2],
-                    volumeMonth: [2, 7, 2, 6, 7],
-                    customVolume: [0, 0, 0, 0, 1],
+                    volumeRange: [0, 0, 0, 0, 1],
                 },
                 status: 'active',
                 earliest: '',
@@ -54,8 +52,7 @@ describe('mergeIssues', () => {
                     sessions: 1,
                     users: 1,
                     volumeDay: [5, 10, 2, 3, 5],
-                    volumeMonth: [16, 4, 2, 16, 25],
-                    customVolume: [0, 0, 0, 1, 0],
+                    volumeRange: [0, 0, 0, 1, 0],
                 },
                 status: 'active',
                 earliest: '',
@@ -72,8 +69,7 @@ describe('mergeIssues', () => {
                     sessions: 500,
                     users: 50,
                     volumeDay: [10, 100, 200, 300, 700],
-                    volumeMonth: [0, 500, 1500, 1000, 1310],
-                    customVolume: [0, 0, 1, 0, 0],
+                    volumeRange: [0, 500, 1500, 1000, 1310],
                 },
                 status: 'active',
                 earliest: '',
@@ -101,9 +97,96 @@ describe('mergeIssues', () => {
                 users: 102,
                 // sums volumes
                 volumeDay: [26, 116, 214, 324, 757],
-                volumeMonth: [18, 511, 1514, 1047, 1437],
-                customVolume: [0, 0, 1, 1, 1],
+                volumeRange: [0, 500, 1510, 1026, 1406],
             },
         })
+    })
+})
+
+describe('generate sparkline labels', () => {
+    beforeAll(() => {
+        jest.useFakeTimers().setSystemTime(new Date('2023-01-10 17:22:08'))
+    })
+
+    it('generate labels from with hour resolution', async () => {
+        const labels = generateSparklineLabels(
+            {
+                date_from: '2025-01-01',
+                date_to: '2025-01-02',
+            },
+            4
+        ).map((label) => label.toISOString())
+        expect(labels).toEqual([
+            '2025-01-01T00:00:00.000Z',
+            '2025-01-01T06:00:00.000Z',
+            '2025-01-01T12:00:00.000Z',
+            '2025-01-01T18:00:00.000Z',
+        ])
+    })
+
+    it('test date range resolution', async () => {
+        const range = {
+            date_from: '-7d',
+            date_to: '-1d',
+        }
+        const resolvedRange = resolveDateRange(range)
+        expect(resolvedRange.date_from.toISOString()).toEqual('2023-01-03T17:22:08.000Z')
+        expect(resolvedRange.date_to.toISOString()).toEqual('2023-01-09T17:22:08.000Z')
+    })
+
+    it('test date resolution', async () => {
+        const resolvedDate = resolveDate('yStart')
+        expect(resolvedDate.toISOString()).toEqual('2023-01-01T00:00:00.000Z')
+    })
+
+    it('test date range label generation', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: '-7d',
+        })
+        expect(rangeLabel).toEqual('7d')
+    })
+})
+
+describe('date range label generation', () => {
+    it('-7d', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: '-7d',
+        })
+        expect(rangeLabel).toEqual('7d')
+    })
+
+    it('-24h', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: '-24h',
+        })
+        expect(rangeLabel).toEqual('24h')
+    })
+
+    it('-3h', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: '-3h',
+        })
+        expect(rangeLabel).toEqual('3h')
+    })
+
+    it('01-01-2025', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: '01-01-2025',
+        })
+        expect(rangeLabel).toEqual('Custom')
+    })
+
+    it('yStart', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: 'yStart',
+        })
+        expect(rangeLabel).toEqual('Year')
+    })
+
+    it('mStart', async () => {
+        const rangeLabel = generateDateRangeLabel({
+            date_from: 'mStart',
+        })
+        expect(rangeLabel).toEqual('Month')
     })
 })

@@ -48,7 +48,7 @@
                     }
 
                     &.taxonomy-icon-built-in {
-                        color: var(--accent-primary);
+                        color: var(--accent);
                     }
                 }
             }
@@ -75,7 +75,7 @@
         }
 
         &.expand-row {
-            color: var(--accent-primary);
+            color: var(--accent);
         }
     }
 }

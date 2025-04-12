@@ -14,12 +14,12 @@ import {
     LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline, CodeEditorInlineProps } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     HogFunctionConfigurationType,
@@ -30,6 +30,7 @@ import {
 
 import { EmailTemplater } from './email-templater/EmailTemplater'
 import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
+import { formatJsonValue, hogFunctionInputLogic } from './HogFunctionInputLogic'
 import { HogFunctionInputIntegration } from './integrations/HogFunctionInputIntegration'
 import { HogFunctionInputIntegrationField } from './integrations/HogFunctionInputIntegrationField'
 
@@ -61,23 +62,40 @@ function JsonConfigField(props: {
     templating?: boolean
 }): JSX.Element {
     const { globalsWithInputs } = useValues(hogFunctionConfigurationLogic)
+    const key = useMemo(() => `json_field_${Math.random().toString(36).substring(2, 11)}`, [])
+
+    // Set up validation logic for this JSON field
+    const logic = hogFunctionInputLogic({
+        fieldKey: key,
+        initialValue: props.value,
+        onChange: props.onChange,
+    })
+
+    const { error } = useValues(logic)
+    const { setJsonValue } = useActions(logic)
+
+    // Format initial value for display
+    const formattedValue = useMemo(() => formatJsonValue(props.value), [props.value])
+
     return (
-        <CodeEditorResizeable
-            language={props.templating ? 'hogJson' : 'json'}
-            value={typeof props.value !== 'string' ? JSON.stringify(props.value, null, 2) : props.value}
-            onChange={(v) => props.onChange?.(v ?? '')}
-            options={{
-                lineNumbers: 'off',
-                minimap: {
-                    enabled: false,
-                },
-                scrollbar: {
-                    vertical: 'hidden',
-                    verticalScrollbarSize: 0,
-                },
-            }}
-            globals={props.templating ? globalsWithInputs : undefined}
-        />
+        <LemonField.Pure error={error}>
+            <CodeEditorResizeable
+                language={props.templating ? 'hogJson' : 'json'}
+                value={formattedValue}
+                onChange={(value) => setJsonValue(value || '{}')}
+                options={{
+                    lineNumbers: 'off',
+                    minimap: {
+                        enabled: false,
+                    },
+                    scrollbar: {
+                        vertical: 'hidden',
+                        verticalScrollbarSize: 0,
+                    },
+                }}
+                globals={props.templating ? globalsWithInputs : undefined}
+            />
+        </LemonField.Pure>
     )
 }
 
@@ -480,7 +498,7 @@ export function HogFunctionInputWithSchema({
                                         </span>
                                         <LemonButton
                                             onClick={() => {
-                                                onChange({ value: undefined })
+                                                onChange({ value: '' })
                                             }}
                                             size="small"
                                             type="secondary"

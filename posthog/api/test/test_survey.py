@@ -53,6 +53,7 @@ class TestSurvey(APIBaseTest):
         assert response_data["description"] == "Get feedback on the new notebooks feature"
         assert response_data["type"] == "popover"
         assert response_data["schedule"] == "once"
+        assert response_data["enable_partial_responses"] is False
         assert response_data["questions"] == [
             {
                 "id": str(response_data["questions"][0]["id"]),
@@ -140,6 +141,7 @@ class TestSurvey(APIBaseTest):
         assert response_data["description"] == "Get feedback on the new notebooks feature"
         assert response_data["type"] == "popover"
         assert response_data["schedule"] == "once"
+        assert response_data["enable_partial_responses"] is False
         assert response_data["questions"] == [
             {
                 "id": str(response_data["questions"][0]["id"]),
@@ -231,6 +233,7 @@ class TestSurvey(APIBaseTest):
         self.assertNotEqual(response_data["targeting_flag"]["key"], "survey-targeting-power-users-survey")
         assert re.match(r"^survey-targeting-[a-z0-9]+$", response_data["targeting_flag"]["key"])
         assert response_data["schedule"] == "once"
+        assert response_data["enable_partial_responses"] is False
 
         assert response_data["targeting_flag"]["filters"] == {
             "groups": [
@@ -1085,6 +1088,7 @@ class TestSurvey(APIBaseTest):
                     "description": "Make notebooks better",
                     "type": "popover",
                     "schedule": "once",
+                    "enable_partial_responses": False,
                     "questions": [
                         {
                             "id": response_data["results"][0]["questions"][0]["id"],
@@ -1127,6 +1131,7 @@ class TestSurvey(APIBaseTest):
                         "active": False,
                         "ensure_experience_continuity": False,
                         "has_encrypted_payloads": False,
+                        "version": ANY,  # Add version field with ANY matcher
                     },
                     "linked_flag": None,
                     "linked_flag_id": None,
@@ -1205,103 +1210,6 @@ class TestSurvey(APIBaseTest):
         assert (
             updated_survey_deletes_targeting_flag.json()["detail"] == "There is already another survey with this name."
         )
-
-    def test_enable_surveys_opt_in(self):
-        Survey.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="Survey 1",
-            type="popover",
-            questions=[{"type": "open", "question": "What's a survey?"}],
-            start_date=datetime.now() - timedelta(days=2),
-            end_date=datetime.now() - timedelta(days=1),
-        )
-        self.assertEqual(self.team.surveys_opt_in, None)
-        Survey.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="Survey 2",
-            type="popover",
-            questions=[{"type": "open", "question": "What's a hedgehog?"}],
-            start_date=datetime.now() - timedelta(days=2),
-        )
-        assert self.team.surveys_opt_in is True
-
-    def test_disable_surveys_opt_in(self):
-        survey = Survey.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="Survey 2",
-            type="popover",
-            questions=[{"type": "open", "question": "What's a hedgehog?"}],
-            start_date=datetime.now() - timedelta(days=2),
-        )
-        assert self.team.surveys_opt_in is True
-        self.client.patch(
-            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
-            data={"end_date": datetime.now() - timedelta(days=1)},
-        )
-        self.team.refresh_from_db()
-        assert self.team.surveys_opt_in is False
-
-    def test_surveys_opt_in_with_api_type_surveys(self):
-        api_survey = Survey.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="API survey",
-            type="api",
-            questions=[{"type": "open", "question": "What's a survey?"}],
-            start_date=datetime.now() - timedelta(days=2),
-        )
-        self.assertEqual(self.team.surveys_opt_in, None)
-        popover_survey = Survey.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="Popover survey",
-            type="popover",
-            questions=[{"type": "open", "question": "What's a survey?"}],
-            start_date=datetime.now() - timedelta(days=2),
-        )
-        self.team.refresh_from_db()
-        assert self.team.surveys_opt_in is True
-        self.client.patch(
-            f"/api/projects/{self.team.id}/surveys/{api_survey.id}/",
-            data={"end_date": datetime.now() - timedelta(days=1)},
-        )
-        self.team.refresh_from_db()
-        self.assertEqual(self.team.surveys_opt_in, True)
-        self.client.patch(
-            f"/api/projects/{self.team.id}/surveys/{popover_survey.id}/",
-            data={"end_date": datetime.now() - timedelta(days=1)},
-        )
-        self.team.refresh_from_db()
-        assert self.team.surveys_opt_in is False
-
-    def test_surveys_opt_in_post_delete(self):
-        Survey.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="Survey 1",
-            type="popover",
-            questions=[{"type": "open", "question": "What's a survey?"}],
-            start_date=datetime.now() - timedelta(days=2),
-            end_date=datetime.now() - timedelta(days=1),
-        )
-        survey_to_delete = Survey.objects.create(
-            team=self.team,
-            created_by=self.user,
-            name="Survey 2",
-            type="popover",
-            questions=[{"type": "open", "question": "What's a survey?"}],
-            start_date=datetime.now() - timedelta(days=2),
-        )
-        assert self.team.surveys_opt_in is True
-        self.client.delete(
-            f"/api/projects/{self.team.id}/surveys/{survey_to_delete.id}/",
-            format="json",
-        )
-        self.team.refresh_from_db()
-        assert self.team.surveys_opt_in is False
 
     @freeze_time("2023-05-01 12:00:00")
     def test_update_survey_targeting_flag_filters_records_activity(self):
@@ -3048,6 +2956,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                         "current_iteration": None,
                         "current_iteration_start_date": None,
                         "schedule": "once",
+                        "enable_partial_responses": False,
                     }
                 ],
             )
@@ -3107,6 +3016,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     "start_date": None,
                     "end_date": None,
                     "schedule": "once",
+                    "enable_partial_responses": False,
                 },
                 surveys,
             )
@@ -3125,6 +3035,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                     "current_iteration": None,
                     "current_iteration_start_date": None,
                     "schedule": "once",
+                    "enable_partial_responses": False,
                 },
                 surveys,
             )
@@ -3267,6 +3178,95 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
 
         data = response.json()
         self.assertEqual(data, {})
+
+
+class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
+    def test_survey_stats_nonexistent_survey(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/12345/stats/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_survey_stats_zero_responses(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            name="My Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "What's your favorite color?"}],
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/stats/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        stats = data["stats"]
+        for event_type in ["survey shown", "survey dismissed", "survey sent"]:
+            self.assertEqual(stats[event_type]["total_count"], 0)
+            self.assertEqual(stats[event_type]["unique_persons"], 0)
+            self.assertEqual(stats[event_type]["first_seen"], None)
+            self.assertEqual(stats[event_type]["last_seen"], None)
+
+        rates = data["rates"]
+        self.assertEqual(rates["response_rate"], 0.0)
+        self.assertEqual(rates["dismissal_rate"], 0.0)
+
+    def test_global_stats_no_surveys(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/stats/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        stats = data["stats"]
+        self.assertEqual(stats, {})
+        rates = data["rates"]
+        self.assertEqual(rates["response_rate"], 0.0)
+        self.assertEqual(rates["dismissal_rate"], 0.0)
+
+    def test_global_stats_archived_surveys(self):
+        # Create one active and one archived survey
+        active_survey = Survey.objects.create(
+            team=self.team,
+            name="Active Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Question?"}],
+        )
+        archived_survey = Survey.objects.create(
+            team=self.team,
+            name="Archived Survey",
+            type="popover",
+            questions=[{"type": "open", "question": "Question?"}],
+            archived=True,
+        )
+
+        # Insert events for both surveys
+        events = [
+            # Active survey events
+            ("survey shown", "2024-05-01 12:00:00", "user1", active_survey.id),
+            ("survey sent", "2024-05-01 12:01:00", "user1", active_survey.id),
+            # Archived survey events
+            ("survey shown", "2024-05-01 13:00:00", "user2", archived_survey.id),
+            ("survey sent", "2024-05-01 13:01:00", "user2", archived_survey.id),
+        ]
+
+        for event, timestamp, distinct_id, survey_id in events:
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties={"$survey_id": str(survey_id)},
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/stats/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        stats = data["stats"]
+
+        # Should only include stats from active survey
+        self.assertEqual(stats["survey shown"]["total_count"], 1)
+        self.assertEqual(stats["survey sent"]["total_count"], 1)
+
+        rates = data["rates"]
+        self.assertEqual(rates["response_rate"], 100.0)  # 1 sent / 1 shown
+        self.assertEqual(rates["dismissal_rate"], 0.0)  # 0 dismissed / 1 shown
 
 
 @pytest.mark.parametrize(

@@ -14,6 +14,16 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
 
     useLayoutEffect(() => loadEarlyAccessFeatures(), [])
 
+    const conceptFeatures = earlyAccessFeatures.filter((f) => f.stage === 'concept')
+    const disabledConceptFeatureCount = conceptFeatures.filter((f) => !f.enabled).length
+    const betaFeatures = earlyAccessFeatures.filter((f) => f.stage === 'beta')
+
+    useLayoutEffect(() => {
+        if (focusedFeatureFlagKey && conceptFeatures.some((f) => f.flagKey === focusedFeatureFlagKey)) {
+            setActiveKey('concept')
+        }
+    }, [focusedFeatureFlagKey, conceptFeatures])
+
     useLayoutEffect(() => {
         if (earlyAccessFeatures.length > 0 && focusedFeatureFlagKey) {
             const element = document.getElementById(`feature-preview-${focusedFeatureFlagKey}`)
@@ -23,14 +33,10 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
         }
     }, [focusedFeatureFlagKey, earlyAccessFeatures])
 
-    const conceptFeatures = earlyAccessFeatures.filter((f) => f.stage === 'concept')
-    const disabledConceptFeatureCount = conceptFeatures.filter((f) => !f.enabled).length
-    const betaFeatures = earlyAccessFeatures.filter((f) => f.stage === 'beta')
-
     return (
         <div
             className={clsx(
-                'flex flex-col relative min-h-24',
+                'flex flex-col relative min-h-24 overflow-y-auto',
                 earlyAccessFeatures.length === 0 && 'items-center justify-center'
             )}
         >

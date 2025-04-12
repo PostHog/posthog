@@ -24,6 +24,7 @@ export const PayGateButton = ({ feature, currentUsage, ...buttonProps }: PayGate
         if (gateVariant === 'add-card' && !isAddonProduct) {
             return getUpgradeProductLink({
                 product: productWithFeature as BillingProductV2Type,
+                // TODO: improve and redirect back to where the cta was shown
                 redirectPath: urls.organizationBilling(),
             })
         } else if (gateVariant === 'add-card') {

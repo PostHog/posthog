@@ -28,16 +28,16 @@ describe('processAiEvent()', () => {
     describe('event matching', () => {
         it('matches $ai_generation events', () => {
             const result = processAiEvent(event)
-            expect(result.properties!.$ai_total_cost_usd).toBeDefined()
-            expect(result.properties!.$ai_input_cost_usd).toBeDefined()
-            expect(result.properties!.$ai_output_cost_usd).toBeDefined()
+            expect(result.properties!.$ai_total_cost_usd).toBeTruthy()
+            expect(result.properties!.$ai_input_cost_usd).toBeTruthy()
+            expect(result.properties!.$ai_output_cost_usd).toBeTruthy()
         })
 
         it('matches $ai_embedding events', () => {
             event.event = '$ai_embedding'
             const result = processAiEvent(event)
-            expect(result.properties!.$ai_total_cost_usd).toBeDefined()
-            expect(result.properties!.$ai_input_cost_usd).toBeDefined()
+            expect(result.properties!.$ai_total_cost_usd).toBeTruthy()
+            expect(result.properties!.$ai_input_cost_usd).toBeTruthy()
             expect(result.properties!.$ai_output_cost_usd).toBeDefined()
         })
 
@@ -157,6 +157,85 @@ describe('processAiEvent()', () => {
                 $ai_input_cost_usd: result.properties!.$ai_input_cost_usd,
                 $ai_output_cost_usd: result.properties!.$ai_output_cost_usd,
             }).toMatchSnapshot()
+        })
+    })
+
+    describe('openai cache handling', () => {
+        it('handles cache read and write tokens with correct cost calculation', () => {
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_model = 'testing_model'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_cache_read_input_tokens = 40
+
+            const result = processAiEvent(event)
+
+            // For testing_model: prompt_token = 0.1, completion_token = 0.1
+            // Input cost: (40 * 0.1 * 0.5) + (60 * 0.1) = 2 + 6 = 8
+            // Output cost: 50 * 0.1 = 5
+            // Total cost: 8 + 5 = 13
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(8, 2)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(5, 2)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(13, 2)
+        })
+
+        it('handles zero cache tokens correctly', () => {
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_model = 'testing_model'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_cache_read_input_tokens = 0
+
+            const result = processAiEvent(event)
+
+            // Input cost: 100 * 0.1 = 10
+            // Output cost: 50 * 0.1 = 5
+            // Total cost: 10 + 5 = 15
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(10, 2)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(5, 2)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(15, 2)
+        })
+    })
+
+    describe('anthropic cache handling', () => {
+        it('handles cache read and write tokens with correct cost calculation', () => {
+            event.properties!.$ai_provider = 'anthropic'
+            event.properties!.$ai_model = 'testing_model'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_cache_read_input_tokens = 1000
+            event.properties!.$ai_cache_creation_input_tokens = 20
+
+            const result = processAiEvent(event)
+
+            // For testing_model: prompt_token = 0.1, completion_token = 0.1
+            // Write cost: 20 * 0.1 * 1.25 = 2.5
+            // Read cost: 1000 * 0.1 * 0.1 = 10
+            // Uncached cost: 100 * 0.1 = 10
+            // Input cost: 2.5 + 10 + 10 = 22.5
+            // Output cost: 50 * 0.1 = 5
+            // Total cost: 22.5 + 5 = 27.5
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(22.5, 2)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(5, 2)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(27.5, 2)
+        })
+
+        it('handles zero cache tokens correctly', () => {
+            event.properties!.$ai_provider = 'anthropic'
+            event.properties!.$ai_model = 'testing_model'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_cache_read_input_tokens = 0
+            event.properties!.$ai_cache_creation_input_tokens = 0
+
+            const result = processAiEvent(event)
+
+            // Input cost: 100 * 0.1 = 10
+            // Output cost: 50 * 0.1 = 5
+            // Total cost: 10 + 5 = 15
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(10, 2)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(5, 2)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(15, 2)
         })
     })
 })

@@ -8,14 +8,6 @@ import { combineUrl } from 'kea-router'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
-import {
-    CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS,
-    CORE_FILTER_DEFINITIONS_BY_GROUP,
-    getCoreFilterDefinition,
-    KNOWN_PROMOTED_PROPERTY_PARENTS,
-    POSTHOG_EVENT_PROMOTED_PROPERTIES,
-    PROPERTY_KEYS,
-} from 'lib/taxonomy'
 import { isObject, isURL } from 'lib/utils'
 import { useMemo, useState } from 'react'
 import { NewProperty } from 'scenes/persons/NewProperty'
@@ -23,6 +15,13 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import {
+    CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS,
+    KNOWN_PROMOTED_PROPERTY_PARENTS,
+    POSTHOG_EVENT_PROMOTED_PROPERTIES,
+} from '~/taxonomy/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import { PropertyDefinitionType, PropertyType } from '~/types'
 
 import { CopyToClipboardInline } from '../CopyToClipboard'
@@ -237,6 +236,7 @@ export function PropertiesTable({
                 // if this is a posthog property we want to sort by its label
                 const propertyTypeMap: Record<PropertyDefinitionType, TaxonomicFilterGroupType> = {
                     [PropertyDefinitionType.Event]: TaxonomicFilterGroupType.EventProperties,
+                    [PropertyDefinitionType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
                     [PropertyDefinitionType.Person]: TaxonomicFilterGroupType.PersonProperties,
                     [PropertyDefinitionType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
                     [PropertyDefinitionType.Session]: TaxonomicFilterGroupType.SessionProperties,
@@ -535,6 +535,10 @@ export function PropertiesTable({
                 />
             </>
         )
+    }
+
+    if (properties === undefined) {
+        return <div className="px-4 py-2">No defined properties</div>
     }
 
     // if none of above, it's a value

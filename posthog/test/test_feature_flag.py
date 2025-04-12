@@ -7,6 +7,7 @@ from django.db import IntegrityError, connection
 from django.test import TransactionTestCase
 from django.utils import timezone
 from freezegun import freeze_time
+from parameterized import parameterized
 import pytest
 
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
@@ -35,6 +36,18 @@ from posthog.test.base import (
 
 class TestFeatureFlagCohortExpansion(BaseTest):
     maxDiff = None
+
+    @parameterized.expand(
+        [
+            ("some_distinct_id", 0.7270002403585725),
+            ("test-identifier", 0.4493881716040236),
+            ("example_id", 0.9402003475831224),
+            ("example_id2", 0.6292740389966519),
+        ]
+    )
+    def test_calculate_hash(self, identifier, expected_hash):
+        result = FeatureFlagMatcher.calculate_hash("holdout-", identifier, "")
+        self.assertAlmostEqual(result, expected_hash)
 
     def test_cohort_expansion(self):
         cohort = Cohort.objects.create(
@@ -2978,7 +2991,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             self.assertNumQueries(10),
             snapshot_postgres_queries_context(self),
         ):  # 1 to fill group cache, 2 to match feature flags with group properties (of each type), 1 to match feature flags with person properties
-            matches, reasons, payloads, _ = FeatureFlagMatcher(
+            matches, reasons, payloads, _, _ = FeatureFlagMatcher(
                 self.team.id,
                 self.project.id,
                 [
@@ -2994,7 +3007,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "test_id",
                 {"project": "group_key", "organization": "foo"},
                 FlagsMatcherCache(self.team.id),
-            ).get_matches()
+            ).get_matches_with_details()
 
         self.assertEqual(
             matches,
@@ -3056,7 +3069,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             self.assertNumQueries(9),
             snapshot_postgres_queries_context(self),
         ):  # 1 to fill group cache, 1 to match feature flags with group properties (only 1 group provided), 1 to match feature flags with person properties
-            matches, reasons, payloads, _ = FeatureFlagMatcher(
+            matches, reasons, payloads, _, _ = FeatureFlagMatcher(
                 self.team.id,
                 self.project.id,
                 [
@@ -3072,7 +3085,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "test_id",
                 {"organization": "foo2"},
                 FlagsMatcherCache(self.team.id),
-            ).get_matches()
+            ).get_matches_with_details()
 
         self.assertEqual(payloads, {"variant": {"color": "blue"}})
 
@@ -5354,7 +5367,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                     [feature_flag1, feature_flag2, feature_flag4_person],
                     "307",
                     groups={"organization": "foo", "project": "foo-project"},
-                ).get_matches()[1],
+                ).get_matches_with_details()[1],
                 {
                     "random1": {
                         "condition_index": 0,
@@ -5566,7 +5579,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                     self.project.id,
                     [feature_flag1, feature_flag2, feature_flag3],
                     "307",
-                ).get_matches()[1],
+                ).get_matches_with_details()[1],
                 {
                     "random1": {
                         "condition_index": 0,
@@ -5804,41 +5817,41 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
         # try matching all together, invalids don't interfere with regular flags
+        featureFlags, _, payloads, errors, _ = FeatureFlagMatcher(
+            self.team.id,
+            self.project.id,
+            [feature_flag1, feature_flag2, feature_flag3, feature_flag4_invalid_prop, feature_flag5_invalid_flag],
+            "307",
+        ).get_matches_with_details()
+
         self.assertEqual(
-            FeatureFlagMatcher(
-                self.team.id,
-                self.project.id,
-                [feature_flag1, feature_flag2, feature_flag3, feature_flag4_invalid_prop, feature_flag5_invalid_flag],
-                "307",
-            ).get_matches(),
-            (
-                {"random1": True, "random2": True, "random3": False, "random4": True, "random5": False},
-                {
-                    "random1": {
-                        "condition_index": 0,
-                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
-                    },
-                    "random2": {
-                        "condition_index": 0,
-                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
-                    },
-                    "random3": {
-                        "condition_index": 0,
-                        "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
-                    },
-                    "random4": {
-                        "condition_index": 0,
-                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
-                    },
-                    "random5": {
-                        "condition_index": 0,
-                        "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
-                    },
+            featureFlags,
+            {"random1": True, "random2": True, "random3": False, "random4": True, "random5": False},
+            {
+                "random1": {
+                    "condition_index": 0,
+                    "reason": FeatureFlagMatchReason.CONDITION_MATCH,
                 },
-                {},
-                False,
-            ),
+                "random2": {
+                    "condition_index": 0,
+                    "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                },
+                "random3": {
+                    "condition_index": 0,
+                    "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
+                },
+                "random4": {
+                    "condition_index": 0,
+                    "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                },
+                "random5": {
+                    "condition_index": 0,
+                    "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
+                },
+            },
         )
+        self.assertEqual(payloads, {})
+        self.assertEqual(errors, False)
 
         # confirm it works with overrides as well, which are computed locally
         self.assertEqual(

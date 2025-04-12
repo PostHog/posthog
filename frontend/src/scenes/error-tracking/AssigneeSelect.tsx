@@ -35,7 +35,7 @@ export const AssigneeSelect = ({
 
     useEffect(() => {
         ensureAssigneeTypesLoaded()
-    }, [])
+    }, [ensureAssigneeTypesLoaded])
 
     return (
         <LemonDropdown

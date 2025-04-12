@@ -169,6 +169,16 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         return exposure_criteria
 
+    def validate(self, data):
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
+
+        # Only validate if both dates are present
+        if start_date and end_date and start_date >= end_date:
+            raise ValidationError("End date must be after start date")
+
+        return data
+
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
         is_draft = "start_date" not in validated_data or validated_data["start_date"] is None
 

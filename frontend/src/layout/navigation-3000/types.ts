@@ -52,7 +52,7 @@ export interface SidebarCategoryBase {
     /** Category content noun. If the plural form is non-standard, provide a tuple with both forms. @example 'person' */
     noun: string | [singular: string, plural: string]
     items: BasicListItem[] | ExtendedListItem[] | ListItemAccordion[]
-
+    icon?: JSX.Element
     /** Ref to the corresponding <a> element. This is injected automatically when the element is rendered. */
     ref?: React.MutableRefObject<HTMLElement | null>
 }
@@ -87,6 +87,11 @@ export interface SidebarCategory extends SidebarCategoryBase {
         /** The "page" size. @default 100 */
         minimumBatchSize?: number
     }
+
+    /** Optional component to render when the category is empty. */
+    emptyComponent?: JSX.Element
+    /** Optional function to determine whether the empty component should be shown */
+    emptyComponentLogic?: (items: BasicListItem[] | ExtendedListItem[] | ListItemAccordion[]) => boolean
 }
 
 export interface SearchMatch {

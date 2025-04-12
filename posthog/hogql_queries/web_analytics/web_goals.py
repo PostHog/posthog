@@ -147,19 +147,20 @@ SELECT
     min(session.$start_timestamp) as start_timestamp
 FROM events
 WHERE and(
-    events.`$session_id` IS NOT NULL,
+    {events_session_id} IS NOT NULL,
     event = '$pageview' OR event = '$screen' OR {action_where},
     {periods_expression},
     {event_properties},
     {session_properties}
 )
-GROUP BY events.`$session_id`
+GROUP BY {events_session_id}
         """,
                 placeholders={
                     "periods_expression": self._periods_expression("timestamp"),
                     "event_properties": self.event_properties(),
                     "session_properties": self.session_properties(),
                     "action_where": ast.Or(exprs=action_exprs),
+                    "events_session_id": self.events_session_property,
                 },
             )
             assert isinstance(inner_select, ast.SelectQuery)

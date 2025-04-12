@@ -47,7 +47,7 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
     props({} as HogFunctionListLogicProps),
     key((props) => (props.syncFiltersWithUrl ? 'scene' : 'default') + (props.logicKey || props.type)),
     path((id) => ['scenes', 'pipeline', 'hogFunctionListLogic', id]),
-    connect({
+    connect(() => ({
         values: [
             projectLogic,
             ['currentProjectId'],
@@ -58,7 +58,7 @@ export const hogFunctionListLogic = kea<hogFunctionListLogicType>([
             featureFlagLogic,
             ['featureFlags'],
         ],
-    }),
+    })),
     actions({
         toggleEnabled: (hogFunction: HogFunctionType, enabled: boolean) => ({ hogFunction, enabled }),
         deleteHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),

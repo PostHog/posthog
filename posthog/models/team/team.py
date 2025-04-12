@@ -39,7 +39,7 @@ from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
 from ...hogql.modifiers import set_default_modifier_values
-from ...schema import HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
+from ...schema import RevenueTrackingConfig, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
 from .team_caching import get_team_in_cache, set_team_in_cache
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
@@ -216,6 +216,15 @@ class Team(UUIDClassicModel):
         related_name="teams",
         related_query_name="team",
     )
+    # NOTE: The deletion is not cascade due to us wanting to first of all solve deletion properly before allowing cascading deletes
+    parent_team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.SET_NULL,
+        related_name="child_teams",
+        related_query_name="child_team",
+        null=True,
+    )
+    # NOTE: To be removed in favour of parent_team
     project = models.ForeignKey(
         "posthog.Project", on_delete=models.CASCADE, related_name="teams", related_query_name="team"
     )
@@ -271,6 +280,7 @@ class Team(UUIDClassicModel):
     session_recording_event_trigger_config = ArrayField(
         models.TextField(null=True, blank=True), default=list, blank=True, null=True
     )
+    session_recording_trigger_match_type_config = models.CharField(null=True, blank=True, max_length=24)
     session_replay_config = models.JSONField(null=True, blank=True)
     survey_config = models.JSONField(null=True, blank=True)
     capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)
@@ -300,7 +310,19 @@ class Team(UUIDClassicModel):
     cookieless_server_hash_mode = models.SmallIntegerField(
         default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode.choices, null=True
     )
+
+    # Don't use directly in Django, use the `revenue_config` property instead
+    # That way we can validate the schema when setting the value and return reasonable defaults
     revenue_tracking_config = models.JSONField(null=True, blank=True)
+
+    @property
+    def revenue_config(self) -> RevenueTrackingConfig:
+        try:
+            if self.revenue_tracking_config is None:
+                return RevenueTrackingConfig()
+            return RevenueTrackingConfig.model_validate(self.revenue_tracking_config)
+        except pydantic.ValidationError:
+            return RevenueTrackingConfig()
 
     primary_dashboard = models.ForeignKey(
         "posthog.Dashboard",

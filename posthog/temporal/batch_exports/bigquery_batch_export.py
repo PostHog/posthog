@@ -4,6 +4,7 @@ import contextlib
 import dataclasses
 import datetime as dt
 import json
+import typing
 
 import pyarrow as pa
 import structlog
@@ -514,23 +515,32 @@ class BigQueryClient(bigquery.Client):
 
         return result
 
+    @classmethod
+    def from_service_account_inputs(
+        cls, private_key: str, private_key_id: str, token_uri: str, client_email: str, project_id: str
+    ) -> typing.Self:
+        credentials = service_account.Credentials.from_service_account_info(
+            {
+                "private_key": private_key,
+                "private_key_id": private_key_id,
+                "token_uri": token_uri,
+                "client_email": client_email,
+                "project_id": project_id,
+            },
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
+        client = cls(
+            project=project_id,
+            credentials=credentials,
+        )
+        return client
+
 
 @contextlib.contextmanager
 def bigquery_client(inputs: BigQueryInsertInputs):
     """Manage a BigQuery client."""
-    credentials = service_account.Credentials.from_service_account_info(
-        {
-            "private_key": inputs.private_key,
-            "private_key_id": inputs.private_key_id,
-            "token_uri": inputs.token_uri,
-            "client_email": inputs.client_email,
-            "project_id": inputs.project_id,
-        },
-        scopes=["https://www.googleapis.com/auth/cloud-platform"],
-    )
-    client = BigQueryClient(
-        project=inputs.project_id,
-        credentials=credentials,
+    client = BigQueryClient.from_service_account_inputs(
+        inputs.private_key, inputs.private_key_id, inputs.token_uri, inputs.client_email, inputs.project_id
     )
 
     try:

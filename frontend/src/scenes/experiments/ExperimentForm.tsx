@@ -1,6 +1,14 @@
-import { IconPlusSmall, IconSparkles, IconToggle, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonDivider, LemonInput, LemonModal, LemonTextArea, Link, Tooltip } from '@posthog/lemon-ui'
-import { LemonTable } from '@posthog/lemon-ui'
+import { IconPlusSmall, IconToggle, IconTrash } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonDivider,
+    LemonInput,
+    LemonModal,
+    LemonTable,
+    LemonTextArea,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
@@ -16,6 +24,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useState } from 'react'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { urls } from 'scenes/urls'
+
+import { FeatureFlagType } from '~/types'
 
 import { experimentLogic } from './experimentLogic'
 import { featureFlagEligibleForExperiment } from './utils'
@@ -48,17 +58,25 @@ const ExperimentFormFields = (): JSX.Element => {
             <div className="deprecated-space-y-8">
                 <div className="deprecated-space-y-6 max-w-120">
                     <LemonField name="name" label="Name">
-                        <LemonInput placeholder="Pricing page conversion" data-attr="experiment-name" />
+                        <LemonInput
+                            placeholder="Pricing page conversion"
+                            data-attr="experiment-name"
+                            onBlur={() => {
+                                setExperiment({
+                                    feature_flag_key: generateFeatureFlagKey(
+                                        experiment.name,
+                                        unavailableFeatureFlagKeys
+                                    ),
+                                })
+                            }}
+                        />
                     </LemonField>
                     <LemonField
                         name="feature_flag_key"
                         label="Feature flag key"
                         help={
-                            <div className="flex items-center deprecated-space-x-2">
-                                <span>
-                                    Each experiment is backed by a feature flag. Create a new one by entering a key, or
-                                    choose an existing feature flag with multiple variants.
-                                </span>
+                            <div className="flex items-center justify-between">
+                                <span>Each experiment is backed by a feature flag.</span>
                                 <LemonButton
                                     type="secondary"
                                     size="xsmall"
@@ -67,27 +85,8 @@ const ExperimentFormFields = (): JSX.Element => {
                                         setShowFeatureFlagSelector(true)
                                     }}
                                 >
-                                    <IconToggle className="mr-1" /> Choose
-                                </LemonButton>
-                                <LemonButton
-                                    type="secondary"
-                                    size="xsmall"
-                                    disabledReason={
-                                        experiment.name
-                                            ? undefined
-                                            : 'Fill out the experiment name first to generate a key from it.'
-                                    }
-                                    tooltip={experiment.name ? 'Generate a key from the experiment name' : undefined}
-                                    onClick={() => {
-                                        setExperiment({
-                                            feature_flag_key: generateFeatureFlagKey(
-                                                experiment.name,
-                                                unavailableFeatureFlagKeys
-                                            ),
-                                        })
-                                    }}
-                                >
-                                    <IconSparkles className="mr-1" /> Generate
+                                    <IconToggle className="mr-1" />
+                                    Link to existing feature flag
                                 </LemonButton>
                             </div>
                         }
@@ -104,10 +103,16 @@ const ExperimentFormFields = (): JSX.Element => {
                 <SelectExistingFeatureFlagModal
                     isOpen={showFeatureFlagSelector}
                     onClose={() => setShowFeatureFlagSelector(false)}
-                    onSelect={(key) => {
-                        reportExperimentFeatureFlagSelected(key)
-                        setExperiment({ feature_flag_key: key })
-                        validateFeatureFlag(key)
+                    onSelect={(flag) => {
+                        reportExperimentFeatureFlagSelected(flag.key)
+                        setExperiment({
+                            feature_flag_key: flag.key,
+                            parameters: {
+                                ...experiment.parameters,
+                                feature_flag_variants: flag.filters?.multivariate?.variants || [],
+                            },
+                        })
+                        validateFeatureFlag(flag.key)
                         setShowFeatureFlagSelector(false)
                     }}
                 />
@@ -386,7 +391,7 @@ const SelectExistingFeatureFlagModal = ({
 }: {
     isOpen: boolean
     onClose: () => void
-    onSelect: (key: string) => void
+    onSelect: (flag: FeatureFlagType) => void
 }): JSX.Element => {
     const { featureFlags } = useValues(experimentsLogic)
 
@@ -439,7 +444,7 @@ const SelectExistingFeatureFlagModal = ({
                                         type="primary"
                                         disabledReason={disabledReason}
                                         onClick={() => {
-                                            onSelect(flag.key)
+                                            onSelect(flag)
                                             onClose()
                                         }}
                                     >

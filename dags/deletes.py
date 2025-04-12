@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
-    Mutation,
+    MutationWaiter,
     LightweightDeleteMutationRunner,
     NodeRole,
     Query,
@@ -56,7 +56,7 @@ class DeleteConfig(dagster.Config):
         return datetime.fromisoformat(self.timestamp)
 
 
-ShardMutations = dict[int, Mutation]
+ShardMutations = dict[int, MutationWaiter]
 
 
 @dataclass
@@ -189,13 +189,14 @@ class PendingDeletesDictionary:
                 created_at DateTime,
             )
             PRIMARY KEY team_id, key
-            SOURCE(CLICKHOUSE(DB %(database)s PASSWORD %(password)s QUERY %(query)s))
+            SOURCE(CLICKHOUSE(DB %(database)s USER %(user)s PASSWORD %(password)s QUERY %(query)s))
             LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
             LIFETIME(0)
             SETTINGS(max_execution_time={max_execution_time}, max_memory_usage={max_memory_usage})
             """,
             {
                 "database": settings.CLICKHOUSE_DATABASE,
+                "user": settings.CLICKHOUSE_USER,
                 "password": settings.CLICKHOUSE_PASSWORD,
                 "query": self.query,
             },
@@ -451,9 +452,7 @@ def delete_person_events(
     shard_mutations = {
         host.shard_num: mutation
         for host, mutation in (
-            cluster.map_one_host_per_shard(load_and_verify_deletes_dictionary.delete_mutation_runner.enqueue)
-            .result()
-            .items()
+            cluster.map_one_host_per_shard(load_and_verify_deletes_dictionary.delete_mutation_runner).result().items()
         )
     }
 

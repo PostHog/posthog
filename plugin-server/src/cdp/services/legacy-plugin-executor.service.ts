@@ -2,11 +2,11 @@ import { PluginEvent, ProcessedPluginEvent, RetryError, StorageExtension } from 
 import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
-import { Hub } from '~/src/types'
-
+import { Hub } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { Response, trackedFetch } from '../../utils/fetch'
-import { status } from '../../utils/status'
+import { parseJSON } from '../../utils/json-parse'
+import { logger } from '../../utils/logger'
 import { DESTINATION_PLUGINS_BY_ID, TRANSFORMATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { firstTimeEventTrackerPluginProcessEventAsync } from '../legacy-plugins/_transformations/first-time-event-tracker'
 import { firstTimeEventTrackerPlugin } from '../legacy-plugins/_transformations/first-time-event-tracker/template'
@@ -70,7 +70,7 @@ export class LegacyPluginExecutorService {
                 'storageGet'
             )
 
-            return result?.rows.length === 1 ? JSON.parse(result.rows[0].value) : defaultValue
+            return result?.rows.length === 1 ? parseJSON(result.rows[0].value) : defaultValue
         }
         const set = async (key: string, value: unknown): Promise<void> => {
             const cacheKey = `${teamId}-${pluginConfigId}`
@@ -121,6 +121,7 @@ export class LegacyPluginExecutorService {
             finished: true,
             capturedPostHogEvents: [],
             logs: [],
+            metrics: [],
         }
 
         const addLog = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
@@ -131,7 +132,7 @@ export class LegacyPluginExecutorService {
             })
         }
 
-        const logger: LegacyPluginLogger = {
+        const pluginLogger: LegacyPluginLogger = {
             debug: (...args: any[]) => addLog('debug', ...args),
             warn: (...args: any[]) => addLog('warn', ...args),
             log: (...args: any[]) => addLog('info', ...args),
@@ -168,7 +169,7 @@ export class LegacyPluginExecutorService {
                 const meta: LegacyTransformationPluginMeta = {
                     config: invocation.globals.inputs,
                     global: {},
-                    logger: logger,
+                    logger: pluginLogger,
                     geoip: {
                         locate: (ipAddress: string): Record<string, any> | null => {
                             try {
@@ -219,7 +220,18 @@ export class LegacyPluginExecutorService {
 
                 if (isTestFunction && method.toUpperCase() !== 'GET') {
                     // For testing we mock out all non-GET requests
-                    addLog('info', 'Fetch called but mocked due to test function')
+                    addLog('info', 'Fetch called but mocked due to test function', {
+                        url: args[0],
+                        method,
+                    })
+
+                    result.metrics!.push({
+                        team_id: invocation.hogFunction.team_id,
+                        app_source_id: invocation.hogFunction.id,
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        count: 1,
+                    })
                     // Simulate a mini bit of fetch delay
                     await new Promise((resolve) => setTimeout(resolve, 200))
                     return {
@@ -254,16 +266,23 @@ export class LegacyPluginExecutorService {
                 const processedEvent: ProcessedPluginEvent = {
                     ...event,
                     ip: null, // convertToOnEventPayload removes this so we should too
-                    properties: event.properties || {},
+                    // NOTE: We want to improve validation of these properties but for now for legacy plugins we just cast
+                    properties: event.properties as ProcessedPluginEvent['properties'],
+                    $set: event.$set as ProcessedPluginEvent['$set'],
+                    $set_once: event.$set_once as ProcessedPluginEvent['$set_once'],
                 }
+
+                const start = performance.now()
 
                 await plugin.onEvent?.(processedEvent, {
                     ...state.meta,
                     // NOTE: We override logger and fetch here so we can track the calls
-                    logger,
+                    logger: pluginLogger,
                     fetch,
                     storage: this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId),
                 })
+
+                addLog('info', `Function completed in ${performance.now() - start}ms.`)
             } else {
                 if (plugin === firstTimeEventTrackerPlugin) {
                     // Special fallback case until this is fully removed
@@ -271,7 +290,7 @@ export class LegacyPluginExecutorService {
                         event as PluginEvent,
                         {
                             ...state.meta,
-                            logger,
+                            logger: pluginLogger,
                         },
                         this.legacyStorage(invocation.hogFunction.team_id, legacyPluginConfigId)
                     )
@@ -280,7 +299,7 @@ export class LegacyPluginExecutorService {
                     // Transformation style
                     const transformedEvent = plugin.processEvent(event as PluginEvent, {
                         ...state.meta,
-                        logger,
+                        logger: pluginLogger,
                     })
                     result.execResult = transformedEvent
                 }
@@ -292,7 +311,7 @@ export class LegacyPluginExecutorService {
                 // NOTE: Schedule as a retry to cyclotron?
             }
 
-            status.error('💩', 'Plugin errored', {
+            logger.error('💩', 'Plugin errored', {
                 error: e.message,
                 pluginId,
                 invocationId: invocation.id,

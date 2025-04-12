@@ -2,24 +2,14 @@ import { DateTime } from 'luxon'
 
 import { truth } from '~/tests/helpers/truth'
 
-import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
-import { HogFunctionManagerService } from '../../../src/cdp/services/hog-function-manager.service'
+import { formatInput, HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
 import { HogFunctionInvocation, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
-import { status } from '../../../src/utils/status'
+import { logger } from '../../../src/utils/logger'
+import { parseJSON } from '../../utils/json-parse'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction, createInvocation } from '../_tests/fixtures'
-
-jest.mock('../../../src/utils/status', () => ({
-    status: {
-        error: jest.fn(),
-        info: jest.fn(),
-        warn: jest.fn(),
-        debug: jest.fn(),
-        updatePrompt: jest.fn(),
-    },
-}))
 
 const setupFetchResponse = (
     invocation: HogFunctionInvocation,
@@ -47,17 +37,77 @@ describe('Hog Executor', () => {
     let executor: HogExecutorService
     let hub: Hub
 
-    const mockFunctionManager = {
-        reloadAllHogFunctions: jest.fn(),
-        getTeamHogFunctions: jest.fn(),
-        getTeamHogFunction: jest.fn(),
-    }
-
     beforeEach(async () => {
         jest.useFakeTimers()
         jest.setSystemTime(new Date('2024-06-07T12:00:00.000Z').getTime())
         hub = await createHub()
-        executor = new HogExecutorService(hub, mockFunctionManager as any as HogFunctionManagerService)
+        executor = new HogExecutorService(hub)
+    })
+
+    describe('formatInput', () => {
+        it('can handle null values in input objects', () => {
+            const globals = {
+                ...createHogExecutionGlobals({
+                    event: {
+                        event: 'test',
+                        uuid: 'test-uuid',
+                    } as any,
+                }),
+                inputs: {},
+            }
+
+            // Body with null values that should be preserved
+            const inputWithNulls = {
+                body: {
+                    value: {
+                        event: '{event}',
+                        person: null,
+                        userId: null,
+                    },
+                },
+            }
+
+            // Call formatInput directly to test that it handles null values
+            const result = formatInput(inputWithNulls, globals)
+
+            // Verify that null values are preserved
+            expect(result.body.value.person).toBeNull()
+            expect(result.body.value.userId).toBeNull()
+            expect(result.body.value.event).toBe('{event}')
+        })
+
+        it('can handle deep null and undefined values', () => {
+            const globals = {
+                ...createHogExecutionGlobals({
+                    event: {
+                        event: 'test',
+                        uuid: 'test-uuid',
+                    } as any,
+                }),
+                inputs: {},
+            }
+
+            const complexInput = {
+                body: {
+                    value: {
+                        data: {
+                            first: null,
+                            second: undefined,
+                            third: {
+                                nested: null,
+                            },
+                        },
+                    },
+                },
+            }
+
+            const result = formatInput(complexInput, globals)
+
+            // Verify all null and undefined values are properly preserved
+            expect(result.body.value.data.first).toBeNull()
+            expect(result.body.value.data.second).toBeUndefined()
+            expect(result.body.value.data.third.nested).toBeNull()
+        })
     })
 
     describe('general event processing', () => {
@@ -69,9 +119,6 @@ describe('Hog Executor', () => {
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
-
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue([hogFunction])
-            mockFunctionManager.getTeamHogFunction.mockReturnValue(hogFunction)
         })
 
         it('can execute an invocation', () => {
@@ -161,7 +208,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const body = JSON.parse((result.invocation.queueParameters as any).body!)
+            const body = parseJSON((result.invocation.queueParameters as any).body!)
             expect(body).toEqual({
                 event: {
                     uuid: 'uuid',
@@ -190,7 +237,7 @@ describe('Hog Executor', () => {
 
             expect(result.finished).toBe(false)
             expect(result.invocation.queue).toBe('fetch')
-            expect(result.invocation.vmState).toBeDefined()
+            expect(result.invocation.vmState).toBeTruthy()
 
             // Simulate what the callback does
             setupFetchResponse(result.invocation)
@@ -264,70 +311,6 @@ describe('Hog Executor', () => {
         })
     })
 
-    describe.skip('email provider functions', () => {
-        let hogFunction: HogFunctionType
-        let providerFunction: HogFunctionType
-        beforeEach(() => {
-            providerFunction = createHogFunction({
-                name: 'Test hog function',
-                ...HOG_EXAMPLES.export_send_email,
-                ...HOG_INPUTS_EXAMPLES.none,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-            })
-            hogFunction = createHogFunction({
-                name: 'Test hog function',
-                ...HOG_EXAMPLES.import_send_email,
-                ...HOG_INPUTS_EXAMPLES.email,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-            })
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue([hogFunction, providerFunction])
-            mockFunctionManager.getTeamHogFunction.mockReturnValue(hogFunction)
-            // mockFunctionManager.getTeamHogEmailProvider.mockReturnValue(providerFunction)
-        })
-
-        it('can execute an invocation', () => {
-            const invocation = createInvocation(hogFunction)
-            const result = executor.execute(invocation)
-            expect(result).toEqual({
-                capturedPostHogEvents: [],
-                invocation: {
-                    id: expect.any(String),
-                    teamId: 1,
-                    priority: 0,
-                    globals: invocation.globals,
-                    hogFunction: invocation.hogFunction,
-                    queue: 'hog',
-                    timings: [
-                        {
-                            kind: 'hog',
-                            duration_ms: 0,
-                        },
-                    ],
-                    vmState: expect.any(Object),
-                },
-                finished: true,
-                logs: [
-                    {
-                        level: 'debug',
-                        message: 'Executing function',
-                        timestamp: expect.any(Object),
-                    },
-                    {
-                        level: 'info',
-                        message:
-                            '{"to":"test@posthog.com","body":"Hello Pumpkin !\\n\\nThis is a broadcast","from":"info@posthog.com","html":"<html></html>","subject":"Hello test@posthog.com"}',
-                        timestamp: expect.any(Object),
-                    },
-                    {
-                        level: 'debug',
-                        message: expect.stringContaining('Function completed in'),
-                        timestamp: expect.any(Object),
-                    },
-                ],
-            })
-        })
-    })
-
     describe('filtering', () => {
         it('builds the correct globals object when filtering', () => {
             const fn = createHogFunction({
@@ -335,11 +318,10 @@ describe('Hog Executor', () => {
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
 
             const inputGlobals = createHogExecutionGlobals({ groups: {} })
             expect(inputGlobals.source).toBeUndefined()
-            const results = executor.findHogFunctionInvocations(inputGlobals)
+            const results = executor.buildHogFunctionInvocations([fn], inputGlobals)
 
             expect(results.invocations).toHaveLength(1)
 
@@ -356,13 +338,15 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
             })
 
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
-
-            const resultsShouldntMatch = executor.findHogFunctionInvocations(createHogExecutionGlobals({ groups: {} }))
+            const resultsShouldntMatch = executor.buildHogFunctionInvocations(
+                [fn],
+                createHogExecutionGlobals({ groups: {} })
+            )
             expect(resultsShouldntMatch.invocations).toHaveLength(0)
             expect(resultsShouldntMatch.metrics).toHaveLength(1)
 
-            const resultsShouldMatch = executor.findHogFunctionInvocations(
+            const resultsShouldMatch = executor.buildHogFunctionInvocations(
+                [fn],
                 createHogExecutionGlobals({
                     groups: {},
                     event: {
@@ -379,15 +363,16 @@ describe('Hog Executor', () => {
 
         it('logs telemetry', async () => {
             hub = await createHub({ CDP_HOG_FILTERS_TELEMETRY_TEAMS: '*' })
-            executor = new HogExecutorService(hub, mockFunctionManager as any as HogFunctionManagerService)
+            executor = new HogExecutorService(hub)
 
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.broken_filters,
             })
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
-            const resultsShouldMatch = executor.findHogFunctionInvocations(
+
+            const resultsShouldMatch = executor.buildHogFunctionInvocations(
+                [fn],
                 createHogExecutionGlobals({
                     groups: {},
                     event: {
@@ -402,7 +387,7 @@ describe('Hog Executor', () => {
             expect(resultsShouldMatch.logs[0].message).toMatchInlineSnapshot(
                 `"Error filtering event uuid: Invalid HogQL bytecode, stack is empty, can not pop"`
             )
-            expect(status.error).toHaveBeenCalledWith(
+            expect(logger.error).toHaveBeenCalledWith(
                 '🦔',
                 expect.stringContaining('Error filtering function'),
                 truth(
@@ -421,7 +406,6 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.elements_text_filter,
             })
 
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
             const elementsChain = (buttonText: string) =>
                 `span.LemonButton__content:attr__class="LemonButton__content"nth-child="2"nth-of-type="2"text="${buttonText}";span.LemonButton__chrome:attr__class="LemonButton__chrome"nth-child="1"nth-of-type="1";button.LemonButton.LemonButton--has-icon.LemonButton--secondary.LemonButton--status-default:attr__class="LemonButton LemonButton--secondary LemonButton--status-default LemonButton--has-icon"attr__type="button"nth-child="1"nth-of-type="1"text="${buttonText}";div.flex.gap-4.items-center:attr__class="flex gap-4 items-center"nth-child="1"nth-of-type="1";div.flex.flex-wrap.gap-4.justify-between:attr__class="flex gap-4 justify-between flex-wrap"nth-child="3"nth-of-type="3";div.flex.flex-1.flex-col.gap-4.h-full.relative.w-full:attr__class="relative w-full flex flex-col gap-4 flex-1 h-full"nth-child="1"nth-of-type="1";div.LemonTabs__content:attr__class="LemonTabs__content"nth-child="2"nth-of-type="1";div.LemonTabs.LemonTabs--medium:attr__class="LemonTabs LemonTabs--medium"attr__style="--lemon-tabs-slider-width: 48px; --lemon-tabs-slider-offset: 0px;"nth-child="1"nth-of-type="1";div.Navigation3000__scene:attr__class="Navigation3000__scene"nth-child="2"nth-of-type="2";main:nth-child="2"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
 
@@ -440,7 +424,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldntMatch = executor.findHogFunctionInvocations(hogGlobals1)
+            const resultsShouldntMatch = executor.buildHogFunctionInvocations([fn], hogGlobals1)
             expect(resultsShouldntMatch.invocations).toHaveLength(0)
             expect(resultsShouldntMatch.metrics).toHaveLength(1)
 
@@ -459,7 +443,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldMatch = executor.findHogFunctionInvocations(hogGlobals2)
+            const resultsShouldMatch = executor.buildHogFunctionInvocations([fn], hogGlobals2)
             expect(resultsShouldMatch.invocations).toHaveLength(1)
             expect(resultsShouldMatch.metrics).toHaveLength(0)
         })
@@ -471,7 +455,6 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.elements_href_filter,
             })
 
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
             const elementsChain = (link: string) =>
                 `span.LemonButton__content:attr__class="LemonButton__content"attr__href="${link}"href="${link}"nth-child="2"nth-of-type="2"text="Activity";span.LemonButton__chrome:attr__class="LemonButton__chrome"nth-child="1"nth-of-type="1";a.LemonButton.LemonButton--full-width.LemonButton--has-icon.LemonButton--secondary.LemonButton--status-alt.Link.NavbarButton:attr__class="Link LemonButton LemonButton--secondary LemonButton--status-alt LemonButton--full-width LemonButton--has-icon NavbarButton"attr__data-attr="menu-item-activity"attr__href="${link}"href="${link}"nth-child="1"nth-of-type="1"text="Activity";li.w-full:attr__class="w-full"nth-child="6"nth-of-type="6";ul:nth-child="1"nth-of-type="1";div.Navbar3000__top.ScrollableShadows__inner:attr__class="ScrollableShadows__inner Navbar3000__top"nth-child="1"nth-of-type="1";div.ScrollableShadows.ScrollableShadows--vertical:attr__class="ScrollableShadows ScrollableShadows--vertical"nth-child="1"nth-of-type="1";div.Navbar3000__content:attr__class="Navbar3000__content"nth-child="1"nth-of-type="1";nav.Navbar3000:attr__class="Navbar3000"nth-child="1"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
 
@@ -490,7 +473,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldntMatch = executor.findHogFunctionInvocations(hogGlobals1)
+            const resultsShouldntMatch = executor.buildHogFunctionInvocations([fn], hogGlobals1)
             expect(resultsShouldntMatch.invocations).toHaveLength(0)
             expect(resultsShouldntMatch.metrics).toHaveLength(1)
 
@@ -509,7 +492,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldMatch = executor.findHogFunctionInvocations(hogGlobals2)
+            const resultsShouldMatch = executor.buildHogFunctionInvocations([fn], hogGlobals2)
             expect(resultsShouldMatch.invocations).toHaveLength(1)
             expect(resultsShouldMatch.metrics).toHaveLength(0)
         })
@@ -521,7 +504,6 @@ describe('Hog Executor', () => {
                 ...HOG_FILTERS_EXAMPLES.elements_tag_and_id_filter,
             })
 
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
             const elementsChain = (id: string) =>
                 `a.Link.font-semibold.text-text-3000.text-xl:attr__class="Link font-semibold text-xl text-text-3000"attr__href="/project/1/dashboard/1"attr__id="${id}"attr_id="${id}"href="/project/1/dashboard/1"nth-child="1"nth-of-type="1"text="My App Dashboard";div.ProjectHomepage__dashboardheader__title:attr__class="ProjectHomepage__dashboardheader__title"nth-child="1"nth-of-type="1";div.ProjectHomepage__dashboardheader:attr__class="ProjectHomepage__dashboardheader"nth-child="2"nth-of-type="2";div.ProjectHomepage:attr__class="ProjectHomepage"nth-child="1"nth-of-type="1";div.Navigation3000__scene:attr__class="Navigation3000__scene"nth-child="2"nth-of-type="2";main:nth-child="2"nth-of-type="1";div.Navigation3000:attr__class="Navigation3000"nth-child="1"nth-of-type="1";div:attr__id="root"attr_id="root"nth-child="3"nth-of-type="1";body.overflow-hidden:attr__class="overflow-hidden"attr__theme="light"nth-child="2"nth-of-type="1"`
 
@@ -540,7 +522,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldntMatch = executor.findHogFunctionInvocations(hogGlobals1)
+            const resultsShouldntMatch = executor.buildHogFunctionInvocations([fn], hogGlobals1)
             expect(resultsShouldntMatch.invocations).toHaveLength(0)
             expect(resultsShouldntMatch.metrics).toHaveLength(1)
 
@@ -559,15 +541,16 @@ describe('Hog Executor', () => {
                 },
             })
 
-            const resultsShouldMatch = executor.findHogFunctionInvocations(hogGlobals2)
+            const resultsShouldMatch = executor.buildHogFunctionInvocations([fn], hogGlobals2)
             expect(resultsShouldMatch.invocations).toHaveLength(1)
             expect(resultsShouldMatch.metrics).toHaveLength(0)
         })
     })
 
     describe('mappings', () => {
+        let fn: HogFunctionType
         beforeEach(() => {
-            const fn = createHogFunction({
+            fn = createHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
@@ -608,7 +591,6 @@ describe('Hog Executor', () => {
                     },
                 ],
             })
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
         })
 
         it('can build mappings', () => {
@@ -621,7 +603,7 @@ describe('Hog Executor', () => {
                 } as any,
             })
 
-            const results1 = executor.findHogFunctionInvocations(pageviewGlobals)
+            const results1 = executor.buildHogFunctionInvocations([fn], pageviewGlobals)
             expect(results1.invocations).toHaveLength(2)
             expect(results1.metrics).toHaveLength(1)
             expect(results1.logs).toHaveLength(1)
@@ -629,7 +611,8 @@ describe('Hog Executor', () => {
                 `"Error filtering event uuid: Invalid HogQL bytecode, stack is empty, can not pop"`
             )
 
-            const results2 = executor.findHogFunctionInvocations(
+            const results2 = executor.buildHogFunctionInvocations(
+                [fn],
                 createHogExecutionGlobals({
                     event: {
                         event: 'test',
@@ -654,7 +637,7 @@ describe('Hog Executor', () => {
                 } as any,
             })
 
-            const result = executor.findHogFunctionInvocations(pageviewGlobals)
+            const result = executor.buildHogFunctionInvocations([fn], pageviewGlobals)
             // First mapping has input overrides that should be applied
             expect(result.invocations[0].globals.inputs.headers).toEqual({
                 version: 'v=',
@@ -738,6 +721,28 @@ describe('Hog Executor', () => {
                 }
             `)
         })
+
+        it('crafts a mailjet request', () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.send_email,
+                ...HOG_INPUTS_EXAMPLES.email,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const result = executor.execute(createInvocation(fn))
+            expect(result.invocation.queueParameters).toMatchInlineSnapshot(`
+                {
+                  "body": "{"Messages":[{"From":{"Email":"info@posthog.com","Name":""},"To":[{"Email":"test@posthog.com","Name":""}],"Subject":"Hello test@posthog.com","HTMLPart":"<html></html>"}]}",
+                  "headers": {
+                    "Authorization": "Basic dGVzdF9hcGlfa2V5OnRlc3Rfc2VjcmV0X2tleQ==",
+                    "Content-Type": "application/json",
+                  },
+                  "method": "POST",
+                  "return_queue": "hog",
+                  "url": "https://api.mailjet.com/v3.1/send",
+                }
+            `)
+        })
     })
 
     describe('slow functions', () => {
@@ -751,8 +756,6 @@ describe('Hog Executor', () => {
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
-
-            mockFunctionManager.getTeamHogFunctions.mockReturnValue([fn])
 
             const result = executor.execute(createInvocation(fn))
             expect(result.error).toContain('Execution timed out after 0.1 seconds. Performed ')

@@ -1,6 +1,7 @@
 import { Consumer, Kafka, KafkaMessage, logLevel } from 'kafkajs'
 
 import { defaultConfig } from '../../src/config/config'
+import { parseJSON } from '../../src/utils/json-parse'
 import { UUIDT } from '../../src/utils/utils'
 import { capture, createOrganization, createTeam } from '../api'
 import { waitForExpect } from '../expectations'
@@ -73,12 +74,12 @@ test.concurrent('consumer produces ingest warnings for messages over 1MB', async
     await waitForExpect(() => {
         const [message] = warningMessages.filter((message: KafkaMessage) => {
             if (message.value) {
-                const payload = JSON.parse(message.value.toString())
-                const details = JSON.parse(payload.details)
+                const payload = parseJSON(message.value.toString())
+                const details = parseJSON(payload.details)
                 return details.eventUuid === personEventUuid && details.distinctId === distinctId
             }
         })
-        expect(message).toBeDefined()
+        expect(message).toBeTruthy()
         return message
     })
 })

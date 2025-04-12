@@ -165,7 +165,7 @@ export const getUpgradeProductLink = ({
 }): string => {
     let url = '/api/billing/activate?'
     if (redirectPath) {
-        url += `redirect_path=${redirectPath}&`
+        url += `redirect_path=${encodeURIComponent(redirectPath)}&`
     }
 
     url += `products=all_products:&intent_product=${product.type}`
@@ -242,4 +242,35 @@ export const getProration = ({
 
 export const getProrationMessage = (prorationAmount: string, unitAmountUsd: string | null): string => {
     return `Pay ~$${prorationAmount} today (prorated) and $${parseInt(unitAmountUsd || '0')} every month thereafter.`
+}
+
+/**
+ * Formats the plan status for display, trial or not
+ */
+export const formatPlanStatus = (billing: BillingType | null): string => {
+    if (!billing) {
+        return ''
+    }
+
+    // Check for old-style active trial
+    if (billing.free_trial_until && billing.free_trial_until.isAfter(dayjs())) {
+        return '(trial plan)'
+    }
+
+    // Check for new-style active trial
+    if (billing.trial?.status === 'active') {
+        return '(trial plan)'
+    }
+
+    // Check for expired trial
+    if (billing.trial?.status === 'expired' && billing.trial.expires_at) {
+        return `(trial expired)`
+    }
+
+    // Regular paid plan
+    if (billing.subscription_level !== 'free') {
+        return '(your plan)'
+    }
+
+    return ''
 }

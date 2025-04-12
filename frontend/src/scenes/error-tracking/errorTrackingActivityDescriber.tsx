@@ -27,7 +27,7 @@ function AssigneeRenderer({ assignee }: { assignee: ErrorTrackingIssueAssignee }
 
     useEffect(() => {
         ensureAssigneeTypesLoaded()
-    }, [])
+    }, [ensureAssigneeTypesLoaded])
 
     return (
         <AssigneeDisplay assignee={assignee}>

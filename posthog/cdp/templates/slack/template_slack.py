@@ -209,7 +209,7 @@ if (res.status != 200 or res.body.ok == false) {
         ),
         HogFunctionSubTemplate(
             name="Post to Slack on issue created",
-            description="",
+            description="Post to a Slack channel when an issue is created",
             id=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].id,
             type=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].type,
             filters=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].filters,
@@ -237,7 +237,8 @@ if (res.status != 200 or res.body.ok == false) {
                                 }
                             ],
                         },
-                    ]
+                    ],
+                    "hidden": True,
                 },
                 "text": {
                     "default": "New issue created: {event.properties.name}",
@@ -247,7 +248,7 @@ if (res.status != 200 or res.body.ok == false) {
         ),
         HogFunctionSubTemplate(
             name="Post to Slack on issue reopened",
-            description="",
+            description="Post to a Slack channel when an issue is reopened",
             id=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].id,
             type=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].type,
             filters=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].filters,
@@ -275,7 +276,8 @@ if (res.status != 200 or res.body.ok == false) {
                                 }
                             ],
                         },
-                    ]
+                    ],
+                    "hidden": True,
                 },
                 "text": {
                     "default": "Issue reopened: {event.properties.name}",

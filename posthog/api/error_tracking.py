@@ -27,6 +27,8 @@ from posthog.models.utils import uuid7
 from posthog.storage import object_storage
 from loginas.utils import is_impersonated_session
 
+from posthog.tasks.email import send_error_tracking_issue_assigned
+
 ONE_GIGABYTE = 1024 * 1024 * 1024
 JS_DATA_MAGIC = b"posthog_error_tracking"
 JS_DATA_VERSION = 1
@@ -113,10 +115,11 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             record = fingerprint_queryset.filter(fingerprint=fingerprint).first()
 
             if record:
-                if not record.issue_id == self.request.GET.get("pk"):
+                if not str(record.issue_id) == self.kwargs.get("pk"):
                     return JsonResponse({"issue_id": record.issue_id}, status=status.HTTP_308_PERMANENT_REDIRECT)
 
-                serializer = self.get_serializer(record.issue)
+                issue_with_first_seen = ErrorTrackingIssue.objects.with_first_seen().get(id=record.issue_id)
+                serializer = self.get_serializer(issue_with_first_seen)
                 return Response(serializer.data)
 
         return super().retrieve(request, *args, **kwargs)
@@ -142,10 +145,14 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     @action(methods=["POST"], detail=False)
     def bulk(self, request, **kwargs):
         action = request.data.get("action")
+        status = request.data.get("status")
         issues = self.queryset.filter(id__in=request.data.get("ids", []))
 
         with transaction.atomic():
-            if action == "resolve":
+            if action == "set_status":
+                new_status = get_status_from_string(status)
+                if new_status is None:
+                    raise ValidationError("Invalid status")
                 for issue in issues:
                     log_activity(
                         organization_id=self.organization.id,
@@ -163,13 +170,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                                     action="changed",
                                     field="status",
                                     before=issue.status,
-                                    after=ErrorTrackingIssue.Status.RESOLVED,
+                                    after=new_status,
                                 )
                             ],
                         ),
                     )
 
-                issues.update(status=ErrorTrackingIssue.Status.RESOLVED)
+                issues.update(status=new_status)
             elif action == "assign":
                 assignee = request.data.get("assignee", None)
 
@@ -207,6 +214,17 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         return activity_page_response(activity_page, limit, page, request)
 
 
+def get_status_from_string(status: str) -> ErrorTrackingIssue.Status | None:
+    match status:
+        case "active":
+            return ErrorTrackingIssue.Status.ACTIVE
+        case "resolved":
+            return ErrorTrackingIssue.Status.RESOLVED
+        case "suppressed":
+            return ErrorTrackingIssue.Status.SUPPRESSED
+    return None
+
+
 def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_id, was_impersonated):
     assignment_before = ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id).first()
     serialized_assignment_before = (
@@ -221,6 +239,8 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_i
                 "user_group_id": None if assignee["type"] == "user" else assignee["id"],
             },
         )
+
+        send_error_tracking_issue_assigned(assignment_after, user)
 
         serialized_assignment_after = (
             ErrorTrackingIssueAssignmentSerializer(assignment_after).data if assignment_after else None
@@ -266,17 +286,21 @@ class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel,
     queryset = ErrorTrackingStackFrame.objects.all()
     serializer_class = ErrorTrackingStackFrameSerializer
 
-    def safely_get_queryset(self, queryset):
-        if self.action == "list":
-            raw_ids = self.request.GET.getlist("raw_ids", [])
-            if raw_ids:
-                queryset = self.queryset.filter(raw_id__in=raw_ids)
+    @action(methods=["POST"], detail=False)
+    def batch_get(self, request, **kwargs):
+        raw_ids = request.data.get("raw_ids", [])
+        symbol_set = request.data.get("symbol_set", None)
 
-            symbol_set = self.request.GET.get("symbol_set", None)
-            if symbol_set:
-                queryset = self.queryset.filter(symbol_set=symbol_set)
+        queryset = self.queryset.filter(team_id=self.team.id)
 
-        return queryset.select_related("symbol_set").filter(team_id=self.team.id)
+        if raw_ids:
+            queryset = queryset.filter(raw_id__in=raw_ids)
+
+        if symbol_set:
+            queryset = queryset.filter(symbol_set=symbol_set)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({"results": serializer.data})
 
 
 class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
@@ -324,12 +348,20 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         data = request.data["file"].read()
         (storage_ptr, content_hash) = upload_content(bytearray(data))
 
-        ErrorTrackingSymbolSet.objects.create(
-            team=self.team,
-            storage_ptr=storage_ptr,
-            content_hash=content_hash,
-            ref=chunk_id,
-        )
+        with transaction.atomic():
+            # Use update_or_create for proper upsert behavior
+            symbol_set, created = ErrorTrackingSymbolSet.objects.update_or_create(
+                team=self.team,
+                ref=chunk_id,
+                defaults={
+                    "storage_ptr": storage_ptr,
+                    "content_hash": content_hash,
+                    "failure_reason": None,
+                },
+            )
+
+            # Delete any existing frames associated with this symbol set
+            ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
 
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
 

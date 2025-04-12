@@ -75,65 +75,68 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     return null
                 }
 
-                const hasSavedFiltersCount = recordings_counts.saved_filters?.count !== null
-                const hasCollectionCount = recordings_counts.collection.count !== null
+                const hasResults =
+                    recordings_counts.collection.count !== null || recordings_counts.saved_filters?.count !== null
 
-                const totalPinnedCount =
-                    recordings_counts.collection.count === null ? 'null' : recordings_counts.collection.count
+                const totalPinnedCount: number | null = recordings_counts.collection.count
                 const unwatchedPinnedCount =
                     (recordings_counts.collection.count || 0) - (recordings_counts.collection.watched_count || 0)
-                const totalSavedFiltersCount =
-                    recordings_counts.saved_filters?.count === null
-                        ? 'null'
-                        : recordings_counts.saved_filters?.count || 0
+                const totalSavedFiltersCount = recordings_counts.saved_filters?.count || 0
                 const unwatchedSavedFiltersCount =
                     (recordings_counts.saved_filters?.count || 0) -
                     (recordings_counts.saved_filters?.watched_count || 0)
 
-                const totalCount =
-                    (totalPinnedCount === 'null' ? 0 : totalPinnedCount) +
-                    (totalSavedFiltersCount === 'null' ? 0 : totalSavedFiltersCount)
-                const unwatchedCount = unwatchedPinnedCount + unwatchedSavedFiltersCount
+                // we don't allow both saved filters and pinned anymore
+                const isShowingSavedFilters = hasResults && !totalPinnedCount
+                const totalCount = isShowingSavedFilters ? totalSavedFiltersCount : totalPinnedCount
+                const unwatchedCount = isShowingSavedFilters ? unwatchedSavedFiltersCount : unwatchedPinnedCount
+                // if we're showing saved filters, then we might have more results
+                const hasMoreResults = isShowingSavedFilters && recordings_counts.saved_filters?.has_more
+
+                const lastRefreshedAt = isShowingSavedFilters
+                    ? recordings_counts.saved_filters?.last_refreshed_at
+                    : null
+
+                const description = isShowingSavedFilters ? 'that match these saved filters' : 'in this collection'
 
                 const tooltip = (
-                    <div className="flex flex-col deprecated-space-y-1 items-center">
-                        <span>Playlist counts are recalculated once a day.</span>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Type</th>
-                                    <th>Count</th>
-                                    <th>Unwatched</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td>Pinned</td>
-                                    <td>{totalPinnedCount}</td>
-                                    <td>{unwatchedPinnedCount}</td>
-                                </tr>
-                                <tr>
-                                    <td>Saved filters</td>
-                                    <td>
-                                        {totalSavedFiltersCount}
-                                        <span>{recordings_counts.saved_filters?.has_more ? '+' : ''}</span>
-                                    </td>
-                                    <td>{unwatchedSavedFiltersCount}</td>
-                                </tr>
-                            </tbody>
-                        </table>
+                    <div className="text-start">
+                        {hasResults ? (
+                            totalCount > 0 ? (
+                                unwatchedCount > 0 ? (
+                                    <p>
+                                        You have {unwatchedCount} unwatched recordings to watch out of a total of{' '}
+                                        {totalCount}
+                                        {hasMoreResults ? '+' : ''} {description}.
+                                    </p>
+                                ) : (
+                                    <p>
+                                        You have watched all of the {totalCount} recordings {description}.
+                                    </p>
+                                )
+                            ) : (
+                                <p>No results found for this playlist.</p>
+                            )
+                        ) : (
+                            <p>Counts have not yet been calculated for this playlist.</p>
+                        )}
+                        {isShowingSavedFilters && lastRefreshedAt ? (
+                            <div className="text-xs items-center flex flex-row gap-x-1">
+                                Last refreshed: <TZLabel time={lastRefreshedAt} showPopover={false} />
+                            </div>
+                        ) : null}
                     </div>
                 )
 
                 return (
-                    <div className="flex items-center justify-center w-full h-full">
+                    <div className="flex items-center justify-start w-full h-full">
                         <Tooltip title={tooltip}>
-                            {hasSavedFiltersCount || hasCollectionCount ? (
+                            {hasResults ? (
                                 <span className="flex items-center deprecated-space-x-1">
                                     <LemonBadge.Number
-                                        status={unwatchedCount || totalCount ? 'primary' : 'muted'}
+                                        status={unwatchedCount ? 'primary' : 'muted'}
                                         className="text-xs cursor-pointer"
-                                        count={unwatchedCount || totalCount}
+                                        count={totalCount}
                                         maxDigits={3}
                                         showZero={true}
                                         forcePlus={
