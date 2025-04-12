@@ -418,12 +418,19 @@ describe('IngestionConsumer', () => {
             messages = createKafkaMessages([createEvent()])
             error = new Error('test')
             jest.spyOn(logger, 'error').mockImplementation(() => {})
-            jest.spyOn(ingester as any, 'getEventPipelineRunner').mockImplementationOnce(() => ({
+            jest.spyOn(ingester as any, 'getEventPipelineRunnerV2').mockImplementationOnce(() => ({
                 run: () => {
                     throw error
                 },
                 getPromises: () => [],
             }))
+
+            error.isRetriable = false
+            jest.spyOn(ingester as any, 'getEventPipelineRunnerV1').mockReturnValue({
+                runEventPipeline: () => {
+                    throw error
+                },
+            })
         })
 
         afterEach(() => {
