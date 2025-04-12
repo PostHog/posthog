@@ -374,6 +374,10 @@ export class IngestionConsumer {
                     diff[key] = 'diff'
                 }
             })
+
+            if (Object.keys(diff).length > 0) {
+                return logDiff('diff', diff)
+            }
         }
 
         eventProcessorComparison.inc({ outcome: 'same' })
