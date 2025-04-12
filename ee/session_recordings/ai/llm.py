@@ -62,7 +62,9 @@ def get_raw_llm_session_summary(
     # assistant_start_text = "```yaml\nsummary: "
     # Get the LLM response
     try:
-        llm_response = call_llm(input_prompt=summary_prompt, user_key=user.pk, session_id=session_id, system_prompt=system_prompt)
+        llm_response = call_llm(
+            input_prompt=summary_prompt, user_key=user.pk, session_id=session_id, system_prompt=system_prompt
+        )
     # Retry on OpenAI errors that make sense to retry
     except (openai.APIError, openai.APITimeoutError, openai.RateLimitError) as err:
         logger.exception(f"Error calling LLM for session_id {session_id} by user {user.pk}, retrying: {err}")
@@ -87,7 +89,11 @@ def get_raw_llm_session_summary(
 
 
 def call_llm(
-    input_prompt: str, user_key: int, session_id: str, assistant_start_text: str | None = None, system_prompt: str | None = None
+    input_prompt: str,
+    user_key: int,
+    session_id: str,
+    assistant_start_text: str | None = None,
+    system_prompt: str | None = None,
 ) -> ChatCompletion:
     instance_region = get_instance_region() or "HOBBY"
     messages = []
@@ -110,7 +116,8 @@ def call_llm(
     # TODO Make temperature/top_p/max_tokens configurable through input to use for different prompts
     result = openai.chat.completions.create(
         model="gpt-4o-mini",
-        temperature=0.5,
+        # Keep the temperature low to have more predictable results (but not 0 to allow for some randomness)
+        temperature=0.1,
         messages=messages,  # type: ignore
         user=f"{instance_region}/{user_key}",
     )
