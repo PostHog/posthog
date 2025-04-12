@@ -1,4 +1,3 @@
-import { cloneDeep } from 'lodash'
 import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
@@ -14,15 +13,13 @@ import {
     setUsageInNonPersonEventsCounter,
 } from '../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../main/utils'
-import { Hub, PipelineEvent, PluginServerService, PluginsServerConfig, RawKafkaEvent } from '../types'
+import { Hub, PipelineEvent, PluginServerService, PluginsServerConfig } from '../types'
 import { normalizeEvent } from '../utils/event'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
-import { retryIfRetriable } from '../utils/retries'
 import { UUIDT } from '../utils/utils'
-import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
-import { EventDroppedError, EventPipelineRunnerV2 } from './event-pipeline-runner/event-pipeline-runner'
+import { EventDroppedError, EventPipelineRunner } from './event-pipeline-runner/event-pipeline-runner'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -48,12 +45,6 @@ const histogramKafkaBatchSizeKb = new Histogram({
 const forcedOverflowEventsCounter = new Counter({
     name: 'ingestion_forced_overflow_events_total',
     help: 'Number of events that were routed to overflow because they matched the force overflow tokens list',
-})
-
-const eventProcessorComparison = new Counter({
-    name: 'event_processor_comparison',
-    help: 'Count of compared events for the new ingester',
-    labelNames: ['outcome'],
 })
 
 type IncomingEvent = { message: Message; event: PipelineEvent }
@@ -101,7 +92,6 @@ export class IngestionConsumer {
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
-    private comparisonV2Percentage: number
 
     constructor(
         private hub: Hub,
@@ -139,12 +129,6 @@ export class IngestionConsumer {
 
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
-
-        this.comparisonV2Percentage = hub.INGESTION_CONSUMER_V2_COMPARISON_PERCENTAGE ?? 0
-
-        if (this.comparisonV2Percentage < 0 || this.comparisonV2Percentage > 1) {
-            throw new Error('Invalid value for INGESTION_CONSUMER_V2_COMPARISON_PERCENTAGE - must be between 0 and 1')
-        }
     }
 
     public get service(): PluginServerService {
@@ -293,185 +277,27 @@ export class IngestionConsumer {
             // Track $set usage in events that aren't known to use it, before ingestion adds anything there
             trackIfNonPersonEventUpdatesPersons(incomingEvent.event)
 
-            if (this.comparisonV2Percentage && Math.random() < this.comparisonV2Percentage) {
-                let v1Result: RawKafkaEvent | undefined
-                let v2Result: RawKafkaEvent | undefined
-                let v1Error: unknown | undefined
-                let v2Error: unknown | undefined
-
-                try {
-                    // NOTE: This is not ideal but we are cloning the event to ensure we don't accidentally modify it
-                    const clonedEvent = cloneDeep(incomingEvent.event)
-                    v2Result = await this.runEventRunnerV2({
-                        event: clonedEvent,
-                        message: incomingEvent.message,
-                    })
-                } catch (e) {
-                    v2Error = e
-                }
-
-                try {
-                    const result = await this.runEventRunnerV1(incomingEvent)
-
-                    if (result?.lastStep === 'emitEventStep') {
-                        // TRICKY: The rawKafkaEvent is passed here. The API is weird but given we are replacing it we're not changing anything here
-                        v1Result = result.args[0] as any
-                    }
-                } catch (e) {
-                    v1Error = e
-                }
-
-                try {
-                    this.compareResults(v1Result, v2Result, v1Error, v2Error)
-                } catch (e) {
-                    logger.warn('[IngestionConsumer] comparison failed')
-                }
-
-                if (v1Error) {
-                    // We want to rethrow the error of the existing processor if it errored here
-                    throw v1Error
-                }
-
-                continue
-            }
-
             // If not comparing we just run it
-            await this.runEventRunnerV1(incomingEvent)
-        }
-    }
+            const runner = this.getEventPipelineRunner(incomingEvent.event)
 
-    private compareResults(v1Result?: RawKafkaEvent, v2Result?: RawKafkaEvent, v1Error?: unknown, v2Error?: unknown) {
-        // NOTE: Here we will do a simple comparison to start with just checking that the number of properties are the same
-        const logDiff = (outcome: string, details: Record<string, any> = {}) => {
-            eventProcessorComparison.inc({
-                outcome,
-            })
-
-            logger.warn('[IngestionConsumer] comparison diff', {
-                outcome,
-                details,
-            })
-        }
-
-        if (!!v1Error !== !!v2Error) {
-            return logDiff(v1Error ? 'v1_error_but_not_v2' : 'v2_error_but_not_v1')
-        }
-
-        if (!!v1Result !== !!v2Result) {
-            return logDiff(v1Result ? 'v1_result_but_not_v2' : 'v2_result_but_not_v1')
-        }
-
-        // Iterate over each properties and compare. If the value is an object, then count the keys
-
-        if (v1Result && v2Result) {
-            const diff: Record<string, string> = {}
-
-            Object.keys(v1Result).forEach((key) => {
-                const v1Value = (v1Result as any)[key]
-                const v2Value = (v2Result as any)[key]
-
-                if (v1Value !== v2Value) {
-                    diff[key] = 'diff'
-                }
-            })
-        }
-
-        eventProcessorComparison.inc({ outcome: 'same' })
-    }
-
-    private async runEventRunnerV1(incomingEvent: IncomingEvent): Promise<EventPipelineResult | undefined> {
-        const { event, message } = incomingEvent
-        try {
-            const result = await this.runInstrumented('runEventPipeline', () =>
-                retryIfRetriable(async () => {
-                    const runner = this.getEventPipelineRunnerV1(event)
-                    return await runner.runEventPipeline(event)
-                })
-            )
-
-            // This contains the Kafka producer ACKs & message promises, to avoid blocking after every message.
-            result.ackPromises?.forEach((promise) => {
-                void this.scheduleWork(
-                    promise.catch(async (error) => {
-                        await this.handleProcessingErrorV1(error, message, event)
-                    })
-                )
-            })
-
-            return result
-        } catch (error) {
-            await this.handleProcessingErrorV1(error, message, event)
-        }
-    }
-
-    private async handleProcessingErrorV1(error: any, message: Message, event: PipelineEvent) {
-        logger.error('🔥', `Error processing message`, {
-            stack: error.stack,
-            error: error,
-        })
-
-        // If the error is a non-retriable error, push to the dlq and commit the offset. Else raise the
-        // error.
-        //
-        // NOTE: there is behavior to push to a DLQ at the moment within EventPipelineRunner. This
-        // doesn't work so well with e.g. messages that when sent to the DLQ is it's self too large.
-        // Here we explicitly do _not_ add any additional metadata to the message. We might want to add
-        // some metadata to the message e.g. in the header or reference e.g. the sentry event id.
-        //
-        // TODO: property abstract out this `isRetriable` error logic. This is currently relying on the
-        // fact that node-rdkafka adheres to the `isRetriable` interface.
-
-        if (error?.isRetriable === false) {
-            const sentryEventId = captureException(error)
-            const headers: MessageHeader[] = message.headers ?? []
-            headers.push({ ['sentry-event-id']: sentryEventId })
-            headers.push({ ['event-id']: event.uuid })
             try {
-                await this.kafkaProducer!.produce({
-                    topic: this.dlqTopic,
-                    value: message.value,
-                    key: message.key ?? null, // avoid undefined, just to be safe
-                    headers: headers,
-                })
+                await runner.run()
             } catch (error) {
-                // If we can't send to the DLQ and it's not retriable, just continue. We'll commit the
-                // offset and move on.
-                if (error?.isRetriable === false) {
-                    logger.error('🔥', `Error pushing to DLQ`, {
-                        stack: error.stack,
-                        error: error,
-                    })
-                    return
-                }
-
-                // If we can't send to the DLQ and it is retriable, raise the error.
-                throw error
+                // NOTE: If we error at this point we want to handle it gracefully and continue to process the scheduled promises
+                await this.handleProcessingError(error, incomingEvent.message, incomingEvent.event)
             }
-        } else {
-            throw error
-        }
-    }
 
-    private async runEventRunnerV2(incomingEvent: IncomingEvent): Promise<RawKafkaEvent | undefined> {
-        const runner = this.getEventPipelineRunnerV2(incomingEvent.event)
-
-        try {
-            return await runner.run()
-        } catch (error) {
-            // NOTE: If we error at this point we want to handle it gracefully and continue to process the scheduled promises
-            await this.handleProcessingErrorV2(error, incomingEvent.message, incomingEvent.event)
-        }
-
-        runner?.getPromises().forEach((promise) => {
-            // Schedule each promise with their own error handling
-            // That way if all fail with ignoreable errors we continue but if any one fails with an unexpected error we can crash out
-            this.scheduleWork(promise).catch((error) => {
-                return this.handleProcessingErrorV2(error, incomingEvent.message, incomingEvent.event)
+            runner?.getPromises().forEach((promise) => {
+                // Schedule each promise with their own error handling
+                // That way if all fail with ignoreable errors we continue but if any one fails with an unexpected error we can crash out
+                this.scheduleWork(promise).catch((error) => {
+                    return this.handleProcessingError(error, incomingEvent.message, incomingEvent.event)
+                })
             })
-        })
+        }
     }
 
-    private async handleProcessingErrorV2(error: any, message: Message, event: PipelineEvent) {
+    private async handleProcessingError(error: any, message: Message, event: PipelineEvent) {
         if (error instanceof EventDroppedError) {
             // In the case of an EventDroppedError we know that the error was expected and as such we should
             // send it to the DLQ unless the doNotSendToDLQ flag is set
@@ -489,14 +315,12 @@ export class IngestionConsumer {
 
                 // NOTE: Whilst we are comparing we don't want to send to the DLQ
                 // This is mostly a flag to remind us to remove this once we roll it out
-                if (this.comparisonV2Percentage) {
-                    await this.kafkaProducer!.produce({
-                        topic: this.dlqTopic,
-                        value: message.value,
-                        key: message.key ?? null, // avoid undefined, just to be safe
-                        headers: headers,
-                    })
-                }
+                await this.kafkaProducer!.produce({
+                    topic: this.dlqTopic,
+                    value: message.value,
+                    key: message.key ?? null, // avoid undefined, just to be safe
+                    headers: headers,
+                })
             } catch (error) {
                 logger.error('🔥', `Error pushing to DLQ`, {
                     stack: error.stack,
@@ -517,13 +341,9 @@ export class IngestionConsumer {
         throw error
     }
 
-    private getEventPipelineRunnerV1(event: PipelineEvent): EventPipelineRunner {
-        return new EventPipelineRunner(this.hub, event, this.hogTransformer)
-    }
-
-    private getEventPipelineRunnerV2(event: PipelineEvent): EventPipelineRunnerV2 {
+    private getEventPipelineRunner(event: PipelineEvent): EventPipelineRunner {
         // Mostly a helper method for testing
-        return new EventPipelineRunnerV2(this.hub, event, this.hogTransformer, true)
+        return new EventPipelineRunner(this.hub, event, this.hogTransformer)
     }
     private parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
         const batches: IncomingEventsByDistinctId = {}

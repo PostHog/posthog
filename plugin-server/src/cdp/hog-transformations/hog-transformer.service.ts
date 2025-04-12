@@ -112,12 +112,7 @@ export class HogTransformerService {
         }
     }
 
-    public transformEventAndProduceMessages(
-        event: PluginEvent,
-        options: {
-            skipProduce?: boolean
-        } = {}
-    ): Promise<TransformationResult> {
+    public transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer.transformEventAndProduceMessages`,
             func: async () => {
@@ -131,19 +126,9 @@ export class HogTransformerService {
 
                 hogTransformationCompleted.inc({ type: 'with_messages' })
 
-                let messagePromises: Promise<void>[] = []
-
-                if (options.skipProduce) {
-                    this.hogFunctionMonitoringService.messagesToProduce = []
-                } else {
-                    const promises = this.hogFunctionMonitoringService.produceQueuedMessages()
-                    // eslint-disable-next-line @typescript-eslint/no-floating-promises
-                    messagePromises = messagePromises.concat(promises)
-                }
-
                 return {
                     ...transformationResult,
-                    messagePromises,
+                    messagePromises: [this.hogFunctionMonitoringService.produceQueuedMessages()],
                 }
             },
         })

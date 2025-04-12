@@ -16,7 +16,6 @@ import { logger } from '../../utils/logger'
 import { castTimestampOrNow, UUID } from '../../utils/utils'
 import { MAX_GROUP_TYPES_PER_TEAM } from '../../worker/ingestion/group-type-manager'
 import { PersonState } from '../../worker/ingestion/person-state'
-import { uuidFromDistinctId } from '../../worker/ingestion/person-uuid'
 import { upsertGroup } from '../../worker/ingestion/properties-updater'
 import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
@@ -53,7 +52,7 @@ export const droppedEventFromTransformationsCounter = new Counter({
     help: 'Count of events dropped by transformations',
 })
 
-export class EventPipelineRunnerV2 {
+export class EventPipelineRunner {
     private team?: Team
     private event: PluginEvent
     private shouldProcessPerson: boolean = true
@@ -61,13 +60,7 @@ export class EventPipelineRunnerV2 {
     private person?: Person
     private promises: Promise<any>[] = []
 
-    constructor(
-        private hub: Hub,
-        private originalEvent: PipelineEvent,
-        private hogTransformer: HogTransformerService,
-        private comparisonMode: boolean = false
-    ) {
-        this.comparisonMode = comparisonMode
+    constructor(private hub: Hub, private originalEvent: PipelineEvent, private hogTransformer: HogTransformerService) {
         this.event = {
             ...this.originalEvent,
             properties: {
@@ -82,10 +75,6 @@ export class EventPipelineRunnerV2 {
     }
 
     private captureIngestionWarning(warning: string, _details: Record<string, any> = {}): void {
-        if (this.comparisonMode) {
-            return
-        }
-
         // NOTE: There is a shared util for this but it is only used by ingestion so keeping it here now
         const details = {
             eventUuid: typeof this.event.uuid !== 'string' ? JSON.stringify(this.event.uuid) : this.event.uuid,
@@ -113,9 +102,6 @@ export class EventPipelineRunnerV2 {
     }
 
     private dropEvent(dropCause: string): undefined {
-        if (this.comparisonMode) {
-            return
-        }
         eventDroppedCounter
             .labels({
                 event_type: 'analytics',
@@ -181,9 +167,7 @@ export class EventPipelineRunnerV2 {
             return
         }
 
-        const result = await this.hogTransformer.transformEventAndProduceMessages(this.event, {
-            skipProduce: this.comparisonMode,
-        })
+        const result = await this.hogTransformer.transformEventAndProduceMessages(this.event)
 
         if (!result.event) {
             droppedEventFromTransformationsCounter.inc()
@@ -314,28 +298,11 @@ export class EventPipelineRunnerV2 {
 
     private trackFirstEventIngestion() {
         // We always track 1st event ingestion
-        if (this.comparisonMode) {
-            return
-        }
-
         // TODO: In the future we should do this a level up at the batch level. We just need higher level team loading
-        // TODO: Move this up a level to run _after_ we have processed the event and resolved the team
-        // this.promises.push(this.hub.teamManager.setTeamIngestedEvent(this.team!, this.event.properties!))
+        this.promises.push(this.hub.teamManager.setTeamIngestedEvent(this.team!, this.event.properties!))
     }
 
     private async processPerson() {
-        if (this.comparisonMode) {
-            // TRICKY: We don't want to refactor PersonState yet to be write optional so we need to just skip it
-            const fakePerson: Person = {
-                team_id: this.team!.id,
-                properties: {},
-                uuid: uuidFromDistinctId(this.team!.id, this.event.distinct_id),
-                created_at: this.timestamp!,
-            }
-            this.person = fakePerson
-            return
-        }
-
         // NOTE: PersonState could derive so much of this stuff instead of it all being passed in
         const [person, kafkaAck] = await new PersonState(
             this.event,
@@ -369,7 +336,7 @@ export class EventPipelineRunnerV2 {
             }
         }
 
-        if (this.event.event === '$groupidentify' && !this.comparisonMode) {
+        if (this.event.event === '$groupidentify') {
             if (!this.event.properties!['$group_type'] || !this.event.properties!['$group_key']) {
                 return
             }
@@ -385,7 +352,7 @@ export class EventPipelineRunnerV2 {
                 groupType
             )
 
-            if (groupTypeIndex !== null && !this.comparisonMode) {
+            if (groupTypeIndex !== null) {
                 await upsertGroup(
                     this.hub.db,
                     this.team!.id,
@@ -501,9 +468,6 @@ export class EventPipelineRunnerV2 {
     }
 
     private produceEventToKafka(event: RawKafkaEvent) {
-        if (this.comparisonMode) {
-            return
-        }
         this.promises.push(
             this.hub.kafkaProducer
                 .produce({

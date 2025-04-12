@@ -104,9 +104,6 @@ describe('IngestionConsumer', () => {
         await resetTestDatabase()
         hub = await createHub()
 
-        // force comparison mode to be on - it should have no effect on tests
-        hub.INGESTION_CONSUMER_V2_COMPARISON_PERCENTAGE = 1
-
         hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
         const team2Id = await createTeam(hub.db.postgres, team.organization_id)
@@ -421,19 +418,12 @@ describe('IngestionConsumer', () => {
             messages = createKafkaMessages([createEvent()])
             error = new Error('test')
             jest.spyOn(logger, 'error').mockImplementation(() => {})
-            jest.spyOn(ingester as any, 'getEventPipelineRunnerV2').mockImplementationOnce(() => ({
+            jest.spyOn(ingester as any, 'getEventPipelineRunner').mockImplementationOnce(() => ({
                 run: () => {
                     throw error
                 },
                 getPromises: () => [],
             }))
-
-            error.isRetriable = false
-            jest.spyOn(ingester as any, 'getEventPipelineRunnerV1').mockReturnValue({
-                runEventPipeline: () => {
-                    throw error
-                },
-            })
         })
 
         afterEach(() => {

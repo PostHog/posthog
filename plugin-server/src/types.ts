@@ -128,7 +128,6 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_OVERFLOW_TOPIC?: string
     /** If set the ingestion consumer doesn't process events the usual way but rather just writes to a dummy topic */
     INGESTION_CONSUMER_TESTING_TOPIC?: string
-    INGESTION_CONSUMER_V2_COMPARISON_PERCENTAGE?: number
 }
 
 export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig {
