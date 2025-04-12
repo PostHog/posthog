@@ -489,7 +489,7 @@ export class IngestionConsumer {
 
                 // NOTE: Whilst we are comparing we don't want to send to the DLQ
                 // This is mostly a flag to remind us to remove this once we roll it out
-                if (this.comparisonV2Percentage) {
+                if (!this.comparisonV2Percentage) {
                     await this.kafkaProducer!.produce({
                         topic: this.dlqTopic,
                         value: message.value,
