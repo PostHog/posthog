@@ -31,7 +31,6 @@ export type TopicMessageWithErrorHandler = TopicMessage & {
 export class EventDroppedError extends Error {
     public doNotSendToDLQ: boolean = false
     public ingestionWarningDetails?: Record<string, any>
-    public isRetriable: boolean = false
 
     constructor(
         public ingestionWarning: string,
