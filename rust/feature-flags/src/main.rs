@@ -36,14 +36,12 @@ async fn main() {
     //   with_thread_ids: Include thread ID for concurrent debugging
     //   with_level: Show log level (ERROR, INFO, etc)
     //   with_filter: Use RUST_LOG env var to control verbosity
-    //   with_span_fields: Include span metadata in log lines (request_id etc)
     let fmt_layer = fmt::layer()
         .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
         .with_target(true)
         .with_thread_ids(true)
         .with_level(true)
         .with_filter(EnvFilter::from_default_env());
-
     tracing_subscriber::registry().with(fmt_layer).init();
 
     // Open the TCP port and start the server
