@@ -42,7 +42,7 @@ pub struct Config {
     pub overflow_burst_limit: NonZeroU32,
 
     pub overflow_forced_keys: Option<String>, // Coma-delimited keys
-    pub dropped_keys: Option<String>, // "<token>:<distinct_id or *>,<distinct_id or *>;<token>..."
+    pub drop_events_by_token_distinct_id: Option<String>, // "<token>:<distinct_id or *>,<distinct_id or *>;<token>..."
 
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,

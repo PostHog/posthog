@@ -38,7 +38,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     overflow_burst_limit: NonZeroU32::new(5).unwrap(),
     overflow_per_second_limit: NonZeroU32::new(10).unwrap(),
     overflow_forced_keys: None,
-    dropped_keys: None,
+    drop_events_by_token_distinct_id: None,
     kafka: KafkaConfig {
         kafka_producer_linger_ms: 0, // Send messages as soon as possible
         kafka_producer_queue_mib: 10,
