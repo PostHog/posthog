@@ -49,10 +49,12 @@ async fn it_drops_events_if_dropper_enabled() -> Result<()> {
 
     let main_topic = EphemeralTopic::new().await;
     let histo_topic = EphemeralTopic::new().await;
+    let overflow_topic = EphemeralTopic::new().await;
     let mut config = DEFAULT_CONFIG.clone();
     config.kafka.kafka_topic = main_topic.topic_name().to_string();
     config.kafka.kafka_historical_topic = histo_topic.topic_name().to_string();
-    config.dropped_keys = Some(format!("{}:{}", token, dropped_id));
+    config.kafka.kafka_overflow_topic = overflow_topic.topic_name().to_string();
+    config.drop_events_by_token_distinct_id = Some(format!("{}:{}", token, dropped_id));
     let server = ServerHandle::for_config(config).await;
 
     let event = json!({
