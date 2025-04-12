@@ -1909,6 +1909,7 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     text?: TextModel
     deleted?: boolean
     is_cached?: boolean
+    order?: number
 }
 
 export interface DashboardTileBasicType {
@@ -2969,10 +2970,23 @@ export enum SurveyMatchType {
 
 export enum SurveyType {
     Popover = 'popover',
-    Widget = 'widget',
+    Widget = 'widget', // feedback button survey
     FullScreen = 'full_screen',
     Email = 'email',
     API = 'api',
+}
+
+export enum SurveyPosition {
+    Left = 'left',
+    Center = 'center',
+    Right = 'right',
+    NextToTrigger = 'next_to_trigger',
+}
+
+export enum SurveyWidgetType {
+    Button = 'button',
+    Tab = 'tab',
+    Selector = 'selector',
 }
 
 export type SurveyQuestionDescriptionContentType = 'html' | 'text'
@@ -2994,12 +3008,12 @@ export interface SurveyAppearance {
     thankYouMessageDescriptionContentType?: SurveyQuestionDescriptionContentType
     thankYouMessageCloseButtonText?: string
     autoDisappear?: boolean
-    position?: string
+    position?: SurveyPosition
     zIndex?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
     // widget only
-    widgetType?: 'button' | 'tab' | 'selector'
+    widgetType?: SurveyWidgetType
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string
@@ -3924,6 +3938,7 @@ export type IntegrationKind =
     | 'snapchat'
     | 'intercom'
     | 'email'
+    | 'linear'
 
 export interface IntegrationType {
     id: number
@@ -3943,6 +3958,10 @@ export interface SlackChannelType {
     is_ext_shared: boolean
     is_member: boolean
     is_private_without_access?: boolean
+}
+export interface LinearTeamType {
+    id: string
+    name: string
 }
 
 export interface SharingConfigurationType {

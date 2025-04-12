@@ -22,6 +22,7 @@ export interface PipelineNodeNewLogicProps {
     pluginId: number | null
     batchExportDestination: string | null
     hogFunctionId: string | null
+    kind: string | null
 }
 
 export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
@@ -45,23 +46,33 @@ export const pipelineNodeNewLogic = kea<pipelineNodeNewLogicType>([
     selectors(() => ({
         loading: [(s) => [s.pluginsLoading], (pluginsLoading) => pluginsLoading],
         breadcrumbs: [
-            (_, p) => [p.stage, p.pluginId, p.batchExportDestination],
-            (stage, pluginId, batchDestination): Breadcrumb[] => [
-                {
-                    key: Scene.Pipeline,
-                    name: 'Data pipeline',
-                    path: urls.pipeline(),
-                },
-                {
-                    key: stage || 'unknown',
-                    name: stage ? capitalizeFirstLetter(NODE_STAGE_TO_PIPELINE_TAB[stage] || '') : 'Unknown',
-                    path: urls.pipeline(stage ? NODE_STAGE_TO_PIPELINE_TAB[stage] : undefined),
-                },
-                {
-                    key: pluginId || batchDestination || 'Unknown',
-                    name: pluginId ? 'New' : batchDestination ? `New ${batchDestination} destination` : 'New',
-                },
-            ],
+            (_, p) => [p.stage, p.pluginId, p.kind, p.batchExportDestination],
+            (stage, pluginId, kind, batchDestination): Breadcrumb[] => {
+                const parsedStage = stage ? stage.replace('-', ' ') : null
+
+                return [
+                    {
+                        key: Scene.Pipeline,
+                        name: 'Data pipeline',
+                        path: urls.pipeline(),
+                    },
+                    {
+                        key: stage || 'unknown',
+                        name: stage ? capitalizeFirstLetter(NODE_STAGE_TO_PIPELINE_TAB[stage] || '') : 'Unknown',
+                        path: urls.pipeline(stage ? NODE_STAGE_TO_PIPELINE_TAB[stage] : undefined),
+                    },
+                    {
+                        key: pluginId || batchDestination || 'Unknown',
+                        name: kind
+                            ? `New ${capitalizeFirstLetter(kind)} source`
+                            : pluginId
+                            ? 'New'
+                            : batchDestination
+                            ? `New ${batchDestination} destination`
+                            : `New ${parsedStage}`.trim(),
+                    },
+                ]
+            },
         ],
     })),
 ])

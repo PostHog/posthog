@@ -106,9 +106,16 @@ export const TreeNodeDisplayCheckbox = ({
         >
             <div className={ICON_CLASSES}>
                 <LemonCheckbox
-                    className="size-5 ml-[2px]"
+                    className={cn('size-5 ml-[2px]', {
+                        // Hide the checkbox if the item is disabled from being checked
+                        hidden: item.disableSelect || item.record?.type === 'folder',
+                    })}
                     checked={isChecked ?? false}
                     onChange={(checked) => {
+                        // Just in case
+                        if (item.disableSelect) {
+                            return
+                        }
                         handleCheckedChange?.(checked)
                     }}
                 />
@@ -144,7 +151,12 @@ export const TreeNodeDisplayIcon = ({
     }
 
     return (
-        <div className="flex gap-1 relative [&_svg]:size-4 group-hover/lemon-tree-icon-wrapper:opacity-0">
+        <div
+            className={cn('flex gap-1 relative [&_svg]:size-4', {
+                // Don't hide the icon on hover if the item is disabled from being checked
+                'group-hover/lemon-tree-icon-wrapper:opacity-0': !item.disableSelect,
+            })}
+        >
             {isFolder && (
                 <div
                     className={cn(

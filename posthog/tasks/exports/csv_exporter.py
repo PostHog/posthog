@@ -157,8 +157,8 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
                         "cohort": item["date"],
                         "cohort size": item["values"][0]["count"],
                     }
-                    for index, data in enumerate(item["values"]):
-                        line[results[index]["label"]] = data["count"]
+                    for data in item["values"]:
+                        line[data["label"]] = data["count"]
                 else:
                     # Otherwise we just specify "Period" for titles
                     line = {

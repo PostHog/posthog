@@ -1268,6 +1268,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "is_cached": False,
                 "last_refresh": None,
                 "layouts": {},
+                "order": 0,
                 "text": {
                     "body": "hello world",
                     "created_by": None,
@@ -1363,6 +1364,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "is_cached": False,
                 "last_refresh": None,
                 "layouts": {},
+                "order": 0,
                 "text": None,
             },
         ]

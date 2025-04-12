@@ -584,7 +584,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.personByUUID('*', false)]: [Scene.Person, 'personByUUID'],
     [urls.persons()]: [Scene.PersonsManagement, 'persons'],
     [urls.pipelineNodeNew(':stage')]: [Scene.PipelineNodeNew, 'pipelineNodeNew'],
-    [urls.pipelineNodeNew(':stage', ':id')]: [Scene.PipelineNodeNew, 'pipelineNodeNewWithId'],
+    [urls.pipelineNodeNew(':stage', { id: ':id' })]: [Scene.PipelineNodeNew, 'pipelineNodeNewWithId'],
     [urls.pipeline(':tab')]: [Scene.Pipeline, 'pipeline'],
     [urls.pipelineNode(':stage', ':id', ':nodeTab')]: [Scene.PipelineNode, 'pipelineNode'],
     [urls.pipelineNode(':stage', ':id')]: [Scene.PipelineNode, 'pipelineNodeWithId'],

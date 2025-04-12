@@ -14,13 +14,16 @@ from langgraph.errors import GraphRecursionError
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
-from ee.hogai.funnels.nodes import FunnelGeneratorNode
-from ee.hogai.graph import AssistantGraph
-from ee.hogai.memory.nodes import MemoryInitializerNode
-from ee.hogai.retention.nodes import RetentionGeneratorNode
-from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
-from ee.hogai.sql.nodes import SQLGeneratorNode
-from ee.hogai.trends.nodes import TrendsGeneratorNode
+from ee.hogai.graph import (
+    AssistantGraph,
+    FunnelGeneratorNode,
+    MemoryInitializerNode,
+    RetentionGeneratorNode,
+    SchemaGeneratorNode,
+    SQLGeneratorNode,
+    TrendsGeneratorNode,
+)
+from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.state import (
@@ -69,7 +72,6 @@ STREAMING_NODES: set[AssistantNodeName] = {
 
 VERBOSE_NODES = STREAMING_NODES | {
     AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
-    AssistantNodeName.SESSION_RECORDINGS_FILTERS,
     AssistantNodeName.ROOT_TOOLS,
 }
 """Nodes that can send messages to the client."""
@@ -211,6 +213,7 @@ class Assistant:
                 "trace_id": self._trace_id,
                 "distinct_id": self._user.distinct_id if self._user else None,
                 "contextual_tools": self._contextual_tools,
+                "team_id": self._team.id,
             },
         }
         return config
@@ -295,10 +298,23 @@ class Assistant:
                 return ReasoningMessage(content="Creating retention query")
             case AssistantNodeName.SQL_GENERATOR:
                 return ReasoningMessage(content="Creating SQL query")
-            case AssistantNodeName.INKEEP_DOCS:
-                return ReasoningMessage(content="Checking PostHog docs")
-            case AssistantNodeName.SESSION_RECORDINGS_FILTERS:
-                return ReasoningMessage(content="Coming up with session recordings filters")
+            case AssistantNodeName.ROOT_TOOLS:
+                assert isinstance(input.messages[-1], AssistantMessage)
+                tool_calls = input.messages[-1].tool_calls or []
+                assert len(tool_calls) <= 1
+                if len(tool_calls) == 0:
+                    return None
+                tool_call = tool_calls[0]
+                if tool_call.name == "create_and_query_insight":
+                    return ReasoningMessage(content="Coming up with an insight")
+                if tool_call.name == "search_documentation":
+                    return ReasoningMessage(content="Checking PostHog docs")
+                # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
+                # when the tool has been removed from the backend since the user's frontent was loaded
+                ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
+                return ReasoningMessage(
+                    content=ToolClass().thinking_message if ToolClass else f"Running tool {tool_call.name}"
+                )
             case _:
                 return None
 

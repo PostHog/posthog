@@ -1275,3 +1275,54 @@ class TestQuotaLimiting(BaseTest):
             assert quota_limited_orgs["api_queries_read_bytes"] == {}
             assert quota_limiting_suspended_orgs["api_queries_read_bytes"] == {}
             assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
+
+    @patch("posthoganalytics.capture")
+    @freeze_time("2021-01-25T00:00:00Z")
+    def test_quota_limited_until_but_not_over_limit(self, mock_capture) -> None:
+        """Test that when a customer is not over the limit but has quota_limited_until set, the suspension is removed."""
+        with self.settings(USE_TZ=False):
+            # Set up organization with usage below the limit but with quota_limited_until set
+            self.organization.usage = {
+                "events": {
+                    "usage": 80,
+                    "limit": 100,
+                    "quota_limited_until": 1612137599,  # End of billing period
+                },
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.save()
+
+            # Add the team token to the quota-limits list
+            team_token = self.team.api_token.encode("UTF-8")
+            self.redis_client.zadd(f"@posthog/quota-limits/events", {team_token: 1612137599})
+
+            # Run the quota limiting check
+            quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
+
+            # Verify the organization is no longer quota limited
+            assert "events" in quota_limited_orgs
+            assert "events" in quota_limiting_suspended_orgs
+            assert quota_limited_orgs["events"] == {}
+            assert quota_limiting_suspended_orgs["events"] == {}
+
+            # Verify the team token was removed from the quota-limits list
+            assert self.redis_client.zrange(f"@posthog/quota-limits/events", 0, -1) == []
+
+            # Verify the organization usage was updated to remove quota_limited_until
+            self.organization.refresh_from_db()
+            assert self.organization.usage["events"].get("quota_limited_until") is None
+
+            # Find the specific call for org_quota_limited_until with suspension removed
+            event = None
+            for call in mock_capture.call_args_list:
+                if len(call[0]) >= 2 and call[0][1] == "org_quota_limited_until":
+                    event = call
+                    break
+
+            # Verify the correct event was reported
+            assert event is not None, "Could not find org_quota_limited_until call with suspension removed"
+            assert event[1]["properties"]["current_usage"] == 80
+            assert event[1]["properties"]["resource"] == "events"
+            assert event[1]["properties"]["quota_limiting_suspended_until"] is None
+            assert "organization" in event[1]["groups"]
+            assert event[1]["groups"]["organization"] == str(self.organization.id)
