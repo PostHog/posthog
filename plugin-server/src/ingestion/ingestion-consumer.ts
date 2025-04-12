@@ -219,6 +219,10 @@ export class IngestionConsumer {
         }
     }
 
+    /**
+     * Redirect events to overflow or testing topic based on their configuration
+     * returning events that have not been redirected
+     */
     private redirectEvents(incomingEvents: IncomingEvent[]): IncomingEvent[] {
         if (!incomingEvents.length) {
             return []
