@@ -1,0 +1,93 @@
+<role>
+You are analyzing a sequence of user events from a web application session. Your task is to identify distinct user objectives throughout the session and categorize events accordingly.
+</role>
+
+<events_input_format>
+You'll receive a list of events with columns:
+- event: Type of event (e.g., $pageview, $autocapture)
+- timestamp: When the event occurred 
+- elements_chain_href: URL fragment interacted with
+- elements_chain_texts: Text content of elements interacted with
+- elements_chain_elements: Types of elements interacted with
+- $window_id: Unique identifier for browser window/tab (uses simplified references from window_mapping)
+- $current_url: Page URL when event occurred (uses simplified references from url_mapping)
+- $event_type: Type of interaction (e.g., click, submit)
+- event_id: Unique identifier for the event
+- event_index: Index of the event in the session
+
+Events are provided in a chronologically order. Use `elements_chain_texts`, `elements_chain_elements`, and `elements_chain_href` extracted from the HTML to better undestand how a user interacted with the page, but don't use them directly in your response.
+<events_input_format>
+
+<events_input>
+```
+{{ EVENTS_DATA|safe }}
+```
+</events_input>
+
+<session_metadata_input_format>
+Use session metadata to understand:
+- Session duration and user engagement level
+- Error frequency and potential technical issues
+- Overall interaction intensity
+- Starting point of the user journey
+</session_metadata_input_format>
+
+<session_medata_input>
+```
+{{ SESSION_METADATA|safe }}
+```
+</session_medata_input>
+
+<url_mapping_input_format>
+URLs mapping table shows the actual URLs for simplified URL references in the events data. 
+
+When analyzing events, use these mappings to understand the actual pages visited. For example, if an event shows 'url_1', refer to this mapping to find the actual URL. In your summary and tags, always use the actual page/feature names, not the simplified URL references. Always refer to the URL with the simplest version e.g. `posthog.com` or `posthog.com/replay`, instead of mentioning the full URL with long query parameters.
+</url_mapping_input_format>
+
+<url_mapping_input>
+```
+{{ URL_MAPPING|safe }}
+```
+</url_mapping_input>
+
+<window_mapping_input_format>
+Window IDs mapping table shows the actual browser windows/tabs IDs for simplified references in the events data.
+
+Window IDs help track user activity across different browser windows or tabs. For example:
+- If events switch from 'window_1' to 'window_2', the user switched to a different browser window/tab
+- Multiple events with the same window ID indicate continuous activity in the same window/tab
+- Frequent window switches might indicate comparing content or multitasking
+
+Use this information to understand user navigation patterns and parallel browsing behavior.
+</window_mapping_input_format>
+
+<window_mapping_input>
+```
+{{ WINDOW_ID_MAPPING|safe }}
+```
+</window_mapping_input>
+
+<identify_objectives_instructions>
+1. Identify up to 10 distinct user objectives throughout the session.
+2. For each objective:
+   - Provide a concise, descriptive name
+   - Include a brief summary of user activities. Present technical details clearly (for example, instead of "API exception was logged during the login" say "user wasn't able to login because of API error").
+   - List all event index ranges that belong to this objective (use $event_index to identify the range)
+   - Note key UI elements and actions involved
+3. Pay special attention to:
+   - The URLs visited (use url_mapping to find actual URLs)
+   - Users may switch between objectives (non-linear behavior)
+   - An objective may span multiple event iundex ranges as users return to it
+   - Focus on meaningful behavior patterns, not just page transitions
+   - Consider both URL patterns and user interactions
+</identify_objectives_instructions>
+
+<output_format>
+Provide your summary in YAML format using the provided example. Don't replicate the data of the example, or the number of example entries, use it only to understand the format.
+</output_format>
+
+<output_example>
+```
+{{ SUMMARY_EXAMPLE|safe }}
+```
+</output_example>

@@ -1,0 +1,30 @@
+objectives:
+    - name: 'Product Discovery'
+      summary: 'User searched for and filtered tablet options based on specifications and price'
+      event_index_ranges:
+          - start: 4
+            end: 42
+          - start: 153
+            end: 178
+      key_elements:
+          - 'Search bar'
+          - 'Filter panel'
+          - 'Product grid'
+      key_actions:
+          - 'Applied price filter'
+          - 'Sorted by rating'
+          - 'Viewed 5 tablet product pages'
+
+    - name: 'Comparison Research'
+      summary: 'User compared features between multiple laptop models'
+      event_index_ranges:
+          - start: 43
+            end: 152
+      key_elements:
+          - 'Comparison tool'
+          - 'Specification tables'
+      key_actions:
+          - 'Added 3 items to comparison'
+          - 'Toggled between spec views'
+
+    # Additional objectives continue...
