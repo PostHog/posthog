@@ -277,7 +277,6 @@ export class IngestionConsumer {
             // Track $set usage in events that aren't known to use it, before ingestion adds anything there
             trackIfNonPersonEventUpdatesPersons(incomingEvent.event)
 
-            // If not comparing we just run it
             const runner = this.getEventPipelineRunner(incomingEvent.event)
 
             try {
