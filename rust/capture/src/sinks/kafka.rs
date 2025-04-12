@@ -113,6 +113,7 @@ pub struct KafkaSink {
     producer: FutureProducer<KafkaContext>,
     partition: Option<OverflowLimiter>,
     main_topic: String,
+    overflow_topic: String,
     historical_topic: String,
     client_ingestion_warning_topic: String,
     exceptions_topic: String,
@@ -197,6 +198,7 @@ impl KafkaSink {
             producer,
             partition,
             main_topic: config.kafka_topic,
+            overflow_topic: config.kafka_overflow_topic,
             historical_topic: config.kafka_historical_topic,
             client_ingestion_warning_topic: config.kafka_client_ingestion_warning_topic,
             exceptions_topic: config.kafka_exceptions_topic,
@@ -233,10 +235,10 @@ impl KafkaSink {
                 // TODO: deprecate capture-led overflow or move logic in handler
                 let is_limited = match &self.partition {
                     None => false,
-                    Some(partition) => partition.is_limited(&event_key),
+                    Some(partition) => partition.is_limited(&token, &distinct_id),
                 };
                 if is_limited {
-                    (&self.main_topic, None) // Analytics overflow goes to the main topic without locality
+                    (&self.overflow_topic, Some(event_key.as_str())) // Analytics overflow goes to the main topic without locality
                 } else {
                     (&self.main_topic, Some(event_key.as_str()))
                 }

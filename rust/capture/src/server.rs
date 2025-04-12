@@ -50,7 +50,7 @@ async fn create_sink(
                 let partition = OverflowLimiter::new(
                     config.overflow_per_second_limit,
                     config.overflow_burst_limit,
-                    config.overflow_forced_keys.clone(),
+                    config.ingestion_force_overflow_by_token_distinct_id.clone(),
                 );
                 if config.export_prometheus {
                     let partition = partition.clone();

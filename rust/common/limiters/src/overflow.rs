@@ -38,8 +38,11 @@ impl OverflowLimiter {
         }
     }
 
-    pub fn is_limited(&self, key: &String) -> bool {
-        self.forced_keys.contains(key) || self.limiter.check_key(key).is_err()
+    pub fn is_limited(&self, token: &str, distinct_id: &str) -> bool {
+        let key = format!("{}:{}", token, distinct_id);
+        self.forced_keys.contains(&key)
+            || self.forced_keys.contains(token)
+            || self.limiter.check_key(&key).is_err()
     }
 
     /// Reports the number of tracked keys to prometheus every 10 seconds,
@@ -82,10 +85,11 @@ mod tests {
             NonZeroU32::new(1).unwrap(),
             None,
         );
-        let token = String::from("test");
+        let token = "test";
+        let distinct_id = "user1";
 
-        assert!(!limiter.is_limited(&token));
-        assert!(limiter.is_limited(&token));
+        assert!(!limiter.is_limited(token, distinct_id));
+        assert!(limiter.is_limited(token, distinct_id));
     }
 
     #[tokio::test]
@@ -95,20 +99,18 @@ mod tests {
             NonZeroU32::new(3).unwrap(),
             None,
         );
-        let token = String::from("test");
+        let token = "test";
+        let distinct_id = "user1";
 
-        assert!(!limiter.is_limited(&token));
-        assert!(!limiter.is_limited(&token));
-        assert!(!limiter.is_limited(&token));
-        assert!(limiter.is_limited(&token));
+        assert!(!limiter.is_limited(token, distinct_id));
+        assert!(!limiter.is_limited(token, distinct_id));
+        assert!(!limiter.is_limited(token, distinct_id));
+        assert!(limiter.is_limited(token, distinct_id));
     }
 
     #[tokio::test]
     async fn forced_key() {
-        let key_one = String::from("one");
-        let key_two = String::from("two");
-        let key_three = String::from("three");
-        let forced_keys = Some(String::from("one,three"));
+        let forced_keys = Some(String::from("token1:user1,token2:user2"));
 
         let limiter = OverflowLimiter::new(
             NonZeroU32::new(1).unwrap(),
@@ -116,12 +118,34 @@ mod tests {
             forced_keys,
         );
 
-        // One and three are limited from the start, two is not
-        assert!(limiter.is_limited(&key_one));
-        assert!(!limiter.is_limited(&key_two));
-        assert!(limiter.is_limited(&key_three));
+        // token1:user1 and token2:user2 are limited from the start, token3:user3 is not
+        assert!(limiter.is_limited("token1", "user1"));
+        assert!(!limiter.is_limited("token3", "user3"));
+        assert!(limiter.is_limited("token2", "user2"));
 
-        // Two is limited on the second event
-        assert!(limiter.is_limited(&key_two));
+        // token3:user3 is limited on the second event
+        assert!(limiter.is_limited("token3", "user3"));
+    }
+
+    #[tokio::test]
+    async fn test_optional_distinct_id() {
+        let limiter = OverflowLimiter::new(
+            NonZeroU32::new(1).unwrap(),
+            NonZeroU32::new(1).unwrap(),
+            Some(String::from("token1,token2:user2")),
+        );
+
+        // token1 is limited for all distinct_ids
+        assert!(limiter.is_limited("token1", "any_user"));
+        assert!(limiter.is_limited("token1", "other_user"));
+        assert!(limiter.is_limited("token1", ""));
+
+        // token2:user2 is limited only for that specific user
+        assert!(limiter.is_limited("token2", "user2"));
+        assert!(!limiter.is_limited("token2", "other_user"));
+
+        // token3 gets rate limited normally
+        assert!(!limiter.is_limited("token3", "user1"));
+        assert!(limiter.is_limited("token3", "user1")); // Second hit is limited
     }
 }
