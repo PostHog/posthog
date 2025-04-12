@@ -385,7 +385,7 @@ export class EventPipelineRunnerV2 {
                 groupType
             )
 
-            if (groupTypeIndex !== null && !this.comparisonMode) {
+            if (groupTypeIndex !== null) {
                 await upsertGroup(
                     this.hub.db,
                     this.team!.id,
