@@ -12,7 +12,7 @@ objectives:
             event_id: 'e077b6d8'
             error: false
     - name: 'Comparing Options'
-      summary: 'User compared features between multiple options'
+      summary: 'User compared features between multiple options but encountered rendering issues'
       key_actions:
           - description: 'User selected first item for comparison'
             event_id: '9580f5dc'
@@ -20,7 +20,7 @@ objectives:
           - description: 'User selected second item for comparison'
             event_id: 'a123b456'
             error: false
-          - description: 'Comparison view failed to render properly'
+          - description: 'Comparison view failed to render properly due to API timeout when retrieving feature data, forcing user to refresh'
             event_id: 'c789d012'
             error: true
           - description: 'User refreshed the page, resolving the display issue'

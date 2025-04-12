@@ -68,20 +68,36 @@ Use this information to understand user navigation patterns and parallel browsin
    - Short sessions (under 1 minute) typically have 1-3 objectives
    - Medium sessions (1-5 minutes) may have 3-5 objectives
    - Longer sessions (over 5 minutes) might have 5-10 objectives
+
 2. Each objective must represent something the user was actively trying to accomplish (e.g., "login to the application," "filter products," "complete checkout"), not technical events or metrics.
+
 3. For each objective:
    - Provide a concise, descriptive name that captures the user's goal
    - Include a brief summary that incorporates both user actions AND any technical issues that affected this goal
-   - List key actions with their corresponding event_id and error status
-4. Important guidelines:
+   - List key actions with their corresponding event_id and error status (see Key Actions guidance below)
+
+4. Key Actions Guidelines:
+   - Include 1-5 key actions per objective, scaling based on complexity and duration
+   - Always prioritize capturing error states within relevant objectives
+   - For error actions, provide detailed context about:
+     * What the user was attempting to do when the error occurred
+     * The nature of the error (e.g., API failure, validation error, timeout)
+     * Potential causes if identifiable (e.g., "possibly caused by incorrect password format")
+     * Impact on the user's workflow
+   - Error descriptions can and should be longer than regular action descriptions to provide necessary context
+   - Non-error key actions should be concise but informative
+
+5. Important objective guidelines:
    - DO NOT create separate objectives for error states, technical issues, or general engagement metrics
    - DO NOT create overlapping objectives - each event should generally belong to only one primary objective
    - DO create distinct objectives only when the user clearly switches to a different task or goal
    - DO incorporate error states and technical issues into the relevant user objective's summary
    - DO consider non-linear behavior where users may return to previous objectives
-5. Pay special attention to:
+
+6. Pay special attention to:
    - The URLs visited (use url_mapping to find actual URLs)
    - Focus on meaningful user goals, not just technical events or page transitions
+   - Patterns indicating user confusion, repeated attempts, or workarounds
 </identify_objectives_instructions>
 
 <output_format>
