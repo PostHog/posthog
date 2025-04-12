@@ -311,7 +311,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     }}
                                                     className={cn(
                                                         'group/lemon-tree-button',
-                                                        'pl-8 z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)] transition-[padding] duration-50',
+                                                        'pl-8 z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)] motion-safe:transition-[padding] duration-50',
                                                         {
                                                             'bg-fill-button-tertiary-hover':
                                                                 selectedId === item.id ||
@@ -456,7 +456,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                                                 >
                                                                                     <span
                                                                                         className={cn(
-                                                                                            'starting:opacity-0 opacity-100 delay-50 transition-opacity duration-100',
+                                                                                            'starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100',
                                                                                             {
                                                                                                 'font-normal':
                                                                                                     index !== 0 &&
@@ -493,7 +493,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                             <ButtonPrimitive
                                                                 iconOnly
                                                                 sideActionRight
-                                                                className="z-2 shrink-0 transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100"
+                                                                className="z-2 shrink-0 motion-safe:transition-opacity duration-[50ms] group-hover/lemon-tree-button-group:opacity-100 aria-expanded:opacity-100"
                                                             >
                                                                 <IconEllipsis className="size-3 text-tertiary" />
                                                             </ButtonPrimitive>
@@ -1204,7 +1204,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             >
                 <div
                     className={cn(
-                        'overflow-hidden transition-[height,display] duration-200 starting:h-0 [transition-behavior:allow-discrete]',
+                        'overflow-hidden motion-safe:transition-[height,display] duration-200 starting:h-0 [transition-behavior:allow-discrete]',
                         {
                             'hidden h-0 opacity-0': mode === 'tree' || !tableViewKeys,
                             'h-[30px] opacity-100 flex items-center px-1 border-b border-primary':
@@ -1223,7 +1223,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         {tableViewKeys?.headers.map((header, index) => (
                             <div
                                 key={header.key}
-                                className={cn('text-secondary font-bold text-xs uppercase flex gap-2 min-w-[265px]', {
+                                className={cn('text-secondary font-bold text-xs uppercase flex gap-2', {
                                     'pl-px': index === 0,
                                 })}
                             >
