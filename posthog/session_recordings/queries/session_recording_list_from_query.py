@@ -1,4 +1,3 @@
-import re
 from typing import Any, cast, Optional, Union, Literal
 from datetime import datetime, timedelta, UTC
 
@@ -7,8 +6,7 @@ import posthoganalytics
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select, parse_expr
-from posthog.hogql.property import property_to_expr, action_to_expr
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team
 from posthog.schema import (
