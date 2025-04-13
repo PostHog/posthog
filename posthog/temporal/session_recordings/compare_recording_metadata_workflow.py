@@ -164,7 +164,6 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
         all_differing_sessions: list[str] = []
         all_differing_sessions_excluding_active_ms: list[str] = []
         differing_sessions_count = 0
-        differing_sessions_excluding_active_ms_count = 0
         active_ms_diffs_percentage: list[float] = []
 
         for session_id in set(v1_sessions.keys()) & set(v2_sessions.keys()):
@@ -199,7 +198,6 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
 
             if differences_excluding_active_ms:
                 all_differing_sessions_excluding_active_ms.append(session_id)
-                differing_sessions_excluding_active_ms_count += 1
 
         end_time = dt.datetime.now()
         duration = (end_time - start_time).total_seconds()
