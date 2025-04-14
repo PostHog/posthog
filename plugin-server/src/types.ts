@@ -342,8 +342,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PROPERTY_DEFS_WRITE_DISABLED: boolean
 
     CDP_HOG_WATCHER_SAMPLE_RATE: number
-    LAZY_TEAM_MANAGER_COMPARISON: boolean
-    USE_LAZY_TEAM_MANAGER: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
