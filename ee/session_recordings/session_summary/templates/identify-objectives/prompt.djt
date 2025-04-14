@@ -22,27 +22,6 @@ Don't include raw `elements_chain_texts` data in your summary, but use it to imp
 ```
 </events_input>
 
-<session_metadata_input_format>
-Use session metadata to understand user engagement context:
-
-- active_seconds: Total time user actively engaged with the application
-  * <30 seconds: Very brief session, likely a single objective
-  * 30-120 seconds: Short session, typically 1-3 distinct objectives
-  * 120-300 seconds: Medium session, may contain 3-5 related objectives
-  * >300 seconds: Extensive session, likely contains multiple complex objectives
-- inactive_seconds: Periods when user wasn't interacting with the application
-- click_count, keypress_count, mouse_activity_count: Interaction density
-- start_url: Entry point to the application, often indicates initial user intent
-
-Use these metrics to calibrate your analysis of user objectives and engagement quality.
-</session_metadata_input_format>
-
-<session_medata_input>
-```
-{{ SESSION_METADATA|safe }}
-```
-</session_medata_input>
-
 <url_mapping_input_format>
 URLs mapping table shows the actual URLs for simplified URL references in the events data. 
 
@@ -72,6 +51,27 @@ Use this information to understand user navigation patterns and parallel browsin
 ```
 </window_mapping_input>
 
+<session_metadata_input_format>
+Use session metadata to understand user engagement context:
+
+- active_seconds: Total time user actively engaged with the application
+  * <30 seconds: Very brief session, likely a single objective
+  * 30-120 seconds: Short session, typically 1-3 distinct objectives
+  * 120-300 seconds: Medium session, may contain 3-5 related objectives
+  * >300 seconds: Extensive session, likely contains multiple complex objectives
+- inactive_seconds: Periods when user wasn't interacting with the application
+- click_count, keypress_count, mouse_activity_count: Interaction density
+- start_url: Entry point to the application, often indicates initial user intent
+
+Use these metrics to calibrate your analysis of user objectives and engagement quality.
+</session_metadata_input_format>
+
+<session_medata_input>
+```
+{{ SESSION_METADATA|safe }}
+```
+</session_medata_input>
+
 <identify_objectives_instructions>
 CRITICAL WARNING: DO NOT hallucinate errors. Only mark events as errors when there is EXPLICIT evidence in the event data that an error occurred.
 
@@ -95,18 +95,22 @@ CRITICAL WARNING: DO NOT hallucinate errors. Only mark events as errors when the
       - Create separate key actions for repeated behaviors ONLY if they represent distinct phases
 
    B. Error Identification Guidelines (CRITICAL): 
+
+      - NEVER flag as errors:
+        ✗ Normal page navigation
+        ✗ Sequential UI interactions (changing filters, adjusting parameters)
+        ✗ Any other action without direct failure evidence
+   
       - Flag event as an error (`error: true`) ONLY with EXPLICIT evidence:
-        * Event name/type contains: 'exception', 'failed', 'error'
-        * `elements_chain_texts` contains error messages (e.g., "404 Not Found", "Failed to load")
-      
+        ✓ Event name/type contains: 'exception', 'failed', 'error', etc.
+        ✓ `elements_chain_texts` contains error messages (e.g., "404 Not Found", "Failed to load", etc.)
+        ✓ Session abandonment shortly after exception events
+        ✓ Multiple rapid identical form submissions followed by a change in form data
+        ✓ And other similar patterns
+
       - Error severity filter:
         ✓ INCLUDE: Errors interrupting user progress (login failures, submission errors, API errors, etc.)
         ✗ EXCLUDE: Background errors (tracking failures, minor rendering glitches, etc.)
-      
-      - NEVER mark as errors:
-        ✗ Normal page navigation
-        ✗ Sequential UI interactions (changing filters, adjusting parameters)
-        ✗ Any action without direct failure evidence
       
       - Error description requirements:
         * Specify error nature (API failure, validation error, timeout, etc.)
