@@ -523,12 +523,6 @@ function SurveyNPSResults({
                         <IntervalFilterStandalone
                             interval={interval ?? defaultInterval}
                             onIntervalChange={setInterval}
-                            options={[
-                                { value: 'hour', label: 'Hour' },
-                                { value: 'day', label: 'Day' },
-                                { value: 'week', label: 'Week' },
-                                { value: 'month', label: 'Month' },
-                            ]}
                         />
                         <CompareFilter
                             compareFilter={compareFilter}
