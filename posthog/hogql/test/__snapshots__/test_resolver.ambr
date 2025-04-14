@@ -2695,6 +2695,9 @@
                           $entry_dclid: {
                             hidden: False
                           },
+                          $entry_epik: {
+                            hidden: False
+                          },
                           $entry_fbclid: {
                             hidden: False
                           },
@@ -2731,7 +2734,13 @@
                           $entry_pathname: {
                             hidden: False
                           },
+                          $entry_qclid: {
+                            hidden: False
+                          },
                           $entry_referring_domain: {
+                            hidden: False
+                          },
+                          $entry_sccid: {
                             hidden: False
                           },
                           $entry_ttclid: {
