@@ -10,12 +10,14 @@ logger = logging.getLogger(__name__)
 
 
 class InkeepConfig:
-    SUPPORTED_MODELS = ["inkeep-qa"]
+    SUPPORTED_MODELS = ["inkeep-qa-expert"]
 
 
 class InkeepProvider:
     def __init__(self, model_id: str):
         self.client = openai.OpenAI(base_url="https://api.inkeep.com/v1", api_key=self.get_api_key())
+        if model_id not in InkeepConfig.SUPPORTED_MODELS:
+            raise ValueError(f"Model {model_id} is not supported")
         self.model_id = model_id
 
     def validate_messages(self, messages: list[dict[str, Any]]) -> None:
@@ -32,7 +34,7 @@ class InkeepProvider:
             raise ValueError("INKEEP_API_KEY is not set in environment or settings")
         return api_key
 
-    def stream_response(self, _: str, messages: list, thinking: bool = False) -> Generator[str, None, None]:
+    def stream_response(self, system: str, messages: list, thinking: bool = False) -> Generator[str, None, None]:
         """
         Generator function that yields SSE formatted data
         """
