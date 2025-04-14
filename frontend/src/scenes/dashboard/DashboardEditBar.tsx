@@ -45,7 +45,6 @@ export function DashboardEditBar(): JSX.Element {
         // Only show preview button for large dashboards where we don't automatically preview filter changes */
         <Popover
             visible={!canAutoPreview && filtersUpdated}
-            className="z-1" // So that Cancel/Apply isn't above filter popovers
             overlay={
                 <div className="flex items-center gap-2 m-1">
                     <LemonButton
@@ -61,7 +60,7 @@ export function DashboardEditBar(): JSX.Element {
                     </LemonButton>
                 </div>
             }
-            placement="top"
+            placement="bottom"
             showArrow
         >
             <div

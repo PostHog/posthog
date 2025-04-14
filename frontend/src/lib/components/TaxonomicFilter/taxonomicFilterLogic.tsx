@@ -13,7 +13,6 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { IconCohort } from 'lib/lemon-ui/icons'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP, getCoreFilterDefinition } from 'lib/taxonomy'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import {
@@ -34,6 +33,8 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { AnyDataNode, DatabaseSchemaField, DatabaseSchemaTable, NodeKind } from '~/queries/schema/schema-general'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     ActionType,
     CohortType,
@@ -115,7 +116,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     actions(() => ({
         moveUp: true,
         moveDown: true,
-        selectSelected: (onComplete?: () => void) => ({ onComplete }),
+        selectSelected: true,
         enableMouseInteractions: true,
         tabLeft: true,
         tabRight: true,
@@ -132,9 +133,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             results,
         }),
     })),
-    reducers(({ selectors }) => ({
+    reducers(({ props, selectors }) => ({
         searchQuery: [
-            '',
+            props.initialSearchQuery || '',
             {
                 setSearchQuery: (_, { searchQuery }) => searchQuery,
             },
@@ -682,7 +683,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         selectItem: ({ group, value, item, originalQuery }) => {
-            if (item || group.type === TaxonomicFilterGroupType.HogQLExpression) {
+            if (item) {
                 try {
                     const hasOriginalQuery = originalQuery && originalQuery.trim().length > 0
                     const hasName = item && item.name && item.name.trim().length > 0
@@ -699,6 +700,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 } catch (e) {
                     posthog.captureException(e, { posthog_feature: 'taxonomic_filter_swapped_in_query' })
                 }
+                props.onChange?.(group, value, item, originalQuery)
+            } else if (props.onEnter) {
+                // If the user pressed enter on a group with no item selected, we want to pass the original query
+                props.onEnter(values.searchQuery)
+                return
+            } else if (group.type === TaxonomicFilterGroupType.HogQLExpression) {
                 props.onChange?.(group, value, item, originalQuery)
             }
             actions.setSearchQuery('')
