@@ -23,7 +23,6 @@ describe('google template', () => {
                 },
                 customerId: '1231231234/5675675678',
                 conversionActionId: '123456789',
-                conversionDateTime: '2024-10-10 16:32:45+02:00',
             },
             {
                 event: {
@@ -63,7 +62,6 @@ describe('google template', () => {
         expect(responses.length).toEqual(1)
         const response = responses[0]
 
-        expect(response.error).toMatchInlineSnapshot(`undefined`)
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(false)
         expect(response.invocation.queue).toEqual('fetch')
