@@ -74,10 +74,15 @@ class CodebaseTreeQueryRunner(QueryRunner):
             placeholders={
                 "user_id": ast.Constant(value=self.query.userId),
                 "codebase_id": ast.Constant(value=self.query.codebaseId),
-                "branch": ast.Constant(value=self.query.branch),
+                "branch": ast.Constant(value=self._branch_name),
                 "synced_artifacts_query": DistinctSyncedArtifactsQuery(
                     user_id=self.query.userId,
                     codebase_id=self.query.codebaseId,
                 ).to_query(),
             },
         )
+
+    @property
+    def _branch_name(self) -> str:
+        """Branch is a required string, so we use an empty string if it's not provided."""
+        return self.query.branch or ""

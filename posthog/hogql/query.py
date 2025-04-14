@@ -113,7 +113,7 @@ class HogQLQueryExecutor:
                 self.select_query = replace_placeholders(self.select_query, self.placeholders)
 
     def _apply_limit(self):
-        if self.limit_context in (LimitContext.COHORT_CALCULATION, LimitContext.SAVED_QUERY):
+        if self.limit_context in (LimitContext.COHORT_CALCULATION, LimitContext.SAVED_QUERY, LimitContext.EDITOR):
             self.context.limit_top_select = False
 
         with self.timings.measure("max_limit"):

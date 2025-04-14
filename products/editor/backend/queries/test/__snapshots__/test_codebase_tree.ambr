@@ -1,0 +1,105 @@
+# serializer version: 1
+# name: TestCodebaseTree.test_applies_higher_row_limit
+  '''
+  SELECT codebase_catalog.artifact_id AS artifact_id,
+         argMaxIf(codebase_catalog.parent_artifact_id, toTimeZone(codebase_catalog.timestamp, 'UTC'), equals(codebase_catalog.sign, 1)) AS parent_artifact_id,
+         argMaxIf(codebase_catalog.type, toTimeZone(codebase_catalog.timestamp, 'UTC'), equals(codebase_catalog.sign, 1)) AS artifact_type,
+         or(ifNull(equals(artifact_type, 'dir'), 0), ifNull(notEquals(any(embeddings.synced_artifact_id), ''), 1)) AS synced
+  FROM codebase_catalog
+  LEFT JOIN
+    (SELECT argMax(DISTINCT codebase_embeddings.artifact_id, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS synced_artifact_id
+     FROM codebase_embeddings
+     WHERE and(equals(codebase_embeddings.team_id, 99999), equals(codebase_embeddings.user_id, 308), equals(codebase_embeddings.codebase_id, '019634b6-b3dd-0000-684b-b69f8c084ced'))
+     GROUP BY codebase_embeddings.artifact_id) AS embeddings ON equals(codebase_catalog.artifact_id, embeddings.synced_artifact_id)
+  WHERE and(equals(codebase_catalog.team_id, 99999), equals(codebase_catalog.user_id, 308), equals(codebase_catalog.codebase_id, '019634b6-b3dd-0000-684b-b69f8c084ced'), equals(codebase_catalog.branch, ''))
+  GROUP BY codebase_catalog.artifact_id
+  HAVING ifNull(greater(sum(codebase_catalog.sign), 0), 0)
+  LIMIT 1000000 SETTINGS readonly=2,
+                         max_execution_time=60,
+                         allow_experimental_object_type=1,
+                         format_csv_allow_double_quotes=0,
+                         max_ast_elements=4000000,
+                         max_expanded_ast_elements=4000000,
+                         max_bytes_before_external_group_by=0,
+                         transform_null_in=1,
+                         optimize_min_equality_disjunction_chain_length=4294967295
+  '''
+# ---
+# name: TestCodebaseTree.test_handles_empty_branch
+  '''
+  SELECT codebase_catalog.artifact_id AS artifact_id,
+         argMaxIf(codebase_catalog.parent_artifact_id, toTimeZone(codebase_catalog.timestamp, 'UTC'), equals(codebase_catalog.sign, 1)) AS parent_artifact_id,
+         argMaxIf(codebase_catalog.type, toTimeZone(codebase_catalog.timestamp, 'UTC'), equals(codebase_catalog.sign, 1)) AS artifact_type,
+         or(ifNull(equals(artifact_type, 'dir'), 0), ifNull(notEquals(any(embeddings.synced_artifact_id), ''), 1)) AS synced
+  FROM codebase_catalog
+  LEFT JOIN
+    (SELECT argMax(DISTINCT codebase_embeddings.artifact_id, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS synced_artifact_id
+     FROM codebase_embeddings
+     WHERE and(equals(codebase_embeddings.team_id, 99999), equals(codebase_embeddings.user_id, 310), equals(codebase_embeddings.codebase_id, '019634b6-b6a0-0000-aae8-a9ce83b2fb71'))
+     GROUP BY codebase_embeddings.artifact_id) AS embeddings ON equals(codebase_catalog.artifact_id, embeddings.synced_artifact_id)
+  WHERE and(equals(codebase_catalog.team_id, 99999), equals(codebase_catalog.user_id, 310), equals(codebase_catalog.codebase_id, '019634b6-b6a0-0000-aae8-a9ce83b2fb71'), equals(codebase_catalog.branch, ''))
+  GROUP BY codebase_catalog.artifact_id
+  HAVING ifNull(greater(sum(codebase_catalog.sign), 0), 0)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
+  '''
+# ---
+# name: TestCodebaseTree.test_handles_empty_branch.1
+  '''
+  SELECT codebase_catalog.artifact_id AS artifact_id,
+         argMaxIf(codebase_catalog.parent_artifact_id, toTimeZone(codebase_catalog.timestamp, 'UTC'), equals(codebase_catalog.sign, 1)) AS parent_artifact_id,
+         argMaxIf(codebase_catalog.type, toTimeZone(codebase_catalog.timestamp, 'UTC'), equals(codebase_catalog.sign, 1)) AS artifact_type,
+         or(ifNull(equals(artifact_type, 'dir'), 0), ifNull(notEquals(any(embeddings.synced_artifact_id), ''), 1)) AS synced
+  FROM codebase_catalog
+  LEFT JOIN
+    (SELECT argMax(DISTINCT codebase_embeddings.artifact_id, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS synced_artifact_id
+     FROM codebase_embeddings
+     WHERE and(equals(codebase_embeddings.team_id, 99999), equals(codebase_embeddings.user_id, 310), equals(codebase_embeddings.codebase_id, '019634b6-b6a0-0000-aae8-a9ce83b2fb71'))
+     GROUP BY codebase_embeddings.artifact_id) AS embeddings ON equals(codebase_catalog.artifact_id, embeddings.synced_artifact_id)
+  WHERE and(equals(codebase_catalog.team_id, 99999), equals(codebase_catalog.user_id, 310), equals(codebase_catalog.codebase_id, '019634b6-b6a0-0000-aae8-a9ce83b2fb71'), equals(codebase_catalog.branch, ''))
+  GROUP BY codebase_catalog.artifact_id
+  HAVING ifNull(greater(sum(codebase_catalog.sign), 0), 0)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
+  '''
+# ---
+# name: TestCodebaseTree.test_returns_codebase_tree
+  '''
+  SELECT codebase_catalog.artifact_id AS artifact_id,
+         argMaxIf(codebase_catalog.parent_artifact_id, toTimeZone(codebase_catalog.timestamp, 'UTC'), equals(codebase_catalog.sign, 1)) AS parent_artifact_id,
+         argMaxIf(codebase_catalog.type, toTimeZone(codebase_catalog.timestamp, 'UTC'), equals(codebase_catalog.sign, 1)) AS artifact_type,
+         or(ifNull(equals(artifact_type, 'dir'), 0), ifNull(notEquals(any(embeddings.synced_artifact_id), ''), 1)) AS synced
+  FROM codebase_catalog
+  LEFT JOIN
+    (SELECT argMax(DISTINCT codebase_embeddings.artifact_id, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS synced_artifact_id
+     FROM codebase_embeddings
+     WHERE and(equals(codebase_embeddings.team_id, 99999), equals(codebase_embeddings.user_id, 312), equals(codebase_embeddings.codebase_id, '019634b6-b924-0000-5f70-437f85cf9c25'))
+     GROUP BY codebase_embeddings.artifact_id) AS embeddings ON equals(codebase_catalog.artifact_id, embeddings.synced_artifact_id)
+  WHERE and(equals(codebase_catalog.team_id, 99999), equals(codebase_catalog.user_id, 312), equals(codebase_catalog.codebase_id, '019634b6-b924-0000-5f70-437f85cf9c25'), equals(codebase_catalog.branch, 'main'))
+  GROUP BY codebase_catalog.artifact_id
+  HAVING ifNull(greater(sum(codebase_catalog.sign), 0), 0)
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
+  '''
+# ---
