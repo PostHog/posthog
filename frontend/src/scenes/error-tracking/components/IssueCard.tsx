@@ -34,41 +34,41 @@ export function IssueCard(): JSX.Element {
                 />
                 <ContextDisplay className={cn('', showContext ? 'w-1/3 pl-2' : 'w-0')} />
             </Collapsible>
-            <div className="absolute top-2 right-3 flex gap-2 items-center">
-                {
-                    // We should timestamp from event properties here but for now only first seen event is accessible and data is not available
-                    firstSeen && <TZLabel className="text-muted text-xs" time={firstSeen} />
-                }
-                <ViewRecordingButton
-                    sessionId={sessionId}
-                    timestamp={properties.timestamp}
-                    loading={propertiesLoading}
-                    inModal={true}
+            <IssueCardActions className="absolute top-2 right-3 flex gap-2 items-center">
+                <LemonSwitch
+                    id="show-all-frames"
+                    label="Show all frames"
+                    checked={showAllFrames}
                     size="xsmall"
-                    type="secondary"
-                    disabledReason={mightHaveRecording(properties) ? undefined : 'No recording available'}
+                    bordered
+                    onChange={setShowAllFrames}
+                    className="select-none"
                 />
-            </div>
+                <LemonSwitch
+                    id="show-context"
+                    label="Show context"
+                    checked={showContext}
+                    size="xsmall"
+                    bordered
+                    onChange={setShowContext}
+                    className="select-none"
+                />
+            </IssueCardActions>
             <div className="flex justify-between items-center">
                 <StacktraceExpander />
                 <IssueCardActions>
-                    <LemonSwitch
-                        id="show-all-frames"
-                        label="Show all frames"
-                        checked={showAllFrames}
+                    {
+                        // We should timestamp from event properties here but for now only first seen event is accessible and data is not available
+                        firstSeen && <TZLabel className="text-muted text-xs" time={firstSeen} />
+                    }
+                    <ViewRecordingButton
+                        sessionId={sessionId}
+                        timestamp={properties.timestamp}
+                        loading={propertiesLoading}
+                        inModal={true}
                         size="xsmall"
-                        bordered
-                        onChange={setShowAllFrames}
-                        className="select-none"
-                    />
-                    <LemonSwitch
-                        id="show-context"
-                        label="Show context"
-                        checked={showContext}
-                        size="xsmall"
-                        bordered
-                        onChange={setShowContext}
-                        className="select-none"
+                        type="secondary"
+                        disabledReason={mightHaveRecording(properties) ? undefined : 'No recording available'}
                     />
                 </IssueCardActions>
             </div>
@@ -108,9 +108,9 @@ function StacktraceExpander(): JSX.Element {
     )
 }
 
-function IssueCardActions({ children }: { children: React.ReactNode }): JSX.Element {
+function IssueCardActions({ children, className }: { children: React.ReactNode; className?: string }): JSX.Element {
     return (
-        <div className="flex justify-between items-center gap-1" onClick={(e) => e.stopPropagation()}>
+        <div className={cn('flex justify-between items-center gap-1', className)} onClick={(e) => e.stopPropagation()}>
             {children}
         </div>
     )
