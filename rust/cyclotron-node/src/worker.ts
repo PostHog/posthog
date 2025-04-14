@@ -55,17 +55,13 @@ type CyclotronWorkerInternalConfig = {
 
 export type CyclotronWorkerConfig = CyclotronWorkerNodeConfig & CyclotronWorkerInternalConfig
 
-
-
 export class CyclotronWorker {
     isConsuming: boolean = false
     lastHeartbeat: Date = new Date()
 
     private consumerLoopPromise: Promise<void> | null = null
 
-    constructor(private config: CyclotronWorkerConfig) {
-        this.config = config
-    }
+    constructor(private config: CyclotronWorkerConfig) {}
 
     public isHealthy(): boolean {
         return (
