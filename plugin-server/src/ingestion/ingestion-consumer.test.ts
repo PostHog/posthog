@@ -16,6 +16,7 @@ import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql
 import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { HogFunctionType } from '../cdp/types'
+import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
 import { IngestionConsumer } from './ingestion-consumer'
@@ -97,6 +98,7 @@ describe('IngestionConsumer', () => {
     beforeEach(async () => {
         fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+        jest.spyOn(Date.prototype, 'toISOString').mockReturnValue(fixedTime.toISO()!)
 
         offsetIncrementer = 0
         await resetTestDatabase()
@@ -138,6 +140,42 @@ describe('IngestionConsumer', () => {
             await ingester.handleKafkaBatch(createKafkaMessages([createEvent()]))
 
             expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
+        })
+
+        it('should add kafka_consumer_breadcrumbs to each event', async () => {
+            const event = createEvent()
+            const messages = createKafkaMessages([event])
+
+            await ingester.handleKafkaBatch(messages)
+
+            // Get the produced messages for clickhouse
+            const producedMessages = getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+            expect(producedMessages.length).toBe(1)
+
+            // Parse the properties which are stored as a JSON string
+            const processedEvent = producedMessages[0].value as any
+            const properties =
+                typeof processedEvent.properties === 'string'
+                    ? parseJSON(processedEvent.properties)
+                    : processedEvent.properties
+
+            // Verify the breadcrumbs were added
+            expect(properties).toHaveProperty('kafka_consumer_breadcrumbs')
+
+            // Verify the breadcrumb structure
+            const breadcrumbs = properties.kafka_consumer_breadcrumbs
+            expect(Array.isArray(breadcrumbs)).toBe(true)
+            expect(breadcrumbs.length).toBe(1)
+
+            // Verify the content of the breadcrumb
+            const breadcrumb = breadcrumbs[0]
+            expect(breadcrumb).toMatchObject({
+                topic: 'test',
+                offset: expect.any(Number),
+                partition: expect.any(Number),
+                processed_at_timestamp: fixedTime.toISO()!,
+                consumer_id: ingester['groupId'],
+            })
         })
 
         describe('overflow', () => {

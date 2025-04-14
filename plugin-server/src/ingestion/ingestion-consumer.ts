@@ -446,6 +446,25 @@ export class IngestionConsumer {
                 ...combinedEvent,
             })
 
+            // Each time a message flows through the ingestion consumer we add a breadcrumb to the event
+            const existingBreadcrumbs = Array.isArray(event.properties?.kafka_consumer_breadcrumbs)
+                ? event.properties.kafka_consumer_breadcrumbs
+                : []
+
+            event.properties = {
+                ...(event.properties || {}),
+                kafka_consumer_breadcrumbs: [
+                    ...existingBreadcrumbs,
+                    {
+                        topic: message.topic,
+                        offset: message.offset,
+                        partition: message.partition,
+                        processed_at_timestamp: new Date().toISOString(),
+                        consumer_id: this.groupId,
+                    },
+                ],
+            }
+
             // In case the headers were not set we check the parsed message now
             if (this.shouldDropEvent(combinedEvent.token, combinedEvent.distinct_id)) {
                 this.logDroppedEvent(combinedEvent.token, combinedEvent.distinct_id)
