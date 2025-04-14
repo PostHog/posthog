@@ -81,26 +81,8 @@
                   cohort_id
   FROM cohortpeople
   WHERE (team_id = 99999
-         AND cohort_id = '2'
+         AND cohort_id = '47'
          AND version < '2')
-  '''
-# ---
-# name: TestCohort.test_async_deletion_of_cohort.12
-  '''
-  SELECT count()
-  FROM cohortpeople
-  WHERE cohort_id = 99999
-  '''
-# ---
-# name: TestCohort.test_async_deletion_of_cohort.13
-  '''
-  /* celery:posthog.tasks.tasks.clickhouse_clear_removed_data */
-  SELECT DISTINCT team_id,
-                  cohort_id
-  FROM cohortpeople
-  WHERE (team_id = 99999
-         AND cohort_id = '2'
-         AND version < '4')
   '''
 # ---
 # name: TestCohort.test_async_deletion_of_cohort.2
@@ -201,7 +183,7 @@
                   cohort_id
   FROM cohortpeople
   WHERE (team_id = 99999
-         AND cohort_id = '2'
+         AND cohort_id = '47'
          AND version < '2')
   '''
 # ---
@@ -211,7 +193,7 @@
   DELETE
   FROM cohortpeople
   WHERE (team_id = 99999
-         AND cohort_id = '2'
+         AND cohort_id = '47'
          AND version < '2')
   '''
 # ---
