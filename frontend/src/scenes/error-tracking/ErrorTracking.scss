@@ -1,14 +1,17 @@
-.ErrorTracking__issue {
-    height: calc(100vh - 12rem);
-    min-height: 25rem;
-}
-
 .ErrorTrackingIssue {
+    height: calc(100vh - var(--breadcrumbs-height-full) - var(--scene-padding) - var(--scene-padding-bottom));
+
     & .SessionRecordingPlayer {
         height: 24rem;
     }
 
     & .LemonCollapsePanel > .LemonButton:hover:has(.LemonSegmentedButton:hover) {
         background-color: inherit;
+    }
+
+    & > .ErrorTrackingIssue__left-column {
+        &::-webkit-scrollbar {
+            display: none;
+        }
     }
 }

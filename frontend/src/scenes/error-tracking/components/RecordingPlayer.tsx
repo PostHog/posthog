@@ -1,19 +1,17 @@
 import { LemonSkeleton, Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { ChainedStackTraces } from 'lib/components/Errors/StackTraces'
+import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { match, P } from 'ts-pattern'
 
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
-import { cancelEvent } from '../utils'
 
-export function StacktraceDisplay({ className }: { className?: string }): JSX.Element {
-    const { exceptionList, hasStacktrace, showAllFrames, fingerprintRecords, issueLoading, propertiesLoading } =
-        useValues(errorTrackingIssueSceneLogic)
+export function RecordingPlayer(): JSX.Element {
+    const { sessionId, mightHaveRecording, issueLoading, propertiesLoading } = useValues(errorTrackingIssueSceneLogic)
 
     return (
-        <div className={className}>
-            {match([propertiesLoading, issueLoading, hasStacktrace])
+        <div>
+            {match([propertiesLoading, issueLoading, mightHaveRecording, sessionId])
                 .with([P.any, true, P.any], () => (
                     <div>
                         <div className="h-14 flex flex-col justify-around">
@@ -32,13 +30,8 @@ export function StacktraceDisplay({ className }: { className?: string }): JSX.El
                         </div>
                     </div>
                 ))
-                .with([false, false, true], () => (
-                    <ChainedStackTraces
-                        showAllFrames={showAllFrames}
-                        exceptionList={exceptionList}
-                        fingerprintRecords={fingerprintRecords}
-                        onFrameContextClick={(_, e) => cancelEvent(e)}
-                    />
+                .with([false, false, true, P.string], ([, , , id]) => (
+                    <SessionRecordingPlayer playerKey="error-tracking-issue" sessionRecordingId={id} noInspector />
                 ))
                 .with([false, false, false], () => (
                     <div>

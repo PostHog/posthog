@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { hasStacktrace } from 'lib/components/Errors/utils'
+import { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
 import { posthog } from 'posthog-js'
@@ -47,20 +48,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     connect(() => ({
         values: [
             errorTrackingLogic,
-            ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery', 'showStacktrace', 'showContext'],
+            ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery'],
             stackFrameLogic,
             ['frameOrderReversed', 'showAllFrames'],
         ],
         actions: [
             errorTrackingLogic,
-            [
-                'setDateRange',
-                'setFilterTestAccounts',
-                'setFilterGroup',
-                'setSearchQuery',
-                'setShowStacktrace',
-                'setShowContext',
-            ],
+            ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery'],
             stackFrameLogic,
             ['setFrameOrderReversed', 'setShowAllFrames'],
         ],
@@ -174,6 +168,10 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             (attributes: ExceptionAttributes | null) => attributes?.fingerprintRecords,
         ],
         hasStacktrace: [(s) => [s.exceptionList], (excList: ErrorTrackingException[]) => hasStacktrace(excList)],
+        mightHaveRecording: [
+            (s) => [s.properties],
+            (properties: Record<string, string> | null) => (properties ? mightHaveRecording(properties) : false),
+        ],
         sessionId: [
             (s) => [s.properties],
             (properties: Record<string, string> | null) => (properties ? getSessionId(properties) : undefined),

@@ -79,6 +79,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.ErrorTrackingIssue]: {
         projectBased: true,
         name: 'Error tracking issue',
+        layout: 'app-raw',
     },
     [Scene.Insight]: {
         projectBased: true,

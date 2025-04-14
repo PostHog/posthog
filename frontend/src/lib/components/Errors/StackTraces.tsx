@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { MouseEvent, useEffect, useMemo } from 'react'
-import { match, P } from 'ts-pattern'
+import { match } from 'ts-pattern'
 
 import { CodeLine, getLanguage, Language } from '../CodeSnippet/CodeSnippet'
 import { FingerprintRecordPartDisplay } from './FingerprintRecordPartDisplay'
@@ -44,12 +44,10 @@ type FrameContextClickHandler = (ctx: ErrorTrackingStackFrameContext, e: MouseEv
 export function ChainedStackTraces({
     exceptionList,
     showAllFrames,
-    renderExceptionHeader,
     onFrameContextClick,
     embedded = false,
     fingerprintRecords = [],
 }: {
-    renderExceptionHeader?: (props: ExceptionHeaderProps) => React.ReactNode
     exceptionList: ErrorTrackingException[]
     fingerprintRecords?: FingerprintRecordPart[]
     showAllFrames: boolean
@@ -83,10 +81,7 @@ export function ChainedStackTraces({
                             key={id ?? index}
                             className={clsx('StackTrace flex flex-col', embedded && 'StackTrace--embedded')}
                         >
-                            {match(renderExceptionHeader)
-                                .with(P.nullish, () => <ExceptionHeader {...traceHeaderProps} />)
-                                .with(P.any, () => renderExceptionHeader!(traceHeaderProps))
-                                .exhaustive()}
+                            <ExceptionHeader {...traceHeaderProps} />
                             {match([showAllFrames, !hasInAppFrames])
                                 .with([false, true], () => null)
                                 .otherwise(() => (
