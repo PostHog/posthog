@@ -1,3 +1,5 @@
+from datetime import datetime
+import json
 from pathlib import Path
 
 import structlog
@@ -23,19 +25,17 @@ class ReplaySummarizer(BaseReplaySummarizer):
         prompt_data: SessionSummaryPromptData,
         url_mapping_reversed: dict[str, str],
         window_mapping_reversed: dict[str, str],
-    ) -> str:
+    ) -> tuple[str, str]:
         # Keep shortened URLs for the prompt to reduce the number of tokens
         short_url_mapping_reversed = {k: shorten_url(v) for k, v in url_mapping_reversed.items()}
         # Render all templates
-        # TODO Optimize prompt (reduce input count, simplify instructions, focus on quality of the summary)
-        # One of the solutions could be to chain prompts to focus on events/tags/importance one by one, to avoid overloading the main prompt
-        template_dir = Path(__file__).parent / "templates"
-        summary_example = load_custom_template(template_dir, f"single-replay_example.yml")
+        template_dir = Path(__file__).parent / "templates" / "identify-objectives"
+        system_prompt = load_custom_template(template_dir, f"system-prompt.djt")
+        summary_example = load_custom_template(template_dir, f"example.yml")
         summary_prompt = load_custom_template(
             template_dir,
-            f"single-replay_base-prompt.djt",
+            f"prompt.djt",
             {
-                "EVENTS_COLUMNS": prompt_data.columns,
                 "EVENTS_DATA": prompt_data.results,
                 "SESSION_METADATA": prompt_data.metadata.to_dict(),
                 "URL_MAPPING": short_url_mapping_reversed,
@@ -43,20 +43,25 @@ class ReplaySummarizer(BaseReplaySummarizer):
                 "SUMMARY_EXAMPLE": summary_example,
             },
         )
-        return summary_prompt
+        return summary_prompt, system_prompt
 
     def summarize_recording(self):
         timer = ServerTimingsGathered()
-
         # TODO Learn how to make data collection for prompt as async as possible to improve latency
         with timer("get_metadata"):
-            session_metadata = self._get_session_metadata(self.recording.session_id, self.team)
-
+            session_metadata = self._get_session_metadata(
+                session_id=self.recording.session_id,
+                team=self.team,
+                local_path="/Users/woutut/Documents/Code/posthog/playground/single-session-metadata_0195f10e-7c84-7944-9ea2-0303a4b37af7.json",
+            )
         with timer("get_events"):
             # TODO: Add filter to skip some types of events that are not relevant for the summary, but increase the number of tokens
             # Analyze more events one by one for better context, consult with the team
             session_events_columns, session_events = self._get_session_events(
-                self.recording.session_id, session_metadata, self.team
+                session_id=self.recording.session_id,
+                session_metadata=session_metadata,
+                team=self.team,
+                local_path="/Users/woutut/Documents/Code/posthog/playground/single-session-csv-export_0195f10e-7c84-7944-9ea2-0303a4b37af7.csv",
             )
 
         # TODO Get web analytics data on URLs to better understand what the user was doing
@@ -79,7 +84,9 @@ class ReplaySummarizer(BaseReplaySummarizer):
             # Reverse mappings for easier reference in the prompt.
             url_mapping_reversed = {v: k for k, v in prompt_data.url_mapping.items()}
             window_mapping_reversed = {v: k for k, v in prompt_data.window_id_mapping.items()}
-            summary_prompt = self._generate_prompt(prompt_data, url_mapping_reversed, window_mapping_reversed)
+            summary_prompt, system_prompt = self._generate_prompt(
+                prompt_data, url_mapping_reversed, window_mapping_reversed
+            )
 
         with timer("openai_completion"):
             raw_session_summary = get_raw_llm_session_summary(
@@ -87,9 +94,10 @@ class ReplaySummarizer(BaseReplaySummarizer):
                 user=self.user,
                 allowed_event_ids=list(simplified_events_mapping.keys()),
                 session_id=self.recording.session_id,
+                system_prompt=system_prompt,
             )
+
         # Enrich the session summary with events metadata
-        # TODO Ensure only important events are picked (instead of 5 events for the first 1 minute and then 5 for the rest)
         session_summary = enrich_raw_session_summary_with_events_meta(
             raw_session_summary=raw_session_summary,
             simplified_events_mapping=simplified_events_mapping,
@@ -100,10 +108,40 @@ class ReplaySummarizer(BaseReplaySummarizer):
             session_id=self.recording.session_id,
         )
 
+        # Store the results on success
+        results_base_dir = "/Users/woutut/Documents/Code/posthog/playground/identify-objectives-experiments"
+        # Count how many child directories there are in the results_base_dir
+        child_dirs = [d for d in Path(results_base_dir).iterdir() if d.is_dir()]
+        datetime_marker = f"{len(child_dirs)}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+        current_experiment_dir = Path(results_base_dir) / datetime_marker
+        current_experiment_dir.mkdir(parents=True, exist_ok=True)
+
+        # Store the prompt and response for results tracking
+        with open(current_experiment_dir / f"prompt_{datetime_marker}.txt", "w") as f:
+            f.write(summary_prompt)
+        with open(current_experiment_dir / f"response_{datetime_marker}.yml", "w") as f:
+            f.write(json.dumps(raw_session_summary.data, indent=4))
+        with open(current_experiment_dir / f"enriched_response_{datetime_marker}.yml", "w") as f:
+            f.write(json.dumps(session_summary.data, indent=4))
+        with open(current_experiment_dir / f"timings_{datetime_marker}.json", "w") as fw:
+            fw.write(json.dumps(timer.get_all_timings(), indent=4))
+        template_dir = Path(__file__).parent / "templates" / "identify-objectives"
+        with open(template_dir / "prompt.djt") as fr:
+            with open(current_experiment_dir / f"prompt_template_{datetime_marker}.txt", "w") as fw:
+                fw.write(fr.read())
+        with open(template_dir / "system-prompt.djt") as fr:
+            with open(current_experiment_dir / f"system_prompt_{datetime_marker}.txt", "w") as fw:
+                fw.write(fr.read())
+        with open(template_dir / "example.yml") as fr:
+            with open(current_experiment_dir / f"example_{datetime_marker}.yml", "w") as fw:
+                fw.write(fr.read())
+
         # TODO: Calculate tag/error stats for the session manually
         # to use it later for grouping/suggesting (and showing overall stats)
 
-        # TODO Make the output streamable (the main reason behind using YAML
+        # TODO: Make the output streamable (the main reason behind using YAML
         # to keep it partially parsable to avoid waiting for the LLM to finish)
 
-        return {"content": session_summary.data, "timings": timer.get_all_timings()}
+        # TODO: Uncomment this after testing
+        # return {"content": "", "timings": timer.get_all_timings()}
+        return None

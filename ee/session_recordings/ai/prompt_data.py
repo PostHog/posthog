@@ -12,22 +12,15 @@ class SessionSummaryMetadata:
     active_seconds: int | None = None
     inactive_seconds: int | None = None
     start_time: datetime | None = None
-    end_time: datetime | None = None
     click_count: int | None = None
     keypress_count: int | None = None
     mouse_activity_count: int | None = None
-    console_log_count: int | None = None
-    console_warn_count: int | None = None
-    console_error_count: int | None = None
     start_url: str | None = None
-    activity_score: float | None = None
 
     def to_dict(self) -> dict:
         d = dataclasses.asdict(self)
         if self.start_time:
             d["start_time"] = self.start_time.isoformat()
-        if self.end_time:
-            d["end_time"] = self.end_time.isoformat()
         return d
 
 
@@ -92,28 +85,32 @@ class SessionSummaryPromptData:
         return simplified_events_mapping
 
     def _prepare_metadata(self, raw_session_metadata: dict[str, Any]) -> SessionSummaryMetadata:
-        # Remove excessive data
-        raw_session_metadata = raw_session_metadata.copy()  # Avoid mutating the original
-        for ef in ("distinct_id", "viewed", "recording_duration", "storage", "ongoing"):
-            raw_session_metadata.pop(ef, None)
-        # Start/end times should be always present
-        if "start_time" not in raw_session_metadata or "end_time" not in raw_session_metadata:
-            raise ValueError(f"start_time and end_time are required in session metadata: {raw_session_metadata}")
-        start_time = prepare_datetime(raw_session_metadata["start_time"])
-        end_time = prepare_datetime(raw_session_metadata["end_time"])
+        # Remove excessive data or fields that negatively impact the LLM performance
+        # For example, listing 114 errors, increases chances of error hallucination
+        session_metadata = raw_session_metadata.copy()  # Avoid mutating the original
+        allowed_fields = (
+            "active_seconds",
+            "inactive_seconds",
+            "start_time",
+            "click_count",
+            "keypress_count",
+            "mouse_activity_count",
+            "start_url",
+            "console_errors",
+        )
+        session_metadata = {k: v for k, v in session_metadata.items() if k in allowed_fields}
+        # Start time should be always present
+        if "start_time" not in session_metadata:
+            raise ValueError(f"start_time is required in session metadata: {session_metadata}")
+        start_time = prepare_datetime(session_metadata["start_time"])
         return SessionSummaryMetadata(
-            active_seconds=raw_session_metadata.get("active_seconds"),
-            inactive_seconds=raw_session_metadata.get("inactive_seconds"),
+            active_seconds=session_metadata.get("active_seconds"),
+            inactive_seconds=session_metadata.get("inactive_seconds"),
             start_time=start_time,
-            end_time=end_time,
-            click_count=raw_session_metadata.get("click_count"),
-            keypress_count=raw_session_metadata.get("keypress_count"),
-            mouse_activity_count=raw_session_metadata.get("mouse_activity_count"),
-            console_log_count=raw_session_metadata.get("console_log_count"),
-            console_warn_count=raw_session_metadata.get("console_warn_count"),
-            console_error_count=raw_session_metadata.get("console_error_count"),
-            start_url=raw_session_metadata.get("start_url"),
-            activity_score=raw_session_metadata.get("activity_score"),
+            click_count=session_metadata.get("click_count"),
+            keypress_count=session_metadata.get("keypress_count"),
+            mouse_activity_count=session_metadata.get("mouse_activity_count"),
+            start_url=session_metadata.get("start_url"),
         )
 
     def _simplify_window_id(self, window_id: str | None) -> str | None:

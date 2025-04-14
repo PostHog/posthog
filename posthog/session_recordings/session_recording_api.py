@@ -29,7 +29,6 @@ from rest_framework.utils.encoders import JSONEncoder
 from rest_framework.request import Request
 from rest_framework.exceptions import Throttled
 
-from ee.session_recordings.session_summary.identify_objectives import ReplayObjectivesIdentifier
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 
 import posthog.session_recordings.queries.sub_queries.events_subquery
@@ -814,14 +813,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             raise exceptions.ValidationError("session summary is not enabled for this user")
 
         replay_summarizer = ReplaySummarizer(recording, user, self.team)
-        # TODO Uncomment this after testing
-        # summary = replay_summarizer.summarize_recording()
-        # timings = summary.pop("timings", None)
-        # cache.set(cache_key, summary, timeout=30)
-        summary = "{}"
-        timings = None
-        objectives_identifier = ReplayObjectivesIdentifier(recording, user, self.team)
-        objectives = objectives_identifier.identify_objectives()
+        summary = replay_summarizer.summarize_recording()
+        timings = summary.pop("timings", None)
+        cache.set(cache_key, summary, timeout=30)
 
         posthoganalytics.capture(event="session summarized", distinct_id=str(user.distinct_id), properties=summary)
 
