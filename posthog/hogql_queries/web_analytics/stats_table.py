@@ -362,14 +362,9 @@ ON counts.breakdown_value = bounce.breakdown_value
 
     def _frustration_metrics_order_by(self, columns: list[str]) -> list[ast.OrderExpr] | None:
         return [
-            expr
-            for expr in [
-                # A very simplistic "frustration score" while we don't fancy doing something more sophisticated
-                ast.OrderExpr(expr=ast.Field(chain=["context.columns.rage_clicks"]), order="DESC"),
-                ast.OrderExpr(expr=ast.Field(chain=["context.columns.dead_clicks"]), order="DESC"),
-                ast.OrderExpr(expr=ast.Field(chain=["context.columns.errors"]), order="DESC"),
-            ]
-            if expr is not None
+            ast.OrderExpr(expr=ast.Field(chain=["context.columns.rage_clicks"]), order="DESC"),
+            ast.OrderExpr(expr=ast.Field(chain=["context.columns.dead_clicks"]), order="DESC"),
+            ast.OrderExpr(expr=ast.Field(chain=["context.columns.errors"]), order="DESC"),
         ]
 
     def _main_inner_query(self, breakdown):
@@ -609,6 +604,8 @@ GROUP BY session_id, breakdown_value
                 return ast.Field(chain=["session", "$entry_utm_term"])
             case WebStatsBreakdown.INITIAL_UTM_CONTENT:
                 return ast.Field(chain=["session", "$entry_utm_content"])
+            case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
+                return ast.Field(chain=["session", "$channel_type"])
             case WebStatsBreakdown.INITIAL_UTM_SOURCE_MEDIUM_CAMPAIGN:
                 return ast.Call(
                     name="concatWithSeparator",

@@ -134,8 +134,10 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.REPLAY]: 8,
     [TileId.ERROR_TRACKING]: 9,
     [TileId.GOALS]: 10,
+    [TileId.WEB_VITALS_PATH_BREAKDOWN]: 11,
+
+    // Web Vitals
     [TileId.WEB_VITALS]: 11,
-    [TileId.WEB_VITALS_PATH_BREAKDOWN]: 12,
     [TileId.FRUSTRATING_PAGES]: 13,
 
     // Page Report Sections
@@ -1977,8 +1979,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                           E.g. an image that looks like a button.
                                                       </li>
                                                       <li>
-                                                          Rage clicks are clicks that are not immediately followed by a scroll, text
-                                                          selection change, or DOM mutation.
+                                                          Rageclicks are collected when a user clicks on a static
+                                                          element more than three times in a one-second window.
                                                       </li>
                                                       <li>
                                                           Errors are JavaScript exceptions that occur when users
