@@ -64,6 +64,8 @@ Use this information to understand user navigation patterns and parallel browsin
 </window_mapping_input>
 
 <identify_objectives_instructions>
+CRITICAL WARNING: DO NOT hallucinate errors. Only mark events as errors when there is EXPLICIT evidence in the event data that an error occurred.
+
 1. Identify the primary user objectives (goals) in the session. The number of objectives should be proportional to session length and complexity:
    - Short sessions (under 1 minute) typically have 1-3 objectives
    - Medium sessions (1-5 minutes) may have 3-5 objectives
@@ -83,23 +85,28 @@ Use this information to understand user navigation patterns and parallel browsin
       - Consolidate repeated similar actions into a single key action with frequency noted (e.g., "3 times")
       - Only create separate key actions for repeated behaviors if they represent distinct phases of interaction
 
-   B. User Action Guidelines:
-      - Focus on actions that demonstrate clear user intent
-      - Keep descriptions concise but informative (e.g., "User applied filter parameters")
-      - For complex actions, briefly include the outcome (e.g., "User submitted form successfully")
-      - Prioritize actions that show progress toward or completion of the objective
-
-   C. Error Guidelines:
-      - Only include errors that significantly affected the user's experience or workflow:
-        * INCLUDE: Errors that blocked progress (e.g., login failures, form submission errors)
-        * INCLUDE: Rendering issues that clearly impacted navigation or content visibility
+   B. Error Guidelines:
+      - Flag an event as an error ONLY if there is EXPLICIT evidence in the event data itself:
+        * The event name/type explicitly indicates an error (e.g., contains 'error', 'failed', 'exception')
+        * The elements_chain_texts contains error messages (e.g., "404 Not Found", "Failed to load")
+      - ONLY include errors that significantly affected the user's experience or workflow:
+        * INCLUDE: Errors that blocked progress (e.g., login failures, form submission errors, etc.)
         * EXCLUDE: Background errors like tracking script failures or minor UI glitches with no visible impact
+      - NEVER mark these as errors:
+        * Normal navigation between pages
+        * Clicking different UI elements in succession, like filter changes or parameter adjustments
+        * Any action without direct evidence of failure
       - Provide detailed context in error descriptions:
-        * What the user was attempting to do when the error occurred
         * The nature of the error (e.g., API failure, validation error, timeout)
         * Potential causes if identifiable (e.g., "possibly caused by incorrect password format")
         * How the error affected subsequent user actions (e.g., "forcing user to retry" or "causing user to abandon task")
       - Error descriptions can and should be longer than regular action descriptions
+
+   C. User Action Guidelines:
+      - Focus on actions that demonstrate clear user intent
+      - Keep descriptions concise but informative (e.g., "User applied filter parameters")
+      - For complex actions, briefly include the outcome (e.g., "User submitted form successfully")
+      - Prioritize actions that show progress toward or completion of the objective
 
 5. Important objective guidelines:
    - DO NOT create separate objectives for error states, technical issues, or general engagement metrics
