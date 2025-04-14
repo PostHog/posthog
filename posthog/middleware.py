@@ -694,3 +694,22 @@ class AutoLogoutImpersonateMiddleware:
                 return redirect("/admin/")
 
         return self.get_response(request)
+
+
+class EnvironmentToProjectMiddleware:
+    """
+    Middleware that rewrites requests from /api/environments/* to /api/projects/*
+    This allows for backward compatibility when migrating from environments to projects.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        # Check if the path starts with /environments/
+        if request.path.startswith("/api/environments/"):
+            # Rewrite the path to use /projects/ instead
+            request.path = request.path.replace("/api/environments/", "/api/projects/", 1)
+            request.path_info = request.path_info.replace("/api/environments/", "/api/projects/", 1)
+
+        return self.get_response(request)

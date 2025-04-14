@@ -1734,3 +1734,91 @@ class TestTeamAPI(APIBaseTest):
         self.team.refresh_from_db()
         self.assertEqual(self.team.timezone, "Europe/Lisbon")
         self.assertEqual(self.team.session_recording_opt_in, True)
+
+
+class TestEnvironmentToProjectMiddlewareIntegration(APIBaseTest):
+    """Integration tests to verify the EnvironmentToProjectMiddleware correctly handles requests to /environments/* paths."""
+
+    def test_environments_path_redirects_to_projects(self):
+        """Test that requests to /environments/:id/ are correctly handled by the middleware."""
+        # First, make a request to the projects endpoint to get a valid response for comparison
+        projects_response = self.client.get(f"/api/projects/{self.team.id}/")
+        self.assertEqual(projects_response.status_code, status.HTTP_200_OK)
+
+        # Now make a request to the environments endpoint with the same ID
+        environments_response = self.client.get(f"/api/environments/{self.team.id}/")
+
+        # Verify the response is successful and contains the same data
+        self.assertEqual(environments_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(environments_response.json(), projects_response.json())
+
+    def test_environments_settings_redirects_to_projects_settings(self):
+        """Test that requests to /environments/:id/settings are correctly handled by the middleware."""
+        # First, make a request to the projects settings endpoint to get a valid response for comparison
+        projects_response = self.client.get(f"/api/projects/{self.team.id}/settings/")
+
+        # Now make a request to the environments settings endpoint with the same ID
+        environments_response = self.client.get(f"/api/environments/{self.team.id}/settings/")
+
+        # Verify the responses have the same status code
+        self.assertEqual(environments_response.status_code, projects_response.status_code)
+
+        # If the response is successful, verify the content is the same
+        if projects_response.status_code == status.HTTP_200_OK:
+            self.assertEqual(environments_response.json(), projects_response.json())
+
+    def test_environments_current_redirects_to_projects_current(self):
+        """Test that requests to /environments/@current/ are correctly handled by the middleware."""
+        # First, make a request to the projects @current endpoint to get a valid response for comparison
+        projects_response = self.client.get("/api/projects/@current/")
+        self.assertEqual(projects_response.status_code, status.HTTP_200_OK)
+
+        # Now make a request to the environments @current endpoint
+        environments_response = self.client.get("/api/environments/@current/")
+
+        # Verify the response is successful and contains the same data
+        self.assertEqual(environments_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(environments_response.json(), projects_response.json())
+
+    def test_environments_post_request_redirects_to_projects(self):
+        """Test that POST requests to /environments/ are correctly handled by the middleware."""
+        # Create a new team via the projects endpoint to get a valid response for comparison
+        projects_response = self.client.post(
+            "/api/projects/", {"name": "New Project via /projects/", "organization": self.organization.id}
+        )
+
+        # Create a new team via the environments endpoint
+        environments_response = self.client.post(
+            "/api/environments/", {"name": "New Project via /environments/", "organization": self.organization.id}
+        )
+
+        # Verify both responses have the same status code
+        self.assertEqual(environments_response.status_code, projects_response.status_code)
+
+        # If the response is successful, verify the team was created
+        if projects_response.status_code == status.HTTP_201_CREATED:
+            self.assertIn("id", environments_response.json())
+            self.assertEqual(environments_response.json()["name"], "New Project via /environments/")
+
+    def test_environments_patch_request_redirects_to_projects(self):
+        """Test that PATCH requests to /environments/:id/ are correctly handled by the middleware."""
+        # Update a team via the projects endpoint
+        projects_response = self.client.patch(f"/api/projects/{self.team.id}/", {"timezone": "America/New_York"})
+        self.assertEqual(projects_response.status_code, status.HTTP_200_OK)
+
+        # Reset the team timezone
+        self.team.timezone = "UTC"
+        self.team.save()
+
+        # Update the team via the environments endpoint
+        environments_response = self.client.patch(
+            f"/api/environments/{self.team.id}/", {"timezone": "America/New_York"}
+        )
+
+        # Verify the response is successful and the team was updated
+        self.assertEqual(environments_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(environments_response.json()["timezone"], "America/New_York")
+
+        # Verify the team was actually updated in the database
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.timezone, "America/New_York")
