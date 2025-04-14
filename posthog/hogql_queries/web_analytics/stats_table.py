@@ -646,7 +646,7 @@ GROUP BY session_id, breakdown_value
                 # Value is in minutes, turn it to hours, works even for fractional timezone offsets (I'm looking at you, Australia)
                 return parse_expr("toFloat(properties.$timezone_offset) / 60")
             case WebStatsBreakdown.FRUSTRATION_METRICS:
-                return self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$current_url"]))
+                return self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"]))
             case _:
                 raise NotImplementedError("Breakdown not implemented")
 

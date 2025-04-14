@@ -344,7 +344,7 @@ export const webStatsBreakdownToPropertyName = (
         case WebStatsBreakdown.Language:
             return { key: '$geoip_language', type: PropertyFilterType.Event }
         case WebStatsBreakdown.FrustrationMetrics:
-            return { key: '$current_url', type: PropertyFilterType.Event }
+            return { key: '$pathname', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialUTMSourceMediumCampaign:
             return undefined
         default:

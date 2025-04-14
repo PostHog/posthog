@@ -47,7 +47,7 @@ const BREAKDOWN_KEY_MAP: Partial<Record<WebStatsBreakdown, string>> = {
     [WebStatsBreakdown.InitialUTMMedium]: '$entry_utm_medium',
     [WebStatsBreakdown.InitialUTMContent]: '$entry_utm_content',
     [WebStatsBreakdown.InitialUTMTerm]: '$entry_utm_term',
-    [WebStatsBreakdown.FrustrationMetrics]: '$current_url',
+    [WebStatsBreakdown.FrustrationMetrics]: '$pathname',
 }
 
 interface ReplayButtonProps {
