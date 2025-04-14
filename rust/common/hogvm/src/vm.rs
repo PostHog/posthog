@@ -67,7 +67,7 @@ fn next_type_name(next: &JsonValue) -> String {
 
 impl<'a> VmState<'a> {
     pub fn new(context: &'a ExecutionContext<'a>) -> Result<Self, VmError> {
-        if context.bytecode.len() < 1 {
+        if context.bytecode.is_empty() {
             return Err(VmError::InvalidBytecode(
                 "Missing bytecode marker at position 0".to_string(),
             ));
@@ -135,7 +135,7 @@ impl<'a> VmState<'a> {
             .ok_or(VmError::CaptureOutOfBounds(index))
     }
 
-    fn next<'s, T>(&'s mut self) -> Result<T, VmError>
+    fn next<T>(&mut self) -> Result<T, VmError>
     where
         T: DeserializeOwned + Any,
     {
@@ -209,10 +209,10 @@ impl<'a> VmState<'a> {
         Ok(())
     }
 
-    // TODO - this is how function calls are constructed - you construct a function
-    // reference, push it onto the stack, and then call it
+    // TODO - we don't support function imports right now - most trivial programs don't need them,
+    // and filters are generally trivial
     fn get_fn_reference(&self, _chain: &[String]) -> Result<HogLiteral, VmError> {
-        return Err(VmError::NotImplemented("imports".to_string()));
+        Err(VmError::NotImplemented("imports".to_string()))
     }
 
     fn clone_stack_item(&self, idx: usize) -> Result<HogValue, VmError> {
@@ -220,7 +220,7 @@ impl<'a> VmState<'a> {
     }
 
     fn prep_native_call(&self, name: String, args: Vec<HogValue>) -> StepOutcome {
-        return StepOutcome::NativeCall(name, args);
+        StepOutcome::NativeCall(name, args)
     }
 
     // TODO - should use Write trait
@@ -509,7 +509,7 @@ impl<'a> VmState<'a> {
                     keys.push(self.pop_stack_as::<String>()?);
                 }
                 let map: HashMap<String, HogValue> =
-                    HashMap::from_iter(keys.into_iter().zip(values.into_iter()));
+                    HashMap::from_iter(keys.into_iter().zip(values));
                 self.push_stack(HogLiteral::Object(map))?;
             }
             Operation::Array => {
@@ -642,7 +642,7 @@ impl<'a> VmState<'a> {
                     ip: self.ip,
                 }
                 .into();
-                self.push_stack(HogLiteral::Callable(callable.into()))?;
+                self.push_stack(HogLiteral::Callable(callable))?;
                 self.ip += body_length;
             }
             // A closure is a callable, plus some captured arguments from the scope
@@ -786,5 +786,5 @@ pub fn sync_execute(
 
     let err = VmError::OutOfResource("steps".to_string());
 
-    return Err(fail(err, Some(&vm), i));
+    Err(fail(err, Some(&vm), i))
 }

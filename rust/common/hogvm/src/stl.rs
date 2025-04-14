@@ -109,7 +109,7 @@ fn assert(test: bool, msg: impl AsRef<str>) -> Result<(), VmError> {
     } else {
         Err(VmError::NativeCallFailed(format!(
             "Assert failed: {}",
-            msg.as_ref().to_string()
+            msg.as_ref()
         )))
     }
 }

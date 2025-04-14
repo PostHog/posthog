@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, fmt::Display, str::FromStr};
 
 use crate::{
     error::VmError,
@@ -93,7 +93,7 @@ impl HogValue {
         chain: &[HogValue],
         heap: &'b VmHeap,
     ) -> Result<Option<&'a HogValue>, VmError> {
-        if chain.len() == 0 {
+        if chain.is_empty() {
             return Ok(Some(self));
         }
 
@@ -175,14 +175,14 @@ impl HogLiteral {
         }
     }
 
-    pub fn try_as<T: ?Sized>(&self) -> Result<&T, VmError>
+    pub fn try_as<T>(&self) -> Result<&T, VmError>
     where
-        T: FromHogRef,
+        T: FromHogRef + ?Sized,
     {
         T::from_ref(self)
     }
 
-    pub fn try_into<T: ?Sized>(self) -> Result<T, VmError>
+    pub fn try_into<T>(self) -> Result<T, VmError>
     where
         T: FromHogLiteral,
     {
@@ -218,6 +218,7 @@ impl HogLiteral {
             return Ok((self.clone(), rhs.clone()));
         }
 
+        #[allow(clippy::enum_glob_use)] // It's just handy here
         use HogLiteral::*;
 
         match (self.clone(), rhs.clone()) {
@@ -523,11 +524,12 @@ impl Num {
     }
 }
 
-impl ToString for Callable {
-    fn to_string(&self) -> String {
+impl Display for Callable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Local(c) => {
-                format!(
+                write!(
+                    f,
                     "local fn {}({}, {}) [{}]",
                     c.name, c.stack_arg_count, c.capture_count, c.ip
                 )
@@ -536,8 +538,8 @@ impl ToString for Callable {
     }
 }
 
-impl ToString for Closure {
-    fn to_string(&self) -> String {
-        format!("closure of {}", self.callable.to_string())
+impl Display for Closure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "closure of {}", self.callable)
     }
 }

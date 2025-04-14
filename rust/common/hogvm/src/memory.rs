@@ -8,7 +8,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct HeapValue {
     epoch: usize,
-    value: HogValue,
+    value: HogValue, // TODO - this should probably be HogLiteral, rather than HogValue
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -142,10 +142,10 @@ impl VmHeap {
         self.deref_mut_inner(ptr, &mut seen)
     }
 
-    fn deref_mut_inner<'a, 'b>(
+    fn deref_mut_inner<'a>(
         &'a mut self,
         ptr: HeapReference,
-        seen: &'b mut HashSet<HeapReference>,
+        seen: &mut HashSet<HeapReference>,
     ) -> Result<&'a mut HogLiteral, VmError> {
         if seen.contains(&ptr) {
             return Err(VmError::CycleDetected);

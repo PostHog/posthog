@@ -47,7 +47,7 @@ fn like_to_regex(pattern: &str) -> String {
         } else if c == '%' {
             result.push_str(".*");
         } else if c == '_' {
-            result.push_str(".");
+            result.push('.');
         } else {
             // Escape regular regex metacharacters
             result.push_str(&regex::escape(&c.to_string()));
