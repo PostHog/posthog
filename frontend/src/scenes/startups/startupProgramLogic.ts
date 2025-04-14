@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -109,15 +109,6 @@ function validateFunding(raised: string | undefined, isYC: boolean): string | un
     return undefined
 }
 
-function extractDomain(url: string): string {
-    try {
-        const urlObj = new URL(url.startsWith('http') ? url : `https://${url}`)
-        return urlObj.hostname.replace(/^www\./, '')
-    } catch {
-        return url.replace(/^www\./, '')
-    }
-}
-
 export const startupProgramLogic = kea<startupProgramLogicType>([
     path(['scenes', 'startups', 'startupProgramLogic']),
     props({} as StartupProgramLogicProps),
@@ -128,9 +119,8 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
     }),
     actions({
         setFormSubmitted: (submitted: boolean) => ({ submitted }),
-        validateYCBatch: true,
-        setYCValidationState: (state: 'none' | 'validating' | 'valid' | 'invalid') => ({ state }),
-        setYCValidationError: (error: string | null) => ({ error }),
+        showExampleModal: true,
+        hideExampleModal: true,
     }),
     reducers({
         formSubmitted: [
@@ -139,72 +129,14 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 setFormSubmitted: (_, { submitted }) => submitted,
             },
         ],
-        ycValidationState: [
-            'none' as 'none' | 'validating' | 'valid' | 'invalid',
+        isExampleModalOpen: [
+            false,
             {
-                setYCValidationState: (_, { state }) => state,
-                validateYCBatch: () => 'validating',
-            },
-        ],
-        ycValidationError: [
-            null as string | null,
-            {
-                setYCValidationError: (_, { error }) => error,
-                validateYCBatch: () => null,
+                showExampleModal: () => true,
+                hideExampleModal: () => false,
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
-        validateYCBatch: async () => {
-            const { yc_batch, startup_domain, organization_name } = values.startupProgram
-
-            if (!yc_batch || yc_batch === 'Earlier') {
-                actions.setYCValidationState('valid')
-                actions.setYCValidationError(null)
-                return
-            }
-
-            try {
-                const url = `https://yc-oss.github.io/api/batches/${yc_batch.toLowerCase()}.json`
-                const response = await fetch(url)
-
-                if (!response.ok) {
-                    throw new Error('Failed to validate YC batch')
-                }
-
-                const companies = await response.json()
-                const normalizedDomain = extractDomain(startup_domain)
-                const normalizedOrgName = organization_name.toLowerCase().trim()
-
-                const foundCompany = companies.find((company: any) => {
-                    if (!company.website && !company.name) {
-                        return false
-                    }
-                    const companyDomain = company.website ? extractDomain(company.website) : null
-                    const companyName = company.name?.toLowerCase().trim() || ''
-                    const domainMatch = companyDomain === normalizedDomain
-                    const nameMatch = companyName.toLowerCase() === normalizedOrgName.toLowerCase()
-
-                    return domainMatch || nameMatch
-                })
-
-                if (foundCompany) {
-                    actions.setYCValidationState('valid')
-                    actions.setYCValidationError(null)
-                } else {
-                    actions.setYCValidationState('invalid')
-                    actions.setYCValidationError(
-                        'Could not verify YC batch membership. Please provide a screenshot of your YC profile showing "using PostHog".'
-                    )
-                }
-            } catch (error) {
-                actions.setYCValidationState('invalid')
-                actions.setYCValidationError(
-                    'Failed to validate YC batch membership. Please try again or provide a screenshot.'
-                )
-            }
-        },
-    })),
     selectors({
         isAlreadyOnStartupPlan: [
             (s) => [s.billing],
@@ -259,10 +191,8 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                     raised: validateFunding(raised, props.isYC),
                     incorporation_date: validateIncorporationDate(incorporation_date, props.isYC),
                     yc_batch: props.isYC && !yc_batch ? 'Please select your YC batch' : undefined,
-                    _form:
-                        values.ycValidationState === 'invalid' && !yc_proof_screenshot_url
-                            ? values.ycValidationError
-                            : undefined,
+                    yc_proof_screenshot_url:
+                        props.isYC && !yc_proof_screenshot_url ? 'Please upload a screenshot' : undefined,
                 }
             },
             submit: async (formValues: StartupProgramFormValues) => {

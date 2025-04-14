@@ -1,5 +1,14 @@
 import { IconArrowRight, IconCheck, IconUpload, IconX } from '@posthog/icons'
-import { LemonButton, LemonFileInput, LemonInput, LemonSelect, lemonToast, Spinner } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonFileInput,
+    LemonInput,
+    LemonModal,
+    LemonSelect,
+    lemonToast,
+    Link,
+    Spinner,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
@@ -15,6 +24,9 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { RAISED_OPTIONS, startupProgramLogic, YC_BATCH_OPTIONS } from './startupProgramLogic'
+
+const YC_DEAL_BOOKFACE = 'https://bookface.ycombinator.com/deals/687'
+const YC_SCREENSHOT_EXAMPLE = 'https://res.cloudinary.com/dmukukwp6/image/upload/yc_deal_posthog_using_2431bac493.jpg'
 
 export const scene: SceneExport = {
     component: StartupProgram,
@@ -32,12 +44,11 @@ export function StartupProgram(): JSX.Element {
         formSubmitted,
         isAlreadyOnStartupPlan,
         isUserOrganizationOwnerOrAdmin,
-        ycValidationState,
-        ycValidationError,
         startupProgramErrors,
+        isExampleModalOpen,
     } = useValues(logic)
     const { billing, billingLoading } = useValues(billingLogic)
-    const { validateYCBatch, setStartupProgramValue, showPaymentEntryModal } = useActions(logic)
+    const { setStartupProgramValue, showPaymentEntryModal, showExampleModal, hideExampleModal } = useActions(logic)
     const programName = isYC ? 'YC Program' : 'Startup Program'
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
@@ -315,89 +326,100 @@ export function StartupProgram(): JSX.Element {
                                 {isYC && (
                                     <>
                                         <LemonField name="yc_batch" label="Which YC batch are you?">
-                                            <LemonSelect
-                                                options={YC_BATCH_OPTIONS}
-                                                onChange={(value) => {
-                                                    setStartupProgramValue('yc_batch', value)
-                                                    if (value) {
-                                                        validateYCBatch()
-                                                    }
-                                                }}
-                                                className="bg-bg-light"
+                                            <LemonSelect options={YC_BATCH_OPTIONS} className="bg-bg-light" />
+                                        </LemonField>
+
+                                        <LemonField
+                                            name="yc_proof_screenshot_url"
+                                            label={
+                                                <span>
+                                                    Screenshot showing you're using PostHog deal{' '}
+                                                    <span
+                                                        className="text-primary cursor-pointer hover:text-muted whitespace-nowrap"
+                                                        onClick={() => showExampleModal()}
+                                                    >
+                                                        (<Link onClick={() => showExampleModal()}>like this</Link>)
+                                                    </span>
+                                                </span>
+                                            }
+                                        >
+                                            <LemonFileInput
+                                                accept="image/*"
+                                                multiple={false}
+                                                value={filesToUpload}
+                                                showUploadedFiles={false}
+                                                onChange={setFilesToUpload}
+                                                loading={uploading}
+                                                callToAction={
+                                                    <div className="border border-dashed rounded p-2 w-full">
+                                                        {startupProgram.yc_proof_screenshot_url ? (
+                                                            <div className="flex items-center justify-center gap-4 w-full">
+                                                                <span className="font-semibold">
+                                                                    YC deal screenshot
+                                                                </span>
+                                                                <div className="relative">
+                                                                    <img
+                                                                        src={startupProgram.yc_proof_screenshot_url}
+                                                                        alt="YC Profile"
+                                                                        className="h-10 w-10 rounded object-cover"
+                                                                    />
+                                                                    <LemonButton
+                                                                        type="tertiary"
+                                                                        status="danger"
+                                                                        size="xsmall"
+                                                                        icon={<IconX className="text-sm" />}
+                                                                        onClick={(e) => {
+                                                                            e.preventDefault()
+                                                                            setStartupProgramValue(
+                                                                                'yc_proof_screenshot_url',
+                                                                                undefined
+                                                                            )
+                                                                        }}
+                                                                        tooltip="Remove screenshot"
+                                                                        className="absolute -top-1 -right-1 p-0.5 !bg-bg-light rounded-full"
+                                                                        noPadding
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="flex items-center justify-center gap-2">
+                                                                <IconUpload className="text-2xl" />
+                                                                <span>Upload Screenshot</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                }
                                             />
                                         </LemonField>
-                                        {ycValidationState === 'validating' && (
-                                            <div className="flex items-center gap-2 text-muted">
-                                                <div className="animate-spin">⏳</div>
-                                                <span>Validating YC batch membership...</span>
-                                            </div>
-                                        )}
-                                        {ycValidationState === 'valid' && (
-                                            <div className="flex items-center gap-2 text-success">
-                                                <IconCheck className="shrink-0" />
-                                                <span>We were able to confirm your YC membership</span>
-                                            </div>
-                                        )}
-                                        {ycValidationState === 'invalid' && (
-                                            <>
-                                                {!startupProgram.yc_proof_screenshot_url && (
-                                                    <div className="flex items-center gap-2 text-danger mb-2">
-                                                        {ycValidationError}
-                                                    </div>
-                                                )}
-                                                <LemonField name="yc_proof_screenshot_url">
-                                                    <LemonFileInput
-                                                        accept="image/*"
-                                                        multiple={false}
-                                                        value={filesToUpload}
-                                                        showUploadedFiles={false}
-                                                        onChange={setFilesToUpload}
-                                                        loading={uploading}
-                                                        callToAction={
-                                                            <div className="border border-dashed rounded p-2 w-full">
-                                                                {startupProgram.yc_proof_screenshot_url ? (
-                                                                    <div className="flex items-center justify-center gap-4 w-full">
-                                                                        <span className="font-semibold">
-                                                                            YC profile screenshot
-                                                                        </span>
-                                                                        <div className="relative">
-                                                                            <img
-                                                                                src={
-                                                                                    startupProgram.yc_proof_screenshot_url
-                                                                                }
-                                                                                alt="YC Profile"
-                                                                                className="h-10 w-10 rounded object-cover"
-                                                                            />
-                                                                            <LemonButton
-                                                                                type="tertiary"
-                                                                                status="danger"
-                                                                                size="xsmall"
-                                                                                icon={<IconX className="text-sm" />}
-                                                                                onClick={(e) => {
-                                                                                    e.preventDefault()
-                                                                                    setStartupProgramValue(
-                                                                                        'yc_proof_screenshot_url',
-                                                                                        undefined
-                                                                                    )
-                                                                                }}
-                                                                                tooltip="Remove screenshot"
-                                                                                className="absolute -top-1 -right-1 p-0.5 !bg-bg-light rounded-full"
-                                                                                noPadding
-                                                                            />
-                                                                        </div>
-                                                                    </div>
-                                                                ) : (
-                                                                    <div className="flex items-center justify-center gap-2">
-                                                                        <IconUpload className="text-2xl" />
-                                                                        <span>Upload YC Profile Screenshot</span>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        }
-                                                    />
-                                                </LemonField>
-                                            </>
-                                        )}
+
+                                        <LemonModal
+                                            isOpen={isExampleModalOpen}
+                                            onClose={hideExampleModal}
+                                            title="Upload a screenshot showing you're using PostHog deal on Bookface"
+                                            description={
+                                                <div>
+                                                    <p>
+                                                        1. Open <Link to={YC_DEAL_BOOKFACE}>PostHog deal</Link> on
+                                                        Bookface
+                                                    </p>
+                                                    <p>2. Click on the "Mark Using" button</p>
+                                                    <p>3. Take a screenshot and upload it</p>
+                                                    <p>4. ???</p>
+                                                    <p>5. Profit 🤑</p>
+                                                    <p>
+                                                        P.S. We'd love if you could also rate our deal while you're at
+                                                        it!
+                                                    </p>
+                                                </div>
+                                            }
+                                        >
+                                            <img
+                                                src={YC_SCREENSHOT_EXAMPLE}
+                                                alt="Example YC Profile Screenshot"
+                                                className="max-w-full max-h-[80vh] object-contain"
+                                            />
+                                        </LemonModal>
+
                                         <LemonField
                                             name="yc_merch_count"
                                             label="How many merch packs do you need for you and your co-founder(s)?"
