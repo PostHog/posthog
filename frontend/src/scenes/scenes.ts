@@ -456,7 +456,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.MessagingLibrary]: {
         projectBased: true,
-        name: 'Message Library',
+        name: 'Messaging Library',
     },
     ...productConfiguration,
 }

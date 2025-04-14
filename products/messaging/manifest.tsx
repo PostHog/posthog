@@ -22,6 +22,11 @@ export const manifest: ProductManifest = {
             name: 'Messaging',
             projectBased: true,
         },
+        MessagingLibraryTemplate: {
+            import: () => import('./frontend/LibraryTemplate'),
+            name: 'Messaging',
+            projectBased: true,
+        },
     },
     routes: {
         // URL: [Scene, SceneKey]
@@ -32,8 +37,7 @@ export const manifest: ProductManifest = {
         '/messaging/broadcasts/:id': ['MessagingBroadcasts', 'messagingBroadcast'],
         '/messaging/broadcasts/new': ['MessagingBroadcasts', 'messagingBroadcastNew'],
         '/messaging/library': ['MessagingLibrary', 'messagingLibrary'],
-        '/messaging/library/new': ['MessagingLibrary', 'messagingLibraryNew'],
-        '/messaging/library/:id': ['MessagingLibrary', 'messagingLibraryTemplate'],
+        '/messaging/library/templates/:id': ['MessagingLibraryTemplate', 'messagingLibraryTemplate'],
     },
     redirects: {
         '/messaging': '/messaging/broadcasts',
@@ -46,13 +50,18 @@ export const manifest: ProductManifest = {
         messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
         messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
         messagingLibrary: (): string => '/messaging/library',
-        messagingLibraryNew: (): string => '/messaging/library/new',
-        messagingLibraryTemplate: (id?: string): string => `/messaging/library/${id}`,
+        messagingLibraryTemplate: (id?: string): string => `/messaging/library/templates/${id}`,
+        messagingLibraryTemplateFromMessage: (id?: string): string =>
+            `/messaging/library/templates/new?messageId=${id}`,
     },
     fileSystemTypes: {
         'hog_function/broadcast': {
             icon: <IconMegaphone />,
             href: (ref: string) => urls.messagingBroadcast(ref),
+        },
+        'hog_function/campaign': {
+            icon: <IconMegaphone />,
+            href: (ref: string) => urls.messagingCampaign(ref),
         },
     },
     treeItemsNew: [
@@ -61,6 +70,12 @@ export const manifest: ProductManifest = {
             type: 'hog_function/broadcast',
             href: () => urls.messagingBroadcastNew(),
             flag: FEATURE_FLAGS.MESSAGING,
+        },
+        {
+            path: `Campaign`,
+            type: 'hog_function/campaign',
+            href: () => urls.messagingCampaignNew(),
+            flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
         },
     ],
 }

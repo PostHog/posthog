@@ -6,6 +6,7 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
+import { Message, MessageTemplate } from 'products/messaging/frontend/libraryLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
@@ -1133,6 +1134,14 @@ class ApiRequest {
 
     public authenticateWizard(): ApiRequest {
         return this.environments().current().addPathComponent('authenticate_wizard')
+    }
+
+    public messagingMessages(): ApiRequest {
+        return this.environments().current().addPathComponent('messages')
+    }
+
+    public messagingTemplates(): ApiRequest {
+        return this.environments().current().addPathComponent('message_templates')
     }
 }
 
@@ -3051,6 +3060,14 @@ const api = {
     wizard: {
         async authenticateWizard(data: { hash: string }): Promise<{ success: boolean }> {
             return await new ApiRequest().authenticateWizard().create({ data })
+        },
+    },
+    messaging: {
+        async getMessages(): Promise<PaginatedResponse<Message>> {
+            return await new ApiRequest().messagingMessages().get()
+        },
+        async getTemplates(): Promise<PaginatedResponse<MessageTemplate>> {
+            return await new ApiRequest().messagingTemplates().get()
         },
     },
 
