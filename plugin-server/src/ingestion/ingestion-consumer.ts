@@ -178,22 +178,21 @@ export class IngestionConsumer {
 
     public async handleKafkaBatch(messages: Message[]) {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
-
-        // Extract all team IDs from the batch of events
-        const teamIds = new Set<number>()
-        Object.values(parsedMessages).forEach((items) => {
-            items.forEach(({ event }) => {
-                if (event.team_id) {
-                    teamIds.add(event.team_id)
-                }
-            })
-        })
-
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
         const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
 
         // Get hog function IDs for all teams and cache function states only if hogwatcher is enabled
-        if (teamIds.size > 0 && shouldRunHogWatcher) {
+        if (shouldRunHogWatcher) {
+            // Extract all team IDs from the batch of events
+            const teamIds = new Set<number>()
+            Object.values(parsedMessages).forEach((items) => {
+                items.forEach(({ event }) => {
+                    if (event.team_id) {
+                        teamIds.add(event.team_id)
+                    }
+                })
+            })
+
             await this.runInstrumented('fetchAndCacheHogFunctionStates', async () => {
                 const teamIdsArray = Array.from(teamIds)
                 // Get hog function IDs for transformations
