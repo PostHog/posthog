@@ -477,12 +477,6 @@ impl FlushBatch {
     }
 }
 
-impl Default for FlushBatch {
-    fn default() -> Self {
-        Self::new(false)
-    }
-}
-
 struct PendingUpdate {
     job_id: Uuid,
     update: JobUpdate,
