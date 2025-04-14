@@ -22,7 +22,7 @@ def delete_groups(
 
 
 @dagster.op
-def wait_for_delete_mutations(
+def wait_for_delete_groups_mutations(
     context: dagster.OpExecutionContext,
     mutation: MutationWaiter,
     cluster: dagster.ResourceParam[ClickhouseCluster],
@@ -35,7 +35,7 @@ def wait_for_delete_mutations(
 def delete_groups_job():
     """Job that handles deletion of groups marked as deleted."""
     mutation = delete_groups()
-    wait_for_delete_mutations(mutation)
+    wait_for_delete_groups_mutations(mutation)
 
 
 delete_groups_schedule = dagster.ScheduleDefinition(

@@ -10,6 +10,7 @@ from dags import (
     backups,
     ch_examples,
     deletes,
+    delete_groups,
     exchange_rate,
     export_query_logs_to_s3,
     materialized_columns,
@@ -17,7 +18,6 @@ from dags import (
     person_overrides,
     slack_alerts,
 )
-from dags.delete_groups import delete_groups
 
 # Define resources for different environments
 resources_by_env = {
