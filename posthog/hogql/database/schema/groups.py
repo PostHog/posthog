@@ -37,7 +37,7 @@ def select_from_groups_table(requested_fields: dict[str, list[str | int]]):
     select_query.where = ast.CompareOperation(
         left=ast.Field(chain=["is_deleted"]),
         op=ast.CompareOperationOp.Eq,
-        right=ast.Constant(value=0),
+        right=ast.Constant(value=False),
     )
 
     return select_query

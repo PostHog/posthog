@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     group_key VARCHAR,
     created_at DateTime64,
     team_id Int64,
-    group_properties VARCHAR
+    group_properties VARCHAR,
+    is_deleted Boolean,
     {extra_fields}
 ) ENGINE = {engine}
 """
@@ -84,7 +85,7 @@ WHERE team_id = %(team_id)s AND group_type_index = %({group_type_index_var})s {f
 
 MARK_GROUP_DELETED_SQL = """
 ALTER TABLE groups
-UPDATE is_deleted = 1
+UPDATE is_deleted = true
 WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s AND group_key = %(group_key)s
 """
 
