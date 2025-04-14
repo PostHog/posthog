@@ -13,6 +13,8 @@ fn to_extension(ext: &'static [(&'static str, NativeFunction)]) -> HashMap<Strin
     ext.iter().map(|(a, b)| (a.to_string(), *b)).collect()
 }
 
+const ITERATIONS: usize = 100_000;
+
 pub fn main() {
     // Collect stdin to a buffer
     let mut buffer = String::new();
@@ -20,10 +22,23 @@ pub fn main() {
 
     // Do something with buffer
     let parsed: Vec<JsonValue> = serde_json::from_str(&buffer).unwrap();
-    let extensions = to_extension(stl_test_extensions());
-    let res = sync_execute(&parsed, 10000, extensions, false);
-    println!("{:?}", res);
-    if let Err(res) = res {
-        println!("Failed at operation {:?}", parsed.get(res.ip));
+    let start = std::time::Instant::now();
+    let mut res = sync_execute(&parsed, 10000, to_extension(stl_test_extensions()), false);
+    let mut i = 1;
+    while i < ITERATIONS {
+        res = sync_execute(&parsed, 10000, to_extension(stl_test_extensions()), false);
+        if let Err(res) = &res {
+            println!("Failed: {:?}", res);
+            break;
+        }
+        i += 1;
     }
+    let elapsed = start.elapsed();
+    println!(
+        "Execution time: {:?}, {} iterations, {} microseconds per iteration",
+        elapsed,
+        i,
+        elapsed.as_micros() / i as u128
+    );
+    println!("Result: {:?}", res);
 }

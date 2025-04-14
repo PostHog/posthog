@@ -33,6 +33,31 @@ pub const fn stl() -> &'static [(&'static str, NativeFunction)] {
                 HogLiteral::Null => Ok(HogLiteral::String("null".to_string()).into()),
             }
         }),
+        ("values", |vm, args| {
+            assert_argc(&args, 1, "")?;
+            let arg = args[0].deref(&vm.heap)?;
+            match arg {
+                HogLiteral::Array(_) => Ok(arg.clone().into()),
+                HogLiteral::Object(obj) => {
+                    Ok(HogLiteral::Array(obj.values().cloned().collect()).into())
+                }
+                _ => Err(VmError::NativeCallFailed(
+                    "values() only supports arrays and objects".to_string(),
+                )),
+            }
+        }),
+        ("length", |vm, args| {
+            assert_argc(&args, 1, "")?;
+            let arg = args[0].deref(&vm.heap)?;
+            match arg {
+                HogLiteral::Array(arr) => Ok(HogLiteral::Number(arr.len().into()).into()),
+                HogLiteral::Object(obj) => Ok(HogLiteral::Number(obj.len().into()).into()),
+                HogLiteral::String(str) => Ok(HogLiteral::Number(str.len().into()).into()),
+                _ => Err(VmError::NativeCallFailed(
+                    "length() only supports arrays, objects and strings".to_string(),
+                )),
+            }
+        }),
     ]
 }
 

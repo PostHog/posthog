@@ -63,4 +63,6 @@ pub enum VmError {
     UnknownFunction(String),
     #[error("Native call failed: {0}")]
     NativeCallFailed(String),
+    #[error("Invalid regex {0}: {1}")]
+    InvalidRegex(String, String),
 }

@@ -12,6 +12,11 @@ use crate::{
     values::{Callable, Closure, FromHogLiteral, HogLiteral, HogValue, LocalCallable, Num, NumOp},
 };
 
+/*
+TODO:
+- All the math operations here aren't hardened to overflow
+*/
+
 pub struct ExecutionContext<'a> {
     pub bytecode: &'a [JsonValue],
     pub globals: HashMap<String, HogValue>,
@@ -440,6 +445,7 @@ impl<'a> VmState<'a> {
             }
             Operation::GetLocal => {
                 let base = self.current_frame_base();
+                // Usize as a positive offset from the current frame
                 let offset: usize = self.next()?;
                 let ptr = self.hoist(base + offset)?;
                 self.push_stack(ptr)?;
@@ -447,6 +453,7 @@ impl<'a> VmState<'a> {
             Operation::SetLocal => {
                 // Replace some item "lower" in the stack with the top one.
                 let base = self.current_frame_base();
+                // Usize as a positive offset from the current frame
                 let offset: usize = self.next()?;
                 let value = self.pop_stack()?;
                 self.set_stack_val(base + offset, value)?;
@@ -467,23 +474,26 @@ impl<'a> VmState<'a> {
                 self.push_stack(result)?;
             }
             Operation::Jump => {
-                let offset: usize = self.next()?;
-                self.ip += offset;
+                // i32 to permit branching backwards
+                let offset: i32 = self.next()?;
+                self.ip = (self.ip as i64 + offset as i64) as usize;
             }
             Operation::JumpIfFalse => {
-                let offset: usize = self.next()?;
+                // i32 to permit branching backwards
+                let offset: i32 = self.next()?;
                 if !self.pop_stack_as::<bool>()? {
-                    self.ip += offset;
+                    self.ip = (self.ip as i64 + offset as i64) as usize;
                 }
             }
             Operation::JumpIfStackNotNull => {
-                let offset: usize = self.next()?;
+                // i32 to permit branching backwards
+                let offset: i32 = self.next()?;
                 // Weirdly, this operation doesn't pop the value from the stack. This is mostly a random choice.
                 if !self.stack.is_empty() {
                     let item = self.clone_stack_item(self.stack.len() - 1)?;
                     let item = item.deref(&self.heap)?;
                     if matches!(item, HogLiteral::Null) {
-                        self.ip += offset;
+                        self.ip = (self.ip as i64 + offset as i64) as usize;
                     }
                 }
             }
@@ -572,8 +582,10 @@ impl<'a> VmState<'a> {
                 target.set_property(key, val)?;
             }
             Operation::Try => {
-                let catch_offset: usize = self.next()?;
-                let catch_ip = self.ip + catch_offset + 1; // +1 to skip the POP_TRY that follows the try'd operations
+                // i32 to permit setting a catch offset lower than the IP
+                let catch_offset: i32 = self.next()?;
+                // +1 to skip the POP_TRY that follows the try'd operations
+                let catch_ip = (self.ip as i64 + catch_offset as i64 + 1) as usize;
                 let frame = ThrowFrame {
                     catch_ptr: catch_ip,
                     stack_start: self.stack.len(),
@@ -652,6 +664,7 @@ impl<'a> VmState<'a> {
                     // Indicates whether this captured argument is to a stack variable in this
                     // frames stack, or a captured argument in this frames captured arguments list
                     let is_local: bool = self.next()?;
+                    // usize as closures can only capture stack variables in the current scope
                     let offset: usize = self.next()?;
                     if is_local {
                         let index = self.current_frame_base() + offset;

@@ -441,6 +441,12 @@ impl From<f64> for Num {
     }
 }
 
+impl From<usize> for Num {
+    fn from(value: usize) -> Self {
+        Num::Integer(value as i64)
+    }
+}
+
 impl FromStr for Num {
     type Err = VmError;
 
