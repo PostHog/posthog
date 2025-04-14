@@ -47,6 +47,7 @@ from posthog.session_recordings.session_recording_helpers import (
 from posthog.storage import object_storage
 from posthog.utils import get_ip_address
 from posthog.utils_cors import cors_response
+from posthog.kafka_client.topics import KAFKA_EXCEPTIONS_INGESTION
 
 logger = structlog.get_logger(__name__)
 
@@ -216,6 +217,8 @@ def _kafka_topic(event_name: str, historical: bool = False, overflowing: bool = 
             if overflowing:
                 return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
             return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+        case "$exception":
+            return KAFKA_EXCEPTIONS_INGESTION
         case _:
             # If the token is in the TOKENS_HISTORICAL_DATA list, we push to the
             # historical data topic.

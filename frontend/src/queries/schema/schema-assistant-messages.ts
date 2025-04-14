@@ -40,6 +40,11 @@ export interface AssistantToolCall {
     id: string
     name: string
     args: Record<string, unknown>
+    /**
+     * `type` needed to conform to the OpenAI shape, which is expected by LangChain
+     * @default "tool_call"
+     */
+    type: 'tool_call'
 }
 
 export interface AssistantMessage extends BaseAssistantMessage {
@@ -60,7 +65,7 @@ export interface VisualizationMessage extends BaseAssistantMessage {
     /** @default '' */
     query: string
     plan?: string
-    answer?: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+    answer: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
     initiator?: string
 }
 
@@ -103,4 +108,4 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
     tool_call_id: string
 }
 
-export type AssistantContextualTool = 'search_session_recordings' | '_' // _ is a placeholder to get a union here
+export type AssistantContextualTool = 'search_session_recordings' | 'generate_hogql_query'

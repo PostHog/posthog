@@ -38,6 +38,9 @@ import {
     QueryStatusResponse,
     ResultCustomizationBy,
     RetentionQuery,
+    RevenueAnalyticsChurnRateQuery,
+    RevenueAnalyticsGrowthRateQuery,
+    RevenueAnalyticsOverviewQuery,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleEventsQuery,
     SavedInsightNode,
@@ -141,6 +144,24 @@ export function isHogQLASTQuery(node?: Record<string, any> | null): node is HogQ
 
 export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQLMetadata {
     return node?.kind === NodeKind.HogQLMetadata
+}
+
+export function isRevenueAnalyticsOverviewQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsOverviewQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsOverviewQuery
+}
+
+export function isRevenueAnalyticsGrowthRateQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsGrowthRateQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsGrowthRateQuery
+}
+
+export function isRevenueAnalyticsChurnRateQuery(
+    node?: Record<string, any> | null
+): node is RevenueAnalyticsChurnRateQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsChurnRateQuery
 }
 
 export function isWebOverviewQuery(node?: Record<string, any> | null): node is WebOverviewQuery {

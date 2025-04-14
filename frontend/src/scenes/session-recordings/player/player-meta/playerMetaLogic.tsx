@@ -5,7 +5,6 @@ import api from 'lib/api'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { getCoreFilterDefinition, getFirstFilterTypeFor } from 'lib/taxonomy'
 import { capitalizeFirstLetter, ceilMsToClosestSecond, humanFriendlyDuration, percentage } from 'lib/utils'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import posthog from 'posthog-js'
@@ -18,16 +17,14 @@ import {
     SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
+import { getCoreFilterDefinition, getFirstFilterTypeFor } from '~/taxonomy/helpers'
 import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 
 import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
+import { SessionSummaryResponse } from './types'
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
-
-export interface SessionSummaryResponse {
-    content: string
-}
 
 const ALLOW_LISTED_PERSON_PROPERTIES = [
     '$os_name',
@@ -114,16 +111,18 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     })),
     loaders(({ props }) => ({
         sessionSummary: {
+            __default: null as SessionSummaryResponse | null,
             summarizeSession: async (): Promise<SessionSummaryResponse | null> => {
                 const id = props.sessionRecordingId || props.sessionRecordingData?.sessionRecordingId
                 if (!id) {
                     return null
                 }
+                // TODO: Uncomment after adjusting UI
                 const response = await api.recordings.summarize(id)
-                if (!response.content) {
+                if (!Object.keys(response.content).length) {
                     lemonToast.warning('Unable to load session summary')
                 }
-                return { content: response.content }
+                return response
             },
         },
     })),

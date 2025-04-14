@@ -1,18 +1,25 @@
 import { urls } from 'scenes/urls'
 
-import { HogFunctionTypeType, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
+import { HogFunctionKind, HogFunctionTypeType, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
 
 export function hogFunctionNewUrl(type: HogFunctionTypeType, template?: string): string {
     return type === 'broadcast'
         ? urls.messagingBroadcastNew()
         : type === 'internal_destination' && template?.includes('error-tracking')
         ? urls.errorTrackingAlert(template)
-        : urls.pipelineNodeNew(hogFunctionTypeToPipelineStage(type), template ? `hog-${template}` : undefined)
+        : urls.pipelineNodeNew(hogFunctionTypeToPipelineStage(type), { id: template ? `hog-${template}` : undefined })
 }
 
-export function hogFunctionUrl(type: HogFunctionTypeType | PipelineStage, id?: string, template?: string): string {
+export function hogFunctionUrl(
+    type: HogFunctionTypeType | PipelineStage,
+    id?: string,
+    template?: string,
+    kind?: HogFunctionKind
+): string {
     if (type === 'broadcast') {
         return id ? urls.messagingBroadcast(id) : urls.messagingBroadcasts()
+    } else if (kind === 'messaging_campaign') {
+        return id ? urls.messagingCampaign(id) : urls.messagingCampaigns()
     } else if (type === 'internal_destination' && template?.includes('error-tracking')) {
         return id ? urls.errorTrackingAlert(id) : urls.errorTrackingConfiguration()
     }
