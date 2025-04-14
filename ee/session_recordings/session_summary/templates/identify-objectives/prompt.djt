@@ -84,6 +84,7 @@ CRITICAL WARNING: DO NOT hallucinate errors. Only mark events as errors when the
       - Each key action should represent a significant step in the user's journey toward their objective
       - Consolidate repeated similar actions into a single key action with frequency noted (e.g., "3 times")
       - Only create separate key actions for repeated behaviors if they represent distinct phases of interaction
+      - Each key action could be an error (`error: true`, if an interruption of the user's flow occurred) or a regular user action (`error: false`), based on the guidelines below
 
    B. Error Guidelines:
       - Flag an event as an error ONLY if there is EXPLICIT evidence in the event data itself:
@@ -122,7 +123,7 @@ CRITICAL WARNING: DO NOT hallucinate errors. Only mark events as errors when the
 </identify_objectives_instructions>
 
 <output_format>
-Provide your summary in YAML format using the provided example. Don't replicate the data of the example, or the number of example entries, use it only to understand the format.
+Provide your summary in YAML format using the provided example. Don't replicate the data or logic of the example, or the number of example entries. Use it ONLY to understand the format.
 </output_format>
 
 <output_example>

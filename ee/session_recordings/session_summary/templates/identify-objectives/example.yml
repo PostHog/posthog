@@ -1,35 +1,14 @@
 objectives:
-    - name: 'Finding Resources'
-      summary: 'User searched for and filtered available resources using specific criteria'
+    - name: 'Example Objective'
+      summary: 'Brief description of what the user was trying to accomplish'
       key_actions:
-          - description: 'User opened search interface'
-            event_id: '9a4091b8'
+          - description: 'A significant user action toward the objective'
+            event_id: 'abc123'
             error: false
-          - description: 'User applied filter parameters'
-            event_id: '9d53d8ab'
+          - description: 'Another key step the user took'
+            event_id: 'def456'
             error: false
-          - description: 'User opened multiple resource pages to compare'
-            event_id: 'e077b6d8'
+          - description: 'One more action that leads to the next objective or finishes the session'
+            event_id: 'ghi789'
             error: false
-    - name: 'Comparing Options'
-      summary: 'User compared features between multiple options but encountered API issues'
-      key_actions:
-          - description: 'User selected first item for comparison'
-            event_id: '9580f5dc'
-            error: false
-          - description: 'User selected second item for comparison'
-            event_id: 'a123b456'
-            error: false
-          - description: 'Comparison page failed to load due to API timeout'
-            event_id: 'c789d012'
-            error: true
-          - description: 'User successfully loaded comparison after opening it in a new browser tab'
-            event_id: 'd456e789'
-            error: false
-    - name: 'Checking Terms'
-      summary: 'User reviewed the terms of service'
-      key_actions:
-          - description: 'User viewed terms of service document'
-            event_id: 'f123g456'
-            error: false
-# Additional objectives continue, if applicable...
+# Note: The actual number of objectives and actions should be based on your analysis of the session data. This is just an example of the format.
