@@ -1028,12 +1028,18 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             group_type_index=0,
             group_type="organization",
         )
-        # This group shouldn't be deleted
+        # First two groups shouldn't be deleted
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=group_type_mapping.group_type_index,
+            group_key="org:3",
+            properties={"industry": "technology", "name": "Mrs. Puff"},
+        )
         create_group(
             team_id=self.team.pk,
             group_type_index=group_type_mapping.group_type_index,
             group_key="org:4",
-            properties={"industry": "technology", "name": "Mrs. Puff"},
+            properties={"industry": "education", "name": "Mrx. Bunny"},
         )
         create_group(
             team_id=self.team.pk,
@@ -1049,7 +1055,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.results), 2)
+        self.assertEqual(len(result.results), 3)
 
         response = self.client.delete(
             f"/api/projects/{self.team.id}/groups/delete_group?group_key=org:5&group_type_index=0"
@@ -1069,7 +1075,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
         query_runner = GroupsQueryRunner(query=query, team=self.team)
         result = query_runner.calculate()
 
-        self.assertEqual(len(result.results), 1)
+        self.assertEqual(len(result.results), 2)
 
     def test_delete_group_not_found(self):
         group_type_mapping = GroupTypeMapping.objects.create(
