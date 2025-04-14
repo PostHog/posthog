@@ -171,7 +171,7 @@ class TableGroup(FieldOrTable):
         return self.tables[name]
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
-        raise NotImplementedError("Table.to_printed_clickhouse not overridden")
+        raise NotImplementedError("TableGroup.to_printed_clickhouse not overridden")
 
     def to_printed_hogql(self) -> str:
         raise NotImplementedError("Table.to_printed_hogql not overridden")
