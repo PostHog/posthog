@@ -8,6 +8,7 @@ import {
     GroupTypeIndex,
     Hub,
     ISOTimestamp,
+    KafkaConsumerBreadcrumb,
     Person,
     PersonMode,
     PreIngestionEvent,
@@ -196,7 +197,12 @@ export class EventsProcessor {
         return res
     }
 
-    createEvent(preIngestionEvent: PreIngestionEvent, person: Person, processPerson: boolean): RawKafkaEvent {
+    createEvent(
+        preIngestionEvent: PreIngestionEvent,
+        person: Person,
+        processPerson: boolean,
+        kafkaConsumerBreadcrumbs: KafkaConsumerBreadcrumb[]
+    ): RawKafkaEvent {
         const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
 
         let elementsChain = ''
@@ -250,6 +256,7 @@ export class EventsProcessor {
             person_properties: eventPersonProperties,
             person_created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
             person_mode: personMode,
+            kafka_consumer_breadcrumbs: kafkaConsumerBreadcrumbs,
         }
 
         return rawEvent

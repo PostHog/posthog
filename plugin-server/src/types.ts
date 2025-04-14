@@ -741,12 +741,24 @@ export interface RawClickHouseEvent extends BaseEvent {
     person_mode: PersonMode
 }
 
+export type KafkaConsumerBreadcrumb = {
+    topic: string
+    offset: string | number
+    partition: number
+    processed_at: string
+    consumer_id: string
+}
+
 export interface RawKafkaEvent extends RawClickHouseEvent {
     /**
      * The project ID field is only included in the `clickhouse_events_json` topic, not present in ClickHouse.
      * That's because we need it in `property-defs-rs` and not elsewhere.
      */
     project_id: ProjectId
+    /**
+     * Tracks the flow of a message through Kafka consumers for debugging and event duplication investigation
+     */
+    kafka_consumer_breadcrumbs?: KafkaConsumerBreadcrumb[]
 }
 
 /** Parsed event row from ClickHouse. */
@@ -1208,6 +1220,7 @@ export enum OrganizationMembershipLevel {
 export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     team_id?: number | null
     token?: string
+    kafka_consumer_breadcrumbs?: KafkaConsumerBreadcrumb[]
 }
 
 export type RedisPool = GenericPool<Redis>

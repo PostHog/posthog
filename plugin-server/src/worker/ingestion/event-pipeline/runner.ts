@@ -287,7 +287,13 @@ export class EventPipelineRunner {
 
         const rawEvent = await this.runStep(
             createEventStep,
-            [this, preparedEventWithoutHeatmaps, person, processPerson],
+            [
+                this,
+                preparedEventWithoutHeatmaps,
+                person,
+                processPerson,
+                this.originalEvent.kafka_consumer_breadcrumbs ?? [],
+            ],
             event.team_id
         )
 

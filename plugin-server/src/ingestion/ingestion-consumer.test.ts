@@ -16,7 +16,6 @@ import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql
 import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { HogFunctionType } from '../cdp/types'
-import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
 import { IngestionConsumer } from './ingestion-consumer'
@@ -155,17 +154,11 @@ describe('IngestionConsumer', () => {
             // Get the processed event
             const processedEvent = producedMessages[0].value as any
 
-            // Parse the properties which are stored as a JSON string
-            const properties =
-                typeof processedEvent.properties === 'string'
-                    ? parseJSON(processedEvent.properties)
-                    : processedEvent.properties
-
-            // Verify the breadcrumbs were added under properties
-            expect(properties).toHaveProperty('kafka_consumer_breadcrumbs')
+            // Verify the breadcrumbs were added as a top-level field
+            expect(processedEvent).toHaveProperty('kafka_consumer_breadcrumbs')
 
             // Verify the breadcrumb structure
-            const breadcrumbs = properties.kafka_consumer_breadcrumbs
+            const breadcrumbs = processedEvent.kafka_consumer_breadcrumbs
             expect(Array.isArray(breadcrumbs)).toBe(true)
             expect(breadcrumbs.length).toBe(1)
 

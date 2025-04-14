@@ -447,24 +447,20 @@ export class IngestionConsumer {
             })
 
             // For investigating event duplication, each time a message flows through the ingestion consumer add some breadcrumbs
-            const eventProperties = event.properties ?? {}
-            const existingBreadcrumbs = Array.isArray(eventProperties.kafka_consumer_breadcrumbs)
-                ? eventProperties.kafka_consumer_breadcrumbs
+            const existingBreadcrumbs = Array.isArray(event.kafka_consumer_breadcrumbs)
+                ? event.kafka_consumer_breadcrumbs
                 : []
 
-            event.properties = {
-                ...eventProperties,
-                kafka_consumer_breadcrumbs: [
-                    ...existingBreadcrumbs,
-                    {
-                        topic: message.topic,
-                        offset: message.offset,
-                        partition: message.partition,
-                        processed_at: new Date().toISOString(),
-                        consumer_id: this.groupId,
-                    },
-                ],
-            }
+            event.kafka_consumer_breadcrumbs = [
+                ...existingBreadcrumbs,
+                {
+                    topic: message.topic,
+                    offset: message.offset,
+                    partition: message.partition,
+                    processed_at: new Date().toISOString(),
+                    consumer_id: this.groupId,
+                },
+            ]
 
             // In case the headers were not set we check the parsed message now
             if (this.shouldDropEvent(combinedEvent.token, combinedEvent.distinct_id)) {
