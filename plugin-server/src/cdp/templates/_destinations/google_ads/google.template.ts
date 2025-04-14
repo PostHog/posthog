@@ -41,7 +41,7 @@ const build_inputs = (): HogFunctionInputSchemaType[] => {
             type: 'string',
             label: 'Conversion value',
             description: 'The value of the conversion for the advertiser.',
-            default: '{}',
+            default: '',
             secret: false,
             required: false,
         },
