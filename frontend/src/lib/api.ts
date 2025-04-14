@@ -1143,11 +1143,11 @@ class ApiRequest {
     }
 
     public messagingMessages(): ApiRequest {
-        return this.environments().current().addPathComponent('messages')
+        return this.environments().current().addPathComponent('messaging').addPathComponent('messages')
     }
 
     public messagingTemplates(): ApiRequest {
-        return this.environments().current().addPathComponent('message_templates')
+        return this.environments().current().addPathComponent('messaging').addPathComponent('templates')
     }
 }
 

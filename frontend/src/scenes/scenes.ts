@@ -448,15 +448,15 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.MessagingBroadcasts]: {
         projectBased: true,
-        name: 'Messaging Broadcasts',
+        name: 'Messaging broadcasts',
     },
     [Scene.MessagingCampaigns]: {
         projectBased: true,
-        name: 'Messaging Campaigns',
+        name: 'Messaging campaigns',
     },
     [Scene.MessagingLibrary]: {
         projectBased: true,
-        name: 'Messaging Library',
+        name: 'Messaging library',
     },
     ...productConfiguration,
 }

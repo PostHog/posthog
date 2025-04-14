@@ -28,7 +28,7 @@ class MessageSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class MessageViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class MessagingViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "message"
     permission_classes = [IsAuthenticated]
 
