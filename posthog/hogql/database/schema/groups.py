@@ -35,11 +35,6 @@ def select_from_groups_table(requested_fields: dict[str, list[str | int]]):
         group_fields=["index", "key"],
         argmax_field="updated_at",
     )
-    select_query.where = ast.CompareOperation(
-        left=ast.Field(chain=["is_deleted"]),
-        op=ast.CompareOperationOp.Eq,
-        right=ast.Constant(value=False),
-    )
 
     return select_query
 
@@ -50,16 +45,23 @@ def join_with_group_n_table(group_index: int):
         context: HogQLContext,
         node: SelectQuery,
     ):
-        from posthog.hogql import ast
-
         if not join_to_add.fields_accessed:
             raise ResolutionError("No fields requested from person_distinct_ids")
 
         select_query = select_from_groups_table(join_to_add.fields_accessed)
-        select_query.where = ast.CompareOperation(
-            left=ast.Field(chain=["index"]),
-            op=ast.CompareOperationOp.Eq,
-            right=ast.Constant(value=group_index),
+        select_query.where = ast.And(
+            expressions=[
+                ast.CompareOperation(
+                    left=ast.Field(chain=["index"]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Constant(value=group_index),
+                ),
+                ast.CompareOperation(
+                    left=ast.Field(chain=["is_deleted"]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Constant(value=False),
+                ),
+            ]
         )
 
         join_expr = ast.JoinExpr(table=select_query)
