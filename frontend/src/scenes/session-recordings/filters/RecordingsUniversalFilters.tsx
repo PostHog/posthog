@@ -147,6 +147,139 @@ export const RecordingsUniversalFilters = ({
         )
     }
 
+    const tabs = [
+        {
+            key: 'filters',
+            label: <div className="px-2">Filters</div>,
+            content: (
+                <div className={clsx('relative bg-surface-primary w-full ', className)}>
+                    <div className="flex items-center py-2">
+                        <AndOrFilterSelect
+                            value={filters.filter_group.type}
+                            onChange={(type) => {
+                                let values = filters.filter_group.values
+
+                                // set the type on the nested child when only using a single filter group
+                                const hasSingleGroup = values.length === 1
+                                if (hasSingleGroup) {
+                                    const group = values[0] as UniversalFiltersGroup
+                                    values = [{ ...group, type }]
+                                }
+
+                                setFilters({
+                                    filter_group: {
+                                        type: type,
+                                        values: values,
+                                    },
+                                })
+                            }}
+                            topLevelFilter={true}
+                            suffix={['filter', 'filters']}
+                            size="small"
+                        />
+                    </div>
+                    <div className="flex justify-between px-2 py-2 flex-wrap gap-1">
+                        <div className="flex flex-wrap gap-2 items-center">
+                            <DateFilter
+                                dateFrom={filters.date_from ?? '-3d'}
+                                dateTo={filters.date_to}
+                                onChange={(changedDateFrom, changedDateTo) => {
+                                    setFilters({
+                                        date_from: changedDateFrom,
+                                        date_to: changedDateTo,
+                                    })
+                                }}
+                                dateOptions={[
+                                    { key: 'Custom', values: [] },
+                                    { key: 'Last 24 hours', values: ['-24h'] },
+                                    { key: 'Last 3 days', values: ['-3d'] },
+                                    { key: 'Last 7 days', values: ['-7d'] },
+                                    { key: 'Last 30 days', values: ['-30d'] },
+                                    { key: 'All time', values: ['-90d'] },
+                                ]}
+                                dropdownPlacement="bottom-start"
+                                size="small"
+                            />
+                            <DurationFilter
+                                onChange={(newRecordingDurationFilter, newDurationType) => {
+                                    setFilters({
+                                        duration: [
+                                            {
+                                                ...newRecordingDurationFilter,
+                                                key: newDurationType,
+                                            },
+                                        ],
+                                    })
+                                }}
+                                recordingDurationFilter={durationFilter}
+                                durationTypeFilter={durationFilter.key}
+                                pageKey="session-recordings"
+                                size="small"
+                            />
+                        </div>
+                        <div>
+                            <TestAccountFilter
+                                size="small"
+                                filters={filters}
+                                onChange={(testFilters) =>
+                                    setFilters({
+                                        filter_test_accounts: testFilters.filter_test_accounts,
+                                    })
+                                }
+                            />
+                        </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 p-2">
+                        <UniversalFilters
+                            rootKey="session-recordings"
+                            group={filters.filter_group}
+                            taxonomicGroupTypes={taxonomicGroupTypes}
+                            onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
+                        >
+                            <RecordingsUniversalFilterGroup size="small" totalFiltersCount={totalFiltersCount} />
+                        </UniversalFilters>
+                    </div>
+                    {(totalFiltersCount ?? 0) > 0 &&
+                        !savedFilters.results?.find((filter) => equal(filter.filters, filters)) && (
+                            <div className="flex gap-2 p-2 justify-start">
+                                <LemonInput
+                                    value={savedFilterName}
+                                    placeholder="Saved filter name"
+                                    onChange={setSavedFilterName}
+                                    size="small"
+                                    autoFocus
+                                    fullWidth
+                                    onClick={(e) => {
+                                        e.stopPropagation() // Prevent dropdown from closing
+                                    }}
+                                />
+                                <LemonButton type="primary" size="xsmall" onClick={() => void newPlaylistHandler()}>
+                                    Save filters
+                                </LemonButton>
+                            </div>
+                        )}
+                </div>
+            ),
+        },
+    ]
+
+    if (savedFilters.results?.length > 0) {
+        tabs.push({
+            key: 'saved',
+            label: (
+                <div className="px-2 flex">
+                    <span>
+                        {savedFilters.results?.length ? (
+                            <LemonBadge.Number count={savedFilters.results?.length} className="mr-2" />
+                        ) : null}
+                    </span>
+                    <span>Saved filters</span>
+                </div>
+            ),
+            content: <SavedFilters setFilters={setFilters} />,
+        })
+    }
+
     return (
         <>
             <MaxTool
@@ -196,150 +329,7 @@ export const RecordingsUniversalFilters = ({
                                 activeKey={activeFilterTab}
                                 onChange={(activeKey) => setActiveFilterTab(activeKey)}
                                 size="small"
-                                tabs={[
-                                    {
-                                        key: 'filters',
-                                        label: <div className="px-2">Filters</div>,
-                                        content: (
-                                            <div className={clsx('relative bg-surface-primary w-full ', className)}>
-                                                <div className="flex items-center py-2">
-                                                    <AndOrFilterSelect
-                                                        value={filters.filter_group.type}
-                                                        onChange={(type) => {
-                                                            let values = filters.filter_group.values
-
-                                                            // set the type on the nested child when only using a single filter group
-                                                            const hasSingleGroup = values.length === 1
-                                                            if (hasSingleGroup) {
-                                                                const group = values[0] as UniversalFiltersGroup
-                                                                values = [{ ...group, type }]
-                                                            }
-
-                                                            setFilters({
-                                                                filter_group: {
-                                                                    type: type,
-                                                                    values: values,
-                                                                },
-                                                            })
-                                                        }}
-                                                        topLevelFilter={true}
-                                                        suffix={['filter', 'filters']}
-                                                        size="small"
-                                                    />
-                                                </div>
-                                                <div className="flex justify-between px-2 py-2 flex-wrap gap-1">
-                                                    <div className="flex flex-wrap gap-2 items-center">
-                                                        <DateFilter
-                                                            dateFrom={filters.date_from ?? '-3d'}
-                                                            dateTo={filters.date_to}
-                                                            onChange={(changedDateFrom, changedDateTo) => {
-                                                                setFilters({
-                                                                    date_from: changedDateFrom,
-                                                                    date_to: changedDateTo,
-                                                                })
-                                                            }}
-                                                            dateOptions={[
-                                                                { key: 'Custom', values: [] },
-                                                                { key: 'Last 24 hours', values: ['-24h'] },
-                                                                { key: 'Last 3 days', values: ['-3d'] },
-                                                                { key: 'Last 7 days', values: ['-7d'] },
-                                                                { key: 'Last 30 days', values: ['-30d'] },
-                                                                { key: 'All time', values: ['-90d'] },
-                                                            ]}
-                                                            dropdownPlacement="bottom-start"
-                                                            size="small"
-                                                        />
-                                                        <DurationFilter
-                                                            onChange={(newRecordingDurationFilter, newDurationType) => {
-                                                                setFilters({
-                                                                    duration: [
-                                                                        {
-                                                                            ...newRecordingDurationFilter,
-                                                                            key: newDurationType,
-                                                                        },
-                                                                    ],
-                                                                })
-                                                            }}
-                                                            recordingDurationFilter={durationFilter}
-                                                            durationTypeFilter={durationFilter.key}
-                                                            pageKey="session-recordings"
-                                                            size="small"
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <TestAccountFilter
-                                                            size="small"
-                                                            filters={filters}
-                                                            onChange={(testFilters) =>
-                                                                setFilters({
-                                                                    filter_test_accounts:
-                                                                        testFilters.filter_test_accounts,
-                                                                })
-                                                            }
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <div className="flex flex-wrap gap-2 p-2">
-                                                    <UniversalFilters
-                                                        rootKey="session-recordings"
-                                                        group={filters.filter_group}
-                                                        taxonomicGroupTypes={taxonomicGroupTypes}
-                                                        onChange={(filterGroup) =>
-                                                            setFilters({ filter_group: filterGroup })
-                                                        }
-                                                    >
-                                                        <RecordingsUniversalFilterGroup
-                                                            size="small"
-                                                            totalFiltersCount={totalFiltersCount}
-                                                        />
-                                                    </UniversalFilters>
-                                                </div>
-                                                {(totalFiltersCount ?? 0) > 0 &&
-                                                    !savedFilters.results?.find((filter) =>
-                                                        equal(filter.filters, filters)
-                                                    ) && (
-                                                        <div className="flex gap-2 p-2 justify-start">
-                                                            <LemonInput
-                                                                value={savedFilterName}
-                                                                placeholder="Saved filter name"
-                                                                onChange={setSavedFilterName}
-                                                                size="small"
-                                                                autoFocus
-                                                                fullWidth
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation() // Prevent dropdown from closing
-                                                                }}
-                                                            />
-                                                            <LemonButton
-                                                                type="primary"
-                                                                size="xsmall"
-                                                                onClick={() => void newPlaylistHandler()}
-                                                            >
-                                                                Save filters
-                                                            </LemonButton>
-                                                        </div>
-                                                    )}
-                                            </div>
-                                        ),
-                                    },
-                                    {
-                                        key: 'saved',
-                                        label: (
-                                            <div className="px-2 flex">
-                                                <span>
-                                                    {savedFilters.results?.length ? (
-                                                        <LemonBadge.Number
-                                                            count={savedFilters.results?.length}
-                                                            className="mr-2"
-                                                        />
-                                                    ) : null}
-                                                </span>
-                                                <span>Saved filters</span>
-                                            </div>
-                                        ),
-                                        content: <SavedFilters setFilters={setFilters} />,
-                                    },
-                                ]}
+                                tabs={tabs}
                             />
                         </>
                     </LemonModal>
