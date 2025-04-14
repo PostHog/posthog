@@ -31,6 +31,8 @@ export default defineConfig({
     viewportWidth: 1200,
     viewportHeight: 1080,
     trashAssetsBeforeRuns: true,
+    experimentalMemoryManagement: true,
+    numTestsKeptInMemory: 10, // Default is 50, reduces memory usage
     // cypress default is 'top' this means sometimes the element is underneath the top navbar
     // not what a human would do... so, set it to center to avoid this weird behavior
     scrollBehavior: 'center',

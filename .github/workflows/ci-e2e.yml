@@ -258,10 +258,12 @@ jobs:
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
               uses: cypress-io/github-action@108b8684ae52e735ff7891524cbffbcd4be5b19f # v6
               with:
+                  # We were seeing suprising crashes in headless mode, so add --headed
+                  # See https://github.com/cypress-io/cypress/issues/28893#issuecomment-1956480875
+                  # Similarly, --no-runner-ui is used to avoid crashes
+                  # See https://docs.cypress.io/app/references/troubleshooting#Disable-the-Command-Log
                   install-command: 'pnpm --filter=@posthog/cypress... install --frozen-lockfile'
                   command: 'pnpm --filter=@posthog/cypress exec cypress run --config-file cypress.e2e.config.ts --spec ${{ matrix.chunk }} --headed --no-runner-ui'
-                  # We were seeing suprising crashes in headless mode
-                  # See https://github.com/cypress-io/cypress/issues/28893#issuecomment-1956480875
               env:
                   E2E_TESTING: 1
                   OPT_OUT_CAPTURE: 0
