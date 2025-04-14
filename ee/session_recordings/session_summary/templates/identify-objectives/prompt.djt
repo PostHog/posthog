@@ -137,6 +137,16 @@ CRITICAL WARNING: DO NOT hallucinate errors. Only mark events as errors when the
    - URL patterns and journey (use url_mapping to interpret actual pages visited)
    - Distinguishing meaningful goals from technical events
    - Signs of user confusion, repeated attempts, or workarounds
+
+7. Determine the initial user goal:
+   - Analyze the `start_url` from the `session_medata_input` to identify the entry point context
+   - Review the user's objectives/actions during the session to confirm the goal
+   - Distinguish between intentional visits and redirects/automated navigation
+
+8. Assess the session outcome:
+   - Identify the exit URL, final actions and their context
+   - Determine if the user achieved their initial goal based on completed objectives
+   - If the user abandoned the session after encountering errors, briefly describe their nature and impact
 </identify_objectives_instructions>
 
 <output_format>

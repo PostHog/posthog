@@ -21,4 +21,6 @@ objectives:
           - description: 'Final action completing this objective'
             event_id: 'stu901'
             error: false
-# Note: The actual number of objectives and actions should be based on your analysis of the session data. This is just an example of the format.
+    # Note: The actual number of objectives and actions should be based on your analysis of the session data. This is just an example of the format.
+initial_goal: 'Concise initial goal description'
+session_outcome: 'Concise session outcome description'
