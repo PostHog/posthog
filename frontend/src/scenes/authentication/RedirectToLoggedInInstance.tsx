@@ -24,6 +24,8 @@
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import { getCookie } from 'lib/api'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { roundToDecimal } from 'lib/utils'
 import { posthog } from 'posthog-js'
 import { useEffect, useState } from 'react'
 
@@ -65,10 +67,13 @@ function regionFromSubdomain(subdomain: Subdomain): 'EU' | 'US' {
     }
 }
 
+const REDIRECT_TIMEOUT_SECONDS = 7 // 7 seconds seems to be just right to actually read what's happening
+
 export function RedirectIfLoggedInOtherInstance(): JSX.Element | null {
     const [isOpen, setIsOpen] = useState(false)
     const [redirectUrl, setRedirectUrl] = useState<URL | null>(null)
     const [loggedInSubdomainValue, setLoggedInSubdomainValue] = useState<Subdomain | null>(null)
+    const [redirectProgress, setRedirectProgress] = useState(0)
 
     useEffect(() => {
         const currentSubdomain = window.location.hostname.split('.')[0]
@@ -100,31 +105,70 @@ export function RedirectIfLoggedInOtherInstance(): JSX.Element | null {
         })
     }, [])
 
+    useEffect(() => {
+        if (!isOpen) {
+            return
+        }
+
+        let animationFrameId: number
+        const startTime = performance.now()
+
+        const animate = (currentTime: number): void => {
+            const elapsedTime = currentTime - startTime
+            const newProgress = Math.min((elapsedTime / (REDIRECT_TIMEOUT_SECONDS * 1000)) * 100, 100)
+            setRedirectProgress(newProgress)
+            if (newProgress >= 100 && redirectUrl) {
+                window.location.assign(redirectUrl.href)
+                return
+            }
+            animationFrameId = requestAnimationFrame(animate)
+        }
+
+        animationFrameId = requestAnimationFrame(animate)
+
+        return () => {
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId)
+            }
+        }
+    }, [isOpen, redirectUrl])
+
     if (!redirectUrl || !loggedInSubdomainValue) {
         return null
     }
+
+    const secondsLeft = REDIRECT_TIMEOUT_SECONDS * (1 - redirectProgress / 100)
 
     return (
         <LemonModal
             isOpen={isOpen}
             title="Redirecting to your logged-in account"
             footer={
-                <div className="flex items-center justify-end gap-2">
-                    <LemonButton type="secondary" onClick={() => setIsOpen(false)}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton type="primary" onClick={() => window.location.assign(redirectUrl.href)}>
-                        Continue
-                    </LemonButton>
-                </div>
+                redirectProgress < 100 && (
+                    <div className="flex items-center justify-end gap-2">
+                        <LemonButton type="secondary" onClick={() => setIsOpen(false)}>
+                            Cancel redirect
+                        </LemonButton>
+                        <LemonButton type="primary" onClick={() => window.location.assign(redirectUrl.href)}>
+                            Let's go to the {regionFromSubdomain(loggedInSubdomainValue)} region now
+                        </LemonButton>
+                    </div>
+                )
             }
             onClose={() => setIsOpen(false)}
         >
-            <div>
-                <p>
-                    You are currently logged in to PostHog's Cloud {regionFromSubdomain(loggedInSubdomainValue)} region.
-                    We'll redirect you there now.
+            <div className="space-y-4">
+                <p className="mb-2">
+                    You're already logged into PostHog Cloud in the {regionFromSubdomain(loggedInSubdomainValue)}{' '}
+                    region.
                 </p>
+                <p className="mb-2">
+                    Taking you there{' '}
+                    {secondsLeft === 0
+                        ? 'now.'
+                        : `in ${roundToDecimal(secondsLeft, secondsLeft > 1 ? 0 : 1)} seconds...`}
+                </p>
+                <LemonProgress percent={redirectProgress} smoothing={false} />
             </div>
         </LemonModal>
     )
