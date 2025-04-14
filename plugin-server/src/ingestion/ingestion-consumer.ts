@@ -590,13 +590,13 @@ export class IngestionConsumer {
         )
     }
 
-    private async emitToOverflow(kafkaMessages: Message[], preservePartitionLocalityOverride?: boolean) {
+    private async emitToOverflow(incomingEvents: IncomingEvent[], preservePartitionLocalityOverride?: boolean) {
         const overflowTopic = this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
         if (!overflowTopic) {
             throw new Error('No overflow topic configured')
         }
 
-        ingestionOverflowingMessagesTotal.inc(kafkaMessages.length)
+        ingestionOverflowingMessagesTotal.inc(incomingEvents.length)
 
         const preservePartitionLocality =
             preservePartitionLocalityOverride !== undefined
@@ -604,17 +604,19 @@ export class IngestionConsumer {
                 : this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
 
         await Promise.all(
-            kafkaMessages.map((message) =>
-                this.kafkaOverflowProducer!.produce({
+            incomingEvents.map(({ message, event }) => {
+                const { data: dataStr, ...rawEvent } = parseJSON(message.value!.toString())
+                const messageData = { ...rawEvent, data: JSON.stringify(event) }
+                return this.kafkaOverflowProducer!.produce({
                     topic: this.overflowTopic!,
-                    value: message.value,
+                    value: Buffer.from(JSON.stringify(messageData)),
                     // ``message.key`` should not be undefined here, but in the
                     // (extremely) unlikely event that it is, set it to ``null``
                     // instead as that behavior is safer.
                     key: preservePartitionLocality ? message.key ?? null : null,
                     headers: message.headers,
                 })
-            )
+            })
         )
     }
 

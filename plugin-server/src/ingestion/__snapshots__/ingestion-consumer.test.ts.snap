@@ -23,7 +23,7 @@ exports[`IngestionConsumer general overflow force overflow should force events w
     "key": "THIS IS NOT A TOKEN FOR TEAM 2:team1-user",
     "topic": "events_plugin_ingestion_overflow_test",
     "value": {
-      "data": "{"distinct_id":"team1-user","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
+      "data": "{"distinct_id":"team1-user","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":null,"site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000","$ip":"127.0.0.1","$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"}},"kafka_consumer_breadcrumbs":[{"topic":"test","offset":0,"partition":1,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]}",
       "distinct_id": "team1-user",
       "ip": "127.0.0.1",
       "now": "2025-01-01T00:00:00.000Z",
@@ -40,7 +40,7 @@ exports[`IngestionConsumer general overflow force overflow should handle multipl
     "key": "THIS IS NOT A TOKEN FOR TEAM 2:user1",
     "topic": "events_plugin_ingestion_overflow_test",
     "value": {
-      "data": "{"distinct_id":"user1","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
+      "data": "{"distinct_id":"user1","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":null,"site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000","$ip":"127.0.0.1","$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"}},"kafka_consumer_breadcrumbs":[{"topic":"test","offset":0,"partition":1,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]}",
       "distinct_id": "user1",
       "ip": "127.0.0.1",
       "now": "2025-01-01T00:00:00.000Z",
@@ -52,7 +52,7 @@ exports[`IngestionConsumer general overflow force overflow should handle multipl
     "key": "<REPLACED-UUID-1>:user2",
     "topic": "events_plugin_ingestion_overflow_test",
     "value": {
-      "data": "{"distinct_id":"user2","uuid":"<REPLACED-UUID-2>","token":"<REPLACED-UUID-1>","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
+      "data": "{"distinct_id":"user2","uuid":"<REPLACED-UUID-2>","token":"<REPLACED-UUID-1>","ip":null,"site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000","$ip":"127.0.0.1","$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"}},"kafka_consumer_breadcrumbs":[{"topic":"test","offset":2,"partition":1,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]}",
       "distinct_id": "user2",
       "ip": "127.0.0.1",
       "now": "2025-01-01T00:00:00.000Z",
@@ -69,7 +69,7 @@ exports[`IngestionConsumer general overflow should emit to overflow if token and
     "key": null,
     "topic": "events_plugin_ingestion_overflow_test",
     "value": {
-      "data": "{"distinct_id":"overflow-distinct-id","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
+      "data": "{"distinct_id":"overflow-distinct-id","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":null,"site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000","$ip":"127.0.0.1","$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"}},"kafka_consumer_breadcrumbs":[{"topic":"test","offset":0,"partition":1,"processed_at":"2025-01-01T00:00:00.000Z","consumer_id":"events-ingestion-consumer"}]}",
       "distinct_id": "overflow-distinct-id",
       "ip": "127.0.0.1",
       "now": "2025-01-01T00:00:00.000Z",
