@@ -1,7 +1,6 @@
 import './Login.scss'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
-import { captureException } from '@sentry/react'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
@@ -10,6 +9,7 @@ import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/Socia
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
+import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -63,7 +63,7 @@ export function Login(): JSX.Element {
             try {
                 redirectIfLoggedInOtherInstance()
             } catch (e) {
-                captureException(e)
+                posthog.captureException(e)
             }
         }
     }, [])

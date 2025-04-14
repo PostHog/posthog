@@ -34,7 +34,7 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 import posthog.session_recordings.queries.sub_queries.events_subquery
 from ..models.product_intent.product_intent import ProductIntent
 import posthog.session_recordings.queries.session_recording_list_from_query
-from ee.session_recordings.session_summary.summarize_session import summarize_recording
+from ee.session_recordings.session_summary.summarize_session import ReplaySummarizer
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
@@ -812,7 +812,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
             raise exceptions.ValidationError("session summary is not enabled for this user")
 
-        summary = summarize_recording(recording, user, self.team)
+        replay_summarizer = ReplaySummarizer(recording, user, self.team)
+        summary = replay_summarizer.summarize_recording()
         timings = summary.pop("timings", None)
         cache.set(cache_key, summary, timeout=30)
 
