@@ -229,14 +229,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         const query = {
                             kind: NodeKind.WebOverviewQuery,
                             dateRange: { date_from: '-7d', date_to: null },
-                            properties: [
-                                {
-                                    key: '$current_url',
-                                    value: pageUrl,
-                                    operator: PropertyOperator.Exact,
-                                    type: PropertyFilterType.Event,
-                                },
-                            ],
+                            properties: [createUrlPropertyFilter(pageUrl, values.stripQueryParams)],
                             includeExtendedStats: true,
                         }
 

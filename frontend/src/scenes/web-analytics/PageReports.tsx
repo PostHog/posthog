@@ -7,7 +7,7 @@ import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { useEffect } from 'react'
 
 import { pageReportsLogic } from './pageReportsLogic'
@@ -89,13 +89,24 @@ interface StatCardProps {
 }
 
 function StatCard({ title, value, icon, tooltip }: StatCardProps): JSX.Element {
+    // Format the value based on type and handle edge cases
+    const formattedValue = (() => {
+        if (value === null || value === undefined || Number.isNaN(value)) {
+            return '-'
+        }
+        if (typeof value === 'string') {
+            return value
+        }
+        return humanFriendlyNumber(value)
+    })()
+
     const content = (
         <div className="flex flex-col items-center p-2 border rounded bg-bg-light min-w-16 hover:border-primary transition-colors">
             <div className="flex items-center gap-1 text-xs text-muted mb-1">
                 {icon}
                 <span>{title}</span>
             </div>
-            <div className="text-lg font-semibold">{humanFriendlyNumber(Number(value))}</div>
+            <div className="text-lg font-semibold">{formattedValue}</div>
         </div>
     )
 
@@ -161,13 +172,13 @@ export function PageStatsRow(): JSX.Element {
             />
             <StatCard
                 title="Session Duration"
-                value={Math.round(stats.sessionDuration)}
+                value={humanFriendlyDuration(stats.sessionDuration)}
                 icon={<IconGlobe className="text-primary" />}
-                tooltip="Average session duration in seconds"
+                tooltip="Average session duration"
             />
             <StatCard
                 title="Bounce Rate"
-                value={`${Math.round(stats.bounceRate * 100)}%`}
+                value={stats.bounceRate ? `${Math.round(stats.bounceRate * 100)}%` : '-'}
                 icon={<IconGlobe className="text-primary" />}
                 tooltip="Percentage of sessions with only one pageview"
             />
@@ -203,7 +214,7 @@ export function PageStatsRow(): JSX.Element {
             />
             <StatCard
                 title="Surveys"
-                value={`${stats.surveysAnswered}/${stats.surveysShown}`}
+                value={stats.surveysShown > 0 ? `${stats.surveysAnswered}/${stats.surveysShown}` : '-'}
                 icon={<IconGlobe className="text-primary" />}
                 tooltip="Surveys answered vs. shown on this page"
             />

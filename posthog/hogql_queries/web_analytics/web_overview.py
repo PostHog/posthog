@@ -282,10 +282,24 @@ HAVING {inside_start_timestamp_period}
                         expr=ast.Call(
                             name="countIf",
                             args=[
-                                ast.CompareOperation(
-                                    left=ast.Field(chain=["event"]),
-                                    op=ast.CompareOperationOp.Eq,
-                                    right=ast.Constant(value="$exception"),
+                                ast.And(
+                                    exprs=[
+                                        ast.CompareOperation(
+                                            left=ast.Field(chain=["event"]),
+                                            op=ast.CompareOperationOp.Eq,
+                                            right=ast.Constant(value="$exception"),
+                                        ),
+                                        ast.CompareOperation(
+                                            left=ast.Call(
+                                                name="toString", args=[ast.Field(chain=["properties", "$current_url"])]
+                                            ),
+                                            op=ast.CompareOperationOp.Eq,
+                                            right=ast.Call(
+                                                name="toString",
+                                                args=[ast.Field(chain=["properties", "$exception_url"])],
+                                            ),
+                                        ),
+                                    ]
                                 )
                             ],
                         ),
@@ -335,6 +349,20 @@ HAVING {inside_start_timestamp_period}
             params: Optional[list[ast.Expr]] = None,
         ):
             if not self.query_compare_to_date_range:
+                if function_name == "avg":
+                    # For averages, handle division by zero by using if/else
+                    return ast.Call(
+                        name="if",
+                        args=[
+                            ast.CompareOperation(
+                                left=ast.Call(name="count", args=[ast.Field(chain=[column_name])]),
+                                op=ast.CompareOperationOp.Gt,
+                                right=ast.Constant(value=0),
+                            ),
+                            ast.Call(name=function_name, params=params, args=[ast.Field(chain=[column_name])]),
+                            ast.Constant(value=None),
+                        ],
+                    )
                 return ast.Call(name=function_name, params=params, args=[ast.Field(chain=[column_name])])
 
             return self.period_aggregate(
@@ -438,15 +466,113 @@ HAVING {inside_start_timestamp_period}
                         current_period_aggregate("sum", "surveys_answered_count", "surveys_answered_count"),
                         previous_period_aggregate("sum", "surveys_answered_count", "previous_surveys_answered_count"),
                         # Use existing fields from the inner select for basic stats
-                        current_period_aggregate("sum", "filtered_pageview_count", "pageviews_count"),
-                        current_period_aggregate("uniq", "session_person_id", "visitors_count"),
-                        current_period_aggregate("uniq", "session_id", "sessions_count"),
-                        current_period_aggregate("avg", "session_duration", "avg_session_duration"),
-                        current_period_aggregate("avg", "is_bounce", "bounce_rate"),
+                        current_period_aggregate("sum", "filtered_pageview_count", "views"),
+                        current_period_aggregate("uniq", "session_person_id", "visitors"),
+                        current_period_aggregate("uniq", "session_id", "sessions"),
+                        current_period_aggregate("avg", "session_duration", "session duration"),
+                        current_period_aggregate("avg", "is_bounce", "bounce rate"),
+                        current_period_aggregate("sum", "has_recording", "recordings"),
+                        current_period_aggregate("sum", "click_count", "clicks"),
+                        current_period_aggregate("sum", "rage_click_count", "rage clicks"),
+                        current_period_aggregate("sum", "dead_click_count", "dead clicks"),
+                        current_period_aggregate("sum", "error_count", "errors"),
+                        current_period_aggregate("sum", "surveys_shown_count", "surveys shown"),
+                        current_period_aggregate("sum", "surveys_answered_count", "surveys answered"),
                     ]
                 )
 
         return ast.SelectQuery(select=select, select_from=ast.JoinExpr(table=self.inner_select))
+
+    def period_aggregate(
+        self,
+        function_name: str,
+        column_name: str,
+        date_from: str,
+        date_to: str,
+        alias: str,
+        params: Optional[list[ast.Expr]] = None,
+    ):
+        if function_name == "avg":
+            # For averages, handle division by zero by using if/else
+            return ast.Alias(
+                alias=alias,
+                expr=ast.Call(
+                    name="if",
+                    args=[
+                        ast.CompareOperation(
+                            left=ast.Call(
+                                name="count",
+                                args=[
+                                    ast.Field(chain=[column_name]),
+                                    ast.And(
+                                        exprs=[
+                                            ast.CompareOperation(
+                                                left=ast.Field(chain=["timestamp"]),
+                                                op=ast.CompareOperationOp.GtEq,
+                                                right=ast.Call(name="toDateTime", args=[ast.Constant(value=date_from)]),
+                                            ),
+                                            ast.CompareOperation(
+                                                left=ast.Field(chain=["timestamp"]),
+                                                op=ast.CompareOperationOp.Lt,
+                                                right=ast.Call(name="toDateTime", args=[ast.Constant(value=date_to)]),
+                                            ),
+                                        ]
+                                    ),
+                                ],
+                            ),
+                            op=ast.CompareOperationOp.Gt,
+                            right=ast.Constant(value=0),
+                        ),
+                        ast.Call(
+                            name=function_name,
+                            params=params,
+                            args=[
+                                ast.Field(chain=[column_name]),
+                                ast.And(
+                                    exprs=[
+                                        ast.CompareOperation(
+                                            left=ast.Field(chain=["timestamp"]),
+                                            op=ast.CompareOperationOp.GtEq,
+                                            right=ast.Call(name="toDateTime", args=[ast.Constant(value=date_from)]),
+                                        ),
+                                        ast.CompareOperation(
+                                            left=ast.Field(chain=["timestamp"]),
+                                            op=ast.CompareOperationOp.Lt,
+                                            right=ast.Call(name="toDateTime", args=[ast.Constant(value=date_to)]),
+                                        ),
+                                    ]
+                                ),
+                            ],
+                        ),
+                        ast.Constant(value=None),
+                    ],
+                ),
+            )
+
+        return ast.Alias(
+            alias=alias,
+            expr=ast.Call(
+                name=function_name,
+                params=params,
+                args=[
+                    ast.Field(chain=[column_name]),
+                    ast.And(
+                        exprs=[
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["timestamp"]),
+                                op=ast.CompareOperationOp.GtEq,
+                                right=ast.Call(name="toDateTime", args=[ast.Constant(value=date_from)]),
+                            ),
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["timestamp"]),
+                                op=ast.CompareOperationOp.Lt,
+                                right=ast.Call(name="toDateTime", args=[ast.Constant(value=date_to)]),
+                            ),
+                        ]
+                    ),
+                ],
+            ),
+        )
 
 
 def to_data(
