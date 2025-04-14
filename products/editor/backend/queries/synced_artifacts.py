@@ -1,5 +1,5 @@
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.query_runner import QueryRunner
@@ -9,6 +9,49 @@ from posthog.schema import (
     SyncedArtifactsQueryResponse,
     SyncedArtifactsResponseItem,
 )
+
+
+class DistinctSyncedArtifactsQuery:
+    def __init__(self, user_id: int, codebase_id: str, artifact_ids: list[str] | None = None):
+        self.user_id = user_id
+        self.codebase_id = codebase_id
+        self.artifact_ids = artifact_ids
+
+    def to_query(self) -> ast.SelectQuery:
+        query: ast.SelectQuery = parse_select(
+            """
+            SELECT
+                argMax(DISTINCT artifact_id, timestamp) AS synced_artifact_id
+            FROM
+                codebase_embeddings
+            GROUP BY
+                artifact_id
+            """
+        )
+        query.where = self._get_where_clause()
+        return query
+
+    def _get_where_clause(self) -> ast.Expr:
+        where_clause = [
+            parse_expr("user_id = {user_id}", placeholders={"user_id": ast.Constant(value=self.user_id)}),
+            parse_expr(
+                "codebase_id = {codebase_id}", placeholders={"codebase_id": ast.Constant(value=self.codebase_id)}
+            ),
+        ]
+
+        if self.artifact_ids:
+            where_clause.append(
+                parse_expr(
+                    "artifact_id IN {artifact_ids}",
+                    placeholders={
+                        "artifact_ids": ast.Array(
+                            exprs=[ast.Constant(value=artifact_id) for artifact_id in self.artifact_ids]
+                        ),
+                    },
+                )
+            )
+
+        return ast.And(exprs=where_clause)
 
 
 class SyncedArtifactsQueryRunner(QueryRunner):
@@ -41,22 +84,8 @@ class SyncedArtifactsQueryRunner(QueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        return parse_select(
-            """
-            SELECT
-                argMax(DISTINCT artifact_id, timestamp) AS synced_artifact_id
-            FROM
-                codebase_embeddings
-            WHERE
-                user_id = {user_id} AND codebase_id = {codebase_id} AND artifact_id IN {artifact_ids}
-            GROUP BY
-                artifact_id
-            """,
-            placeholders={
-                "user_id": ast.Constant(value=self.query.userId),
-                "codebase_id": ast.Constant(value=self.query.codebaseId),
-                "artifact_ids": ast.Array(
-                    exprs=[ast.Constant(value=artifact_id) for artifact_id in self.query.artifactIds]
-                ),
-            },
-        )
+        return DistinctSyncedArtifactsQuery(
+            user_id=self.query.userId,
+            codebase_id=self.query.codebaseId,
+            artifact_ids=self.query.artifactIds,
+        ).to_query()

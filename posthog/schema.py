@@ -8172,7 +8172,7 @@ class CodebaseTreeQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[CodebaseTreeQueryResponse] = None
-    userId: float
+    userId: int
 
 
 class Response3(BaseModel):
@@ -8242,7 +8242,7 @@ class EditorSemanticSearchQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[EditorSemanticSearchQueryResponse] = None
-    userId: float
+    userId: int
 
 
 class EventTaxonomyQuery(BaseModel):
@@ -8598,7 +8598,7 @@ class SyncedArtifactsQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[SyncedArtifactsQueryResponse] = None
-    userId: float
+    userId: int
 
 
 class TeamTaxonomyQuery(BaseModel):

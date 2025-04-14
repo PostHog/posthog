@@ -10,6 +10,8 @@ from posthog.schema import (
     CodebaseTreeResponseItem,
 )
 
+from .synced_artifacts import DistinctSyncedArtifactsQuery
+
 
 class CodebaseTreeQueryRunner(QueryRunner):
     query: CodebaseTreeQuery
@@ -58,14 +60,7 @@ class CodebaseTreeQueryRunner(QueryRunner):
             FROM
                 codebase_catalog
             LEFT JOIN (
-                SELECT
-                    argMax(DISTINCT artifact_id, timestamp) AS synced_artifact_id
-                FROM
-                    codebase_embeddings
-                WHERE
-                    user_id = {user_id} AND codebase_id = {codebase_id}
-                GROUP BY
-                    artifact_id
+                {synced_artifacts_query}
             ) AS embeddings
             ON
                 codebase_catalog.artifact_id = embeddings.synced_artifact_id
@@ -80,5 +75,9 @@ class CodebaseTreeQueryRunner(QueryRunner):
                 "user_id": ast.Constant(value=self.query.userId),
                 "codebase_id": ast.Constant(value=self.query.codebaseId),
                 "branch": ast.Constant(value=self.query.branch),
+                "synced_artifacts_query": DistinctSyncedArtifactsQuery(
+                    user_id=self.query.userId,
+                    codebase_id=self.query.codebaseId,
+                ).to_query(),
             },
         )

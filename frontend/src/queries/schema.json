@@ -5508,7 +5508,7 @@
                     "$ref": "#/definitions/CodebaseTreeQueryResponse"
                 },
                 "userId": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 }
             },
             "required": ["branch", "codebaseId", "kind", "userId"],
@@ -7721,7 +7721,7 @@
                     "$ref": "#/definitions/EditorSemanticSearchQueryResponse"
                 },
                 "userId": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 }
             },
             "required": ["branch", "codebaseId", "embedding", "kind", "userId"],
@@ -17572,7 +17572,7 @@
                     "$ref": "#/definitions/SyncedArtifactsQueryResponse"
                 },
                 "userId": {
-                    "type": "number"
+                    "$ref": "#/definitions/integer"
                 }
             },
             "required": ["artifactIds", "codebaseId", "kind", "userId"],
