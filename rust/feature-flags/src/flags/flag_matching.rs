@@ -510,7 +510,8 @@ impl FeatureFlagMatcher {
                 .await
             {
                 Ok(_) => {
-                    // Only proceed with DB-dependent flag evaluation if we have a person_id
+                    // Log an error, track a metric, and return early if no person_id is found
+                    // likely an issue where the person hasn't been ingested yet, i.e. an issue with the ingestion pipeline
                     if self.flag_evaluation_state.get_person_id().is_none() {
                         // No person found - mark all DB-dependent flags as "no match"
                         // and return early
@@ -520,6 +521,15 @@ impl FeatureFlagMatcher {
                                 FlagDetails::create_error(&flag, "no_person_found"),
                             );
                         }
+                        error!(
+                            "No person found for distinct_id '{}' while preparing flag evaluation state",
+                            self.distinct_id
+                        );
+                        inc(
+                            FLAG_EVALUATION_ERROR_COUNTER,
+                            &[("reason".to_string(), "no_person_found".to_string())],
+                            1,
+                        );
                         errors_while_computing_flags = true;
                         return FlagsResponse::new(
                             errors_while_computing_flags,
@@ -529,6 +539,7 @@ impl FeatureFlagMatcher {
                         );
                     }
                 }
+                // Log an error, track a metric, and return early if there's an error preparing the flag evaluation state (likely a DB error and hopefully transient)
                 Err(e) => {
                     errors_while_computing_flags = true;
                     let reason = parse_exception_for_prometheus_label(&e);
@@ -536,6 +547,12 @@ impl FeatureFlagMatcher {
                         flag_details_map
                             .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason));
                     }
+                    error!("Error preparing flag evaluation state: {:?}", e);
+                    inc(
+                        FLAG_EVALUATION_ERROR_COUNTER,
+                        &[("reason".to_string(), reason.to_string())],
+                        1,
+                    );
                     return FlagsResponse::new(
                         errors_while_computing_flags,
                         flag_details_map,
