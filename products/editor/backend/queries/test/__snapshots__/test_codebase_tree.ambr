@@ -7,11 +7,13 @@
          or(ifNull(equals(artifact_type, 'dir'), 0), ifNull(notEquals(any(embeddings.synced_artifact_id), ''), 1)) AS synced
   FROM codebase_catalog
   LEFT JOIN
-    (SELECT argMax(DISTINCT codebase_embeddings.artifact_id, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS synced_artifact_id
+    (SELECT argMax(DISTINCT codebase_embeddings.artifact_id, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS synced_artifact_id,
+            argMax(codebase_embeddings.is_deleted, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS deleted
      FROM codebase_embeddings
-     WHERE and(equals(codebase_embeddings.team_id, 99999), equals(codebase_embeddings.user_id, 308), equals(codebase_embeddings.codebase_id, '019634b6-b3dd-0000-684b-b69f8c084ced'))
-     GROUP BY codebase_embeddings.artifact_id) AS embeddings ON equals(codebase_catalog.artifact_id, embeddings.synced_artifact_id)
-  WHERE and(equals(codebase_catalog.team_id, 99999), equals(codebase_catalog.user_id, 308), equals(codebase_catalog.codebase_id, '019634b6-b3dd-0000-684b-b69f8c084ced'), equals(codebase_catalog.branch, ''))
+     WHERE and(equals(codebase_embeddings.team_id, 99999), equals(codebase_embeddings.user_id, 99999), equals(codebase_embeddings.codebase_id, '019634cb-5198-0000-ab58-7ba5d8855147'))
+     GROUP BY codebase_embeddings.artifact_id
+     HAVING ifNull(equals(deleted, 0), 0)) AS embeddings ON equals(codebase_catalog.artifact_id, embeddings.synced_artifact_id)
+  WHERE and(equals(codebase_catalog.team_id, 99999), equals(codebase_catalog.user_id, 99999), equals(codebase_catalog.codebase_id, '019634cb-5198-0000-ab58-7ba5d8855147'), equals(codebase_catalog.branch, ''))
   GROUP BY codebase_catalog.artifact_id
   HAVING ifNull(greater(sum(codebase_catalog.sign), 0), 0)
   LIMIT 1000000 SETTINGS readonly=2,
@@ -33,11 +35,13 @@
          or(ifNull(equals(artifact_type, 'dir'), 0), ifNull(notEquals(any(embeddings.synced_artifact_id), ''), 1)) AS synced
   FROM codebase_catalog
   LEFT JOIN
-    (SELECT argMax(DISTINCT codebase_embeddings.artifact_id, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS synced_artifact_id
+    (SELECT argMax(DISTINCT codebase_embeddings.artifact_id, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS synced_artifact_id,
+            argMax(codebase_embeddings.is_deleted, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS deleted
      FROM codebase_embeddings
-     WHERE and(equals(codebase_embeddings.team_id, 99999), equals(codebase_embeddings.user_id, 310), equals(codebase_embeddings.codebase_id, '019634b6-b6a0-0000-aae8-a9ce83b2fb71'))
-     GROUP BY codebase_embeddings.artifact_id) AS embeddings ON equals(codebase_catalog.artifact_id, embeddings.synced_artifact_id)
-  WHERE and(equals(codebase_catalog.team_id, 99999), equals(codebase_catalog.user_id, 310), equals(codebase_catalog.codebase_id, '019634b6-b6a0-0000-aae8-a9ce83b2fb71'), equals(codebase_catalog.branch, ''))
+     WHERE and(equals(codebase_embeddings.team_id, 99999), equals(codebase_embeddings.user_id, 99999), equals(codebase_embeddings.codebase_id, '019634cb-5198-0000-ab58-7ba5d8855147'))
+     GROUP BY codebase_embeddings.artifact_id
+     HAVING ifNull(equals(deleted, 0), 0)) AS embeddings ON equals(codebase_catalog.artifact_id, embeddings.synced_artifact_id)
+  WHERE and(equals(codebase_catalog.team_id, 99999), equals(codebase_catalog.user_id, 99999), equals(codebase_catalog.codebase_id, '019634cb-5198-0000-ab58-7ba5d8855147'), equals(codebase_catalog.branch, ''))
   GROUP BY codebase_catalog.artifact_id
   HAVING ifNull(greater(sum(codebase_catalog.sign), 0), 0)
   LIMIT 100 SETTINGS readonly=2,
@@ -59,11 +63,13 @@
          or(ifNull(equals(artifact_type, 'dir'), 0), ifNull(notEquals(any(embeddings.synced_artifact_id), ''), 1)) AS synced
   FROM codebase_catalog
   LEFT JOIN
-    (SELECT argMax(DISTINCT codebase_embeddings.artifact_id, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS synced_artifact_id
+    (SELECT argMax(DISTINCT codebase_embeddings.artifact_id, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS synced_artifact_id,
+            argMax(codebase_embeddings.is_deleted, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS deleted
      FROM codebase_embeddings
-     WHERE and(equals(codebase_embeddings.team_id, 99999), equals(codebase_embeddings.user_id, 310), equals(codebase_embeddings.codebase_id, '019634b6-b6a0-0000-aae8-a9ce83b2fb71'))
-     GROUP BY codebase_embeddings.artifact_id) AS embeddings ON equals(codebase_catalog.artifact_id, embeddings.synced_artifact_id)
-  WHERE and(equals(codebase_catalog.team_id, 99999), equals(codebase_catalog.user_id, 310), equals(codebase_catalog.codebase_id, '019634b6-b6a0-0000-aae8-a9ce83b2fb71'), equals(codebase_catalog.branch, ''))
+     WHERE and(equals(codebase_embeddings.team_id, 99999), equals(codebase_embeddings.user_id, 99999), equals(codebase_embeddings.codebase_id, '019634cb-5198-0000-ab58-7ba5d8855147'))
+     GROUP BY codebase_embeddings.artifact_id
+     HAVING ifNull(equals(deleted, 0), 0)) AS embeddings ON equals(codebase_catalog.artifact_id, embeddings.synced_artifact_id)
+  WHERE and(equals(codebase_catalog.team_id, 99999), equals(codebase_catalog.user_id, 99999), equals(codebase_catalog.codebase_id, '019634cb-5198-0000-ab58-7ba5d8855147'), equals(codebase_catalog.branch, ''))
   GROUP BY codebase_catalog.artifact_id
   HAVING ifNull(greater(sum(codebase_catalog.sign), 0), 0)
   LIMIT 100 SETTINGS readonly=2,
@@ -85,11 +91,13 @@
          or(ifNull(equals(artifact_type, 'dir'), 0), ifNull(notEquals(any(embeddings.synced_artifact_id), ''), 1)) AS synced
   FROM codebase_catalog
   LEFT JOIN
-    (SELECT argMax(DISTINCT codebase_embeddings.artifact_id, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS synced_artifact_id
+    (SELECT argMax(DISTINCT codebase_embeddings.artifact_id, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS synced_artifact_id,
+            argMax(codebase_embeddings.is_deleted, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS deleted
      FROM codebase_embeddings
-     WHERE and(equals(codebase_embeddings.team_id, 99999), equals(codebase_embeddings.user_id, 312), equals(codebase_embeddings.codebase_id, '019634b6-b924-0000-5f70-437f85cf9c25'))
-     GROUP BY codebase_embeddings.artifact_id) AS embeddings ON equals(codebase_catalog.artifact_id, embeddings.synced_artifact_id)
-  WHERE and(equals(codebase_catalog.team_id, 99999), equals(codebase_catalog.user_id, 312), equals(codebase_catalog.codebase_id, '019634b6-b924-0000-5f70-437f85cf9c25'), equals(codebase_catalog.branch, 'main'))
+     WHERE and(equals(codebase_embeddings.team_id, 99999), equals(codebase_embeddings.user_id, 99999), equals(codebase_embeddings.codebase_id, '019634cb-5198-0000-ab58-7ba5d8855147'))
+     GROUP BY codebase_embeddings.artifact_id
+     HAVING ifNull(equals(deleted, 0), 0)) AS embeddings ON equals(codebase_catalog.artifact_id, embeddings.synced_artifact_id)
+  WHERE and(equals(codebase_catalog.team_id, 99999), equals(codebase_catalog.user_id, 99999), equals(codebase_catalog.codebase_id, '019634cb-5198-0000-ab58-7ba5d8855147'), equals(codebase_catalog.branch, 'main'))
   GROUP BY codebase_catalog.artifact_id
   HAVING ifNull(greater(sum(codebase_catalog.sign), 0), 0)
   LIMIT 100 SETTINGS readonly=2,

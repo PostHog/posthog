@@ -23,9 +23,10 @@ class CatalogEntry(BaseModel):
 
 class EditorTestQueryHelpersMixin(BaseTest):
     codebase: Codebase
+    stable_user_id: int = 99999
 
     def _create_artifacts(self, tree: list[SerializedArtifact]):
-        query = "INSERT INTO codebase_embeddings (team_id, user_id, codebase_id, artifact_id, chunk_id, vector, properties) VALUES "
+        query = "INSERT INTO codebase_embeddings (team_id, user_id, codebase_id, artifact_id, chunk_id, vector, properties, is_deleted) VALUES "
         rows: list[str] = []
 
         args = {
@@ -41,6 +42,7 @@ class EditorTestQueryHelpersMixin(BaseTest):
                     "path": "obfuscated_path",
                 }
             ),
+            "is_deleted": 0,
         }
 
         for idx, node in enumerate(tree):
@@ -51,7 +53,7 @@ class EditorTestQueryHelpersMixin(BaseTest):
                     }
                 )
                 rows.append(
-                    f"(%(team_id)s, %(user_id)s, %(codebase_id)s, %(artifact_id_{idx})s, %(chunk_id)s, %(vector)s, %(properties)s)"
+                    f"(%(team_id)s, %(user_id)s, %(codebase_id)s, %(artifact_id_{idx})s, %(chunk_id)s, %(vector)s, %(properties)s, %(is_deleted)s)"
                 )
 
         sync_execute(query + ", ".join(rows), args, team_id=self.team.id)
@@ -65,7 +67,7 @@ class EditorTestQueryHelpersMixin(BaseTest):
             args.update(
                 {
                     f"team_id_{idx}": node.team_id or self.team.id,
-                    f"user_id_{idx}": node.user_id or self.user.id,
+                    f"user_id_{idx}": node.user_id or self.stable_user_id,
                     f"codebase_id_{idx}": node.codebase_id or str(self.codebase.id),
                     f"artifact_id_{idx}": node.artifact_id,
                     f"parent_artifact_id_{idx}": node.parent_artifact_id,

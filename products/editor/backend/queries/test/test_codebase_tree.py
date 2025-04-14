@@ -10,7 +10,9 @@ from ..codebase_tree import CodebaseTreeQueryRunner
 class TestCodebaseTree(EditorTestQueryHelpersMixin, ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
-        self.codebase = Codebase.objects.create(team=self.team, user=self.user)
+        self.codebase = Codebase.objects.create(
+            team=self.team, user=self.user, id="019634cb-5198-0000-ab58-7ba5d8855147"
+        )
 
     @snapshot_clickhouse_queries
     def test_returns_codebase_tree(self):
@@ -23,7 +25,7 @@ class TestCodebaseTree(EditorTestQueryHelpersMixin, ClickhouseTestMixin, BaseTes
         )
 
         response = CodebaseTreeQueryRunner(
-            CodebaseTreeQuery(userId=self.user.id, codebaseId=str(self.codebase.id), branch="main"), self.team
+            CodebaseTreeQuery(userId=self.stable_user_id, codebaseId=str(self.codebase.id), branch="main"), self.team
         ).run()
 
         expected_result = [
@@ -41,12 +43,12 @@ class TestCodebaseTree(EditorTestQueryHelpersMixin, ClickhouseTestMixin, BaseTes
         expected_result = [CodebaseTreeResponseItem(id="root", parentId=None, synced=True, type="dir")]
 
         response = CodebaseTreeQueryRunner(
-            CodebaseTreeQuery(userId=self.user.id, codebaseId=str(self.codebase.id)), self.team
+            CodebaseTreeQuery(userId=self.stable_user_id, codebaseId=str(self.codebase.id)), self.team
         ).run()
         self.assertCountEqual(expected_result, response.results)
 
         response = CodebaseTreeQueryRunner(
-            CodebaseTreeQuery(userId=self.user.id, codebaseId=str(self.codebase.id), branch=""), self.team
+            CodebaseTreeQuery(userId=self.stable_user_id, codebaseId=str(self.codebase.id), branch=""), self.team
         ).run()
         self.assertCountEqual(expected_result, response.results)
 
@@ -55,7 +57,7 @@ class TestCodebaseTree(EditorTestQueryHelpersMixin, ClickhouseTestMixin, BaseTes
         """The query must apply a higher row limit than the default of 50k."""
         with self.capture_select_queries() as queries:
             CodebaseTreeQueryRunner(
-                CodebaseTreeQuery(userId=self.user.id, codebaseId=str(self.codebase.id)),
+                CodebaseTreeQuery(userId=self.stable_user_id, codebaseId=str(self.codebase.id)),
                 self.team,
                 limit_context=LimitContext.EDITOR,
             ).run()
@@ -73,7 +75,7 @@ class TestCodebaseTree(EditorTestQueryHelpersMixin, ClickhouseTestMixin, BaseTes
         self._create_artifacts([{"id": "file1", "type": "file", "parent_id": "root"}])
 
         response = CodebaseTreeQueryRunner(
-            CodebaseTreeQuery(userId=self.user.id, codebaseId=str(self.codebase.id)), self.team
+            CodebaseTreeQuery(userId=self.stable_user_id, codebaseId=str(self.codebase.id)), self.team
         ).run()
 
         expected_result = [
@@ -88,8 +90,8 @@ class TestCodebaseTree(EditorTestQueryHelpersMixin, ClickhouseTestMixin, BaseTes
         # First user (self.user) data
         self._create_codebase_catalog(
             [
-                CatalogEntry(artifact_id="root", user_id=self.user.id),
-                CatalogEntry(artifact_id="file1", parent_artifact_id="root", type="file", user_id=self.user.id),
+                CatalogEntry(artifact_id="root", user_id=self.stable_user_id),
+                CatalogEntry(artifact_id="file1", parent_artifact_id="root", type="file", user_id=self.stable_user_id),
             ]
         )
 
@@ -106,7 +108,7 @@ class TestCodebaseTree(EditorTestQueryHelpersMixin, ClickhouseTestMixin, BaseTes
 
         # Query for first user
         first_user_response = CodebaseTreeQueryRunner(
-            CodebaseTreeQuery(userId=self.user.id, codebaseId=str(self.codebase.id)), self.team
+            CodebaseTreeQuery(userId=self.stable_user_id, codebaseId=str(self.codebase.id)), self.team
         ).run()
 
         first_user_expected = [
@@ -144,7 +146,7 @@ class TestCodebaseTree(EditorTestQueryHelpersMixin, ClickhouseTestMixin, BaseTes
         )
 
         response = CodebaseTreeQueryRunner(
-            CodebaseTreeQuery(userId=self.user.id, codebaseId=str(self.codebase.id)), self.team
+            CodebaseTreeQuery(userId=self.stable_user_id, codebaseId=str(self.codebase.id)), self.team
         ).run()
 
         # Only item2 should remain as item1 had sign 1 and -1 canceling each other
@@ -176,7 +178,7 @@ class TestCodebaseTree(EditorTestQueryHelpersMixin, ClickhouseTestMixin, BaseTes
         )
 
         response = CodebaseTreeQueryRunner(
-            CodebaseTreeQuery(userId=self.user.id, codebaseId=str(self.codebase.id)), self.team
+            CodebaseTreeQuery(userId=self.stable_user_id, codebaseId=str(self.codebase.id)), self.team
         ).run()
 
         # The file should still appear with parent dir2, even though a later sign=-1 row exists
