@@ -13,7 +13,7 @@ from dags.common import JobOwners
 def delete_groups(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
-) -> None:
+) -> MutationWaiter:
     """Delete groups that are marked for deletion."""
     mutation_runner = LightweightDeleteMutationRunner(GROUPS_TABLE, "is_deleted = 1")
 
