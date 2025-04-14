@@ -45,7 +45,7 @@ class ArtifactNode:
             for node in nodes:
                 if node["parent_id"]:
                     tree[node["parent_id"]].children.append(tree[node["id"]])
-                elif root is None:
+                else:
                     root = tree[node["id"]]
         except KeyError:
             raise ValueError("Tree is corrupt.")
@@ -91,6 +91,7 @@ class ArtifactNode:
         for hash in server_hashes & client_hashes:
             # Relink parent_ids
             added_set.add(hash)
+            deleted_set.add(hash)
 
             # Compare children
             child_added, child_deleted = ArtifactNode.compare(server_children_map[hash], client_children_map[hash])

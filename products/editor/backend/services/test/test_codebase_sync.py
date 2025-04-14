@@ -4,7 +4,200 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from products.editor.backend.models.codebase import Codebase
 
-from ..codebase_sync import CodebaseSyncService, SerializedArtifact
+from ..codebase_sync import ArtifactNode, CodebaseSyncService, SerializedArtifact
+
+
+class TestArtifactNode(BaseTest):
+    def test_build_tree_nodes(self):
+        tree = [
+            {"id": "root", "type": "dir", "parent_id": None},
+            {"id": "file_1", "type": "file", "parent_id": "root"},
+            {"id": "file_2", "type": "file", "parent_id": "root"},
+        ]
+        node = ArtifactNode.build_tree(tree)
+        self.assertEqual(node.hash, "root")
+        self.assertEqual(node.children[0].hash, "file_1")
+        self.assertEqual(node.children[1].hash, "file_2")
+        self.assertEqual(node.children[0].children, [])
+        self.assertEqual(node.children[1].children, [])
+
+    def test_build_tree_with_disjoint_trees(self):
+        """Must prioritize the most recent node."""
+        tree = [
+            {"id": "root", "type": "dir", "parent_id": None},
+            {"id": "dir", "type": "dir", "parent_id": "root"},
+            {"id": "root_new", "type": "dir", "parent_id": None},
+            {"id": "dir_new", "type": "dir", "parent_id": "root_new"},
+        ]
+        node = ArtifactNode.build_tree(tree)
+        self.assertEqual(node.hash, "root_new")
+
+    def test_build_tree_raises_without_root(self):
+        """Must have a root node."""
+        tree = [
+            {"id": "dir", "type": "dir", "parent_id": "root"},
+        ]
+        with self.assertRaises(ValueError):
+            ArtifactNode.build_tree(tree)
+
+    def test_build_tree_raises_on_corrupt_tree(self):
+        """Must raise if a node is missing."""
+        tree = [
+            {"id": "root", "type": "dir", "parent_id": None},
+            {"id": "dir_new", "type": "dir", "parent_id": "root_new"},
+        ]
+        with self.assertRaises(ValueError):
+            ArtifactNode.build_tree(tree)
+
+    def test_compare_same_hashes(self):
+        """Test when hashes are the same, nothing should be returned."""
+        server_tree = [
+            {"id": "same", "type": "dir", "parent_id": None},
+        ]
+        server_node = ArtifactNode.build_tree(server_tree)
+
+        client_tree = [
+            {"id": "same", "type": "dir", "parent_id": None},
+        ]
+        client_node = ArtifactNode.build_tree(client_tree)
+
+        added, deleted = ArtifactNode.compare(server_node, client_node)
+
+        self.assertEqual(added, set())
+        self.assertEqual(deleted, set())
+
+    def test_compare_single_node_different_hashes(self):
+        """Test when a single node has different hashes, should return both added and deleted with the respective hashes."""
+        server_tree = [
+            {"id": "server", "type": "dir", "parent_id": None},
+        ]
+        server_node = ArtifactNode.build_tree(server_tree)
+
+        client_tree = [
+            {"id": "client", "type": "dir", "parent_id": None},
+        ]
+        client_node = ArtifactNode.build_tree(client_tree)
+
+        added, deleted = ArtifactNode.compare(server_node, client_node)
+
+        self.assertEqual(added, {"client"})
+        self.assertEqual(deleted, {"server"})
+
+    def test_compare_different_root_same_leaves(self):
+        """
+        Test when root hash is different but leaf hashes are the same.
+        Should return all nodes in added and deleted to relink parent ids.
+        """
+        # Create server tree: root_s -> [file1, file2]
+        server_tree = [
+            {"id": "root_s", "type": "dir", "parent_id": None},
+            {"id": "file1", "type": "file", "parent_id": "root_s"},
+            {"id": "file2", "type": "file", "parent_id": "root_s"},
+        ]
+        server_root = ArtifactNode.build_tree(server_tree)
+
+        # Create client tree: root_c -> [file1, file2]
+        client_tree = [
+            {"id": "root_c", "type": "dir", "parent_id": None},
+            {"id": "file1", "type": "file", "parent_id": "root_c"},
+            {"id": "file2", "type": "file", "parent_id": "root_c"},
+        ]
+        client_root = ArtifactNode.build_tree(client_tree)
+
+        added, deleted = ArtifactNode.compare(server_root, client_root)
+
+        # When the root changes but leaf nodes have same hashes:
+        # 1. All nodes should be in added set (to relink parent_id)
+        # 2. All nodes should be in deleted set (to relink parent_id)
+        self.assertEqual(added, {"root_c", "file1", "file2"})
+        self.assertEqual(deleted, {"root_s", "file1", "file2"})
+
+    def test_compare_subtree_removed(self):
+        """
+        Test when a subtree is completely removed.
+        All deleted nodes must be in the deleted set but not in the added set.
+        """
+        # Create server tree: root -> [dir1 -> [file1, file2]]
+        server_tree = [
+            {"id": "root", "type": "dir", "parent_id": None},
+            {"id": "dir1", "type": "dir", "parent_id": "root"},
+            {"id": "file1", "type": "file", "parent_id": "dir1"},
+            {"id": "file2", "type": "file", "parent_id": "dir1"},
+        ]
+        server_node = ArtifactNode.build_tree(server_tree)
+
+        # Create client tree: root_new -> [dir1]
+        client_tree = [
+            {"id": "root_new", "type": "dir", "parent_id": None},
+            {"id": "dir2", "type": "dir", "parent_id": "root_new"},
+        ]
+        client_node = ArtifactNode.build_tree(client_tree)
+
+        added, deleted = ArtifactNode.compare(server_node, client_node)
+
+        # Root nodes have the same hash, so they should not be in added/deleted
+        # The deleted subtree should be in the deleted set
+        self.assertEqual(added, {"root_new", "dir2"})
+        self.assertEqual(deleted, {"root", "dir1", "file1", "file2"})
+
+    def test_compare_subtree_added(self):
+        """
+        Test when a new subtree is completely added.
+        All new nodes must be in the added set but not in the deleted set.
+        """
+        # Create server tree: root -> []
+        server_tree = [
+            {"id": "root_old", "type": "dir", "parent_id": None},
+            {"id": "dir1_old", "type": "dir", "parent_id": "root_old"},
+        ]
+        server_node = ArtifactNode.build_tree(server_tree)
+
+        # Create client tree: root -> [dir1 -> [file1, file2]]
+        client_tree = [
+            {"id": "root", "type": "dir", "parent_id": None},
+            {"id": "dir1", "type": "dir", "parent_id": "root"},
+            {"id": "file1", "type": "file", "parent_id": "dir1"},
+            {"id": "file2", "type": "file", "parent_id": "dir1"},
+        ]
+        client_node = ArtifactNode.build_tree(client_tree)
+
+        added, deleted = ArtifactNode.compare(server_node, client_node)
+
+        # Root nodes have the same hash, so they should not be marked as deleted
+        # The new subtree should be in the added set
+        self.assertEqual(added, {"root", "dir1", "file1", "file2"})
+        self.assertEqual(deleted, {"root_old", "dir1_old"})
+
+    def test_compare_subtree_modified(self):
+        """
+        Test when one subtree is removed and another is added simultaneously.
+        All deleted nodes must only be in deleted set, all added nodes must only be in the added set.
+        """
+        # Create server tree: root -> [dir1 -> [file1, file2]]
+        server_tree = [
+            {"id": "root", "type": "dir", "parent_id": None},
+            {"id": "dir1", "type": "dir", "parent_id": "root"},
+            {"id": "file1", "type": "file", "parent_id": "dir1"},
+            {"id": "file2", "type": "file", "parent_id": "dir1"},
+        ]
+        server_node = ArtifactNode.build_tree(server_tree)
+
+        # Create client tree: root_new -> [dir2 -> [file3, file4]]
+        client_tree = [
+            {"id": "root_new", "type": "dir", "parent_id": None},
+            {"id": "dir2", "type": "dir", "parent_id": "root_new"},
+            {"id": "file3", "type": "file", "parent_id": "dir2"},
+            {"id": "file4", "type": "file", "parent_id": "dir2"},
+        ]
+        client_node = ArtifactNode.build_tree(client_tree)
+
+        added, deleted = ArtifactNode.compare(server_node, client_node)
+
+        # Root appears in both sets for relinking
+        # The removed dir1 subtree should be in deleted set
+        # The added dir2 subtree should be in added set
+        self.assertEqual(added, {"root_new", "dir2", "file3", "file4"})
+        self.assertEqual(deleted, {"root", "dir1", "file1", "file2"})
 
 
 class TestCodebaseSync(ClickhouseTestMixin, BaseTest):
@@ -94,7 +287,15 @@ class TestCodebaseSync(ClickhouseTestMixin, BaseTest):
         self.assertCountEqual(self._query_server_tree(), client_tree)
 
     def test_sync_new_codebase_with_existing_artifacts(self):
-        pass
+        client_tree = [
+            {"id": "root", "type": "dir", "parent_id": None, "synced": True},
+            {"id": "dir", "type": "dir", "parent_id": "root", "synced": True},
+            {"id": "file_1", "type": "file", "parent_id": "dir", "synced": True},
+        ]
+        self._create_artifacts(self.server_tree)
+        diverging_nodes = self.service.sync(client_tree)
+        self.assertEqual(diverging_nodes, [])
+        self.assertCountEqual(self._query_server_tree(), client_tree)
 
     def test_sync_new_codebase_verifies_tree(self):
         """Broken tree should raise an error."""
