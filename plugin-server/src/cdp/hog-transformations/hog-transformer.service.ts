@@ -38,9 +38,15 @@ export const hogTransformationCompleted = new Counter({
     labelNames: ['type'],
 })
 
-export const transformEventHogWatcherLatency = new Histogram({
-    name: 'transform_event_hog_watcher_latency_milliseconds',
-    help: 'Time spent in HogWatcher operations in milliseconds for transformEvent',
+export const hogTransformationDisabled = new Counter({
+    name: 'hog_transformation_disabled_total',
+    help: 'Number of times a transformation was skipped due to being disabled',
+    labelNames: ['state'],
+})
+
+export const hogWatcherLatency = new Histogram({
+    name: 'hog_watcher_latency_seconds',
+    help: 'Time spent in HogWatcher operations in seconds during ingestion',
     labelNames: ['operation'],
 })
 
@@ -50,7 +56,7 @@ export interface TransformationResultPure {
 }
 
 export interface TransformationResult extends TransformationResultPure {
-    messagePromises: Promise<void>[]
+    scheduledPromises: Promise<void>[]
 }
 
 export class HogTransformerService {
@@ -61,6 +67,7 @@ export class HogTransformerService {
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private hogWatcher: HogWatcherService
     private redis: CdpRedis
+    private cachedStates: Record<string, HogWatcherState> = {}
 
     constructor(hub: Hub) {
         this.hub = hub
@@ -121,13 +128,32 @@ export class HogTransformerService {
                 const teamHogFunctions = await this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, [
                     'transformation',
                 ])
+
                 const transformationResult = await this.transformEvent(event, teamHogFunctions)
                 await this.hogFunctionMonitoringService.processInvocationResults(transformationResult.invocationResults)
+
+                const scheduledPromises: Promise<void>[] = [this.hogFunctionMonitoringService.produceQueuedMessages()]
+
+                const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
+
+                if (shouldRunHogWatcher) {
+                    const timer = hogWatcherLatency.startTimer({ operation: 'observeResults' })
+                    scheduledPromises.push(
+                        this.hogWatcher
+                            .observeResults(transformationResult.invocationResults)
+                            .catch((error) => {
+                                logger.warn('⚠️', 'HogWatcher observeResults failed', { error })
+                            })
+                            .finally(() => {
+                                timer() // Stop the timer regardless of success or failure
+                            })
+                    )
+                }
 
                 hogTransformationCompleted.inc({ type: 'with_messages' })
                 return {
                     ...transformationResult,
-                    messagePromises: [this.hogFunctionMonitoringService.produceQueuedMessages()],
+                    scheduledPromises,
                 }
             },
         })
@@ -145,40 +171,21 @@ export class HogTransformerService {
 
                 const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
 
-                // Get states for all functions to check if any are disabled - only if feature flag is enabled
-                let states: Record<string, { state: HogWatcherState }> = {}
-                if (shouldRunHogWatcher) {
-                    try {
-                        const timer = transformEventHogWatcherLatency.startTimer({ operation: 'getStates' })
-                        states = await this.hogWatcher.getStates(teamHogFunctions.map((hf) => hf.id))
-                        timer()
-                    } catch (error) {
-                        logger.warn('⚠️', 'HogWatcher getStates failed', { error })
-                    }
-                }
-
                 for (const hogFunction of teamHogFunctions) {
                     const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
 
-                    // Check if the function would be disabled via hogWatcher - but don't actually disable yet
+                    // Check if function is in a degraded state, but only if hogwatcher is enabled
                     if (shouldRunHogWatcher) {
-                        const functionState = states[hogFunction.id]
-                        if (functionState?.state >= HogWatcherState.disabledForPeriod) {
-                            // Just log that we would have disabled this transformation but we're letting it run for testing
-                            logger.info(
-                                '🧪',
-                                '[MONITORING MODE] Transformation would be disabled but is allowed to run for testing',
-                                {
-                                    function_id: hogFunction.id,
-                                    function_name: hogFunction.name,
-                                    team_id: event.team_id,
-                                    state: functionState.state,
-                                    state_name:
-                                        functionState.state === HogWatcherState.disabledForPeriod
-                                            ? 'disabled_temporarily'
-                                            : 'disabled_permanently',
-                                }
-                            )
+                        const functionState = this.cachedStates[hogFunction.id]
+
+                        // If the function is in a degraded state, skip it
+                        if (functionState && functionState >= HogWatcherState.disabledForPeriod) {
+                            hogTransformationDisabled
+                                .labels({
+                                    state: HogWatcherState[functionState],
+                                })
+                                .inc()
+                            continue
                         }
                     }
 
@@ -288,17 +295,6 @@ export class HogTransformerService {
                     transformationsSucceeded.push(transformationIdentifier)
                 }
 
-                // Observe the results to update rate limiting state - only if feature flag is enabled
-                if (results.length > 0 && shouldRunHogWatcher) {
-                    try {
-                        const timer = transformEventHogWatcherLatency.startTimer({ operation: 'observeResults' })
-                        await this.hogWatcher.observeResults(results)
-                        timer()
-                    } catch (error) {
-                        logger.warn('⚠️', 'HogWatcher observeResults failed', { error })
-                    }
-                }
-
                 if (transformationsFailed.length > 0) {
                     event.properties = {
                         ...event.properties,
@@ -344,5 +340,28 @@ export class HogTransformerService {
             ? await this.pluginExecutor.execute(invocation)
             : this.hogExecutor.execute(invocation, { functions: transformationFunctions })
         return result
+    }
+
+    public async fetchAndCacheHogFunctionStates(functionIds: string[]): Promise<void> {
+        const timer = hogWatcherLatency.startTimer({ operation: 'getStates' })
+        const states = await this.hogWatcher.getStates(functionIds)
+        timer()
+
+        // Save only the state enum value to cache
+        Object.entries(states).forEach(([id, state]) => {
+            this.cachedStates[id] = state.state
+        })
+    }
+
+    public clearHogFunctionStates(functionIds?: string[]): void {
+        if (functionIds) {
+            // Clear specific function states
+            functionIds.forEach((id) => {
+                delete this.cachedStates[id]
+            })
+        } else {
+            // Clear all states if no IDs provided
+            this.cachedStates = {}
+        }
     }
 }
