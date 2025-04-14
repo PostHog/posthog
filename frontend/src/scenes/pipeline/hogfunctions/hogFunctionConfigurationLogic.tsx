@@ -740,14 +740,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
                 const globals: HogFunctionInvocationGlobals = {
                     event,
-                    person: {
-                        id: personId,
-                        properties: {
-                            email: 'example@posthog.com',
-                        },
-                        name: 'Example person',
-                        url: `${window.location.origin}/person/${personId}`,
-                    },
+                    person:
+                        logicProps.logicKey != ERROR_TRACKING_LOGIC_KEY
+                            ? {
+                                  id: personId,
+                                  properties: {
+                                      email: 'example@posthog.com',
+                                  },
+                                  name: 'Example person',
+                                  url: `${window.location.origin}/person/${personId}`,
+                              }
+                            : undefined,
                     groups: {},
                     project: {
                         id: currentTeam?.id || 0,
@@ -760,6 +763,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     },
                 }
                 groupTypes.forEach((groupType) => {
+                    if (logicProps.logicKey === ERROR_TRACKING_LOGIC_KEY) {
+                        return
+                    }
                     const id = uuid()
                     globals.groups![groupType.group_type] = {
                         id: id,

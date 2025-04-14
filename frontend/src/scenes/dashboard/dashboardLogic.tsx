@@ -301,6 +301,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             allVariables: values.variables,
             isNull,
         }),
+        setLoadLayoutFromServerOnPreview: (loadLayoutFromServerOnPreview: boolean) => ({
+            loadLayoutFromServerOnPreview,
+        }),
 
         resetVariables: () => ({ variables: values.insightVariables }),
         resetDashboardFilters: () => true,
@@ -330,7 +333,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         // don't update dashboard tile layouts if we're previewing
                         // we want to retain what the user has temporarily set
-                        if (action === 'preview' && dashboard) {
+                        if (action === 'preview' && dashboard && !values.loadLayoutFromServerOnPreview) {
                             const editModeTileLayouts: Record<number, DashboardTile['layouts']> = {}
                             values.dashboard?.tiles.forEach((tile: DashboardTile<QueryBasedInsightModel>) => {
                                 editModeTileLayouts[tile.id] = tile.layouts
@@ -831,6 +834,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             null as DashboardMode | null,
             {
                 setDashboardMode: (_, { mode }) => mode,
+            },
+        ],
+        loadLayoutFromServerOnPreview: [
+            false,
+            {
+                setLoadLayoutFromServerOnPreview: (_, { loadLayoutFromServerOnPreview }) =>
+                    loadLayoutFromServerOnPreview,
             },
         ],
         autoRefresh: [

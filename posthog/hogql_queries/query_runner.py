@@ -366,10 +366,60 @@ def get_query_runner(
             team=team,
         )
 
+    if kind == "WebPageURLSearchQuery":
+        from .web_analytics.page_url_search_query_runner import PageUrlSearchQueryRunner
+
+        return PageUrlSearchQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "SessionAttributionExplorerQuery":
         from .web_analytics.session_attribution_explorer_query_runner import SessionAttributionExplorerQueryRunner
 
         return SessionAttributionExplorerQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "RevenueAnalyticsOverviewQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
+            RevenueAnalyticsOverviewQueryRunner,
+        )
+
+        return RevenueAnalyticsOverviewQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "RevenueAnalyticsGrowthRateQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
+            RevenueAnalyticsGrowthRateQueryRunner,
+        )
+
+        return RevenueAnalyticsGrowthRateQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "RevenueAnalyticsChurnRateQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_churn_rate_query_runner import (
+            RevenueAnalyticsChurnRateQueryRunner,
+        )
+
+        return RevenueAnalyticsChurnRateQueryRunner(
             query=query,
             team=team,
             timings=timings,

@@ -1,6 +1,5 @@
 import * as Sentry from '@sentry/react'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { shouldEnablePreviewFlagsV2 } from 'lib/utils'
 import posthog, { CaptureResult, PostHogConfig } from 'posthog-js'
 
 interface WindowWithCypressCaptures extends Window {
@@ -26,11 +25,6 @@ const configWithSentry = (config: Partial<PostHogConfig>): Partial<PostHogConfig
 
 export function loadPostHogJS(): void {
     if (window.JS_POSTHOG_API_KEY) {
-        const PREVIEW_FLAGS_V2_CONFIG = {
-            rolloutPercentage: 1,
-            includedHashes: new Set(['593cb24f9928bab39ec383c06c908481880d5099']),
-        }
-
         posthog.init(
             window.JS_POSTHOG_API_KEY,
             configWithSentry({
@@ -90,7 +84,7 @@ export function loadPostHogJS(): void {
                 capture_performance: { web_vitals: true },
                 person_profiles: 'always',
                 __preview_remote_config: true,
-                __preview_flags_v2: shouldEnablePreviewFlagsV2(window.JS_POSTHOG_API_KEY, PREVIEW_FLAGS_V2_CONFIG),
+                __preview_flags_v2: true,
             })
         )
     } else {

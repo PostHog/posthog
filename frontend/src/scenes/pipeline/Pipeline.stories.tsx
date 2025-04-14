@@ -199,7 +199,7 @@ export function PipelineNodeNewDestinationWithoutDataPipelines(): JSX.Element {
 
 export function PipelineNodeNewSequenceTimer(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.pipelineNodeNew(PipelineStage.Transformation, eventSequenceTimerPluginId))
+        router.actions.push(urls.pipelineNodeNew(PipelineStage.Transformation, { id: eventSequenceTimerPluginId }))
     }, [])
     return <App />
 }
@@ -207,21 +207,21 @@ export function PipelineNodeNewSequenceTimer(): JSX.Element {
 export function PipelineNodeNewBigQuery(): JSX.Element {
     useAvailableFeatures([AvailableFeature.DATA_PIPELINES])
     useEffect(() => {
-        router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, 'BigQuery'))
+        router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, { id: 'BigQuery' }))
     }, [])
     return <App />
 }
 
 export function PipelineNodeNewBigQueryWithoutPipelines(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, 'BigQuery'))
+        router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, { id: 'BigQuery' }))
     }, [])
     return <App />
 }
 
 export function PipelineNodeNewHogFunction(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, 'hog-template-slack'))
+        router.actions.push(urls.pipelineNodeNew(PipelineStage.Destination, { id: 'hog-template-slack' }))
     }, [])
     return <App />
 }

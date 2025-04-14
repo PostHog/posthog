@@ -1,10 +1,10 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import { captureException } from '@sentry/react'
 import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { Dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
 import { apiGetWithTimeToSeeDataTracking } from 'lib/internalMetrics'
 import { toParams, uuid } from 'lib/utils'
+import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ActorType, PropertiesTimelineFilterType } from '~/types'
@@ -83,7 +83,7 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
                         if (response.points.length === 0) {
                             // It should not be possible for a properties timeline to have zero points, as all actors
                             // shown in the actors modal must have at least one relevant event in the period
-                            captureException(new Error('Properties Timeline returned no points'), {
+                            posthog.captureException(new Error('Properties Timeline returned no points'), {
                                 tags: { 'team.id': values.currentTeamId },
                                 extra: {
                                     params: props.filter,

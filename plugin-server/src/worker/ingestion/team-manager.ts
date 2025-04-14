@@ -49,6 +49,10 @@ export class TeamManager {
     }
 
     public async fetchTeam(teamId: number): Promise<Team | null> {
+        if (defaultConfig.USE_LAZY_TEAM_MANAGER && this.teamManagerLazy) {
+            return await this.teamManagerLazy.getTeam(teamId)
+        }
+
         const team = await this._fetchTeam(teamId)
 
         try {
