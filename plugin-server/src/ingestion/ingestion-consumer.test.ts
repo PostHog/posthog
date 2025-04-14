@@ -173,7 +173,7 @@ describe('IngestionConsumer', () => {
                 topic: 'test',
                 offset: expect.any(Number),
                 partition: expect.any(Number),
-                processed_at_timestamp: fixedTime.toISO()!,
+                processed_at: fixedTime.toISO()!,
                 consumer_id: ingester['groupId'],
             })
         })

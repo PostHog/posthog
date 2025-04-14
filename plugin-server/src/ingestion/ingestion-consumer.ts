@@ -459,7 +459,7 @@ export class IngestionConsumer {
                         topic: message.topic,
                         offset: message.offset,
                         partition: message.partition,
-                        processed_at_timestamp: new Date().toISOString(),
+                        processed_at: new Date().toISOString(),
                         consumer_id: this.groupId,
                     },
                 ],
