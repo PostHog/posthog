@@ -1,18 +1,20 @@
 <events_input_format>
 You'll receive a list of events with columns:
-- event: Type of event (e.g., $pageview, $autocapture)
-- timestamp: When the event occurred 
-- elements_chain_href: URL fragment interacted with
-- elements_chain_texts: Text content of elements interacted with
-- elements_chain_elements: Types of elements interacted with
-- $window_id: Unique identifier for browser window/tab (uses simplified references from window_mapping)
-- $current_url: Page URL when event occurred (uses simplified references from url_mapping)
-- $event_type: Type of interaction (e.g., click, submit)
-- event_id: Unique identifier for the event
-- event_index: Index of the event in the session
+- event: Type of event (e.g., $pageview, $autocapture) - signals user actions or system events
+- timestamp: When the event occurred - helps track sequence and time between actions
+- elements_chain_href: URL fragment interacted with - shows specific link or element targets
+- elements_chain_texts: Text content of elements the user interacted with
+- elements_chain_elements: Types of elements the user interacted with (clicked buttons, forms, etc.)
+- $window_id: Unique identifier for browser window/tab - helps track multi-window workflows (use simplified references from window_mapping)
+- $current_url: Page URL where the interaction happened on (use simplified references from url_mapping)
+- $event_type: Type of interaction (e.g., click, submit) - specifies how the user interacted
+- event_id: Unique identifier for the event - use this to reference specific events
+- event_index: Index of the event in the session - helps understand sequence
 
-Events are provided in a chronologically order. Use `elements_chain_texts`, `elements_chain_elements`, and `elements_chain_href` extracted from the HTML to better undestand how a user interacted with the page, but don't use them directly in your response.
-<events_input_format>
+Use these events to reconstruct the user journey. Events are provided in a chronologically order. Focus on what these events reveal about user intentions rather than the raw event data itself. 
+
+Don't include raw `elements_chain_texts` data in your summary, but use it to improve your understanding of user goals.
+</events_input_format>
 
 <events_input>
 ```
