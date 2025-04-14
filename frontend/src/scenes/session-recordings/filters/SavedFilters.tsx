@@ -68,6 +68,9 @@ export function SavedFilters({
                                     status="danger"
                                     onClick={() => {
                                         deletePlaylist(playlist)
+                                        if (savedFilters.results?.length === 1) {
+                                            setActiveFilterTab('filters')
+                                        }
                                     }}
                                     fullWidth
                                     loading={savedFiltersLoading}
