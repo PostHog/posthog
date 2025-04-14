@@ -261,6 +261,7 @@ export function getDefaultConfig(): PluginsServerConfig {
             60,
 
         LAZY_TEAM_MANAGER_COMPARISON: false,
+        USE_LAZY_TEAM_MANAGER: false,
     }
 }
 
