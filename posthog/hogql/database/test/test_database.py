@@ -14,7 +14,6 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     ExpressionField,
     Table,
-    TableGroup,
 )
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -778,9 +777,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         db = create_hogql_database(team=self.team, modifiers=modifiers)
 
-        stripe_table_group = db.get_table("stripe")
-        assert isinstance(stripe_table_group, TableGroup)
-        stripe_table = stripe_table_group.get_table("table")
+        stripe_table = db.get_table("stripe.table")
         assert isinstance(stripe_table, Table)
 
         # Ensure the correct table was retrieved by checking the original table name in dot notation mapping

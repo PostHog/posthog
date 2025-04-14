@@ -79,7 +79,8 @@ def resolve_types_from_table(
         raise QueryError(f'Table "{".".join(table_chain)}" does not exist')
 
     select_node = ast.SelectQuery(
-        select=[ast.Field(chain=["*"])], select_from=ast.JoinExpr(table=ast.Field(chain=table_chain))
+        select=[ast.Field(chain=["*"])],
+        select_from=ast.JoinExpr(table=ast.Field(chain=cast(list[str | int], table_chain))),
     )
     select_node_with_types = cast(ast.SelectQuery, resolve_types(select_node, context, dialect))
     assert select_node_with_types.type is not None
