@@ -368,6 +368,7 @@ def create_hogql_database(
                 database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
     warehouse_tables: dict[str, Table] = {}
+    warehouse_tables_dot_notation_mapping: dict[str, str] = {}
     self_managed_warehouse_tables: dict[str, Table] = {}
     views: dict[str, Table] = {}
 
@@ -426,6 +427,7 @@ def create_hogql_database(
                         dot_name = f"{source_type}.{table_name_stripped}".lower()
 
                     warehouse_tables[dot_name] = s3_table
+                    warehouse_tables_dot_notation_mapping[dot_name] = table.name
 
     # For every Stripe source, let's generate its own revenue view
     # Prefetch related schemas and tables to avoid N+1
@@ -518,7 +520,12 @@ def create_hogql_database(
                         warehouse_tables = define_mappings(
                             warehouse_tables,
                             lambda team, warehouse_modifier: DataWarehouseTable.objects.exclude(deleted=True)
-                            .filter(team_id=team.pk, name=warehouse_modifier.table_name)
+                            .filter(
+                                team_id=team.pk,
+                                name=warehouse_tables_dot_notation_mapping[warehouse_modifier.table_name]
+                                if warehouse_modifier.table_name in warehouse_tables_dot_notation_mapping
+                                else warehouse_modifier.table_name,
+                            )
                             .select_related("credential", "external_data_source")
                             .latest("created_at"),
                         )
