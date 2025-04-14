@@ -446,13 +446,12 @@ export class IngestionConsumer {
                 ...combinedEvent,
             })
 
-            // Each time a message flows through the ingestion consumer we add a breadcrumb to the event
+            // For investigating event duplication, each time a message flows through the ingestion consumer add some breadcrumbs
             const eventProperties = event.properties ?? {}
             const existingBreadcrumbs = Array.isArray(eventProperties.kafka_consumer_breadcrumbs)
                 ? eventProperties.kafka_consumer_breadcrumbs
                 : []
 
-            // Store the breadcrumb in event properties
             event.properties = {
                 ...eventProperties,
                 kafka_consumer_breadcrumbs: [
