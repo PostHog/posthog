@@ -10,9 +10,9 @@ export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 
 export const panelLayoutLogic = kea<panelLayoutLogicType>([
     path(['layout', 'panel-layout', 'panelLayoutLogic']),
-    connect({
+    connect(() => ({
         values: [navigation3000Logic, ['mobileLayout']],
-    }),
+    })),
     actions({
         showLayoutNavBar: (visible: boolean) => ({ visible }),
         showLayoutPanel: (visible: boolean) => ({ visible }),
@@ -26,13 +26,15 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         setPanelTreeRef: (ref: PanelLayoutTreeRef) => ({ ref }),
         setMainContentRef: (ref: PanelLayoutMainContentRef) => ({ ref }),
         toggleLayoutNavCollapsed: (override?: boolean) => ({ override }),
+        setVisibleSideAction: (sideAction: string) => ({ sideAction }),
     }),
     reducers({
         isLayoutNavbarVisibleForDesktop: [
             true,
+            { persist: true },
             {
                 showLayoutNavBar: (_, { visible }) => visible,
-                mobileLayout: () => true,
+                mobileLayout: () => false,
             },
         ],
         isLayoutNavbarVisibleForMobile: [
@@ -49,8 +51,16 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 toggleLayoutPanelPinned: () => false,
             },
         ],
+        isLayoutNavbarVisible: [
+            false,
+            { persist: true },
+            {
+                showLayoutNavBar: (_, { visible }) => visible,
+            },
+        ],
         isLayoutPanelVisible: [
             false,
+            { persist: true },
             {
                 showLayoutPanel: (_, { visible }) => visible,
                 toggleLayoutPanelPinned: (_, { pinned }) => pinned || _,
@@ -65,6 +75,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         ],
         activePanelIdentifier: [
             '',
+            { persist: true },
             {
                 setActivePanelIdentifier: (_, { identifier }) => identifier,
                 clearActivePanelIdentifier: () => '',
@@ -94,6 +105,12 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             { persist: true },
             {
                 toggleLayoutNavCollapsed: (state, { override }) => override ?? !state,
+            },
+        ],
+        visibleSideAction: [
+            '',
+            {
+                setVisibleSideAction: (_, { sideAction }) => sideAction,
             },
         ],
     }),

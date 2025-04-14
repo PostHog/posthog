@@ -6,7 +6,7 @@ dependencies = [
     "aioboto3==12.0.0",
     "aiohttp==3.11.10",
     "aiokafka>=0.8",
-    "anthropic==0.44.0",
+    "anthropic==0.49.0",
     "antlr4-python3-runtime==4.13.1",
     "beautifulsoup4==4.12.3",
     "boto3==1.28.16",
@@ -64,6 +64,7 @@ dependencies = [
     "lzstring==1.0.4",
     "markdown-it-py~=3.0.0",
     "mimesis==5.2.1",
+    "mistralai==1.6.0",
     "more-itertools==9.0.0",
     "nanoid==2.0.0",
     "natsort==8.4.0",
@@ -77,12 +78,12 @@ dependencies = [
     "pdpyras==5.2.0",
     "phonenumberslite==8.13.6",
     "pillow==10.2.0",
-    "posthoganalytics==3.21.0",
+    "posthoganalytics>=3.24.1",
     "psutil==6.0.0",
     "psycopg2-binary==2.9.7",
     "psycopg[binary]==3.2.4",
     "pyarrow==18.1.0",
-    "pydantic==2.9.2",
+    "pydantic==2.10.3",
     "pyjwt==2.4.0",
     "pymssql==2.3.1",
     "pymysql==1.1.1",
@@ -116,6 +117,13 @@ dependencies = [
     "tiktoken==0.9.*",
     "token-bucket==0.3.0",
     "toronado==0.1.0",
+    "tree-sitter==0.24.0",
+    "tree-sitter-bash==0.23.3",
+    "tree-sitter-go==0.23.4",
+    "tree-sitter-javascript==0.23.1",
+    "tree-sitter-python==0.23.6",
+    "tree-sitter-rust==0.23.2",
+    "tree-sitter-typescript==0.23.2",
     "types-cachetools==5.5.0.20240820",
     "tzlocal~=5.1",
     "webdriver-manager==4.0.2",
@@ -123,6 +131,8 @@ dependencies = [
     "xmlsec==1.3.14",
     "zstd==1.5.5.1",
     "zxcvbn==4.4.28",
+    "pyyaml==6.0.1",
+    "tenacity>=8.4.2",
 ]
 
 [dependency-groups]
@@ -164,6 +174,7 @@ dev = [
     "pytest-watch==4.2.0",
     "pytest-xdist==3.6.1",
     "python-dateutil>=2.8.2",
+    "requests-mock>=1.12.1",
     "responses==0.23.1",
     "ruff~=0.8.1",
     "sqlalchemy==2.0.38",
@@ -185,6 +196,9 @@ dev = [
     "types-tzlocal~=5.1.0.1",
     "watchdog==5.0.3",
 ]
+
+[tool.uv]
+required-version = ">=0.6.0"
 
 [tool.uv.sources]
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "9578c79f29635ee2c1d01b7979e89adab8383de2" }

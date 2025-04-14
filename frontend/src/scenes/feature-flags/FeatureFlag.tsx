@@ -56,6 +56,7 @@ import {
     AvailableFeature,
     DashboardPlacement,
     DashboardType,
+    EarlyAccessFeatureStage,
     FeatureFlagGroupType,
     FeatureFlagType,
     NotebookNodeType,
@@ -115,6 +116,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         setActiveTab,
     } = useActions(featureFlagLogic)
 
+    const { earlyAccessFeaturesList } = useValues(featureFlagLogic)
+
     const { tags } = useValues(tagsModel)
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -143,6 +146,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     if (accessDeniedToFeatureFlag) {
         return <AccessDenied object="feature flag" />
     }
+
+    const earlyAccessFeature = earlyAccessFeaturesList?.find((f: any) => f.flagKey === featureFlag.key)
 
     const tabs = [
         {
@@ -621,6 +626,17 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </>
                             }
                         />
+                        {earlyAccessFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
+                            <LemonBanner type="info">
+                                This feature flag is assigned to an early access feature in the{' '}
+                                <LemonTag type="default" className="uppercase">
+                                    Concept
+                                </LemonTag>{' '}
+                                stage. All users who register interest will be assigned this feature flag. Gate your
+                                code behind a different feature flag if you'd like to keep it hidden, and then switch
+                                your code to this feature flag when you're ready to release to your early access users.
+                            </LemonBanner>
+                        )}
                         <LemonTabs
                             activeKey={activeTab}
                             onChange={(tab) => tab !== activeTab && setActiveTab(tab)}
@@ -1231,7 +1247,9 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             {({ value, onChange }) => {
                                                 return (
                                                     <JSONEditorInput
-                                                        onChange={onChange}
+                                                        onChange={(newValue) => {
+                                                            onChange(newValue === '' ? undefined : newValue)
+                                                        }}
                                                         value={value}
                                                         placeholder='{"key": "value"}'
                                                     />

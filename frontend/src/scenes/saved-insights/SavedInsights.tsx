@@ -12,6 +12,7 @@ import {
     IconLifecycle,
     IconPerson,
     IconPieChart,
+    IconPiggyBank,
     IconPlusSmall,
     IconRetention,
     IconStar,
@@ -200,7 +201,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: true,
     },
     [NodeKind.DataVisualizationNode]: {
-        name: 'Data visualization',
+        name: 'SQL',
         description: 'Slice and dice your data in a table or chart.',
         icon: IconTableChart,
         inMenu: false,
@@ -253,6 +254,24 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: true,
     },
+    [NodeKind.RevenueAnalyticsOverviewQuery]: {
+        name: 'Revenue Analytics Overview',
+        description: 'View revenue analytics overview.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsGrowthRateQuery]: {
+        name: 'Revenue Analytics Growth Rate',
+        description: 'View revenue analytics growth rate.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
+    [NodeKind.RevenueAnalyticsChurnRateQuery]: {
+        name: 'Revenue Analytics Churn Rate',
+        description: 'View revenue analytics churn rate.',
+        icon: IconPiggyBank,
+        inMenu: true,
+    },
     [NodeKind.WebOverviewQuery]: {
         name: 'Overview Stats',
         description: 'View overview stats for a website.',
@@ -286,6 +305,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.WebVitalsPathBreakdownQuery]: {
         name: 'Web vitals path breakdown',
         description: 'View web vitals broken down by path.',
+        icon: IconPieChart,
+        inMenu: true,
+    },
+    [NodeKind.WebPageURLSearchQuery]: {
+        name: 'Web Page URL Search',
+        description: 'Search and analyze web page URLs.',
         icon: IconPieChart,
         inMenu: true,
     },
@@ -361,33 +386,9 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconFlask,
         inMenu: false,
     },
-    [NodeKind.ExperimentEventMetricConfig]: {
-        name: 'Experiment Event Metric Config',
-        description: 'Configuration for experiment event metrics.',
-        icon: IconFlask,
-        inMenu: false,
-    },
-    [NodeKind.ExperimentActionMetricConfig]: {
-        name: 'Experiment Action Metric Config',
-        description: 'Configuration for experiment action metrics.',
-        icon: IconFlask,
-        inMenu: false,
-    },
-    [NodeKind.ExperimentDataWarehouseMetricConfig]: {
-        name: 'Experiment Data Warehouse Metric Config',
-        description: 'Configuration for experiment data warehouse metrics.',
-        icon: IconFlask,
-        inMenu: false,
-    },
-    [NodeKind.ExperimentFunnelMetricConfig]: {
-        name: 'Experiment Funnel Metric Config',
-        description: 'Configuration for experiment funnel metrics.',
-        icon: IconFlask,
-        inMenu: false,
-    },
-    [NodeKind.ExperimentFunnelStepConfig]: {
-        name: 'Experiment Funnel Step Config',
-        description: 'Configuration for experiment funnel steps.',
+    [NodeKind.ExperimentDataWarehouseNode]: {
+        name: 'Experiment Data Warehouse',
+        description: 'Experiment data warehouse source configuration.',
         icon: IconFlask,
         inMenu: false,
     },

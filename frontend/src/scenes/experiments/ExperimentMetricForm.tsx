@@ -1,5 +1,4 @@
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -8,6 +7,8 @@ import { Query } from '~/queries/Query/Query'
 import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { FilterType } from '~/types'
 
+import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
+import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandling'
 import { commonActionFilterProps } from './Metrics/Selectors'
 import {
     filterToMetricConfig,
@@ -43,22 +44,18 @@ export function ExperimentMetricForm({
     filterTestAccounts,
 }: {
     metric: ExperimentMetric
-    handleSetMetric: any
+    handleSetMetric: (newMetric: ExperimentMetric) => void
     filterTestAccounts: boolean
 }): JSX.Element {
     const mathAvailability = getMathAvailability(metric.metric_type)
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
 
-    const isDataWarehouseMetric = metric.metric_config.kind === NodeKind.ExperimentDataWarehouseMetricConfig
-
     const handleSetFilters = ({ actions, events, data_warehouse }: Partial<FilterType>): void => {
         const metricConfig = filterToMetricConfig(metric.metric_type, actions, events, data_warehouse)
         if (metricConfig) {
             handleSetMetric({
-                newMetric: {
-                    ...metric,
-                    metric_config: metricConfig,
-                },
+                ...metric,
+                ...metricConfig,
             })
         }
     }
@@ -71,9 +68,7 @@ export function ExperimentMetricForm({
                     data-attr="metrics-selector"
                     value={metric.metric_type}
                     onChange={(newMetricType: ExperimentMetricType) => {
-                        handleSetMetric({
-                            newMetric: getDefaultExperimentMetric(newMetricType),
-                        })
+                        handleSetMetric(getDefaultExperimentMetric(newMetricType))
                     }}
                     options={[
                         {
@@ -132,90 +127,35 @@ export function ExperimentMetricForm({
                 )}
             </div>
             {/* :KLUDGE: Query chart type is inferred from the initial state, so need to render Trends and Funnels separately */}
-            {metric.metric_type === ExperimentMetricType.MEAN && !isDataWarehouseMetric && (
-                <Query
-                    query={{
-                        kind: NodeKind.InsightVizNode,
-                        source: metricToQuery(metric, filterTestAccounts),
-                        showTable: false,
-                        showLastComputation: true,
-                        showLastComputationRefresh: false,
-                    }}
-                    readOnly
-                />
-            )}
-            {metric.metric_type === ExperimentMetricType.FUNNEL && !isDataWarehouseMetric && (
-                <Query
-                    query={{
-                        kind: NodeKind.InsightVizNode,
-                        source: metricToQuery(metric, filterTestAccounts),
-                        showTable: false,
-                        showLastComputation: true,
-                        showLastComputationRefresh: false,
-                    }}
-                    readOnly
-                />
-            )}
-            <div>
-                <LemonLabel
-                    className="mb-1"
-                    info={
-                        <>
-                            Controls how long a metric value is considered relevant to an experiment exposure:
-                            <ul className="list-disc pl-4">
-                                <li>
-                                    <strong>Experiment duration</strong> considers any data from when a user is first
-                                    exposed until the experiment ends.
-                                </li>
-                                <li>
-                                    <strong>Conversion window</strong> only includes data that occurs within the
-                                    specified number of hours after a user's first exposure (also ignoring the
-                                    experiment end date).
-                                </li>
-                            </ul>
-                        </>
-                    }
-                >
-                    Time window
-                </LemonLabel>
-                <div className="flex items-center gap-2">
-                    <LemonRadio
-                        className="my-1.5"
-                        value={metric.time_window_hours === undefined ? 'full' : 'conversion'}
-                        orientation="horizontal"
-                        onChange={(value) =>
-                            handleSetMetric({
-                                newMetric: {
-                                    ...metric,
-                                    time_window_hours: value === 'full' ? undefined : 72,
-                                },
-                            })
-                        }
-                        options={[
-                            {
-                                value: 'full',
-                                label: 'Experiment duration',
-                            },
-                            {
-                                value: 'conversion',
-                                label: 'Conversion window',
-                            },
-                        ]}
+            {metric.metric_type === ExperimentMetricType.MEAN &&
+                metric.source.kind !== NodeKind.ExperimentDataWarehouseNode && (
+                    <Query
+                        query={{
+                            kind: NodeKind.InsightVizNode,
+                            source: metricToQuery(metric, filterTestAccounts),
+                            showTable: false,
+                            showLastComputation: true,
+                            showLastComputationRefresh: false,
+                        }}
+                        readOnly
                     />
-                    {metric.time_window_hours !== undefined && (
-                        <LemonInput
-                            value={metric.time_window_hours}
-                            onChange={(value) =>
-                                handleSetMetric({ newMetric: { ...metric, time_window_hours: value || undefined } })
-                            }
-                            type="number"
-                            step={1}
-                            suffix={<span className="text-sm">hours</span>}
-                            size="small"
-                        />
-                    )}
-                </div>
-            </div>
+                )}
+            {metric.metric_type === ExperimentMetricType.FUNNEL && (
+                <Query
+                    query={{
+                        kind: NodeKind.InsightVizNode,
+                        source: metricToQuery(metric, filterTestAccounts),
+                        showTable: false,
+                        showLastComputation: true,
+                        showLastComputationRefresh: false,
+                    }}
+                    readOnly
+                />
+            )}
+            <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
+            {metric.metric_type === ExperimentMetricType.MEAN && (
+                <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
+            )}
         </div>
     )
 }

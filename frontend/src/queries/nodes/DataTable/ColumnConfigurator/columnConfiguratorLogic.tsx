@@ -1,6 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -25,9 +26,9 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
     props({} as ColumnConfiguratorLogicProps),
     path(['queries', 'nodes', 'DataTable', 'columnConfiguratorLogic']),
     key((props) => props.key),
-    connect({
-        actions: [groupsModel, ['setDefaultColumns']],
-    }),
+    connect(() => ({
+        actions: [eventUsageLogic, ['reportDataTableColumnsUpdated'], groupsModel, ['setDefaultColumns']],
+    })),
     actions({
         showModal: true,
         hideModal: true,
@@ -82,6 +83,7 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         save: async () => {
+            actions.reportDataTableColumnsUpdated(props.context?.type ?? 'live_events')
             if (!props.isPersistent || !values.saveAsDefault) {
                 props.setColumns(values.columns)
                 return

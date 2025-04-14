@@ -16,6 +16,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import { DataColorTheme } from 'lib/colors'
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { DashboardPrivilegeLevel, FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
@@ -28,6 +29,7 @@ import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic
 import uniqBy from 'lodash.uniqby'
 import { Layout, Layouts } from 'react-grid-layout'
 import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -69,6 +71,7 @@ import {
 
 import { getResponseBytes, sortDates, sortDayJsDates } from '../insights/utils'
 import { teamLogic } from '../teamLogic'
+import { BreakdownColorConfig } from './DashboardInsightColorsModal'
 import type { dashboardLogicType } from './dashboardLogicType'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
@@ -108,6 +111,15 @@ export interface RefreshStatus {
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
 
+/**
+ * Run a set of tasks **in order** with a limit on the number of concurrent tasks.
+ * Important to be in order so that we poll dashboard insights in the
+ * same order as they are calculated on the backend.
+ *
+ * @param tasks - An array of functions that return promises.
+ * @param limit - The maximum number of concurrent tasks.
+ * @returns A promise that resolves to an array of results from the tasks.
+ */
 async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
     const results: T[] = []
     const activePromises: Set<Promise<void>> = new Set()
@@ -182,7 +194,16 @@ async function getSingleInsight(
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags'], variableDataLogic, ['variables']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            featureFlagLogic,
+            ['featureFlags'],
+            variableDataLogic,
+            ['variables'],
+            dataThemeLogic,
+            ['getTheme'],
+        ],
         logic: [dashboardsModel, insightsModel, eventUsageLogic],
     })),
 
@@ -228,9 +249,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
         }),
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
         setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
-        setFiltersAndLayoutsAndVariables: (filters: DashboardFilter, variables: Record<string, HogQLVariable>) => ({
+        setBreakdownColorConfig: (config: BreakdownColorConfig) => ({ config }),
+        setDataColorThemeId: (dataColorThemeId: number | null) => ({ dataColorThemeId }),
+        setFiltersAndLayoutsAndVariables: (
+            filters: DashboardFilter,
+            variables: Record<string, HogQLVariable>,
+            breakdownColors: BreakdownColorConfig[],
+            dataColorThemeId: number | null
+        ) => ({
             filters,
             variables,
+            breakdownColors,
+            dataColorThemeId,
         }),
         previewTemporaryFilters: true,
         setAutoRefresh: (enabled: boolean, interval: number) => ({ enabled, interval }),
@@ -344,6 +374,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             {
                                 filters: values.filters,
                                 variables: values.insightVariables,
+                                breakdown_colors: values.temporaryBreakdownColors,
+                                data_color_theme_id: values.dataColorThemeId,
                                 tiles: layoutsToUpdate,
                             }
                         )
@@ -593,6 +625,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               breakdown_filter: dashboard?.filters.breakdown_filter || null,
                           }
                         : state,
+            },
+        ],
+        temporaryBreakdownColors: [
+            [] as BreakdownColorConfig[],
+            {
+                setBreakdownColorConfig: (state, { config }) => {
+                    const existingConfigIndex = state.findIndex((c) => c.breakdownValue === config.breakdownValue)
+                    if (existingConfigIndex >= 0) {
+                        return [...state.slice(0, existingConfigIndex), config, ...state.slice(existingConfigIndex + 1)]
+                    }
+                    return [...state, config]
+                },
+                loadDashboardSuccess: (state, { dashboard }) => {
+                    return [...state, ...(dashboard?.breakdown_colors ?? [])]
+                },
+            },
+        ],
+        dataColorThemeId: [
+            null as number | null,
+            {
+                setDataColorThemeId: (_, { dataColorThemeId }) => dataColorThemeId || null,
+                loadDashboardSuccess: (_, { dashboard }) => dashboard?.data_color_theme_id || null,
             },
         ],
         filters: [
@@ -1038,6 +1092,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return (
                     !!newestRefreshed &&
                     !(placement === DashboardPlacement.FeatureFlag) &&
+                    !(placement === DashboardPlacement.Group) &&
                     oldestClientRefreshAllowed?.isAfter(now())
                 )
             },
@@ -1148,23 +1203,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     : null
             },
         ],
-
-        sortTilesByLayout: [
-            (s) => [s.layoutForItem],
-            (layoutForItem) => (tiles: Array<DashboardTile>) => {
-                return [...tiles].sort((a: DashboardTile, b: DashboardTile) => {
-                    const ax = layoutForItem[a.id]?.x ?? 0
-                    const ay = layoutForItem[a.id]?.y ?? 0
-                    const bx = layoutForItem[b.id]?.x ?? 0
-                    const by = layoutForItem[b.id]?.y ?? 0
-                    if (ay < by || (ay == by && ax < bx)) {
-                        return -1
-                    } else if (ay > by || (ay == by && ax > bx)) {
-                        return 1
-                    }
-                    return 0
-                })
-            },
+        dataColorTheme: [
+            (s) => [s.dataColorThemeId, s.getTheme],
+            (dataColorThemeId, getTheme): DataColorTheme | null => getTheme(dataColorThemeId),
         ],
     })),
     events(({ actions, cache, props }) => ({
@@ -1333,14 +1374,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return true
                     }
                 })
-                // sort tiles by layout to ensure insights are computed in order of appearance on dashboard
-                .sort((a, b) => {
-                    const ay = a.layouts?.xs?.y ?? 0
-                    const ax = a.layouts?.xs?.x ?? 0
-                    const by = b.layouts?.xs?.y ?? 0
-                    const bx = b.layouts?.xs?.x ?? 0
-                    return ay !== by ? ay - by : ax - bx
-                })
+                // sort tiles so we poll them in the exact order they are computed on the backend
+                .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
                 .map((t) => t.insight)
                 .filter((i): i is QueryBasedInsightModel => !!i)
 
@@ -1464,7 +1499,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             })
 
-            await runWithLimit(fetchItemFunctions, 2)
+            await runWithLimit(fetchItemFunctions, 1)
 
             eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.newestRefreshed)
         },
@@ -1491,7 +1526,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     // this is done in the reducer for dashboard
                 } else if (source === DashboardEventSource.DashboardHeaderSaveDashboard) {
                     // save edit mode changes
-                    actions.setFiltersAndLayoutsAndVariables(values.temporaryFilters, values.temporaryVariables)
+                    actions.setFiltersAndLayoutsAndVariables(
+                        values.temporaryFilters,
+                        values.temporaryVariables,
+                        values.temporaryBreakdownColors,
+                        values.dataColorThemeId
+                    )
                 }
             }
 
@@ -1667,10 +1707,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
 
         '/dashboard/:id': (_, searchParams) => {
-            if (values.featureFlags[FEATURE_FLAGS.INSIGHT_VARIABLES]) {
-                const variables = parseURLVariables(searchParams)
-                actions.setURLVariables(variables)
-            }
+            const variables = parseURLVariables(searchParams)
+            actions.setURLVariables(variables)
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
             if (values.dashboardMode === DashboardMode.Sharing) {

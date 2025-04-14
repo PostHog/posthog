@@ -3,6 +3,8 @@ import { subscriptions } from 'kea-subscriptions'
 import { dayjs } from 'lib/dayjs'
 import { lightenDarkenColor, objectsEqual, RGBToHex, uuid } from 'lib/utils'
 import mergeObject from 'lodash.merge'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -70,7 +72,6 @@ export interface DataVisualizationLogicProps {
     insightLoading?: boolean
     dashboardId?: DashboardType['id']
     loadPriority?: number
-    defaultVisualizationType?: ChartDisplayType
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
 }
@@ -303,7 +304,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         visualizationType: [
-            props.defaultVisualizationType ?? ChartDisplayType.ActionsTable,
+            props.query.display ?? ChartDisplayType.ActionsTable,
             {
                 setVisualizationType: (_, { visualizationType }) => visualizationType,
             },
@@ -599,7 +600,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (state, props) => [props.key, state.dashboardId],
             (key, dashboardId) => {
                 // Key for SQL editor based visiaulizations
-                return !key.includes('new-SQL') && !dashboardId
+                const currentScene = sceneLogic.findMounted()?.values
+                const sqlEditorScene = currentScene?.activeScene === Scene.SQLEditor
+
+                return !key.includes('new-SQL') && !dashboardId && !sqlEditorScene
             },
         ],
         sourceFeatures: [(_, props) => [props.query], (query): Set<QueryFeature> => getQueryFeatures(query.source)],

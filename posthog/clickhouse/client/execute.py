@@ -93,7 +93,7 @@ def validated_client_query_id() -> Optional[str]:
 @cached(cache=TTLCache(maxsize=1, ttl=600))
 def get_api_queries_online_allow_list() -> set[int]:
     with suppress(Exception):
-        cfg = posthoganalytics.get_remote_config_payload("api-queries-on-online-cluster")
+        cfg = json.loads(posthoganalytics.get_remote_config_payload("api-queries-on-online-cluster"))
         return set(cfg.get("allowed_team_id", [])) if cfg else set[int]()
     return set[int]()
 
@@ -159,6 +159,13 @@ def sync_execute(
         "log_comment": json.dumps(tags, separators=(",", ":")),
         "query_id": query_id,
     }
+
+    if workload == Workload.OFFLINE:
+        # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the
+        # online resource pool when the offline resource pool is under heavy load. this comes at the cost of higher and
+        # more variable latency and a higher likelihood of query failures - but offline workloads should be tolerant to
+        # these disruptions
+        settings["use_hedged_requests"] = "0"
 
     try:
         with sync_client or get_client_from_pool(workload, team_id, readonly) as client:

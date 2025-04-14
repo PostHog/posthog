@@ -134,7 +134,10 @@ export const LemonFormDialog = ({
     const { setFormValues } = useActions(logic)
     const [isLoading, setIsLoading] = useState(false)
 
-    const firstError = useMemo(() => Object.values(formValidationErrors)[0] as string, [formValidationErrors])
+    const firstError = useMemo(
+        () => Object.values(formValidationErrors).find((error) => Boolean(error)) as string,
+        [formValidationErrors]
+    )
 
     const primaryButton: LemonDialogProps['primaryButton'] = {
         type: 'primary',

@@ -2,15 +2,6 @@ import { urls } from 'scenes/urls'
 
 import { insight } from '../productAnalytics'
 
-const hogQLQuery = `select event,
-          count()
-     from events
- group by event,
-          properties.$browser,
-          person.properties.email
- order by count() desc
-    limit 2`
-
 // For tests related to trends please check trendsElements.js
 describe('Insights', () => {
     beforeEach(() => {
@@ -43,13 +34,6 @@ describe('Insights', () => {
             it('can open a new lifecycle insight', () => {
                 insight.newInsight('LIFECYCLE')
                 cy.get('.TrendsInsight canvas').should('exist')
-            })
-
-            it('can open a new SQL insight', () => {
-                insight.newInsight('SQL')
-                insight.updateQueryEditorText(hogQLQuery, 'hogql-query-editor')
-                cy.get('[data-attr="hogql-query-editor"]').should('exist')
-                cy.get('tr.DataVizRow').should('have.length.gte', 2)
             })
         })
     })

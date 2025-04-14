@@ -79,7 +79,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_CONCURRENCY: 10,
         INGESTION_BATCH_SIZE: 500,
         INGESTION_OVERFLOW_ENABLED: false,
-        INGESTION_FORCE_OVERFLOW_TOKENS: '',
+        INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',
         INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
         PLUGINS_DEFAULT_LOG_LEVEL: isTestEnv() ? PluginLogLevel.Full : PluginLogLevel.Log,
         LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
@@ -137,7 +137,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         RUSTY_HOOK_URL: '',
         HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
-        LAZY_LOADER_DEFAULT_BUFFER_MS: 100,
+        LAZY_LOADER_DEFAULT_BUFFER_MS: 10,
 
         // posthog
         POSTHOG_API_KEY: '',
@@ -205,6 +205,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
         CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
+        CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_HOG_WATCHER_SAMPLE_RATE: 0, // default is off
 
         // Destination Migration Diffing
@@ -258,6 +259,8 @@ export function getDefaultConfig(): PluginsServerConfig {
                 24) * // amount of time salt is valid in one timezone
             60 *
             60,
+
+        LAZY_TEAM_MANAGER_COMPARISON: false,
     }
 }
 

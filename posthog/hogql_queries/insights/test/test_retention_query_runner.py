@@ -788,17 +788,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             pluck(result, "date"),
             [
-                datetime(2020, 6, 10, 6, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 7, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 8, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 9, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 10, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 11, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 12, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 13, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 14, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 15, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 16, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 6, 10, 6, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 7, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 8, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 9, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 10, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 11, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 12, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 13, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 14, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 15, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 16, tzinfo=ZoneInfo("US/Pacific")),
             ],
         )
 
@@ -2874,6 +2874,70 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         person2_clothing = next(r for r in result if "person2" in r[0]["distinct_ids"])
         self.assertEqual(person2_clothing[1], [0, 2])
+
+    def test_retention_with_breakdown_event_metadata(self):
+        """Test retention with breakdown by event metadata"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+
+        GroupTypeMapping.objects.create(
+            team_id=self.team.pk,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+
+        # Create events with different groups
+        _create_events(
+            self.team,
+            [
+                # Apple cohort
+                ("person1", _date(0), {"$group_0": "Apple"}),  # Day 0
+                ("person1", _date(1), {"$group_0": "Apple"}),  # Day 1
+                ("person1", _date(3), {"$group_0": "Apple"}),  # Day 3
+                ("person3", _date(0), {"$group_0": "Apple"}),  # Day 0
+                ("person3", _date(2), {"$group_0": "Apple"}),  # Day 2
+                # Google cohort
+                ("person2", _date(0), {"$group_0": "Google"}),  # Day 0
+                ("person2", _date(1), {"$group_0": "Google"}),  # Day 1
+                ("person2", _date(4), {"$group_0": "Google"}),  # Day 4
+                # Stripe cohort
+                ("person4", _date(0), {"$group_0": "Stripe"}),  # Day 0
+                ("person4", _date(5), {"$group_0": "Stripe"}),  # Day 5
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "$group_0", "type": "event_metadata"}]},
+            }
+        )
+
+        breakdown_values = {c.get("breakdown_value") for c in result}
+        self.assertEqual(breakdown_values, {"Apple", "Google", "Stripe"})
+
+        apple_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Apple"], "values", "count")
+
+        self.assertEqual(
+            apple_cohorts,
+            pad(
+                [
+                    [2, 1, 1, 1, 0, 0],
+                    [1, 0, 1, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                ]
+            ),
+        )
 
     def test_retention_with_breakdown_on_start_event(self):
         """Test retention with breakdown by event properties where target and returning entities are different"""

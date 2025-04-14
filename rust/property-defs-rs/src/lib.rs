@@ -2,13 +2,13 @@ use std::{sync::Arc, time::Duration};
 
 use app_context::AppContext;
 use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
-use config::{Config, TeamFilterMode, TeamList};
+use config::Config;
 use metrics_consts::{
     BATCH_ACQUIRE_TIME, CACHE_CONSUMED, CHUNK_SIZE, COMPACTED_UPDATES, DUPLICATES_IN_BATCH,
     EMPTY_EVENTS, EVENTS_RECEIVED, EVENT_PARSE_ERROR, FORCED_SMALL_BATCH, ISSUE_FAILED,
     RECV_DEQUEUED, SKIPPED_DUE_TO_TEAM_FILTER, UPDATES_CACHE, UPDATES_DROPPED,
     UPDATES_FILTERED_BY_CACHE, UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME,
-    UPDATE_PRODUCER_OFFSET, WORKER_BLOCKED,
+    UPDATE_PRODUCER_OFFSET, V2_ISOLATED_DB_SELECTED, WORKER_BLOCKED,
 };
 use types::{Event, Update};
 use v2_batch_ingestion::process_batch_v2;
@@ -81,9 +81,43 @@ pub async fn update_consumer_loop(
         let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
         metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
-        // conditionall enable new write path
+        // the new mirror deployment should point all Postgres writes
+        // at the new isolated "propdefs" DB instance in all envs.
+        // THE ORIGINAL property-defs-rs deployment should NEVER DO THIS
+        let mut resolved_pool = &context.pool;
+        if config.enable_mirror {
+            // for safely, the original propdefs deploy will not set the
+            // DATABASE_PROPDEFS_URL and local defaults set it the same
+            // as DATABASE_URL (the std posthog Cloud DB) so only if
+            // this context var != None will it be enabled
+            if let Some(resolved) = &context.propdefs_pool {
+                metrics::counter!(
+                    V2_ISOLATED_DB_SELECTED,
+                    &[(String::from("processor"), String::from("v2"))]
+                )
+                .increment(1);
+                resolved_pool = resolved;
+            }
+        }
+
+        // conditionally enable new v2 batch write path. While the new write
+        // path is being tested and not the default, THIS IS INDEPENDENT of
+        // whether config.enable_mirror is set, or which deploy we're in
         if config.enable_v2 {
-            process_batch_v2(&config, cache.clone(), &context.pool, batch).await;
+            // enrich batch group events with resolved group_type_indices
+            // before passing along to process_batch_v2. We can refactor this
+            // to make it less awkward soon.
+            let _unused = context
+                .resolve_group_types_indexes(&mut batch)
+                .await
+                .map_err(|e| {
+                    warn!(
+                        "Failed resolving group type indices for batch, got: {:?}",
+                        e
+                    )
+                });
+
+            process_batch_v2(&config, cache.clone(), resolved_pool, batch).await;
         } else {
             process_batch_v1(&config, cache.clone(), context.clone(), batch).await;
         }
@@ -96,6 +130,7 @@ async fn process_batch_v1(
     context: Arc<AppContext>,
     mut batch: Vec<Update>,
 ) {
+    // unused in v2 as a throttling mechanism, but still useful to measure
     let cache_utilization = cache.len() as f64 / config.cache_capacity as f64;
     metrics::gauge!(CACHE_CONSUMED).set(cache_utilization);
 
@@ -162,15 +197,12 @@ async fn process_batch_v1(
 }
 
 pub async fn update_producer_loop(
+    config: Config,
     consumer: SingleTopicConsumer,
     channel: mpsc::Sender<Update>,
     shared_cache: Arc<Cache<Update, ()>>,
-    skip_threshold: usize,
-    compaction_batch_size: usize,
-    team_filter_mode: TeamFilterMode,
-    team_list: TeamList,
 ) {
-    let mut batch = AHashSet::with_capacity(compaction_batch_size);
+    let mut batch = AHashSet::with_capacity(config.compaction_batch_size);
     let mut last_send = tokio::time::Instant::now();
     loop {
         let (event, offset): (Event, _) = match consumer.json_recv().await {
@@ -206,12 +238,15 @@ pub async fn update_producer_loop(
             }
         }
 
-        if !team_filter_mode.should_process(&team_list.teams, event.team_id) {
+        if !config
+            .filter_mode
+            .should_process(&config.filtered_teams.teams, event.team_id)
+        {
             metrics::counter!(SKIPPED_DUE_TO_TEAM_FILTER).increment(1);
             continue;
         }
 
-        let updates = event.into_updates(skip_threshold);
+        let updates = event.into_updates(config.update_count_skip_threshold);
 
         metrics::counter!(EVENTS_RECEIVED).increment(1);
         metrics::counter!(UPDATES_SEEN).increment(updates.len() as u64);
@@ -231,7 +266,9 @@ pub async fn update_producer_loop(
         // wait on the next event, which might come an arbitrary amount of time later. This bit me
         // in testing, and while it's not a correctness problem and under normal load we'd never
         // see it, we may as well just do the full batch insert first.
-        if batch.len() >= compaction_batch_size || last_send.elapsed() > Duration::from_secs(10) {
+        if batch.len() >= config.compaction_batch_size
+            || last_send.elapsed() > Duration::from_secs(10)
+        {
             last_send = tokio::time::Instant::now();
             for update in batch.drain() {
                 if shared_cache.get(&update).is_some() {
@@ -240,8 +277,16 @@ pub async fn update_producer_loop(
                     metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(1);
                     continue;
                 }
-                metrics::counter!(UPDATES_CACHE, &[("action", "miss")]).increment(1);
-                shared_cache.insert(update.clone(), ());
+
+                // for v1 processing pipeline, we cache before we know the batch is
+                // persisted safely. for v2, we do this downstream. The bonus: this
+                // avoids the internal queue backups that can occur when batch writes
+                // fail and the entire contents must be manually removed from the cache
+                if !config.enable_v2 {
+                    metrics::counter!(UPDATES_CACHE, &[("action", "miss")]).increment(1);
+                    shared_cache.insert(update.clone(), ());
+                }
+
                 match channel.try_send(update) {
                     Ok(_) => {}
                     Err(TrySendError::Full(update)) => {

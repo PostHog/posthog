@@ -6,14 +6,8 @@ import posthog from 'posthog-js'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { encodedWebSnapshotData } from 'scenes/session-recordings/player/__mocks__/encoded-snapshot-data'
 import {
-    chunkMutationSnapshot,
-    clearThrottle,
-    deduplicateSnapshots,
-    MUTATION_CHUNK_SIZE,
     parseEncodedSnapshots,
-    patchMetaEventIntoWebData,
     sessionRecordingDataLogic,
-    ViewportResolution,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -27,6 +21,11 @@ import { AvailableFeature, RecordingSnapshot, SessionRecordingSnapshotSource } f
 import recordingEventsJson from '../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../__mocks__/recording_meta'
 import { snapshotsAsJSONLines, sortedRecordingSnapshots } from '../__mocks__/recording_snapshots'
+import { chunkMutationSnapshot } from './snapshot-processing/chunk-large-mutations'
+import { MUTATION_CHUNK_SIZE } from './snapshot-processing/chunk-large-mutations'
+import { deduplicateSnapshots } from './snapshot-processing/deduplicate-snapshots'
+import { patchMetaEventIntoWebData, ViewportResolution } from './snapshot-processing/patch-meta-event'
+import { clearThrottle } from './snapshot-processing/throttle-capturing'
 
 const sortedRecordingSnapshotsJson = sortedRecordingSnapshots()
 
@@ -214,7 +213,7 @@ describe('sessionRecordingDataLogic', () => {
             api.create.mockClear()
         })
 
-        it('load events after metadata with 1 day buffer', async () => {
+        it('load events after metadata with 5 minute buffer', async () => {
             api.create
                 .mockImplementationOnce(async () => {
                     return recordingEventsJson
@@ -239,8 +238,8 @@ describe('sessionRecordingDataLogic', () => {
                         query: `
                             SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
                             FROM events
-                            WHERE timestamp > '2023-04-30 14:46:20'
-                              AND timestamp < '2023-05-02 14:46:32'
+                            WHERE timestamp > '2023-05-01 14:41:20'
+                              AND timestamp < '2023-05-01 14:51:32'
                               AND (empty($session_id) OR isNull($session_id)) AND properties.$lib != 'web'
                         
                             AND person_id = '0187d7c7-61b7-0000-d6a1-59b207080ac0'
