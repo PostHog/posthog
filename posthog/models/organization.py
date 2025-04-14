@@ -141,6 +141,8 @@ class Organization(UUIDModel):
 
     ## Managed by Billing
     customer_id = models.CharField(max_length=200, null=True, blank=True)
+
+    # looking for feature? check: is_feature_available, get_available_feature
     available_product_features = ArrayField(models.JSONField(blank=False), null=True, blank=True)
     # Managed by Billing, cached here for usage controls
     # Like {

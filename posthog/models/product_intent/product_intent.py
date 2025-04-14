@@ -13,7 +13,7 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.insight import Insight
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDModel, RootTeamMixin
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import get_instance_realm
 
@@ -57,7 +57,7 @@ class ProductIntentSerializer(serializers.Serializer):
     intent_context = serializers.CharField(required=False, default="unknown")
 
 
-class ProductIntent(UUIDModel):
+class ProductIntent(UUIDModel, RootTeamMixin):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -203,7 +203,14 @@ class ProductIntent(UUIDModel):
         )
 
     @staticmethod
-    def register(team: Team, product_type: str, context: str, user: User, metadata: Optional[dict] = None) -> None:
+    def register(
+        team: Team,
+        product_type: str,
+        context: str,
+        user: User,
+        metadata: Optional[dict] = None,
+        is_onboarding: bool = False,
+    ) -> "ProductIntent":
         from posthog.event_usage import report_user_action
 
         should_report_product_intent = False
@@ -216,6 +223,10 @@ class ProductIntent(UUIDModel):
             **contexts,
             context: contexts.get(context, 0) + 1,
         }
+
+        if is_onboarding:
+            product_intent.onboarding_completed_at = datetime.now(tz=UTC)
+
         product_intent.save()
 
         if created:
@@ -239,7 +250,7 @@ class ProductIntent(UUIDModel):
                 {
                     **(metadata or {}),
                     "product_key": product_type,
-                    "$set_once": {"first_onboarding_product_selected": product_type},
+                    "$set_once": {"first_onboarding_product_selected": product_type} if is_onboarding else {},
                     "intent_context": context,
                     "is_first_intent_for_product": created,
                     "intent_created_at": product_intent.created_at,
@@ -248,6 +259,8 @@ class ProductIntent(UUIDModel):
                 },
                 team=team,
             )
+
+        return product_intent
 
 
 @shared_task(ignore_result=True)
