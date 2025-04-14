@@ -70,7 +70,7 @@ _clickhouse_http_pool_mgr = httputil.get_pool_manager(
     maxsize=settings.CLICKHOUSE_CONN_POOL_MAX,  # max number of open connection per pool
     block=True,  # makes the maxsize limit per pool, keeps connections
     num_pools=12,  # number of pools
-    ca_cert=settings.CLICKHOUSE_CA,  # type: ignore[arg-type]  #  ca_cert default value is None, but the type hint is str instead of Optional[str], https://github.com/ClickHouse/clickhouse-connect/pull/450
+    ca_cert=settings.CLICKHOUSE_CA,
     verify=settings.QUERYSERVICE_VERIFY,
 )
 

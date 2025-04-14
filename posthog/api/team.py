@@ -2,7 +2,7 @@ import json
 from datetime import timedelta
 from functools import cached_property
 from pydantic import ValidationError
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.shortcuts import get_object_or_404
@@ -29,7 +29,7 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.data_color_theme import DataColorTheme
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.group_type_mapping import GroupTypeMapping, GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
 from posthog.models.organization import OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
 from posthog.models.project import Project
@@ -90,6 +90,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "session_recording_url_trigger_config",
             "session_recording_url_blocklist_config",
             "session_recording_event_trigger_config",
+            "session_recording_trigger_match_type_config",
             "session_replay_config",
             "survey_config",
             "recording_domains",
@@ -131,6 +132,7 @@ TEAM_CONFIG_FIELDS = (
     "session_recording_url_trigger_config",
     "session_recording_url_blocklist_config",
     "session_recording_event_trigger_config",
+    "session_recording_trigger_match_type_config",
     "session_replay_config",
     "survey_config",
     "week_start_day",
@@ -181,6 +183,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
+    group_types = serializers.SerializerMethodField()
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
@@ -207,6 +210,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             # Computed fields
             "effective_membership_level",
             "has_group_types",
+            "group_types",
             "live_events_token",
             "product_intents",
             "access_control_version",
@@ -223,6 +227,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "ingested_event",
             "effective_membership_level",
             "has_group_types",
+            "group_types",
             "default_modifiers",
             "person_on_events_querying_enabled",
             "live_events_token",
@@ -254,6 +259,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(project_id=team.project_id).exists()
 
+    def get_group_types(self, team: Team) -> list[dict[str, Any]]:
+        return list(
+            GroupTypeMapping.objects.filter(project_id=team.project_id)
+            .order_by("group_type_index")
+            .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
+        )
+
     def get_live_events_token(self, team: Team) -> Optional[str]:
         return encode_jwt(
             {"team_id": team.id, "api_token": team.api_token},
@@ -282,6 +294,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if received_keys not in valid_keys:
             raise exceptions.ValidationError(
                 "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys."
+            )
+
+        return value
+
+    @staticmethod
+    def validate_session_recording_trigger_match_type_config(value) -> Literal["all", "any"] | None:
+        if value not in ["all", "any", None]:
+            raise exceptions.ValidationError(
+                "Must provide a valid trigger match type. Only 'all' or 'any' or None are allowed."
             )
 
         return value
@@ -827,19 +848,10 @@ class PremiumMultiEnvironmentPermission(BasePermission):
             if project.organization.teams.filter(is_demo=True).count() > 0:
                 return False
 
-        has_environments_feature = project.organization.is_feature_available(AvailableFeature.ENVIRONMENTS)
+        environments_feature = project.organization.get_available_feature(AvailableFeature.ENVIRONMENTS)
         current_non_demo_team_count = project.teams.exclude(is_demo=True).count()
-
-        allowed_team_per_project_count = next(
-            (
-                feature.get("limit")
-                for feature in project.organization.available_product_features or []
-                if feature.get("key") == AvailableFeature.ENVIRONMENTS
-            ),
-            None,
-        )
-
-        if has_environments_feature:
+        if environments_feature:
+            allowed_team_per_project_count = environments_feature.get("limit")
             # If allowed_project_count is None then the user is allowed unlimited projects
             if allowed_team_per_project_count is None:
                 return True

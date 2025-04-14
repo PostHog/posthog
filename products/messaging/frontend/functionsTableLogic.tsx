@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { HogFunctionType, HogFunctionTypeType } from '~/types'
+import { HogFunctionKind, HogFunctionType, HogFunctionTypeType } from '~/types'
 
 import type { functionsTableLogicType } from './functionsTableLogicType'
 
@@ -14,6 +14,7 @@ export interface Fuse extends FuseClass<HogFunctionType> {}
 
 export interface FunctionsTableLogicProps {
     type?: HogFunctionTypeType
+    kind?: HogFunctionKind
 }
 export interface HogFunctionsFilter {
     search?: string
@@ -22,9 +23,9 @@ export const functionsTableLogic = kea<functionsTableLogicType>([
     path(['products', 'messaging', 'frontend', 'functionsTableLogic']),
     props({} as FunctionsTableLogicProps),
     key((props: FunctionsTableLogicProps) => props.type ?? 'destination'),
-    connect({
+    connect(() => ({
         values: [projectLogic, ['currentProjectId']],
-    }),
+    })),
     actions({
         deleteHogFunction: (hogFunction: HogFunctionType) => ({ hogFunction }),
         setFilters: (filters: Partial<HogFunctionsFilter>) => ({ filters }),
@@ -48,7 +49,12 @@ export const functionsTableLogic = kea<functionsTableLogicType>([
             {
                 loadHogFunctions: async () => {
                     // TODO: pagination?
-                    return (await api.hogFunctions.list({ types: [props.type ?? 'destination'] })).results
+                    return (
+                        await api.hogFunctions.list({
+                            types: [props.type ?? 'destination'],
+                            kinds: props.kind ? [props.kind] : undefined,
+                        })
+                    ).results
                 },
                 deleteHogFunction: async ({ hogFunction }) => {
                     await deleteWithUndo({

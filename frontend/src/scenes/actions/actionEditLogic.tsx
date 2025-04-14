@@ -10,6 +10,7 @@ import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventD
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { ActionStepType, ActionType } from '~/types'
@@ -35,7 +36,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
     path((key) => ['scenes', 'actions', 'actionEditLogic', key]),
     props({} as ActionEditLogicProps),
     key((props) => props.id || 'new'),
-    connect({
+    connect(() => ({
         actions: [
             actionsModel,
             ['loadActions'],
@@ -45,7 +46,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
             ['loadTags'],
         ],
         values: [sceneLogic, ['activeScene']],
-    }),
+    })),
     actions({
         setAction: (action: Partial<ActionType>, options: SetActionProps = { merge: true }) => ({
             action,
@@ -114,6 +115,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
 
                 lemonToast.success(`Action saved`)
                 actions.resetAction(updatedAction)
+                refreshTreeItem('action', String(action.id))
                 if (!props.id) {
                     router.actions.push(urls.action(action.id))
                 } else {

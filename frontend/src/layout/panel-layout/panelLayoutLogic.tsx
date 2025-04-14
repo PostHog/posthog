@@ -10,9 +10,9 @@ export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 
 export const panelLayoutLogic = kea<panelLayoutLogicType>([
     path(['layout', 'panel-layout', 'panelLayoutLogic']),
-    connect({
+    connect(() => ({
         values: [navigation3000Logic, ['mobileLayout']],
-    }),
+    })),
     actions({
         showLayoutNavBar: (visible: boolean) => ({ visible }),
         showLayoutPanel: (visible: boolean) => ({ visible }),
@@ -26,6 +26,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         setPanelTreeRef: (ref: PanelLayoutTreeRef) => ({ ref }),
         setMainContentRef: (ref: PanelLayoutMainContentRef) => ({ ref }),
         toggleLayoutNavCollapsed: (override?: boolean) => ({ override }),
+        setVisibleSideAction: (sideAction: string) => ({ sideAction }),
     }),
     reducers({
         isLayoutNavbarVisibleForDesktop: [
@@ -104,6 +105,12 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             { persist: true },
             {
                 toggleLayoutNavCollapsed: (state, { override }) => override ?? !state,
+            },
+        ],
+        visibleSideAction: [
+            '',
+            {
+                setVisibleSideAction: (_, { sideAction }) => sideAction,
             },
         ],
     }),

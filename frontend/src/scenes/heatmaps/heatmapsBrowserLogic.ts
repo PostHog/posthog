@@ -49,7 +49,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
     path(['scenes', 'heatmaps', 'heatmapsBrowserLogic']),
     props({} as HeatmapsBrowserLogicProps),
 
-    connect({
+    connect(() => ({
         values: [
             authorizedUrlListLogic({
                 ...defaultAuthorizedUrlProperties,
@@ -60,7 +60,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             ['heatmapEmpty'],
         ],
         actions: [heatmapDataLogic, ['loadHeatmap', 'setFetchFn', 'setHref']],
-    }),
+    })),
 
     actions({
         setBrowserSearch: (searchTerm: string) => ({ searchTerm }),
@@ -227,6 +227,12 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             null as IFrameBanner | null,
             {
                 setIframeBanner: (_, { banner }) => banner,
+            },
+        ],
+        widthOverride: [
+            null as number | null,
+            {
+                setIframeWidth: (_, { width }) => width,
             },
         ],
     }),

@@ -48,9 +48,9 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
     path(['scenes', 'data-management', 'properties', 'propertyDefinitionsTableLogic']),
     props({} as PropertyDefinitionsTableLogicProps),
     key((props) => props.key || 'scene'),
-    connect({
+    connect(() => ({
         values: [groupsModel, ['groupTypes', 'aggregationLabel']],
-    }),
+    })),
     actions({
         loadPropertyDefinitions: (url: string | null = '') => ({
             url,

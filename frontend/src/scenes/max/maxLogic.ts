@@ -1,4 +1,3 @@
-import { captureException } from '@sentry/react'
 import { shuffle } from 'd3'
 import { createParser } from 'eventsource-parser'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
@@ -7,6 +6,7 @@ import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import posthog from 'posthog-js'
 import { projectLogic } from 'scenes/projectLogic'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 
@@ -55,7 +55,7 @@ export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
     props({} as MaxLogicProps),
     key(({ conversationId }) => conversationId || 'new-conversation'),
-    connect({
+    connect(() => ({
         values: [
             projectLogic,
             ['currentProject'],
@@ -67,7 +67,7 @@ export const maxLogic = kea<maxLogicType>([
             actionsModel({ params: 'include_count=1' }),
             ['actions'],
         ],
-    }),
+    })),
     actions({
         askMax: (prompt: string, generationAttempt: number = 0) => ({ prompt, generationAttempt }),
         stopGeneration: true,
@@ -290,7 +290,7 @@ export const maxLogic = kea<maxLogicType>([
                     if (e instanceof ApiError && e.status === 429) {
                         relevantErrorMessage.content = "You've reached my usage limit for now. Please try again later."
                     } else {
-                        captureException(e) // Unhandled error, log to Sentry
+                        posthog.captureException(e) // Unhandled error, log to Sentry
                         console.error(e)
                     }
 

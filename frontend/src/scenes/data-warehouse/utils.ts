@@ -62,3 +62,23 @@ function humanTimeFormatter(hours: number, minutes: number): string {
     const displayHours = hours % 12 || 12 // Convert 0 to 12 for 12 AM
     return `${displayHours}:${minutes.toString().padStart(2, '0')} ${period}`
 }
+
+const typeSizes = {
+    undefined: () => 0,
+    boolean: () => 4,
+    number: () => 8,
+    string: (item: string) => 2 * item.length,
+    object: (item: Record<any, any>) =>
+        !item
+            ? 0
+            : Array.isArray(item)
+            ? item.reduce((total, element) => sizeOfInBytes(element) + total, 0)
+            : Object.keys(item).reduce((total, key) => sizeOfInBytes(key) + sizeOfInBytes(item[key]) + total, 0),
+    function: () => 0,
+    symbol: () => 0,
+    bigint: () => 0,
+}
+
+export const sizeOfInBytes = (value: any): number => {
+    return (typeSizes[typeof value] || (() => 0))(value)
+}

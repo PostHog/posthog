@@ -15,6 +15,7 @@ from posthog.models.product_intent.product_intent import (
 from ...session_recordings.models.session_recording import SessionRecording
 from posthog.test.base import BaseTest
 from posthog.utils import get_instance_realm
+from posthog.models.dashboard import Dashboard
 
 
 class TestProductIntent(BaseTest):
@@ -348,3 +349,125 @@ class TestProductIntent(BaseTest):
             },
             team=self.team,
         )
+
+    def test_has_activated_product_analytics_with_all_criteria(self):
+        self.product_intent.product_type = "product_analytics"
+        self.product_intent.save()
+
+        for i in range(3):
+            Insight.objects.create(team=self.team, name=f"Insight {i}", created_by=self.user)
+
+        Dashboard.objects.create(team=self.team, name="Test Dashboard", created_by=self.user)
+
+        self.team.ingested_event = True
+        self.team.save()
+
+        assert self.product_intent.has_activated_product_analytics() is True
+
+    def test_has_not_activated_product_analytics_without_enough_insights(self):
+        self.product_intent.product_type = "product_analytics"
+        self.product_intent.save()
+
+        for i in range(2):
+            Insight.objects.create(team=self.team, name=f"Insight {i}", created_by=self.user)
+
+        Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
+        self.team.ingested_event = True
+        self.team.save()
+
+        assert self.product_intent.has_activated_product_analytics() is False
+
+        Insight.objects.create(team=self.team, name=f"Insight 3", created_by=self.user)
+
+        assert self.product_intent.has_activated_product_analytics() is True
+
+    def test_has_not_activated_product_analytics_without_dashboard(self):
+        self.product_intent.product_type = "product_analytics"
+        self.product_intent.save()
+
+        for i in range(3):
+            Insight.objects.create(team=self.team, name=f"Insight {i}", created_by=self.user)
+
+        self.team.ingested_event = True
+        self.team.save()
+
+        assert self.product_intent.has_activated_product_analytics() is False
+
+        Dashboard.objects.create(team=self.team, name="Test Dashboard", created_by=self.user)
+
+        assert self.product_intent.has_activated_product_analytics() is True
+
+    def test_has_not_activated_product_analytics_with_default_dashboard(self):
+        self.product_intent.product_type = "product_analytics"
+        self.product_intent.save()
+
+        for i in range(3):
+            Insight.objects.create(team=self.team, name=f"Insight {i}", created_by=self.user)
+
+        self.team.ingested_event = True
+        self.team.save()
+
+        Dashboard.objects.create(team=self.team, name="My App Dashboard")
+
+        assert self.product_intent.has_activated_product_analytics() is False
+
+        Dashboard.objects.create(team=self.team, name="My App Dashboard", created_by=self.user)
+
+        assert self.product_intent.has_activated_product_analytics() is True
+
+    def test_has_not_activated_product_analytics_with_default_insights(self):
+        self.product_intent.product_type = "product_analytics"
+        self.product_intent.save()
+
+        Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
+        self.team.ingested_event = True
+        self.team.save()
+
+        for i in range(3):
+            Insight.objects.create(team=self.team, name=f"Insight {i}")
+
+        assert self.product_intent.has_activated_product_analytics() is False
+
+        for i in range(3):
+            Insight.objects.create(team=self.team, name=f"Insight {i}", created_by=self.user)
+
+        assert self.product_intent.has_activated_product_analytics() is True
+
+    def test_has_not_activated_product_analytics_without_ingested_events(self):
+        self.product_intent.product_type = "product_analytics"
+        self.product_intent.save()
+
+        for i in range(3):
+            Insight.objects.create(team=self.team, name=f"Insight {i}", created_by=self.user)
+
+        Dashboard.objects.create(team=self.team, name="Dashboard", created_by=self.user)
+
+        self.team.ingested_event = False
+        self.team.save()
+
+        assert self.product_intent.has_activated_product_analytics() is False
+
+        self.team.ingested_event = True
+        self.team.save()
+
+        assert self.product_intent.has_activated_product_analytics() is True
+
+    def test_has_activated_surveys_with_launched(self):
+        self.product_intent.product_type = "surveys"
+        self.product_intent.save()
+
+        Survey.objects.create(team=self.team, name="Survey Test", start_date=datetime.now(tz=UTC))
+        assert self.product_intent.has_activated_surveys() is True
+
+    def test_has_not_activated_surveys_with_no_surveys(self):
+        self.product_intent.product_type = "surveys"
+        self.product_intent.save()
+
+        assert self.product_intent.has_activated_surveys() is False
+
+    def test_has_not_activated_surveys_with_unlaunched_survey(self):
+        self.product_intent.product_type = "surveys"
+        self.product_intent.save()
+
+        Survey.objects.create(team=self.team, name="Survey Test")
+        assert self.product_intent.has_activated_surveys() is False

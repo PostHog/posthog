@@ -358,24 +358,46 @@ def validate_rate_limit(value):
         )
 
 
-class TeamProjectMixin(models.Model):
+class RootTeamQuerySet(models.QuerySet):
+    def filter(self, *args, **kwargs):
+        from posthog.models.team import Team
+        from django.db.models import Q, Subquery
+
+        # TODO: Handle team as a an object as well
+
+        if "team_id" in kwargs:
+            team_id = kwargs.pop("team_id")
+            parent_team_subquery = Team.objects.filter(id=team_id).values("parent_team_id")[:1]
+            team_filter = Q(team_id=Subquery(parent_team_subquery)) | Q(
+                team_id=team_id, team__parent_team_id__isnull=True
+            )
+            return super().filter(team_filter, *args, **kwargs)
+        return super().filter(*args, **kwargs)
+
+
+class RootTeamManager(models.Manager):
+    def get_queryset(self):
+        return RootTeamQuerySet(self.model, using=self._db)
+
+    def filter(self, *args, **kwargs):
+        return self.get_queryset().filter(*args, **kwargs)
+
+
+class RootTeamMixin(models.Model):
     """
-    A mixin that ensures project_id is set from team.project_id when saving if not explicitly set.
-    Used for models transitioning from team to project based architecture.
+    This ensures that when the related team has a parent team, the model will use the parent team instead.
+    This should apply to all models that should be "Project" scoped instead of "Environment" scoped.
     """
+
+    # Set the default manager - any models that inherit from this mixin and set a custom
+    # manager (e.g. `objects = CustomManager()`) will override this, so that custom manager
+    # should inherit from RootTeamManager.
+    objects = RootTeamManager()
 
     class Meta:
         abstract = True
 
-    def save(self, *args, **kwargs):
-        team_id = self.team_id  # type: ignore
-        project_id = self.project_id  # type: ignore
-        if not project_id and team_id:
-            from posthog.models.team import Team
-
-            team = Team.objects.filter(id=team_id).only("project_id").first()
-            if team and team.project_id:
-                self.project_id = team.project_id
-            else:
-                raise ValueError("Team or project not found")
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if hasattr(self, "team") and self.team and hasattr(self.team, "parent_team") and self.team.parent_team:  # type: ignore
+            self.team = self.team.parent_team  # type: ignore
         super().save(*args, **kwargs)

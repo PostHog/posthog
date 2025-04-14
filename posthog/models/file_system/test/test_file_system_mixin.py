@@ -25,12 +25,13 @@ class TestFileSystemSyncMixin(TestCase):
         a new FileSystem entry should be created via the Mixin's signals.
         """
         # Create a FeatureFlag
-        flag = FeatureFlag.objects.create(team=self.team, name="My Feature", deleted=False, created_by=self.user)
+        flag = FeatureFlag.objects.create(team=self.team, key="My Feature", deleted=False, created_by=self.user)
         # The Mixin's post_save signal should create a FileSystem row
         fs_entry = FileSystem.objects.filter(team=self.team, type="feature_flag", ref=str(flag.id)).first()
         assert fs_entry is not None
         self.assertEqual(fs_entry.path, "Unfiled/Feature Flags/My Feature")
         self.assertEqual(fs_entry.created_by, self.user)
+        self.assertEqual(fs_entry.shortcut, False)
 
     def test_feature_flag_delete_field_triggers_file_removal_on_save(self):
         """
@@ -38,7 +39,7 @@ class TestFileSystemSyncMixin(TestCase):
         the Mixin's post_save signal should remove the FileSystem entry,
         because DSL config says: `should_delete: lambda instance: instance.deleted`.
         """
-        flag = FeatureFlag.objects.create(team=self.team, name="My Feature", deleted=False, created_by=self.user)
+        flag = FeatureFlag.objects.create(team=self.team, key="My Feature", deleted=False, created_by=self.user)
         self.assertEqual(FileSystem.objects.count(), 1)  # It's created
 
         # Now mark as deleted
@@ -54,7 +55,7 @@ class TestFileSystemSyncMixin(TestCase):
         """
         On a real delete (post_delete), the Mixin should remove the FileSystem entry.
         """
-        flag = FeatureFlag.objects.create(team=self.team, name="Temp Feature", deleted=False, created_by=self.user)
+        flag = FeatureFlag.objects.create(team=self.team, key="Temp Feature", deleted=False, created_by=self.user)
         self.assertEqual(FileSystem.objects.count(), 1)
 
         flag_id = flag.id
@@ -68,17 +69,17 @@ class TestFileSystemSyncMixin(TestCase):
         If a FeatureFlag's name changes, we verify that the FileSystem path
         also updates (depending on your DSL or create_or_update_file logic).
         """
-        flag = FeatureFlag.objects.create(team=self.team, name="Old Name", deleted=False, created_by=self.user)
+        flag = FeatureFlag.objects.create(team=self.team, key="Old Key", deleted=False, created_by=self.user)
         fs_entry = FileSystem.objects.get(team=self.team, type="feature_flag", ref=str(flag.id))
-        self.assertEqual(fs_entry.path, "Unfiled/Feature Flags/Old Name")
+        self.assertEqual(fs_entry.path, "Unfiled/Feature Flags/Old Key")
 
         # Update name
-        flag.name = "New Name"
+        flag.key = "New Key"
         flag.save()
 
         fs_entry.refresh_from_db()
         # Confirm the path changed to the new name
-        self.assertEqual(fs_entry.path, "Unfiled/Feature Flags/New Name")
+        self.assertEqual(fs_entry.path, "Unfiled/Feature Flags/New Key")
 
     def test_experiment_always_saved(self):
         """
@@ -86,11 +87,12 @@ class TestFileSystemSyncMixin(TestCase):
         So we expect the FileSystem entry to always exist, ignoring any 'deleted' field.
         (If your model doesn't have a 'deleted' field, this just ensures it's created.)
         """
-        ff = FeatureFlag.objects.create(team=self.team, name="Beta Feature", created_by=self.user, key="flaggy")
+        ff = FeatureFlag.objects.create(team=self.team, key="Beta Feature", created_by=self.user)
         exp = Experiment.objects.create(team=self.team, name="Exp #1", created_by=self.user, feature_flag=ff)
         fs_entry = FileSystem.objects.filter(team=self.team, type="experiment", ref=str(exp.id)).first()
         assert fs_entry is not None
         self.assertEqual(fs_entry.path, "Unfiled/Experiments/Exp #1")
+        self.assertEqual(fs_entry.shortcut, False)
 
         # If we manually add a field `deleted=True` (if it existed),
         # the DSL says ignore. We'll simulate that:

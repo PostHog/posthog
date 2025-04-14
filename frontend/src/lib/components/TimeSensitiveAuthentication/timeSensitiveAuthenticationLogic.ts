@@ -20,10 +20,10 @@ const LOOKAHEAD_EXPIRY_SECONDS = 60 * 5
 
 export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationLogicType>([
     path(['lib', 'components', 'timeSensitiveAuthenticationLogic']),
-    connect({
+    connect(() => ({
         values: [apiStatusLogic, ['timeSensitiveAuthenticationRequired'], userLogic, ['user']],
         actions: [apiStatusLogic, ['setTimeSensitiveAuthenticationRequired'], userLogic, ['loadUser']],
-    }),
+    })),
     actions({
         setDismissedReauthentication: (value: boolean) => ({ value }),
         setRequiresTwoFactor: (value: boolean) => ({ value }),

@@ -15,7 +15,7 @@ export const settingsLogic = kea<settingsLogicType>([
     props({} as SettingsLogicProps),
     key((props) => props.logicKey ?? 'global'),
     path((key) => ['scenes', 'settings', 'settingsLogic', key]),
-    connect({
+    connect(() => ({
         values: [
             featureFlagLogic,
             ['featureFlags'],
@@ -26,7 +26,7 @@ export const settingsLogic = kea<settingsLogicType>([
             teamLogic,
             ['currentTeam'],
         ],
-    }),
+    })),
 
     actions({
         selectLevel: (level: SettingLevelId) => ({ level }),

@@ -26,16 +26,16 @@ func TestNewFilter(t *testing.T) {
 
 func TestRemoveSubscription(t *testing.T) {
 	subs := []Subscription{
-		{ClientId: "1"},
-		{ClientId: "2"},
-		{ClientId: "3"},
+		{SubID: 1},
+		{SubID: 2},
+		{SubID: 3},
 	}
 
-	result := removeSubscription("2", subs)
+	result := removeSubscription(2, subs)
 
 	assert.Len(t, result, 2)
-	assert.Equal(t, "1", result[0].ClientId)
-	assert.Equal(t, "3", result[1].ClientId)
+	assert.Equal(t, uint64(1), result[0].SubID)
+	assert.Equal(t, uint64(3), result[1].SubID)
 }
 
 func TestUuidFromDistinctId(t *testing.T) {
@@ -95,7 +95,7 @@ func TestFilterRun(t *testing.T) {
 	// Test subscription
 	eventChan := make(chan interface{}, 1)
 	sub := Subscription{
-		ClientId:    "1",
+		SubID:       1,
 		TeamId:      1,
 		Token:       "token1",
 		DistinctId:  "user1",
@@ -153,7 +153,7 @@ func TestFilterRunWithGeoEvent(t *testing.T) {
 	// Test subscription with Geo enabled
 	eventChan := make(chan interface{}, 1)
 	sub := Subscription{
-		ClientId:    "1",
+		SubID:       1,
 		TeamId:      1,
 		Geo:         true,
 		EventChan:   eventChan,
