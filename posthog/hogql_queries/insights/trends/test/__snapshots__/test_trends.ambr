@@ -789,7 +789,8 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                       groups.group_key
+              HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, 'UTC')), 0)) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0))
            GROUP BY day_start,
                     breakdown_value)
@@ -855,7 +856,8 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                       groups.group_key
+              HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, 'UTC')), 0)) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up'), ifNull(equals(e__group_0.properties___industry, 'finance'), 0))
            GROUP BY day_start,
                     breakdown_value)
@@ -1565,7 +1567,8 @@
            FROM groups
            WHERE and(equals(groups.team_id, 99999), equals(index, 2))
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS e__group_2 ON equals(e.`$group_2`, e__group_2.key)
+                    groups.group_key
+           HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, 'UTC')), 0)) AS e__group_2 ON equals(e.`$group_2`, e__group_2.key)
         LEFT JOIN
           (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                   groups.group_type_index AS index,
@@ -1573,7 +1576,8 @@
            FROM groups
            WHERE and(equals(groups.team_id, 99999), equals(index, 0))
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                    groups.group_key
+           HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, 'UTC')), 0)) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, 'sign up'), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_2.properties___name, 'six'), 0)))
         GROUP BY day_start)
      GROUP BY day_start
@@ -1617,7 +1621,8 @@
            FROM groups
            WHERE and(equals(groups.team_id, 99999), equals(index, 2))
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS e__group_2 ON equals(e.`$group_2`, e__group_2.key)
+                    groups.group_key
+           HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, 'UTC')), 0)) AS e__group_2 ON equals(e.`$group_2`, e__group_2.key)
         LEFT JOIN
           (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
                   groups.group_type_index AS index,
@@ -1625,7 +1630,8 @@
            FROM groups
            WHERE and(equals(groups.team_id, 99999), equals(index, 0))
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                    groups.group_key
+           HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, 'UTC')), 0)) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
         WHERE and(equals(e.team_id, 99999), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_2.properties___name, 'six'), 0)), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), equals(e.event, 'sign up')))
      GROUP BY actor_id) AS source
   INNER JOIN
@@ -1643,12 +1649,14 @@
                                                             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'name'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___name, groups.group_type_index AS index, groups.group_key AS key
                                                              FROM groups
                                                              WHERE and(equals(groups.team_id, 99999), equals(index, 2))
-                                                             GROUP BY groups.group_type_index, groups.group_key) AS e__group_2 ON equals(e.`$group_2`, e__group_2.key)
+                                                             GROUP BY groups.group_type_index, groups.group_key
+                                                             HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, 'UTC')), 0)) AS e__group_2 ON equals(e.`$group_2`, e__group_2.key)
                                                           LEFT JOIN
                                                             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry, groups.group_type_index AS index, groups.group_key AS key
                                                              FROM groups
                                                              WHERE and(equals(groups.team_id, 99999), equals(index, 0))
-                                                             GROUP BY groups.group_type_index, groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                                                             GROUP BY groups.group_type_index, groups.group_key
+                                                             HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, 'UTC')), 0)) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
                                                           WHERE and(equals(e.team_id, 99999), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(e__group_2.properties___name, 'six'), 0)), greaterOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), less(timestamp, toDateTime64('2020-01-03 00:00:00.000000', 6, 'UTC')), equals(e.event, 'sign up')))
                                                        GROUP BY actor_id) AS source)))
      GROUP BY person.id
@@ -1703,7 +1711,8 @@
            FROM groups
            WHERE and(equals(groups.team_id, 99999), equals(index, 0))
            GROUP BY groups.group_type_index,
-                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                    groups.group_key
+           HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, 'UTC')), 0)) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-12 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(ifNull(equals(e__group_0.properties___industry, 'finance'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, 'key'), ''), 'null'), '^"|"$', ''), 'value'), 0)))
         GROUP BY day_start)
      GROUP BY day_start
