@@ -4,16 +4,13 @@ import { IconCollapse, IconExpand } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import PanelLayout, { PanelSettings, SettingsToggle } from 'lib/components/PanelLayout/PanelLayout'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { AssigneeSelect } from './AssigneeSelect'
 import { ContextDisplay } from './components/ContextDisplay'
-import { RecordingPlayer } from './components/RecordingPlayer'
 import { StacktraceDisplay } from './components/StacktraceDisplay'
 import { DateRangeFilter, FilterGroup, InternalAccountsFilter } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
@@ -43,17 +40,6 @@ export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 export function ErrorTrackingIssueScene(): JSX.Element {
     const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
     const { loadIssue, updateStatus, updateAssignee } = useActions(errorTrackingIssueSceneLogic)
-
-    const ref = useRef<HTMLDivElement>(null)
-
-    const resizerLogicProps: ResizerLogicProps = {
-        logicKey: 'error-tracking-issue',
-        placement: 'right',
-        containerRef: ref,
-        persistent: true,
-    }
-
-    const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
     useEffect(() => {
         loadIssue()
@@ -87,34 +73,21 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     </div>
                 }
             />
-            <div className="ErrorTrackingIssue flex">
-                <div
-                    className="relative bg-surface-primary flex min-w-[450px]"
-                    ref={ref}
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{
-                        width: desiredSize || 100,
-                    }}
-                >
-                    <div className="space-y-6 overflow-y-auto w-full pt-2">
-                        <div className="space-y-2">
-                            <div className="text-tertiary leading-6 px-2">{issue?.description || 'Unknown'}</div>
-                            <Metadata />
-                        </div>
-                        <div className="px-2 flex items-center flex-col gap-1">
-                            <FilterGroup />
-                            <div className="flex flex-wrap justify-between w-full gap-1">
-                                <DateRangeFilter />
-                                <InternalAccountsFilter />
-                            </div>
-                        </div>
-                        <div>
-                            <EventsTab />
-                        </div>
+            <div className="ErrorTrackingIssue flex flex-col gap-3">
+                <div className="p-1 gap-1 bg-surface-primary border-b">
+                    <div className="flex items-center gap-1">
+                        <DateRangeFilter />
+                        <FilterGroup />
+                        <InternalAccountsFilter />
                     </div>
-                    <Resizer {...resizerLogicProps} offset={1} />
+                    <Metadata />
                 </div>
-                <ExceptionContent />
+                <div className="flex flex-1 gap-3 px-2 pb-2">
+                    <PanelLayout.Panel primary={false} className="w-1/3">
+                        <EventsTab />
+                    </PanelLayout.Panel>
+                    <ExceptionContent />
+                </div>
             </div>
         </ErrorTrackingSetupPrompt>
     )
@@ -125,7 +98,7 @@ const ExceptionContent = (): JSX.Element => {
     const { setShowAllFrames } = useActions(errorTrackingIssueSceneLogic)
 
     return (
-        <PanelLayout column className="flex-1 overflow-y-auto p-2">
+        <PanelLayout column className="flex-1 overflow-y-auto">
             <PanelLayout.Panel primary={false}>
                 <ContextDisplay />
             </PanelLayout.Panel>
@@ -140,9 +113,6 @@ const ExceptionContent = (): JSX.Element => {
                     />
                 </PanelSettings>
                 <StacktraceDisplay />
-            </PanelLayout.Panel>
-            <PanelLayout.Panel primary={false}>
-                <RecordingPlayer />
             </PanelLayout.Panel>
         </PanelLayout>
     )
