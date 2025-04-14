@@ -34,6 +34,7 @@ def select_from_groups_table(requested_fields: dict[str, list[str | int]]):
         select_fields=requested_fields,
         group_fields=["index", "key"],
         argmax_field="updated_at",
+        deleted_field="is_deleted",
     )
 
     return select_query
@@ -49,19 +50,10 @@ def join_with_group_n_table(group_index: int):
             raise ResolutionError("No fields requested from person_distinct_ids")
 
         select_query = select_from_groups_table(join_to_add.fields_accessed)
-        select_query.where = ast.And(
-            expressions=[
-                ast.CompareOperation(
-                    left=ast.Field(chain=["index"]),
-                    op=ast.CompareOperationOp.Eq,
-                    right=ast.Constant(value=group_index),
-                ),
-                ast.CompareOperation(
-                    left=ast.Field(chain=["is_deleted"]),
-                    op=ast.CompareOperationOp.Eq,
-                    right=ast.Constant(value=False),
-                ),
-            ]
+        select_query.where = ast.CompareOperation(
+            left=ast.Field(chain=["index"]),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value=group_index),
         )
 
         join_expr = ast.JoinExpr(table=select_query)
