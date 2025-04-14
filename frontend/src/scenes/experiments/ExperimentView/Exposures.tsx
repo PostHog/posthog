@@ -3,6 +3,7 @@ import { LemonButton, LemonTable, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { Chart, ChartConfiguration } from 'chart.js/auto'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef } from 'react'
 
@@ -45,14 +46,13 @@ export function Exposures(): JSX.Element {
             type: 'line',
             data: {
                 labels: exposures.timeseries[0].days,
-                datasets: exposures.timeseries.map((series: Record<string, any>) => ({
+                datasets: exposures.timeseries.map((series: Record<string, any>, index: number) => ({
                     label: series.variant,
                     data: series.exposure_counts,
-                    borderColor: 'rgb(17 17 17 / 60%)',
-                    backgroundColor: 'rgb(17 17 17 / 40%)',
-                    fill: true,
+                    borderColor: getSeriesColor(index),
+                    backgroundColor: getSeriesBackgroundColor(index),
+                    fill: false,
                     tension: 0,
-                    stack: 'stack1',
                     borderWidth: 2,
                     pointRadius: 0,
                 })),
@@ -67,7 +67,6 @@ export function Exposures(): JSX.Element {
                 },
                 scales: {
                     y: {
-                        stacked: true,
                         beginAtZero: true,
                         grid: {
                             display: true,

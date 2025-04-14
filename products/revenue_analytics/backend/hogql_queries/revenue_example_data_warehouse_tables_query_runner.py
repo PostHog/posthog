@@ -3,7 +3,6 @@ from typing import cast, Union
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql.database.database import create_hogql_database, Database
 from posthog.hogql.hogql import HogQLContext
 from posthog.schema import (
@@ -12,9 +11,10 @@ from posthog.schema import (
     CachedRevenueExampleDataWarehouseTablesQueryResponse,
 )
 from ..models import RevenueAnalyticsRevenueView
+from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
 
-class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
+class RevenueExampleDataWarehouseTablesQueryRunner(RevenueAnalyticsQueryRunner):
     query: RevenueExampleDataWarehouseTablesQuery
     response: RevenueExampleDataWarehouseTablesQueryResponse
     cached_response: CachedRevenueExampleDataWarehouseTablesQueryResponse
@@ -47,18 +47,14 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
                     ast.SelectQuery(
                         select=[
                             ast.Alias(alias="view_name", expr=ast.Constant(value=view_name)),
-                            ast.Alias(alias="distinct_id", expr=ast.Field(chain=[view_name, "id"])),
-                            ast.Alias(
-                                alias="original_revenue", expr=ast.Field(chain=[view_name, "adjusted_original_amount"])
-                            ),
-                            ast.Alias(
-                                alias="original_currency", expr=ast.Field(chain=[view_name, "original_currency"])
-                            ),
-                            ast.Alias(alias="revenue", expr=ast.Field(chain=[view_name, "amount"])),
-                            ast.Alias(alias="currency", expr=ast.Field(chain=[view_name, "currency"])),
+                            ast.Alias(alias="distinct_id", expr=ast.Field(chain=["id"])),
+                            ast.Alias(alias="original_revenue", expr=ast.Field(chain=["adjusted_original_amount"])),
+                            ast.Alias(alias="original_currency", expr=ast.Field(chain=["original_currency"])),
+                            ast.Alias(alias="revenue", expr=ast.Field(chain=["amount"])),
+                            ast.Alias(alias="currency", expr=ast.Field(chain=["currency"])),
                         ],
                         select_from=ast.JoinExpr(table=ast.Field(chain=[view_name])),
-                        order_by=[ast.OrderExpr(expr=ast.Field(chain=[view_name, "timestamp"]), order="DESC")],
+                        order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
                     )
                 )
 

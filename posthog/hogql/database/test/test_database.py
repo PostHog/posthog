@@ -738,6 +738,49 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         print_ast(parse_select("SELECT person_id FROM warehouse_table"), context, dialect="clickhouse")
 
+    def test_data_warehouse_events_modifiers_with_dot_notation(self):
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            source_type=ExternalDataSource.Type.STRIPE,
+        )
+        DataWarehouseTable.objects.create(
+            name="stripe_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="s3://test/*",
+            columns={"id": "String", "customer_id": "String", "created": "DateTime64(3, 'UTC')"},
+        )
+
+        # Table should be accessible via dot notation (stripe.table)
+        modifiers = HogQLQueryModifiers(
+            dataWarehouseEventsModifiers=[
+                DataWarehouseEventsModifier(
+                    table_name="stripe.table",
+                    id_field="id",
+                    timestamp_field="created",
+                    distinct_id_field="customer_id",
+                )
+            ]
+        )
+
+        db = create_hogql_database(team=self.team, modifiers=modifiers)
+
+        # Ensure the correct table was retrieved by checking the original table name in dot notation mapping
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+
+        # Doesn't throw
+        print_ast(parse_select("SELECT id, timestamp, distinct_id FROM stripe.table"), context, dialect="clickhouse")
+
     def test_database_warehouse_resolve_field_through_linear_joins_basic_join(self):
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
