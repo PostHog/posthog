@@ -465,7 +465,7 @@ impl FlushBatch {
     // Take the current batch, replacing it in memory with an empty one. Used along with "merge"
     // to let us flush without holding the batch lock for the duration of the flush
     fn take(&mut self) -> Self {
-        std::mem::take(self)
+        std::mem::replace(self, FlushBatch::new(self.should_compress_vm_state))
     }
 
     // Combine two batches, setting the next mandatory flush to the earliest of the two
