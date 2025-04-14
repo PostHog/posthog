@@ -8,10 +8,4 @@
     & .LemonCollapsePanel > .LemonButton:hover:has(.LemonSegmentedButton:hover) {
         background-color: inherit;
     }
-
-    & > .ErrorTrackingIssue__left-column {
-        &::-webkit-scrollbar {
-            display: none;
-        }
-    }
 }

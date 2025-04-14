@@ -27,7 +27,6 @@ type SelectedDataType =
     | null
 
 export const Metadata = (): JSX.Element => {
-    const [isChartExpanded, setIsChartExpanded] = useState(true)
     const { aggregations, summaryLoading, issueLoading, firstSeen, lastSeen } = useValues(errorTrackingIssueSceneLogic)
     const [hoveredDatum, setHoveredDatum] = useState<SelectedDataType>(null)
     const sparklineData = useSparklineDataIssueScene()
@@ -52,7 +51,7 @@ export const Metadata = (): JSX.Element => {
 
     return (
         <>
-            <div className="flex justify-between items-center h-[30px] px-2 flex-wrap">
+            <div className="flex justify-between items-center p-2 flex-wrap h-[36px]">
                 {match(hoveredDatum)
                     .when(
                         (data) => shouldRenderIssueMetrics(data),

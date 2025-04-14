@@ -38,6 +38,7 @@ export function StacktraceDisplay({ className }: { className?: string }): JSX.El
                         exceptionList={exceptionList}
                         fingerprintRecords={fingerprintRecords}
                         onFrameContextClick={(_, e) => cancelEvent(e)}
+                        embedded
                     />
                 ))
                 .with([false, false, false], () => (

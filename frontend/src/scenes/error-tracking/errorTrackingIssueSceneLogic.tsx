@@ -22,6 +22,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb } from '~/types'
 
+import { RuntimeIcon } from './components/RuntimeIcon'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from './queries'
@@ -104,24 +105,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     }),
 
     selectors({
-        breadcrumbs: [
-            (s) => [s.issue],
-            (issue: ErrorTrackingRelationalIssue | null): Breadcrumb[] => {
-                const exceptionType: string = issue?.name || 'Issue'
-                return [
-                    {
-                        key: Scene.ErrorTracking,
-                        name: 'Error tracking',
-                        path: urls.errorTracking(),
-                    },
-                    {
-                        key: [Scene.ErrorTrackingIssue, exceptionType],
-                        name: exceptionType,
-                    },
-                ]
-            },
-        ],
-
         [SIDE_PANEL_CONTEXT_KEY]: [
             (_, p) => [p.id],
             (issueId): SidePanelSceneContext => {
@@ -175,6 +158,36 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         sessionId: [
             (s) => [s.properties],
             (properties: Record<string, string> | null) => (properties ? getSessionId(properties) : undefined),
+        ],
+
+        breadcrumbs: [
+            (s) => [s.issue, s.exceptionAttributes],
+            (issue, exceptionAttributes): Breadcrumb[] => {
+                const exceptionType = issue?.name || 'Issue'
+
+                const name =
+                    issue?.name && exceptionAttributes && exceptionAttributes.runtime ? (
+                        <div className="flex gap-2 items-center h-7">
+                            {exceptionAttributes && <RuntimeIcon runtime={exceptionAttributes.runtime} />}
+                            <div className="font-bold text-lg">{issue?.name || 'Unknown'}</div>
+                            {/* TODO: add this back in */}
+                            {/* {part && <FingerprintRecordPartDisplay part={part} />} */}
+                        </div>
+                    ) : (
+                        exceptionType
+                    )
+                return [
+                    {
+                        key: Scene.ErrorTracking,
+                        name: 'Error tracking',
+                        path: urls.errorTracking(),
+                    },
+                    {
+                        key: [Scene.ErrorTrackingIssue, exceptionType],
+                        name,
+                    },
+                ]
+            },
         ],
     }),
 

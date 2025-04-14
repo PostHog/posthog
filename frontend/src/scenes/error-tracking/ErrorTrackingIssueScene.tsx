@@ -1,6 +1,5 @@
 import './ErrorTracking.scss'
 
-import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import PanelLayout, { PanelSettings, SettingsToggle } from 'lib/components/PanelLayout/PanelLayout'
@@ -13,7 +12,6 @@ import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { AssigneeSelect } from './AssigneeSelect'
 import { ContextDisplay } from './components/ContextDisplay'
-import { IssueCard } from './components/IssueCard'
 import { RecordingPlayer } from './components/RecordingPlayer'
 import { StacktraceDisplay } from './components/StacktraceDisplay'
 import { DateRangeFilter, FilterGroup, InternalAccountsFilter } from './ErrorTrackingFilters'
@@ -90,27 +88,28 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             />
             <div className="ErrorTrackingIssue flex">
                 <div
-                    className="ErrorTrackingIssue__left-column relative bg-surface-primary overflow-y-auto"
+                    className="relative bg-surface-primary flex min-w-[450px]"
                     ref={ref}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         width: desiredSize || 100,
                     }}
                 >
-                    <div className="p-2 space-y-2">
-                        <IssueCard />
-                        <LemonDivider />
-                        <div className="flex items-center flex-col gap-1">
+                    <div className="space-y-6 overflow-y-auto w-full pt-2">
+                        <div className="space-y-2">
+                            <div className="text-tertiary leading-6 px-2">{issue?.description || 'Unknown'}</div>
+                            <Metadata />
+                        </div>
+                        <div className="px-2 flex items-center flex-col gap-1">
                             <FilterGroup />
-                            <div className="h-full flex flex-wrap justify-center w-full gap-2">
+                            <div className="flex flex-wrap justify-between w-full gap-1">
                                 <DateRangeFilter />
                                 <InternalAccountsFilter />
                             </div>
                         </div>
-                        <Metadata />
-                    </div>
-                    <div>
-                        <EventsTab />
+                        <div>
+                            <EventsTab />
+                        </div>
                     </div>
                     <Resizer {...resizerLogicProps} offset={1} />
                 </div>
@@ -129,7 +128,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     onClick={() => setShowAllFrames(!showAllFrames)}
                                 />
                             </PanelSettings>
-                            <StacktraceDisplay className="p-2" />
+                            <StacktraceDisplay />
                         </PanelLayout.Panel>
                         <PanelLayout.Panel primary={false}>
                             <PanelSettings title="Replay" border="bottom" />
