@@ -988,7 +988,8 @@
                  FROM groups
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
-                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                          groups.group_key
+                 HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, 'UTC')), 0)) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -1072,7 +1073,8 @@
                  FROM groups
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
-                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                          groups.group_key
+                 HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, 'UTC')), 0)) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -1163,7 +1165,8 @@
                  FROM groups
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
-                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                          groups.group_key
+                 HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, 'UTC')), 0)) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -1242,7 +1245,8 @@
                  FROM groups
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
-                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                          groups.group_key
+                 HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, 'UTC')), 0)) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -1324,7 +1328,8 @@
                  FROM groups
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
-                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                          groups.group_key
+                 HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, 'UTC')), 0)) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -1406,7 +1411,8 @@
                  FROM groups
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
-                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                          groups.group_key
+                 HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, 'UTC')), 0)) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
@@ -1488,7 +1494,8 @@
                  FROM groups
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
-                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                          groups.group_key
+                 HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, 'UTC')), 0)) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
               WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
