@@ -7331,7 +7331,8 @@
                 "field_traverser",
                 "expression",
                 "view",
-                "materialized_view"
+                "materialized_view",
+                "unknown"
             ],
             "type": "string"
         },

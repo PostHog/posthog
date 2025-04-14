@@ -786,6 +786,7 @@ class DatabaseSerializedFieldType(StrEnum):
     EXPRESSION = "expression"
     VIEW = "view"
     MATERIALIZED_VIEW = "materialized_view"
+    UNKNOWN = "unknown"
 
 
 class DateRange(BaseModel):

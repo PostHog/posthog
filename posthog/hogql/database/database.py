@@ -27,6 +27,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
     VirtualTable,
+    UnknownDatabaseField,
 )
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
@@ -937,6 +938,15 @@ def serialize_fields(
                         name=field_key,
                         hogql_value=hogql_value,
                         type=DatabaseSerializedFieldType.ARRAY,
+                        schema_valid=schema_valid,
+                    )
+                )
+            elif isinstance(field, UnknownDatabaseField):
+                field_output.append(
+                    DatabaseSchemaField(
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.UNKNOWN,
                         schema_valid=schema_valid,
                     )
                 )
