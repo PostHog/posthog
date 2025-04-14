@@ -1,8 +1,8 @@
 import concurrent.futures
 import inspect
 import json
+import typing
 from collections.abc import Sequence
-from typing import Any
 
 import deltalake as deltalake
 import deltalake.exceptions
@@ -20,6 +20,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KE
 from posthog.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
 from posthog.warehouse.models import ExternalDataJob
 from posthog.warehouse.s3 import get_s3_client
+
+MergeStatistics = dict[str, typing.Any]
 
 
 class DeltaTableHelper:
@@ -126,7 +128,7 @@ class DeltaTableHelper:
         self._is_first_sync = True
 
     def write_to_deltalake(
-        self, data: pa.Table, is_incremental: bool, chunk_index: int, primary_keys: Sequence[Any] | None
+        self, data: pa.Table, is_incremental: bool, chunk_index: int, primary_keys: Sequence[str] | None
     ) -> deltalake.DeltaTable:
         logger = self.logger.bind(is_first_sync=str(self._is_first_sync))
 
@@ -151,70 +153,13 @@ class DeltaTableHelper:
             normalized_primary_keys = [
                 normalize_column_name(x) for x in primary_keys if normalize_column_name(x) in py_table_column_names
             ]
-
             predicate_ops = [f"source.{c} = target.{c}" for c in normalized_primary_keys]
+
             if use_partitioning:
-                predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
+                self.merge_partitioned_delta_table(delta_table, data, predicate_ops)
 
-                # Group the table by the partition key and merge multiple times with streamed_exec=True for optimised merging
-                unique_partitions = pc.unique(data[PARTITION_KEY])  # type: ignore
-
-                logger.debug("Running %d optimised merges", len(unique_partitions))
-
-                future_to_partition = {}
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    for partition in unique_partitions:
-                        partition_predicate_ops = predicate_ops.copy()
-                        partition_predicate_ops.append(f"target.{PARTITION_KEY} = '{partition}'")
-                        predicate = " AND ".join(partition_predicate_ops)
-
-                        filtered_table = data.filter(pc.equal(data[PARTITION_KEY], partition))
-
-                        logger.debug("Submitting merge for '%s' with predicate '%s'", partition, predicate)
-
-                        future_to_partition[
-                            executor.submit(
-                                delta_table.merge(
-                                    source=filtered_table,
-                                    source_alias="source",
-                                    target_alias="target",
-                                    predicate=predicate,
-                                    streamed_exec=True,
-                                )
-                                .when_matched_update_all()
-                                .when_not_matched_insert_all()
-                                .execute
-                            )
-                        ] = partition
-
-                    for future in concurrent.futures.as_completed(future_to_partition):
-                        partition = future_to_partition[future]
-
-                        try:
-                            merge_stats = future.result()
-                        except Exception as exc:
-                            logger.exception("Failed to merge partition %s: %s", partition, exc)
-                            raise
-                        else:
-                            logger.debug(
-                                "Stats for successful merge for partition '%s': %s",
-                                partition,
-                                json.dumps(merge_stats),
-                            )
             else:
-                merge_stats = (
-                    delta_table.merge(
-                        source=data,
-                        source_alias="source",
-                        target_alias="target",
-                        predicate=" AND ".join(predicate_ops),
-                        streamed_exec=False,
-                    )
-                    .when_matched_update_all()
-                    .when_not_matched_insert_all()
-                    .execute()
-                )
-                logger.debug("Stats for successful merge: %s", merge_stats)
+                _ = self.merge_delta_table(delta_table, data, predicate_ops)
 
         else:
             mode = "append"
@@ -260,6 +205,102 @@ class DeltaTableHelper:
         assert delta_table is not None
 
         return delta_table
+
+    def merge_partitioned_delta_table(
+        self,
+        delta_table: deltalake.DeltaTable,
+        data: pa.Table,
+        predicate_ops: list[str],
+        max_workers: int | None = None,
+    ) -> None:
+        """Execute merges of data partitions into partitioned delta table.
+
+        This method orchestrates the execution of multiple merges (one per
+        partition) concurrently. Assuming
+
+        Arguments:
+            delta_table: The delta table we are merging data into.
+            data: The data we are merging into the delta table.
+            predicate_ops: Merging predicate clauses.
+            max_workers: Max number of threads to execute merges asynchronously.
+                By default (i.e. passing `None`), we leave it up to
+                `concurrent.futures.ThreadPoolExecutor` to decide how many
+                workers to use.
+        """
+        logger = self.logger.bind(is_first_sync=str(self._is_first_sync), table_uri=delta_table.table_uri)
+
+        predicate_ops = predicate_ops.copy()
+        predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
+
+        # Group the table by the partition key and merge multiple times with streamed_exec=True for optimised merging
+        unique_partitions = pc.unique(data[PARTITION_KEY])  # type: ignore
+        logger.debug("Running %d optimised merges", len(unique_partitions))
+
+        future_to_partition: dict[concurrent.futures.Future[MergeStatistics], str] = {}
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for partition in unique_partitions:
+                partition_predicate_ops = predicate_ops.copy()
+                partition_predicate_ops.append(f"target.{PARTITION_KEY} = '{partition}'")
+
+                filtered_table = data.filter(pc.equal(data[PARTITION_KEY], partition))
+
+                logger.debug(
+                    "Submitting merge for partition '%s'",
+                    partition,
+                )
+
+                future_to_partition[
+                    executor.submit(
+                        self.merge_delta_table, delta_table, filtered_table, partition_predicate_ops, streamed_exc=True
+                    )
+                ] = partition
+
+            for future in concurrent.futures.as_completed(future_to_partition):
+                partition = future_to_partition[future]
+
+                try:
+                    _ = future.result()
+                except Exception as exc:
+                    logger.exception("Failed to merge partition %s: %s", partition, exc)
+                    raise
+                else:
+                    logger.debug("Successfully merged partition %s: %s", partition)
+
+    def merge_delta_table(
+        self, delta_table: deltalake.DeltaTable, data: pa.Table, predicate_ops: list[str], streamed_exc: bool = False
+    ) -> MergeStatistics:
+        """Merge provided data into a delta table with provided predicate.
+
+        Arguments:
+            delta_table: The delta table we are merging data into.
+            data: The data we are merging into the delta table.
+            predicate_ops: Merging predicate clauses.
+            streamed_exc: Passed along to merge call. Setting to `True` can
+                enable a plan with less memory usage.
+        """
+        logger = self.logger.bind(is_first_sync=str(self._is_first_sync), table_uri=delta_table.table_uri)
+
+        predicate = " AND ".join(predicate_ops)
+
+        logger.debug("Merging with predicate '%s'", predicate)
+
+        merge_stats = (
+            delta_table.merge(
+                source=data,
+                source_alias="source",
+                target_alias="target",
+                predicate=predicate,
+                streamed_exec=streamed_exc,
+            )
+            .when_matched_update_all()
+            .when_not_matched_insert_all()
+            .execute()
+        )
+
+        logger.debug("Stats for successful merge: %s", json.dumps(merge_stats))
+
+        return merge_stats
 
     def compact_table(self) -> None:
         table = self.get_delta_table()
