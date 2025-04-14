@@ -79,7 +79,7 @@ impl TryFrom<Value> for Operation {
             return Err(VmError::NotAnOperation(val))?;
         };
 
-        if num <= Self::CloseUpvalue as i64 && num > Self::GetGlobal as i64 {
+        if num >= Self::GetGlobal as i64 && num <= Self::CloseUpvalue as i64 {
             // TODO - this is deeply unhinged
             Ok(unsafe { std::mem::transmute::<u8, Operation>(num as u8) })
         } else {
