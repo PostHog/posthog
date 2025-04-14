@@ -3,6 +3,7 @@ import dataclasses
 import datetime as dt
 import json
 import typing
+import statistics
 
 import temporalio.activity
 import temporalio.common
@@ -161,26 +162,56 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
 
         # Compare data for sessions in both
         all_differing_sessions: list[str] = []
+        all_differing_sessions_excluding_active_ms: list[str] = []
         differing_sessions_count = 0
+        active_ms_diffs_percentage: list[float] = []
+
         for session_id in set(v1_sessions.keys()) & set(v2_sessions.keys()):
             v1_data = v1_sessions[session_id]
             v2_data = v2_sessions[session_id]
 
+            # Calculate active_ms percentage difference
+            v1_active_ms = v1_data[FIELD_NAMES.index("active_milliseconds") + 1]  # +1 because session_id is at index 0
+            v2_active_ms = v2_data[FIELD_NAMES.index("active_milliseconds") + 1]
+            if v1_active_ms > 0:  # Avoid division by zero
+                diff_percentage = ((v2_active_ms - v1_active_ms) / v1_active_ms) * 100
+                active_ms_diffs_percentage.append(diff_percentage)
+
             # Compare each field and collect differences
             differences = []
+            differences_excluding_active_ms = []
             for i, field_name in enumerate(FIELD_NAMES, start=1):  # start=1 because session_id is at index 0
                 if v1_data[i] != v2_data[i]:
-                    differences.append({"field": field_name, "v1_value": v1_data[i], "v2_value": v2_data[i]})
+                    diff = {"field": field_name, "v1_value": v1_data[i], "v2_value": v2_data[i]}
+                    differences.append(diff)
+                    if field_name != "active_milliseconds":
+                        differences_excluding_active_ms.append(diff)
 
             if differences:
                 all_differing_sessions.append(session_id)
                 differing_sessions_count += 1
-                # Only log detailed differences if within limit
-                if not inputs.window_result_limit or differing_sessions_count <= inputs.window_result_limit:
+                # Only log detailed differences if within limit and there are differences beyond active_milliseconds
+                if (
+                    not inputs.window_result_limit or differing_sessions_count <= inputs.window_result_limit
+                ) and differences_excluding_active_ms:
                     await logger.ainfo("Found differences in session", session_id=session_id, differences=differences)
+
+            if differences_excluding_active_ms:
+                all_differing_sessions_excluding_active_ms.append(session_id)
 
         end_time = dt.datetime.now()
         duration = (end_time - start_time).total_seconds()
+
+        # Calculate active_ms statistics
+        active_ms_stats = {}
+        if active_ms_diffs_percentage:
+            active_ms_stats = {
+                "avg_percentage_diff": round(statistics.mean(active_ms_diffs_percentage), 2),
+                "std_dev_percentage_diff": round(
+                    statistics.stdev(active_ms_diffs_percentage) if len(active_ms_diffs_percentage) > 1 else 0, 2
+                ),
+                "samples": len(active_ms_diffs_percentage),
+            }
 
         # Log summary
         await logger.ainfo(
@@ -191,6 +222,8 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
             only_in_v1_count=len(only_in_v1),
             only_in_v2_count=len(only_in_v2),
             total_differing_sessions=len(all_differing_sessions),
+            total_differing_sessions_excluding_active_ms=len(all_differing_sessions_excluding_active_ms),
+            active_ms_stats=active_ms_stats,
             time_range={
                 "started_after": started_after.isoformat(),
                 "started_before": started_before.isoformat(),
