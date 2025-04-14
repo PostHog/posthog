@@ -37,7 +37,9 @@ async fn main() {
     //   with_level: Show log level (ERROR, INFO, etc)
     //   with_filter: Use RUST_LOG env var to control verbosity
     let fmt_layer = fmt::layer()
-        .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
+        .with_span_events(
+            FmtSpan::NEW | FmtSpan::CLOSE | FmtSpan::ENTER | FmtSpan::EXIT | FmtSpan::ACTIVE,
+        )
         .with_target(true)
         .with_thread_ids(true)
         .with_level(true)

@@ -133,7 +133,11 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             flag_evaluation_state.set_static_cohort_matches(cohort_results);
             cohort_processing_timer.fin();
         } else {
-            // If there are no matches, what to do? Should I set it as nothing?  Or an empty map?
+            // TRICKY: if there are no static cohorts to check, we want to return an empty map to show that
+            // we checked the cohorts and found no matches. I want to differentiate from returning None, which
+            // would indicate that that we had an error doing this evaluation in the first place.
+            // i.e.: if there are no static cohort ID matches, it means we checked, and if there's None, it means something
+            // went wrong.  This is handled in the caller.
             flag_evaluation_state.set_static_cohort_matches(HashMap::new());
         }
     }
