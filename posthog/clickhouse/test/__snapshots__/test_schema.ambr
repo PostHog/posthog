@@ -197,7 +197,7 @@
       created_at DateTime64,
       team_id Int64,
       group_properties VARCHAR,
-      is_deleted Boolean DEFAULT false
+      is_deleted Boolean
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
   
@@ -974,7 +974,7 @@
       created_at DateTime64,
       team_id Int64,
       group_properties VARCHAR,
-      is_deleted Boolean DEFAULT false
+      is_deleted Boolean
       
   , _timestamp DateTime
   , _offset UInt64
@@ -1258,7 +1258,7 @@
       created_at DateTime64,
       team_id Int64,
       group_properties VARCHAR,
-      is_deleted Boolean DEFAULT false
+      is_deleted Boolean
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
   
@@ -3580,7 +3580,7 @@
       created_at DateTime64,
       team_id Int64,
       group_properties VARCHAR,
-      is_deleted Boolean DEFAULT false
+      is_deleted Boolean
       
   , _timestamp DateTime
   , _offset UInt64
