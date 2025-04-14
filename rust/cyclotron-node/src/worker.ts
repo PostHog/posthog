@@ -6,7 +6,6 @@ import {
     CyclotronJobState,
     CyclotronJobUpdate,
     CyclotronPoolConfig,
-    CyclotronWorkerTuningConfig,
 } from './types'
 
 const parseJob = (job: CyclotronJob): CyclotronJob => {
@@ -18,7 +17,8 @@ const parseJob = (job: CyclotronJob): CyclotronJob => {
     }
 }
 
-export type CyclotronWorkerConfig = {
+// Config specific to the node worker
+type CyclotronWorkerNodeConfig = {
     pool: CyclotronPoolConfig
     /** The queue to be consumed from */
     queueName: string
@@ -34,21 +34,29 @@ export type CyclotronWorkerConfig = {
     includeEmptyBatches?: boolean
 }
 
+
+type CyclotronWorkerInternalConfig = {
+    heartbeatWindowSeconds: number, // Defaults to 5
+    lingerTimeMs: number, // Defaults to 500
+    maxUpdatesBuffered: number, // Defaults to 100
+    maxBytesBuffered: number, // Defaults to 10MB
+    flushLoopIntervalMs: number, // Defaults to 10
+    shouldCompressVmState: boolean, // Defaults to "false"
+    shouldUseBulkJobCopy: boolean, // Defaults to "false"
+}
+
+
+export type CyclotronWorkerConfig = CyclotronWorkerNodeConfig & CyclotronWorkerInternalConfig
+
+
+
 export class CyclotronWorker {
     isConsuming: boolean = false
     lastHeartbeat: Date = new Date()
 
     private consumerLoopPromise: Promise<void> | null = null
 
-    constructor(private config: CyclotronWorkerConfig, private tuning?: CyclotronWorkerTuningConfig) {
-        const defaultTuning: CyclotronWorkerTuningConfig = {
-            heartbeatWindowSeconds: 5,
-            lingerTimeMs: 500,
-            maxUpdatesBuffered: 100,
-            maxBytesBuffered: 10000000,
-            flushLoopIntervalMs: 10,
-        }
-        this.tuning = { ...defaultTuning, ...this.tuning }
+    constructor(private config: CyclotronWorkerConfig) {
         this.config = config
     }
 
@@ -64,9 +72,19 @@ export class CyclotronWorker {
             throw new Error('Already consuming')
         }
 
+        const config: CyclotronWorkerInternalConfig = {
+            heartbeatWindowSeconds: this.config.heartbeatWindowSeconds ?? 5,
+            lingerTimeMs: this.config.lingerTimeMs ?? 500,
+            maxUpdatesBuffered: this.config.maxUpdatesBuffered ?? 100,
+            maxBytesBuffered: this.config.maxBytesBuffered ?? 10000000,
+            flushLoopIntervalMs: this.config.flushLoopIntervalMs ?? 10,
+            shouldCompressVmState: this.config.shouldCompressVmState ?? false,
+            shouldUseBulkJobCopy: this.config.shouldUseBulkJobCopy ?? false,
+        }
+
         await cyclotron.maybeInitWorker(
             JSON.stringify(convertToInternalPoolConfig(this.config.pool)),
-            JSON.stringify(this.tuning)
+            JSON.stringify(config)
         )
 
         this.isConsuming = true
