@@ -447,12 +447,14 @@ export class IngestionConsumer {
             })
 
             // Each time a message flows through the ingestion consumer we add a breadcrumb to the event
-            const existingBreadcrumbs = Array.isArray(event.properties?.kafka_consumer_breadcrumbs)
-                ? event.properties.kafka_consumer_breadcrumbs
+            const eventProperties = event.properties ?? {}
+            const existingBreadcrumbs = Array.isArray(eventProperties.kafka_consumer_breadcrumbs)
+                ? eventProperties.kafka_consumer_breadcrumbs
                 : []
 
+            // Store the breadcrumb in event properties
             event.properties = {
-                ...(event.properties || {}),
+                ...eventProperties,
                 kafka_consumer_breadcrumbs: [
                     ...existingBreadcrumbs,
                     {

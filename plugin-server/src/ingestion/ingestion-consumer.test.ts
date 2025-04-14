@@ -152,14 +152,16 @@ describe('IngestionConsumer', () => {
             const producedMessages = getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
             expect(producedMessages.length).toBe(1)
 
-            // Parse the properties which are stored as a JSON string
+            // Get the processed event
             const processedEvent = producedMessages[0].value as any
+
+            // Parse the properties which are stored as a JSON string
             const properties =
                 typeof processedEvent.properties === 'string'
                     ? parseJSON(processedEvent.properties)
                     : processedEvent.properties
 
-            // Verify the breadcrumbs were added
+            // Verify the breadcrumbs were added under properties
             expect(properties).toHaveProperty('kafka_consumer_breadcrumbs')
 
             // Verify the breadcrumb structure
