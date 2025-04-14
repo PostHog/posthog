@@ -58,6 +58,13 @@ def elements_to_string(elements: list[Element]) -> str:
 
 
 def chain_to_elements(chain: str) -> list[Element]:
+    """
+    Converts an elements chain string into a list of Element objects.
+    Since for example in the elements API this could be called on a large list
+    which has a limited number of unique elements_chains,
+    we have a limited LRU in-memory cache
+    conversion is completely deterministic, so can be cached indefinitely
+    """
     elements = []
     for idx, el_string in enumerate(re.findall(split_chain_regex, chain)):
         el_string_split = re.findall(split_class_attributes, el_string)[0]

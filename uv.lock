@@ -598,7 +598,7 @@ wheels = [
 
 [[package]]
 name = "clickhouse-connect"
-version = "0.8.11"
+version = "0.8.17"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "certifi" },
@@ -607,18 +607,18 @@ dependencies = [
     { name = "urllib3" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/85/46/f4ce13ecad06d1f207f0c7f1e381bb66cf523d68a9f6593e145cd471c344/clickhouse_connect-0.8.11.tar.gz", hash = "sha256:c5df47abd5524500df0f4e83aa9502fe0907664e7117ec04d2d3604a9839f15c", size = 89940 }
+sdist = { url = "https://files.pythonhosted.org/packages/c2/c2/e46db00486e02007551ff9ba8880ebee9f6d564b26b9323bc9f83f961849/clickhouse_connect-0.8.17.tar.gz", hash = "sha256:16405a37f8229a83956fbc372598d03b876537ee3acf2a5ad2f660336879b3fa", size = 91247 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ee/6c/0ca98fcbab5fa3b11c554707bfcf5ce80be1dcf4d114b17f62ee2573d1a5/clickhouse_connect-0.8.11-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:c84f03a4c9eb494e767abc3cdafd73bf4e1455820948e45e7f0bf240ff4d4e3d", size = 257184 },
-    { url = "https://files.pythonhosted.org/packages/34/13/0582175866bb430dac86ad7c4af65eb659633c0db9adb1fecfc8b7db1aad/clickhouse_connect-0.8.11-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:832abf4db00117730b7682347d5d0edfa3c8eccad79f64f890f6a0c821bd417d", size = 250225 },
-    { url = "https://files.pythonhosted.org/packages/9e/2e/6d899332428bc200b09bcf44dac9672472af0b546157071c1ff8b8fa5954/clickhouse_connect-0.8.11-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:1cdbb12cecb6c432a0db8b1f895fcdc478ad03e532b209cdfba4b334d5dcff4a", size = 1060197 },
-    { url = "https://files.pythonhosted.org/packages/09/b9/e08273c489731d85c7b0d6b4023da845ea187b9f8e45e1115993b3ae3946/clickhouse_connect-0.8.11-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b46edbd3b8a38fcb2a9010665ca6eabdcffcf806e533d15cc8cc37d1355d2b63", size = 1071038 },
-    { url = "https://files.pythonhosted.org/packages/3c/06/4a91d9d25d0066c941bf473e38b9f476b466c85fae32de7306700281da11/clickhouse_connect-0.8.11-cp311-cp311-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:2d9b259f2af45d1092c3957e2f6c443f8dba4136ff05d96f7eb5c8f2cf59b6a4", size = 1032910 },
-    { url = "https://files.pythonhosted.org/packages/b7/3a/ab5490c4694b2a3b420676ec5c1df3acd7de0e9b61ded9851cc0ab42ce26/clickhouse_connect-0.8.11-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:51f8f374d8e58d5a1807f3842b0aa18c481b5b6d8176e33f6b07beef4ecbff2c", size = 1065286 },
-    { url = "https://files.pythonhosted.org/packages/4e/23/6fd1bbfb7f893bba13cef853bb32a576007678a7480d4c8272f3f98ded07/clickhouse_connect-0.8.11-cp311-cp311-musllinux_1_2_i686.whl", hash = "sha256:1a645d07bba9bbc80868d3aa9a4abc944df3ef5841845305c5a610bdaadce183", size = 1071309 },
-    { url = "https://files.pythonhosted.org/packages/85/f2/762ad8f3094f8aee03871c3c238d8c4d602aba7e3fc1e0bed60f3f6c2b01/clickhouse_connect-0.8.11-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:53c362153f848096eb440bba0745c0f4c373d6ee0ac908aacab5a7d14d67a257", size = 1102308 },
-    { url = "https://files.pythonhosted.org/packages/ac/db/d77a2a25354955850e137ce5ea90b88a2406e32c89213c7662c02daefd99/clickhouse_connect-0.8.11-cp311-cp311-win32.whl", hash = "sha256:a962209486a11ac3455c7a7430ed5201618315a6fd9d10088b6098844a93e7d2", size = 228345 },
-    { url = "https://files.pythonhosted.org/packages/fe/7a/abc3fe728282606bd182d2e25f33a09dc4959033bbdf83a1d9392ca0f52d/clickhouse_connect-0.8.11-cp311-cp311-win_amd64.whl", hash = "sha256:0e6856782b86cfcbf3ef4a4b6e7c53053e07e285191c7c5ce95d683f48a429aa", size = 245676 },
+    { url = "https://files.pythonhosted.org/packages/cb/31/2077ded60a46f7a4ac16ab23b73be1e817975e45dcfef4d8c1803f4e84cc/clickhouse_connect-0.8.17-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:d292a4c73ec863115875b91533003427ef4cdd4931e899064488ce2c75d22d4e", size = 258605 },
+    { url = "https://files.pythonhosted.org/packages/6d/b6/744f7f9664d9611b5835cc9b8c5d27ae2c6e826bd974712dccd8be4c31ec/clickhouse_connect-0.8.17-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:45f3d55bf17ff69f63ca0150cdd77436d35f5cf85e672056798befe06651b78c", size = 251649 },
+    { url = "https://files.pythonhosted.org/packages/63/53/b03dfd20fd8fa090c4d6d70f96b2e2e44574408de2561d6b68fbb6dd371e/clickhouse_connect-0.8.17-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:5ecc8539cdbcde71394d242665329ad3d32477a9a8d21449876f4a841def0a2d", size = 1061626 },
+    { url = "https://files.pythonhosted.org/packages/33/3f/c1f80477ab5b90d8e50480410d1f384ca1fdbf800c6e5b72a029699cffb6/clickhouse_connect-0.8.17-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ab35c6eec3758c65d61fe6f96bd13e242f7a7cd27dcb6fbe527db0285011f400", size = 1072472 },
+    { url = "https://files.pythonhosted.org/packages/22/08/076fa97e065ac5b5bc8d50c5ea24f9ac852c5b6d2f60ee2f54b57eb230b2/clickhouse_connect-0.8.17-cp311-cp311-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:db2227650d3cf34f3b1bafc207ec113697e58b7b08f0947014e5d66f2687d702", size = 1034338 },
+    { url = "https://files.pythonhosted.org/packages/f2/01/5218d78c97683fd4789030287fcc7f239003e93bad71634c5c58b3535afc/clickhouse_connect-0.8.17-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:6c25c76a07ab2d4188b9923d76a61bf6f6e7a1a9e702ec1124cff4478e4bc3b7", size = 1066617 },
+    { url = "https://files.pythonhosted.org/packages/0d/bb/3916a0a675245598d52ea4f72eb2ba2e1f79cc45aee632a48fd757c18a19/clickhouse_connect-0.8.17-cp311-cp311-musllinux_1_2_i686.whl", hash = "sha256:f257922b32949f18013bb52e71f50f2eb4667458d73d5782861b46e22081221f", size = 1072619 },
+    { url = "https://files.pythonhosted.org/packages/78/8c/5feb108128ca33b687bb03bcc8ff52be35d26cbba291af9504f6aed55fd6/clickhouse_connect-0.8.17-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:8b59c22ed333f20d547aaf9b1dbd5fd475b2861da8acbb59633503b41b51fdf2", size = 1103629 },
+    { url = "https://files.pythonhosted.org/packages/58/c1/ce42d2381c29cd2b6a08ae7810639de95bc53051240ca87ab1c59f3da9ab/clickhouse_connect-0.8.17-cp311-cp311-win32.whl", hash = "sha256:6613e1b863535a94b438b946e0dc4619fe83d8a021d99f947d88eee95568838e", size = 229555 },
+    { url = "https://files.pythonhosted.org/packages/4a/dd/050a2c10856ef08dce5c188c26c750881b6a2a7dd5be829eaab334cb0fb0/clickhouse_connect-0.8.17-cp311-cp311-win_amd64.whl", hash = "sha256:d6879fa613128229a397ea5f31612bc1731dad72759a7b566ee684c600e61c90", size = 247119 },
 ]
 
 [[package]]
@@ -2976,11 +2976,11 @@ wheels = [
 
 [[package]]
 name = "monotonic"
-version = "1.5"
+version = "1.6"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/19/c1/27f722aaaaf98786a1b338b78cf60960d9fe4849825b071f4e300da29589/monotonic-1.5.tar.gz", hash = "sha256:23953d55076df038541e648a53676fb24980f7a1be290cdda21300b3bc21dfb0", size = 7525 }
+sdist = { url = "https://files.pythonhosted.org/packages/ea/ca/8e91948b782ddfbd194f323e7e7d9ba12e5877addf04fb2bf8fca38e86ac/monotonic-1.6.tar.gz", hash = "sha256:3a55207bcfed53ddd5c5bae174524062935efed17792e9de2ad0205ce9ad63f7", size = 7615 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ac/aa/063eca6a416f397bd99552c534c6d11d57f58f2e94c14780f3bbf818c4cf/monotonic-1.5-py2.py3-none-any.whl", hash = "sha256:552a91f381532e33cbd07c6a2655a21908088962bb8fa7239ecbcc6ad1140cc7", size = 5262 },
+    { url = "https://files.pythonhosted.org/packages/9a/67/7e8406a29b6c45be7af7740456f7f37025f0506ae2e05fb9009a53946860/monotonic-1.6-py2.py3-none-any.whl", hash = "sha256:68687e19a14f11f26d140dd5c86f3dba4bf5df58003000ed467e0e2a69bca96c", size = 8154 },
 ]
 
 [[package]]
@@ -3636,6 +3636,7 @@ dependencies = [
     { name = "python-snappy" },
     { name = "python3-saml" },
     { name = "pytz" },
+    { name = "pyyaml" },
     { name = "redis" },
     { name = "requests" },
     { name = "retry" },
@@ -3658,6 +3659,7 @@ dependencies = [
     { name = "stripe" },
     { name = "structlog" },
     { name = "temporalio" },
+    { name = "tenacity" },
     { name = "tiktoken" },
     { name = "token-bucket" },
     { name = "toronado" },
@@ -3748,7 +3750,7 @@ requires-dist = [
     { name = "brotli", specifier = "==1.1.0" },
     { name = "celery", specifier = "==5.3.4" },
     { name = "celery-redbeat", specifier = "==2.1.1" },
-    { name = "clickhouse-connect", specifier = "==0.8.11" },
+    { name = "clickhouse-connect", specifier = "==0.8.17" },
     { name = "clickhouse-driver", specifier = "==0.2.9" },
     { name = "clickhouse-pool", specifier = "==0.5.3" },
     { name = "cohere", specifier = "==5.14.0" },
@@ -3813,7 +3815,7 @@ requires-dist = [
     { name = "pdpyras", specifier = "==5.2.0" },
     { name = "phonenumberslite", specifier = "==8.13.6" },
     { name = "pillow", specifier = "==10.2.0" },
-    { name = "posthoganalytics", specifier = "==3.21.0" },
+    { name = "posthoganalytics", specifier = ">=3.24.1" },
     { name = "psutil", specifier = "==6.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.7" },
@@ -3827,6 +3829,7 @@ requires-dist = [
     { name = "python-snappy", specifier = "~=0.7.3" },
     { name = "python3-saml", specifier = "==1.16.0" },
     { name = "pytz", specifier = "==2023.3" },
+    { name = "pyyaml", specifier = "==6.0.1" },
     { name = "redis", specifier = "==4.5.4" },
     { name = "requests", specifier = "~=2.32.3" },
     { name = "retry", specifier = "==0.9.2" },
@@ -3849,6 +3852,7 @@ requires-dist = [
     { name = "stripe", specifier = "==10.3.0" },
     { name = "structlog", specifier = "==23.2.0" },
     { name = "temporalio", specifier = "==1.7.1" },
+    { name = "tenacity", specifier = ">=8.4.2" },
     { name = "tiktoken", specifier = "==0.9.*" },
     { name = "token-bucket", specifier = "==0.3.0" },
     { name = "toronado", specifier = "==0.1.0" },
@@ -3929,7 +3933,7 @@ dev = [
 
 [[package]]
 name = "posthoganalytics"
-version = "3.21.0"
+version = "3.24.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -3939,9 +3943,9 @@ dependencies = [
     { name = "requests" },
     { name = "six" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/6f/1d/883a97c8d6f6b11c480c6f67333cd226f24341c43add38ed20dd79b87ab4/posthoganalytics-3.21.0.tar.gz", hash = "sha256:230191bdcdfb55a278542b3461d7629431bae91de0b3edf6c1b4d562d834859e", size = 67461 }
+sdist = { url = "https://files.pythonhosted.org/packages/03/b7/f6617e31ae91929e71712b63e0d47a1703f8c15b8181e1ae85df85a00ff8/posthoganalytics-3.24.1.tar.gz", hash = "sha256:38aecaee8d2b9f63fa1d19ab22d35eb3128ee525d3800e464cadf2f3495e5666", size = 72226 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d7/bf/2cead5eabfda3072f7a1f74d12e8746e11047fcfecc298cdeb2f8e87587f/posthoganalytics-3.21.0-py2.py3-none-any.whl", hash = "sha256:95d0646ca60e873f74a91d2e7fcd9015b3fe84c6a2d493d40c2c3a5a3feebc6b", size = 80294 },
+    { url = "https://files.pythonhosted.org/packages/6a/3a/a77494779f1e229922584bd3ed944e0b5ef00829720448d90da689f337c0/posthoganalytics-3.24.1-py2.py3-none-any.whl", hash = "sha256:e93b6f34e787f2e3cddce1a1913abc4be167b978c07385491f1dbfc3d9aeb392", size = 86501 },
 ]
 
 [[package]]

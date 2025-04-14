@@ -2248,6 +2248,7 @@ dependencies = [
  "once_cell",
  "petgraph",
  "rand",
+ "rayon",
  "redis",
  "regex",
  "reqwest 0.12.3",

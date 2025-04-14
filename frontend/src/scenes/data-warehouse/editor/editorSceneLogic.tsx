@@ -1,12 +1,13 @@
 import { IconDatabase, IconDocument } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { ProductIntentContext } from 'lib/utils/product-intents'
+import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -64,6 +65,10 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
     })),
     actions({
         setSidebarOverlayOpen: (isOpen: boolean) => ({ isOpen }),
+        reportAIQueryPrompted: true,
+        reportAIQueryAccepted: true,
+        reportAIQueryRejected: true,
+        reportAIQueryPromptOpen: true,
     }),
     reducers({
         sidebarOverlayOpen: [
@@ -74,6 +79,20 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             },
         ],
     }),
+    listeners(() => ({
+        reportAIQueryPrompted: () => {
+            posthog.capture('ai_query_prompted')
+        },
+        reportAIQueryAccepted: () => {
+            posthog.capture('ai_query_accepted')
+        },
+        reportAIQueryRejected: () => {
+            posthog.capture('ai_query_rejected')
+        },
+        reportAIQueryPromptOpen: () => {
+            posthog.capture('ai_query_prompt_open')
+        },
+    })),
     selectors(({ actions }) => ({
         contents: [
             (s) => [
@@ -110,9 +129,17 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                         }
                                       : null,
                                   onClick: () => {
-                                      actions.selectSchema(table)
+                                      multitabEditorLogic({
+                                          key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                      }).actions.createTab(`SELECT * FROM ${table.name}`)
                                   },
                                   menuItems: [
+                                      {
+                                          label: 'Open schema',
+                                          onClick: () => {
+                                              actions.selectSchema(table)
+                                          },
+                                      },
                                       {
                                           label: 'Add join',
                                           onClick: () => {
@@ -190,9 +217,17 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                               }
                             : null,
                         onClick: () => {
-                            actions.selectSchema(savedQuery)
+                            multitabEditorLogic({
+                                key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                            }).actions.editView(savedQuery.query.query, savedQuery)
                         },
                         menuItems: [
+                            {
+                                label: 'Open schema',
+                                onClick: () => {
+                                    actions.selectSchema(savedQuery)
+                                },
+                            },
                             {
                                 label: 'Edit view definition',
                                 onClick: () => {
@@ -283,9 +318,17 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                         icon: <IconDatabase />,
                         searchMatch: null,
                         onClick: () => {
-                            actions.selectSchema(table)
+                            multitabEditorLogic({
+                                key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                            }).actions.createTab(`SELECT * FROM ${table.name}`)
                         },
                         menuItems: [
+                            {
+                                label: 'Open schema',
+                                onClick: () => {
+                                    actions.selectSchema(table)
+                                },
+                            },
                             {
                                 label: 'Add join',
                                 onClick: () => {
@@ -324,9 +367,17 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                         icon: <IconDatabase />,
                         searchMatch: null,
                         onClick: () => {
-                            actions.selectSchema(table)
+                            multitabEditorLogic({
+                                key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                            }).actions.createTab(`SELECT * FROM ${table.name}`)
                         },
                         menuItems: [
+                            {
+                                label: 'Open schema',
+                                onClick: () => {
+                                    actions.selectSchema(table)
+                                },
+                            },
                             {
                                 label: 'Add join',
                                 onClick: () => {
