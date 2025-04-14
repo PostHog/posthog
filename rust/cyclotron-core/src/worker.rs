@@ -64,7 +64,9 @@ impl Worker {
             pool,
             running: Default::default(),
             heartbeat_window: worker_config.heartbeat_window(),
-            flush_batch: Default::default(),
+            flush_batch: Arc::new(Mutex::new(FlushBatch::new(
+                worker_config.should_compress_vm_state(),
+            ))),
             linger: worker_config.linger_time(),
             max_buffered: worker_config.max_updates_buffered(),
             max_bytes: worker_config.max_bytes_buffered(),
