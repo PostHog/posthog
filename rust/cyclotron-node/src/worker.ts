@@ -50,8 +50,6 @@ type CyclotronWorkerInternalConfig = {
     flushLoopIntervalMs?: number
     /** Whether to compress vmState. Default false */
     shouldCompressVmState?: boolean
-    /** Whether to use bulk job copy. Default false */
-    shouldUseBulkJobCopy?: boolean
 }
 
 
@@ -88,7 +86,6 @@ export class CyclotronWorker {
             maxBytesBuffered: this.config.maxBytesBuffered ?? 10000000,
             flushLoopIntervalMs: this.config.flushLoopIntervalMs ?? 10,
             shouldCompressVmState: this.config.shouldCompressVmState ?? false,
-            shouldUseBulkJobCopy: this.config.shouldUseBulkJobCopy ?? false,
         }
 
         await cyclotron.maybeInitWorker(
