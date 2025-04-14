@@ -50,7 +50,7 @@ SUPPORTED_MODELS_WITH_THINKING = AnthropicConfig.SUPPORTED_MODELS_WITH_THINKING
 
 
 class LLMProxyCompletionSerializer(serializers.Serializer):
-    system = serializers.CharField()
+    system = serializers.CharField(allow_blank=True)
     messages = serializers.ListField(child=serializers.DictField())
     model = serializers.CharField()
     thinking = serializers.BooleanField(default=False, required=False)
@@ -176,7 +176,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 | "claude-3-haiku-20240307"
             ):
                 return AnthropicProvider(model_id)
-            case "inkeep-qa":
+            case "inkeep-qa-expert":
                 return InkeepProvider(model_id)
             case _:
                 return Response({"error": "Unsupported model"}, status=400)
