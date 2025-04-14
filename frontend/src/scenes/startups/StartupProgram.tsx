@@ -1,14 +1,5 @@
 import { IconArrowRight, IconCheck, IconUpload, IconX } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonFileInput,
-    LemonInput,
-    LemonModal,
-    LemonSelect,
-    lemonToast,
-    Link,
-    Spinner,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonFileInput, LemonInput, LemonSelect, lemonToast, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
@@ -26,7 +17,6 @@ import { urls } from 'scenes/urls'
 import { RAISED_OPTIONS, startupProgramLogic, YC_BATCH_OPTIONS } from './startupProgramLogic'
 
 const YC_DEAL_BOOKFACE = 'https://bookface.ycombinator.com/deals/687'
-const YC_SCREENSHOT_EXAMPLE = 'https://res.cloudinary.com/dmukukwp6/image/upload/yc_deal_posthog_using_2431bac493.jpg'
 
 export const scene: SceneExport = {
     component: StartupProgram,
@@ -45,10 +35,9 @@ export function StartupProgram(): JSX.Element {
         isAlreadyOnStartupPlan,
         isUserOrganizationOwnerOrAdmin,
         startupProgramErrors,
-        isExampleModalOpen,
     } = useValues(logic)
     const { billing, billingLoading } = useValues(billingLogic)
-    const { setStartupProgramValue, showPaymentEntryModal, showExampleModal, hideExampleModal } = useActions(logic)
+    const { setStartupProgramValue, showPaymentEntryModal } = useActions(logic)
     const programName = isYC ? 'YC Program' : 'Startup Program'
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
@@ -333,15 +322,14 @@ export function StartupProgram(): JSX.Element {
                                             name="yc_proof_screenshot_url"
                                             label={
                                                 <span>
-                                                    Screenshot showing you're using PostHog deal{' '}
-                                                    <span
-                                                        className="text-primary cursor-pointer hover:text-muted whitespace-nowrap"
-                                                        onClick={() => showExampleModal()}
-                                                    >
-                                                        (<Link onClick={() => showExampleModal()}>like this</Link>)
-                                                    </span>
+                                                    Screenshot showing you're using{' '}
+                                                    <Link target="_blank" to={YC_DEAL_BOOKFACE}>
+                                                        PostHog deal
+                                                    </Link>{' '}
+                                                    on Bookface
                                                 </span>
                                             }
+                                            info="Open PostHog deal on Bookface, click 'Mark Using', take a screenshot and attach it below"
                                         >
                                             <LemonFileInput
                                                 accept="image/*"
@@ -391,34 +379,6 @@ export function StartupProgram(): JSX.Element {
                                                 }
                                             />
                                         </LemonField>
-
-                                        <LemonModal
-                                            isOpen={isExampleModalOpen}
-                                            onClose={hideExampleModal}
-                                            title="Upload a screenshot showing you're using PostHog deal on Bookface"
-                                            description={
-                                                <div>
-                                                    <p>
-                                                        1. Open <Link to={YC_DEAL_BOOKFACE}>PostHog deal</Link> on
-                                                        Bookface
-                                                    </p>
-                                                    <p>2. Click on the "Mark Using" button</p>
-                                                    <p>3. Take a screenshot and upload it</p>
-                                                    <p>4. ???</p>
-                                                    <p>5. Profit 🤑</p>
-                                                    <p>
-                                                        P.S. We'd love if you could also rate our deal while you're at
-                                                        it!
-                                                    </p>
-                                                </div>
-                                            }
-                                        >
-                                            <img
-                                                src={YC_SCREENSHOT_EXAMPLE}
-                                                alt="Example YC Profile Screenshot"
-                                                className="max-w-full max-h-[80vh] object-contain"
-                                            />
-                                        </LemonModal>
 
                                         <LemonField
                                             name="yc_merch_count"

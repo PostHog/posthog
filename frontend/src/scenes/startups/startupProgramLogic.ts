@@ -119,21 +119,12 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
     }),
     actions({
         setFormSubmitted: (submitted: boolean) => ({ submitted }),
-        showExampleModal: true,
-        hideExampleModal: true,
     }),
     reducers({
         formSubmitted: [
             false,
             {
                 setFormSubmitted: (_, { submitted }) => submitted,
-            },
-        ],
-        isExampleModalOpen: [
-            false,
-            {
-                showExampleModal: () => true,
-                hideExampleModal: () => false,
             },
         ],
     }),
