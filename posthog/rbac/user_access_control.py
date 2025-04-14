@@ -114,6 +114,9 @@ class UserAccessControl:
         try:
             if not self._organization_id:
                 return None
+            # Check if user is anonymous and return None early to avoid trying to query with AnonymousUser
+            if isinstance(self._user, AnonymousUser):
+                return None
             return OrganizationMembership.objects.select_related("organization").get(
                 organization_id=self._organization_id, user=self._user
             )
@@ -153,6 +156,10 @@ class UserAccessControl:
         """
         Adds the 3 main filter options to the query
         """
+        # If user is anonymous, only include team-level access controls
+        if isinstance(self._user, AnonymousUser):
+            return Q(**filters, organization_member=None, role=None)
+
         return (
             Q(  # Access controls applying to this team
                 **filters, organization_member=None, role=None
