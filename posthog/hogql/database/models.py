@@ -174,7 +174,7 @@ class TableGroup(FieldOrTable):
         raise NotImplementedError("TableGroup.to_printed_clickhouse not overridden")
 
     def to_printed_hogql(self) -> str:
-        raise NotImplementedError("Table.to_printed_hogql not overridden")
+        raise NotImplementedError("TableGroup.to_printed_hogql not overridden")
 
     def resolve_all_table_names(self) -> list[str]:
         names: list[str] = []
