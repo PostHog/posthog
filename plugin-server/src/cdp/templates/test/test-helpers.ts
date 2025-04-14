@@ -169,7 +169,11 @@ export class TemplateTester {
         return this.executor.execute(invocation, { functions: extraFunctions })
     }
 
-    async invokeMappings(_inputs: Record<string, any>, _globals?: DeepPartialHogFunctionInvocationGlobals) {
+    async invokeMappings(
+        _inputs: Record<string, any>,
+        _globals?: DeepPartialHogFunctionInvocationGlobals,
+        _mappingInputs: Record<string, any> = {}
+    ) {
         if (!this.template.mapping_templates) {
             throw new Error('No mapping templates found')
         }
@@ -187,27 +191,28 @@ export class TemplateTester {
                     return
                 }
 
-                const processedInputs = await Promise.all(
-                    mapping.inputs_schema
-                        .filter((input) => typeof input.default !== 'undefined')
-                        .map(async (input) => {
-                            return {
-                                key: input.key,
-                                value: input.default,
-                                bytecode: await this.compileObject(input.default),
-                            }
-                        })
-                )
-
-                const inputsObj = processedInputs.reduce((acc, item) => {
-                    acc[item.key] = {
-                        value: item.value,
-                        bytecode: item.bytecode,
+                const defaultMappingInputs = mapping.inputs_schema.reduce((acc, input) => {
+                    if (typeof input.default !== 'undefined') {
+                        acc[input.key] = input.default
                     }
                     return acc
                 }, {} as Record<string, HogFunctionInputType>)
 
-                mapping.inputs = inputsObj
+                const allMappingInputs = { ...defaultMappingInputs, ..._mappingInputs }
+
+                const compiledMappingEntries = await Promise.all(
+                    Object.entries(allMappingInputs).map(async ([key, value]) => [key, await this.compileObject(value)])
+                )
+
+                const mappingInputsObj = compiledMappingEntries.reduce((acc, [key, value]) => {
+                    acc[key] = {
+                        value: allMappingInputs[key],
+                        bytecode: value,
+                    }
+                    return acc
+                }, {} as Record<string, HogFunctionInputType>)
+
+                mapping.inputs = mappingInputsObj
             })
         )
 

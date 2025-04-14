@@ -52,6 +52,11 @@ describe('google template', () => {
                     },
                     url: 'https://us.posthog.com/projects/1/persons/1234',
                 },
+            },
+            {
+                currencyCode: '{event.properties.currency}',
+                conversionValue: '{event.properties.value}',
+                orderId: '{event.properties.order_id}',
             }
         )
 
@@ -64,7 +69,7 @@ describe('google template', () => {
         expect(response.invocation.queue).toEqual('fetch')
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"conversions":[{"gclid":"google-id","conversion_action":"customers/1231231234/conversionActions/123456789","conversion_date_time":"2025-01-01 00:00:00+00:00"}],"partialFailure":true}",
+              "body": "{"conversions":[{"gclid":"google-id","conversion_action":"customers/1231231234/conversionActions/123456789","conversion_date_time":"2025-01-01 00:00:00+00:00","conversion_value":"100","currency_code":"USD","order_id":"1234567890"}],"partialFailure":true}",
               "headers": {
                 "Authorization": "Bearer access-token",
                 "Content-Type": "application/json",
