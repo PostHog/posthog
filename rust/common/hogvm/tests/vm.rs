@@ -1,31 +1,76 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 
 use hogvm::{stl::NativeFunction, values::HogLiteral, vm::sync_execute};
 use serde_json::Value;
 
 const fn stl_test_extensions() -> &'static [(&'static str, NativeFunction)] {
-    &[("print", |_, args| {
-        println!("{:?}", args);
-        Ok(HogLiteral::Null.into())
-    })]
+    &[
+        ("print", |_, args| {
+            println!("{:?}", args);
+            Ok(HogLiteral::Null.into())
+        }),
+        ("assert_eq", |vm, args| {
+            // Used in test programs
+            let lhs = args.get(0).unwrap();
+            let rhs = args.get(1).unwrap();
+            if lhs
+                .equals(rhs, &vm.heap)
+                .expect("Could compare")
+                .try_into()
+                .expect("Could convert")
+            {
+                Ok(HogLiteral::Null.into())
+            } else {
+                panic!("{:?} did not equal {:?}", lhs, rhs)
+            }
+        }),
+        ("assert", |vm, args| {
+            // Used in test programs
+            let condition = args.get(0).unwrap().deref(&vm.heap).unwrap();
+            if *condition.try_as().expect("Could convert") {
+                Ok(HogLiteral::Null.into())
+            } else {
+                panic!("Assertion failed")
+            }
+        }),
+    ]
 }
 
 fn to_extension(ext: &'static [(&'static str, NativeFunction)]) -> HashMap<String, NativeFunction> {
     ext.iter().map(|(a, b)| (a.to_string(), *b)).collect()
 }
 
+fn load_test_programs() -> Vec<(String, String)> {
+    let test_program_path = std::env::current_dir()
+        .unwrap()
+        .join("tests/static/test_programs");
+
+    let mut res = Vec::new();
+    for file in test_program_path
+        .read_dir()
+        .expect("Could read test programs")
+    {
+        let file = file.unwrap();
+        println!("{:?}", file.path());
+        if !file.file_name().to_str().unwrap().ends_with(".hoge") {
+            continue;
+        }
+        let name = file.file_name().to_str().unwrap().to_string();
+        let code = std::fs::read_to_string(file.path()).unwrap();
+        res.push((name, code));
+    }
+    res
+}
+
 #[test]
 pub fn test_vm() {
-    let examples = include_str!("../tests/static/bytecode_examples.jsonl");
-    for (index, example) in examples.lines().enumerate() {
-        let extensions = to_extension(stl_test_extensions());
-        println!("Executing example {}: {}", index + 1, example);
-        let bytecode: Vec<Value> = serde_json::from_str(example).unwrap();
-        let res = sync_execute(&bytecode, 10000, extensions, true);
+    let programs = load_test_programs();
+    for program in programs {
+        let (name, code) = program;
+        println!("Running: {}", name);
+        let parsed: Vec<Value> = serde_json::from_str(&code).unwrap();
+        let res = sync_execute(&parsed, 10000, to_extension(stl_test_extensions()), true);
         println!("{:?}", res);
-        if let Err(res) = res {
-            println!("Failed at operation {:?}", bytecode.get(res.ip));
-            panic!("Example {} failed: {:?}", index + 1, res);
-        }
+        assert!(res.is_ok());
     }
 }

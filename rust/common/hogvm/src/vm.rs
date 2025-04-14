@@ -513,7 +513,17 @@ impl<'a> VmState<'a> {
                 }
                 let map: HashMap<String, HogValue> =
                     HashMap::from_iter(keys.into_iter().zip(values));
-                self.push_stack(HogLiteral::Object(map))?;
+                let obj = HogLiteral::Object(map);
+                // For the non-primitive types below (objects, arrays, "tuples"), we /always/ heap allocate them. The reason
+                // is that the pattern for e.g. nestedly setting an array value is to GetLocal followed by GetProperty, followed
+                // by a SetProperty. If the array is "flat", as in, element 3 is a HogLiteral rather than Value, that SetProperty
+                // will do nothing, because there's nowhere to write the new value /to/ (as the stack copy of the literal array would be
+                // immediately dropped). We assert in SetProperty that the target is a reference, in order to prevent this surprising no-op
+                // behaviour, but that means we have to either always heap-allocate our indexable values, or hoist in GetProperty. I've decided
+                // to pay the cost of heap-allocating them up-front (and therefore chasing an extra pointer), because I think it more closely
+                // mirrors the semantics of e.g. JavaScript or Python, which is what hog is based around.
+                let ptr = self.heap.emplace(HogValue::Lit(obj))?;
+                self.push_stack(ptr)?;
             }
             Operation::Array => {
                 let element_count: usize = self.next()?;
@@ -523,7 +533,10 @@ impl<'a> VmState<'a> {
                 }
                 // We've walked back down the stack, but the compiler expects the array to be in pushed order
                 elements.reverse();
-                self.push_stack(HogLiteral::Array(elements))?;
+                let array = HogLiteral::Array(elements);
+                // See above
+                let ptr = self.heap.emplace(HogValue::Lit(array))?;
+                self.push_stack(ptr)?;
             }
             Operation::Tuple => {
                 // The compiler has special case handling for tuples, but the typescript VM doesn't, so neither do we,
@@ -535,7 +548,10 @@ impl<'a> VmState<'a> {
                 }
                 // We've walked back down the stack, but the compiler expects the "tuple" to be in pushed order
                 elements.reverse();
-                self.push_stack(HogLiteral::Array(elements))?;
+                let tuple = HogLiteral::Array(elements);
+                // See above
+                let ptr = self.heap.emplace(HogValue::Lit(tuple))?;
+                self.push_stack(ptr)?;
             }
             Operation::GetProperty => {
                 let needle = self.pop_stack()?;

@@ -247,6 +247,7 @@ impl HogLiteral {
     }
 
     pub fn set_property(&mut self, key: HogLiteral, val: HogValue) -> Result<(), VmError> {
+        println!("Setting property {:?} to {:?} on {:?}", key, val, self);
         match self {
             HogLiteral::Array(vals) => {
                 let index: Num = key.try_into()?;

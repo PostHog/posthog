@@ -1,0 +1,77 @@
+let a := [1, 2, 3]
+assert_eq(a[2], 2)
+assert_eq(a?.[2], 2)
+assert_eq(a?.2, 2)
+assert_eq(a?.[7], null)
+assert_eq(a?.7, null)
+assert_eq([1, 2, 3][2], 2)
+assert_eq([1, [2, [3, 4], ], 5][2][2][2], 4)
+assert_eq([1, [2, [3, 4], ], 5]?.2?.2?.2, 4)
+assert_eq([1, [2, [3, 4], ], 5]?.[2]?.[2]?.[2], 4)
+assert_eq([1, [2, [3, 4], ], 5]?.7?.4?.2, null)
+assert_eq([1, [2, [3, 4], ], 5]?.[7]?.[4]?.[2], null)
+
+assert_eq([1, [2, [3, 4]], 5][2][2][2] + 1, 5)
+assert_eq([1, [2, [3, 4, ], ], 5, ].2.2.2, 4)
+
+
+let b := [1, 2, [1,2,3]]
+b[2] := 4
+assert_eq(b[1], 1)
+assert_eq(b[2], 4)
+assert_eq(b[3], [1,2,3])
+b[3][3] := 8
+assert_eq(b[3], [1,2,8])
+return true
+
+print(arrayPushBack([1,2,3], 4))
+print(arrayPushFront([1,2,3], 0))
+print(arrayPopBack([1,2,3]))
+print(arrayPopFront([1,2,3]))
+print(arraySort([3,2,1]))
+print(arrayReverse([1,2,3]))
+print(arrayReverseSort([3,2,1]))
+print(arrayStringConcat([1,2,3], ','))
+
+print('-----')
+let arr := [1,2,3,4]   // we don't modify arr
+print(arr)
+arrayPushBack(arr, 5)
+print(arr)
+arrayPushFront(arr, 0)
+print(arr)
+arrayPopBack(arr)
+print(arr)
+arrayPopFront(arr)
+print(arr)
+arraySort(arr)
+print(arr)
+arrayReverse(arr)
+print(arr)
+arrayReverseSort(arr)
+print(arr)
+
+print('------')
+print(has(arr, 0))
+print(has(arr, 2))
+print(has(arr, 'banana'))
+print(has('banananas', 'banana'))
+print(has('banananas', 'foo'))
+print(has(['1', '2'], '1'))
+
+print(indexOf([1,2,3], 1)) // 1
+print(indexOf([1,2,3], 2)) // 2
+print(indexOf([1,2,3], 3)) // 3
+print(indexOf([1,2,3], 4)) // 0
+
+print(arrayCount(x -> x > 2, [1,2,3,4,5])) // 3
+
+print('------')
+let c := [1,2,3]
+print(c[1], c[2], c[3], c[4])
+print(c[-1], c[-2], c[-3], c[-4])
+
+print('------')
+print('a' in ['a', 'b', 'c'])
+print('d' in ['a', 'b', 'c'])
+print('a' in [])
