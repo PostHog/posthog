@@ -10,12 +10,14 @@ from posthog.helpers.dashboard_templates import create_group_type_mapping_detail
 from posthog.hogql.parser import parse_select
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.groups.groups_query_runner import GroupsQueryRunner
 from posthog.models import GroupTypeMapping, Person
 from posthog.models.group.group import Group
 from posthog.models.group.util import create_group
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team
+from posthog.schema import GroupsQuery
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -1026,12 +1028,29 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             group_type_index=0,
             group_type="organization",
         )
+        # This group shouldn't be deleted
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=group_type_mapping.group_type_index,
+            group_key="org:4",
+            properties={"industry": "technology", "name": "Mrs. Puff"},
+        )
         create_group(
             team_id=self.team.pk,
             group_type_index=group_type_mapping.group_type_index,
             group_key="org:5",
             properties={"industry": "finance", "name": "Mr. Krabs"},
         )
+        query = GroupsQuery(
+            group_type_index=0,
+            limit=10,
+            offset=0,
+        )
+        query_runner = GroupsQueryRunner(query=query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.results), 2)
+
         response = self.client.delete(
             f"/api/projects/{self.team.id}/groups/delete_group?group_key=org:5&group_type_index=0"
         )
@@ -1042,22 +1061,15 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
             ).count(),
             0,
         )
-        response = execute_hogql_query(
-            parse_select(
-                """
-                select COUNT(*)
-                from groups
-                where index = {index}
-                and key = {key}
-                """,
-                placeholders={
-                    "index": ast.Constant(value=group_type_mapping.group_type_index),
-                    "key": ast.Constant(value="org:5"),
-                },
-            ),
-            self.team,
+        query = GroupsQuery(
+            group_type_index=0,
+            limit=10,
+            offset=0,
         )
-        self.assertEqual(response.results, [(0,)])
+        query_runner = GroupsQueryRunner(query=query, team=self.team)
+        result = query_runner.calculate()
+
+        self.assertEqual(len(result.results), 1)
 
     def test_delete_group_not_found(self):
         group_type_mapping = GroupTypeMapping.objects.create(

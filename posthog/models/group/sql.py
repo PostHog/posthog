@@ -82,8 +82,10 @@ FROM groups
 WHERE team_id = %(team_id)s AND group_type_index = %({group_type_index_var})s {filters}
 """
 
-DELETE_GROUP_SQL = """
-DELETE FROM groups WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s AND group_key = %(group_key)s
+MARK_GROUP_DELETED_SQL = """
+ALTER TABLE groups
+UPDATE is_deleted = 1
+WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s AND group_key = %(group_key)s
 """
 
 #

@@ -1,3 +1,4 @@
+from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
 
@@ -22,16 +23,24 @@ GROUPS_TABLE_FIELDS: dict[str, FieldOrTable] = {
     "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
     "updated_at": DateTimeDatabaseField(name="_timestamp", nullable=False),
     "properties": StringJSONDatabaseField(name="group_properties", nullable=False),
+    "is_deleted": IntegerDatabaseField(name="is_deleted", nullable=True),
 }
 
 
 def select_from_groups_table(requested_fields: dict[str, list[str | int]]):
-    return argmax_select(
+    select_query = argmax_select(
         table_name="raw_groups",
         select_fields=requested_fields,
         group_fields=["index", "key"],
         argmax_field="updated_at",
     )
+    select_query.where = ast.CompareOperation(
+        left=ast.Field(chain=["is_deleted"]),
+        op=ast.CompareOperationOp.Eq,
+        right=ast.Constant(value=0),
+    )
+
+    return select_query
 
 
 def join_with_group_n_table(group_index: int):
