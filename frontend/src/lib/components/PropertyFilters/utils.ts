@@ -114,6 +114,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.DataWarehousePersonProperty]: TaxonomicFilterGroupType.DataWarehousePersonProperties,
         [PropertyFilterType.Recording]: TaxonomicFilterGroupType.Replay,
         [PropertyFilterType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
+        [PropertyFilterType.ErrorTrackingIssue]: TaxonomicFilterGroupType.ErrorTrackingIssues,
     }
 
 export function formatPropertyLabel(
@@ -355,6 +356,8 @@ export function propertyFilterTypeToPropertyDefinitionType(
         ? PropertyDefinitionType.Session
         : filterType === PropertyFilterType.LogEntry
         ? PropertyDefinitionType.LogEntry
+        : filterType === PropertyFilterType.ErrorTrackingIssue
+        ? PropertyDefinitionType.Resource
         : PropertyDefinitionType.Event
 }
 
@@ -381,6 +384,10 @@ export function taxonomicFilterTypeToPropertyFilterType(
 
     if (filterType == TaxonomicFilterGroupType.DataWarehouseProperties) {
         return PropertyFilterType.DataWarehouse
+    }
+
+    if (filterType == TaxonomicFilterGroupType.ErrorTrackingIssues) {
+        return PropertyFilterType.ErrorTrackingIssue
     }
 
     if (filterType == TaxonomicFilterGroupType.DataWarehousePersonProperties) {

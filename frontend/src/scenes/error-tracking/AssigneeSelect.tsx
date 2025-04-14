@@ -14,6 +14,7 @@ export const AssigneeSelect = ({
     onChange,
     showName = false,
     showIcon = true,
+    allowRemoval = true,
     unassignedLabel = 'Unassigned',
     ...buttonProps
 }: {
@@ -21,8 +22,9 @@ export const AssigneeSelect = ({
     onChange: (assignee: ErrorTrackingIssue['assignee']) => void
     showName?: boolean
     showIcon?: boolean
+    allowRemoval?: boolean
     unassignedLabel?: string
-} & Partial<Pick<LemonButtonProps, 'type' | 'size'>>): JSX.Element => {
+} & Partial<Pick<LemonButtonProps, 'type' | 'size' | 'fullWidth'>>): JSX.Element => {
     const { search, groupOptions, memberOptions, userGroupsLoading, membersLoading } = useValues(assigneeSelectLogic)
     const { setSearch, ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
     const [showPopover, setShowPopover] = useState(false)
@@ -54,7 +56,7 @@ export const AssigneeSelect = ({
                         fullWidth
                     />
                     <ul className="deprecated-space-y-2">
-                        {assignee && (
+                        {assignee && allowRemoval ? (
                             <li>
                                 <LemonButton
                                     fullWidth
@@ -66,7 +68,7 @@ export const AssigneeSelect = ({
                                     Remove assignee
                                 </LemonButton>
                             </li>
-                        )}
+                        ) : null}
 
                         <Section
                             title="Groups"

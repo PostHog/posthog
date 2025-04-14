@@ -1,3 +1,4 @@
+import { LemonButtonProps } from '@posthog/lemon-ui'
 import {
     ExcludedProperties,
     TaxonomicFilterGroup,
@@ -48,6 +49,7 @@ export interface PropertyFilterInternalProps {
     propertyGroupType?: FilterLogicalOperator | null
     orFiltering?: boolean
     addText?: string | null
+    size?: LemonButtonProps['size']
     hasRowOperator?: boolean
     metadataSource?: AnyDataNode
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }

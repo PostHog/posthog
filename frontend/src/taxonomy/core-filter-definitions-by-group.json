@@ -3524,5 +3524,15 @@
             "description": "The ID of the person, depending on the person properties mode.",
             "examples": ["16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767"]
         }
+    },
+    "error_tracking_issues": {
+        "name": {
+            "label": "Name",
+            "description": "The name of the issue."
+        },
+        "assignee": {
+            "label": "Assignee",
+            "description": "The current assignee of an issue."
+        }
     }
 }
