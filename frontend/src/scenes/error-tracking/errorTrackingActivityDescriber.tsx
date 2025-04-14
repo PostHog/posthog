@@ -17,8 +17,12 @@ import { urls } from 'scenes/urls'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
-import { AssigneeDisplay } from './AssigneeDisplay'
-import { assigneeSelectLogic } from './assigneeSelectLogic'
+import {
+    AssigneeResolver,
+    ResolvedAssigneeIconDisplay,
+    ResolvedAssigneeLabelDisplay,
+} from './components/Assignee/AssigneeDisplay'
+import { assigneeSelectLogic } from './components/Assignee/assigneeSelectLogic'
 
 type ErrorTrackingIssueAssignee = Exclude<ErrorTrackingIssue['assignee'], null>
 
@@ -30,14 +34,14 @@ function AssigneeRenderer({ assignee }: { assignee: ErrorTrackingIssueAssignee }
     }, [ensureAssigneeTypesLoaded])
 
     return (
-        <AssigneeDisplay assignee={assignee}>
-            {({ displayAssignee }) => (
+        <AssigneeResolver assignee={assignee}>
+            {({ resolvedAssignee }) => (
                 <span className="flex gap-x-0.5">
-                    {displayAssignee.icon}
-                    <span>{displayAssignee.displayName}</span>
+                    <ResolvedAssigneeIconDisplay assignee={resolvedAssignee} />
+                    <ResolvedAssigneeLabelDisplay assignee={resolvedAssignee} />
                 </span>
             )}
-        </AssigneeDisplay>
+        </AssigneeResolver>
     )
 }
 

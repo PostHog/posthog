@@ -1,4 +1,4 @@
-import { IconGear } from '@posthog/icons'
+import { IconChevronDown, IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCheckbox, LemonDivider, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -16,7 +16,8 @@ import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
-import { AssigneeSelect } from './AssigneeSelect'
+import { ResolvedAssigneeIconDisplay, ResolvedAssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
+import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import { DateRangeFilter, ErrorTrackingFilters, FilterGroup, InternalAccountsFilter } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
@@ -164,12 +165,26 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     )}
                     <span>|</span>
                     <AssigneeSelect
-                        showName={true}
-                        showIcon={false}
                         assignee={record.assignee}
                         onChange={(assignee) => assignIssue(record.id, assignee)}
-                        size="xsmall"
-                    />
+                    >
+                        {(resolvedAssignee) => {
+                            return (
+                                <div
+                                    className="flex items-center hover:bg-fill-button-tertiary-hover p-[0.1rem] rounded cursor-pointer"
+                                    role="button"
+                                >
+                                    <ResolvedAssigneeIconDisplay assignee={resolvedAssignee} size="xsmall" />
+                                    <ResolvedAssigneeLabelDisplay
+                                        assignee={resolvedAssignee}
+                                        className="ml-1 text-xs text-secondary"
+                                        size="xsmall"
+                                    />
+                                    <IconChevronDown />
+                                </div>
+                            )
+                        }}
+                    </AssigneeSelect>
                 </div>
             </div>
         </div>
