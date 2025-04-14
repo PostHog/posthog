@@ -142,9 +142,13 @@ class TeamManager(models.Manager):
                 kwargs["project"] = Project.objects.db_manager(self.db).create(id=kwargs["id"], **project_kwargs)
             else:
                 # NOTE: Interim code until we remove Project - we fill the parent_team_id field
-                project_id = kwargs.get("project_id", kwargs.get("project").id)
+                project = kwargs.get("project")
+                project_id = kwargs.get("project_id")
 
-                if project_id != kwargs["id"]:
+                if project is not None:
+                    project_id = project.id
+
+                if project_id is not None and project_id != kwargs["id"]:
                     kwargs["parent_team_id"] = project_id
 
             return super().create(**kwargs)
@@ -615,7 +619,9 @@ class Team(UUIDClassicModel):
 
     @property
     def all_teams(self) -> QuerySet["Team"]:
-        return self.child_teams.all() | Team.objects.filter(id=self.id)
+        from django.db.models import Q
+
+        return Team.objects.filter(Q(id=self.id) | Q(parent_team_id=self.id))
 
     def __str__(self):
         if self.name:

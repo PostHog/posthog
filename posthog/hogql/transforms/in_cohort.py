@@ -94,6 +94,8 @@ class MultipleInCohortResolver(TraversingVisitor):
                 raise QueryError("IN COHORT only works with constant arguments", node=arg)
 
             if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
+                if self.context.team_id is None:
+                    raise QueryError("team_id is required for cohort lookup", node=arg)
                 int_cohorts = Cohort.objects.filter(
                     id=int(arg.value), team_id=self.context.team_id, deleted=False
                 ).values_list("id", "is_static", "version")
@@ -110,6 +112,8 @@ class MultipleInCohortResolver(TraversingVisitor):
                 raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
 
             if isinstance(arg.value, str):
+                if self.context.team_id is None:
+                    raise QueryError("team_id is required for cohort lookup", node=arg)
                 str_cohorts = Cohort.objects.filter(name=arg.value, team_id=self.context.team_id).values_list(
                     "id", "is_static", "version"
                 )
@@ -288,9 +292,11 @@ class InCohortResolver(TraversingVisitor):
             from posthog.models import Cohort
 
             if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
-                cohorts = Cohort.objects.filter(id=int(arg.value), team_id=self.context.team_id).values_list(
-                    "id", "is_static", "version", "name"
-                )
+                if self.context is None or self.context.team_id is None:
+                    raise QueryError("team_id is required for cohort lookup", node=arg)
+                cohorts = Cohort.objects.filter(
+                    id=int(arg.value), team_id=self.context.team_id, deleted=False
+                ).values_list("id", "is_static", "version", "name")
                 if len(cohorts) == 1:
                     self.context.add_notice(
                         start=arg.start,
@@ -310,6 +316,8 @@ class InCohortResolver(TraversingVisitor):
                 raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
 
             if isinstance(arg.value, str):
+                if self.context is None or self.context.team_id is None:
+                    raise QueryError("team_id is required for cohort lookup", node=arg)
                 cohorts2 = Cohort.objects.filter(
                     name=arg.value, team_id=self.context.team_id, deleted=False
                 ).values_list("id", "is_static", "version")

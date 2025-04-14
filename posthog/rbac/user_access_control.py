@@ -94,7 +94,7 @@ class UserAccessControl:
     Typically a Team (Project) is required other than in certain circumstances, particularly when validating which projects a user has access to within an organization.
     """
 
-    def __init__(self, user: User, team: Optional[Team] = None, organization_id: Optional[str] = None):
+    def __init__(self, user: User | AnonymousUser, team: Optional[Team] = None, organization_id: Optional[str] = None):
         self._user = user
         self._team = team
         self._cache: dict[str, list[AccessControl]] = {}
