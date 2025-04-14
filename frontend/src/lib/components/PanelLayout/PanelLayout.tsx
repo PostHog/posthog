@@ -67,8 +67,8 @@ export function PanelSettings({
         <div
             className={clsx(
                 'flex flex-row w-full overflow-hidden bg-surface-primary items-center justify-between',
-                border === 'bottom' && 'border-b rounded-t',
-                border === 'top' && 'border-t rounded-b'
+                border === 'bottom' && 'border-b rounded-t-[3px]',
+                border === 'top' && 'border-t rounded-b-[3px]'
             )}
         >
             {title && <span className="pl-1 font-medium">{title}</span>}

@@ -92,7 +92,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         summary: {},
         properties: {},
         volumeResolution: {
-            setVolumeResolution: (_, { volumeResolution }: { volumeResolution: number }) => volumeResolution,
+            setVolumeResolution: (_, { volumeResolution }) => volumeResolution,
         },
         lastSeen: {
             setLastSeen: (prevLastSeen, { lastSeen }) => {

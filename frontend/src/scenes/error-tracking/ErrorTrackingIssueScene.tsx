@@ -1,5 +1,6 @@
 import './ErrorTracking.scss'
 
+import { IconCollapse, IconExpand } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import PanelLayout, { PanelSettings, SettingsToggle } from 'lib/components/PanelLayout/PanelLayout'
@@ -40,8 +41,8 @@ export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueLoading, showAllFrames } = useValues(errorTrackingIssueSceneLogic)
-    const { loadIssue, updateStatus, updateAssignee, setShowAllFrames } = useActions(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { loadIssue, updateStatus, updateAssignee } = useActions(errorTrackingIssueSceneLogic)
 
     const ref = useRef<HTMLDivElement>(null)
 
@@ -113,30 +114,36 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     </div>
                     <Resizer {...resizerLogicProps} offset={1} />
                 </div>
-                <div className="flex-1 overflow-y-auto p-2">
-                    <div className="space-y-2">
-                        <PanelLayout.Panel primary={false}>
-                            <PanelSettings title="Details" border="bottom" />
-                            <ContextDisplay />
-                        </PanelLayout.Panel>
-                        <PanelLayout.Panel primary={false}>
-                            <PanelSettings title="Stack trace" border="bottom">
-                                <SettingsToggle
-                                    label="Show all frames"
-                                    active={showAllFrames}
-                                    size="xsmall"
-                                    onClick={() => setShowAllFrames(!showAllFrames)}
-                                />
-                            </PanelSettings>
-                            <StacktraceDisplay />
-                        </PanelLayout.Panel>
-                        <PanelLayout.Panel primary={false}>
-                            <PanelSettings title="Replay" border="bottom" />
-                            <RecordingPlayer />
-                        </PanelLayout.Panel>
-                    </div>
-                </div>
+                <ExceptionContent />
             </div>
         </ErrorTrackingSetupPrompt>
+    )
+}
+
+const ExceptionContent = (): JSX.Element => {
+    const { showAllFrames } = useValues(errorTrackingIssueSceneLogic)
+    const { setShowAllFrames } = useActions(errorTrackingIssueSceneLogic)
+
+    return (
+        <PanelLayout column className="flex-1 overflow-y-auto p-2">
+            <PanelLayout.Panel primary={false}>
+                <ContextDisplay />
+            </PanelLayout.Panel>
+            <PanelLayout.Panel primary={false}>
+                <PanelSettings title="Stack" border="bottom">
+                    <SettingsToggle
+                        label="Show all frames"
+                        active={true}
+                        icon={showAllFrames ? <IconCollapse /> : <IconExpand />}
+                        size="xsmall"
+                        onClick={() => setShowAllFrames(!showAllFrames)}
+                    />
+                </PanelSettings>
+                <StacktraceDisplay />
+            </PanelLayout.Panel>
+            <PanelLayout.Panel primary={false}>
+                <RecordingPlayer />
+            </PanelLayout.Panel>
+        </PanelLayout>
     )
 }
