@@ -2008,43 +2008,6 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.10
   '''
-  SELECT "posthog_team"."id",
-         "posthog_team"."project_id"
-  FROM "posthog_team"
-  WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.11
-  '''
-  SELECT "posthog_featureflag"."id",
-         "posthog_featureflag"."key",
-         "posthog_featureflag"."name",
-         "posthog_featureflag"."filters",
-         "posthog_featureflag"."rollout_percentage",
-         "posthog_featureflag"."team_id",
-         "posthog_featureflag"."created_by_id",
-         "posthog_featureflag"."created_at",
-         "posthog_featureflag"."deleted",
-         "posthog_featureflag"."active",
-         "posthog_featureflag"."version",
-         "posthog_featureflag"."last_modified_by_id",
-         "posthog_featureflag"."rollback_conditions",
-         "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity",
-         "posthog_featureflag"."usage_dashboard_id",
-         "posthog_featureflag"."has_enriched_analytics",
-         "posthog_featureflag"."is_remote_configuration",
-         "posthog_featureflag"."has_encrypted_payloads"
-  FROM "posthog_featureflag"
-  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_featureflag"."key" = 'some-feature'
-         AND "posthog_team"."project_id" = 99999)
-  LIMIT 21
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.12
-  '''
   SELECT "posthog_cohort"."id",
          "posthog_cohort"."name",
          "posthog_cohort"."description",
@@ -2065,9 +2028,56 @@
          "posthog_cohort"."groups"
   FROM "posthog_cohort"
   INNER JOIN "posthog_team" ON ("posthog_cohort"."team_id" = "posthog_team"."id")
-  WHERE ("posthog_cohort"."id" = 99999
-         AND "posthog_team"."project_id" = 99999)
+  WHERE (("posthog_cohort"."team_id" =
+            (SELECT U0."parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_cohort"."team_id" = 99999))
+         AND "posthog_cohort"."id" = 99999)
   LIMIT 21
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.11
+  '''
+  SELECT "posthog_person"."id",
+         "posthog_person"."created_at",
+         "posthog_person"."properties_last_updated_at",
+         "posthog_person"."properties_last_operation",
+         "posthog_person"."team_id",
+         "posthog_person"."properties",
+         "posthog_person"."is_user_id",
+         "posthog_person"."is_identified",
+         "posthog_person"."uuid",
+         "posthog_person"."version"
+  FROM "posthog_person"
+  WHERE ("posthog_person"."team_id" = 99999
+         AND ("posthog_person"."properties" -> 'key') = '"value"'::jsonb
+         AND "posthog_person"."properties" ? 'key'
+         AND NOT (("posthog_person"."properties" -> 'key') = 'null'::jsonb))
+  ORDER BY "posthog_person"."id" ASC
+  LIMIT 10000
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.12
+  '''
+  SELECT "posthog_persondistinctid"."id",
+         "posthog_persondistinctid"."team_id",
+         "posthog_persondistinctid"."person_id",
+         "posthog_persondistinctid"."distinct_id",
+         "posthog_persondistinctid"."version"
+  FROM "posthog_persondistinctid"
+  WHERE ("posthog_persondistinctid"."id" IN
+           (SELECT U0."id"
+            FROM "posthog_persondistinctid" U0
+            WHERE U0."person_id" = ("posthog_persondistinctid"."person_id")
+            LIMIT 3)
+         AND "posthog_persondistinctid"."person_id" IN (1,
+                                                        2,
+                                                        3,
+                                                        4,
+                                                        5 /* ... */))
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.13
@@ -2089,51 +2099,10 @@
          AND NOT (("posthog_person"."properties" -> 'key') = 'null'::jsonb))
   ORDER BY "posthog_person"."id" ASC
   LIMIT 10000
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.14
-  '''
-  SELECT "posthog_persondistinctid"."id",
-         "posthog_persondistinctid"."team_id",
-         "posthog_persondistinctid"."person_id",
-         "posthog_persondistinctid"."distinct_id",
-         "posthog_persondistinctid"."version"
-  FROM "posthog_persondistinctid"
-  WHERE ("posthog_persondistinctid"."id" IN
-           (SELECT U0."id"
-            FROM "posthog_persondistinctid" U0
-            WHERE U0."person_id" = ("posthog_persondistinctid"."person_id")
-            LIMIT 3)
-         AND "posthog_persondistinctid"."person_id" IN (1,
-                                                        2,
-                                                        3,
-                                                        4,
-                                                        5 /* ... */))
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.15
-  '''
-  SELECT "posthog_person"."id",
-         "posthog_person"."created_at",
-         "posthog_person"."properties_last_updated_at",
-         "posthog_person"."properties_last_operation",
-         "posthog_person"."team_id",
-         "posthog_person"."properties",
-         "posthog_person"."is_user_id",
-         "posthog_person"."is_identified",
-         "posthog_person"."uuid",
-         "posthog_person"."version"
-  FROM "posthog_person"
-  WHERE ("posthog_person"."team_id" = 99999
-         AND ("posthog_person"."properties" -> 'key') = '"value"'::jsonb
-         AND "posthog_person"."properties" ? 'key'
-         AND NOT (("posthog_person"."properties" -> 'key') = 'null'::jsonb))
-  ORDER BY "posthog_person"."id" ASC
-  LIMIT 10000
   OFFSET 10000
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.16
+# name: TestFeatureFlag.test_creating_static_cohort.14
   '''
   SELECT "posthog_person"."uuid"
   FROM "posthog_person"
@@ -2147,7 +2116,7 @@
                      LIMIT 1)))
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.17
+# name: TestFeatureFlag.test_creating_static_cohort.15
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -2227,7 +2196,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.18
+# name: TestFeatureFlag.test_creating_static_cohort.16
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -2261,7 +2230,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.19
+# name: TestFeatureFlag.test_creating_static_cohort.17
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."project_id",
@@ -2281,19 +2250,7 @@
          AND "posthog_filesystem"."type" = 'cohort')
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.2
-  '''
-  SELECT "posthog_project"."id",
-         "posthog_project"."organization_id",
-         "posthog_project"."name",
-         "posthog_project"."created_at",
-         "posthog_project"."product_description"
-  FROM "posthog_project"
-  WHERE "posthog_project"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.20
+# name: TestFeatureFlag.test_creating_static_cohort.18
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -2373,7 +2330,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.21
+# name: TestFeatureFlag.test_creating_static_cohort.19
   '''
   SELECT "posthog_experiment"."id",
          "posthog_experiment"."name",
@@ -2399,6 +2356,70 @@
          "posthog_experiment"."stats_config"
   FROM "posthog_experiment"
   WHERE "posthog_experiment"."exposure_cohort_id" = 99999
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.2
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist"
+  FROM "posthog_organizationmembership"
+  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
+  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_organizationmembership"."user_id" = 99999)
+  LIMIT 21
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.20
+  '''
+  /* user_id:0 celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
+  SELECT count(DISTINCT person_id)
+  FROM person_static_cohort
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.21
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT id
+  FROM person
+  INNER JOIN
+    (SELECT person_id
+     FROM person_static_cohort
+     WHERE team_id = 99999
+       AND cohort_id = 99999
+     GROUP BY person_id,
+              cohort_id,
+              team_id) cohort_persons ON cohort_persons.person_id = person.id
+  WHERE team_id = 99999
+  GROUP BY id
+  HAVING max(is_deleted) = 0
+  ORDER BY argMax(person.created_at, version) DESC, id DESC
+  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.22
@@ -2481,41 +2502,6 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.3
   '''
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
-         "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."logo_media_id",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."is_ai_data_processing_approved",
-         "posthog_organization"."enforce_2fa",
-         "posthog_organization"."is_hipaa",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_product_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."never_drop_data",
-         "posthog_organization"."customer_trust_scores",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
-  FROM "posthog_organizationmembership"
-  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 99999)
-  LIMIT 21
-  '''
-# ---
-# name: TestFeatureFlag.test_creating_static_cohort.4
-  '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
          "ee_accesscontrol"."access_level",
@@ -2560,7 +2546,7 @@
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.5
+# name: TestFeatureFlag.test_creating_static_cohort.4
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -2593,7 +2579,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.6
+# name: TestFeatureFlag.test_creating_static_cohort.5
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -2620,7 +2606,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.7
+# name: TestFeatureFlag.test_creating_static_cohort.6
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -2699,12 +2685,18 @@
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_featureflag"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T5 ON ("posthog_featureflag"."last_modified_by_id" = T5."id")
-  WHERE ("posthog_team"."project_id" = 99999
+  WHERE (("posthog_featureflag"."team_id" =
+            (SELECT U0."parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_featureflag"."team_id" = 99999))
          AND "posthog_featureflag"."id" = 99999)
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.8
+# name: TestFeatureFlag.test_creating_static_cohort.7
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -2784,7 +2776,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.9
+# name: TestFeatureFlag.test_creating_static_cohort.8
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."project_id",
@@ -2802,6 +2794,40 @@
   WHERE ("posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'cohort')
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.9
+  '''
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."version",
+         "posthog_featureflag"."last_modified_by_id",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics",
+         "posthog_featureflag"."is_remote_configuration",
+         "posthog_featureflag"."has_encrypted_payloads"
+  FROM "posthog_featureflag"
+  INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
+  WHERE (("posthog_featureflag"."team_id" =
+            (SELECT U0."parent_team_id"
+             FROM "posthog_team" U0
+             WHERE U0."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_featureflag"."team_id" = 99999))
+         AND "posthog_featureflag"."key" = 'some-feature')
+  LIMIT 21
   '''
 # ---
 # name: TestResiliency.test_feature_flags_v3_with_a_working_slow_db
