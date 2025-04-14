@@ -615,7 +615,7 @@ class Team(UUIDClassicModel):
 
     @property
     def all_teams(self) -> QuerySet["Team"]:
-        return [self, *list(self.child_teams)]
+        return self.child_teams.all() | Team.objects.filter(id=self.id)
 
     def __str__(self):
         if self.name:
