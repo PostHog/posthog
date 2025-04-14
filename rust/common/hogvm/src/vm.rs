@@ -250,6 +250,9 @@ impl<'a> VmState<'a> {
                 for _ in 0..count {
                     chain.push(self.pop_stack_as()?);
                 }
+                if chain.is_empty() {
+                    return Err(VmError::UnknownGlobal("".to_string()));
+                }
                 if let Some(chain_start) = self.context.globals.get(&chain[0]) {
                     // TODO - this is a lot more strict that other
 
@@ -492,7 +495,7 @@ impl<'a> VmState<'a> {
                 if !self.stack.is_empty() {
                     let item = self.clone_stack_item(self.stack.len() - 1)?;
                     let item = item.deref(&self.heap)?;
-                    if matches!(item, HogLiteral::Null) {
+                    if !matches!(item, HogLiteral::Null) {
                         self.ip = (self.ip as i64 + offset as i64) as usize;
                     }
                 }
@@ -766,9 +769,7 @@ pub fn sync_execute(
         };
 
         match res {
-            StepOutcome::Continue => {
-                i += 1;
-            }
+            StepOutcome::Continue => {}
             StepOutcome::Finished(res) => return Ok(res),
             StepOutcome::NativeCall(name, args) => {
                 let Some(native_fn) = native_fns.get(&name) else {

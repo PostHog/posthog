@@ -34,7 +34,7 @@ pub const fn stl() -> &'static [(&'static str, NativeFunction)] {
             }
         }),
         ("values", |vm, args| {
-            assert_argc(&args, 1, "")?;
+            assert_argc(&args, 1, "values")?;
             let arg = args[0].deref(&vm.heap)?;
             match arg {
                 HogLiteral::Array(_) => Ok(arg.clone().into()),
@@ -47,7 +47,7 @@ pub const fn stl() -> &'static [(&'static str, NativeFunction)] {
             }
         }),
         ("length", |vm, args| {
-            assert_argc(&args, 1, "")?;
+            assert_argc(&args, 1, "length")?;
             let arg = args[0].deref(&vm.heap)?;
             match arg {
                 HogLiteral::Array(arr) => Ok(HogLiteral::Number(arr.len().into()).into()),
@@ -88,7 +88,7 @@ fn to_string(heap: &VmHeap, val: &HogValue, depth: usize) -> Result<String, VmEr
                 .iter()
                 .map(|v| to_string(heap, v, depth + 1))
                 .collect::<Result<Vec<String>, VmError>>()?
-                .join(",")
+                .join(", ")
         )),
         HogLiteral::Object(hash_map) => {
             let mut entries = Vec::new();

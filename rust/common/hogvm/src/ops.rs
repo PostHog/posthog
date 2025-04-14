@@ -76,7 +76,7 @@ impl TryFrom<Value> for Operation {
 
     fn try_from(val: Value) -> Result<Self, Self::Error> {
         let Some(num) = val.as_i64() else {
-            return Err(VmError::NotAnOperation(val))?;
+            return Err(VmError::NotAnOperation(val));
         };
 
         if num >= Self::GetGlobal as i64 && num <= Self::CloseUpvalue as i64 {
