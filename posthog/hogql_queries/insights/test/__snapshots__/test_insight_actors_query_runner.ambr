@@ -215,7 +215,7 @@
                groups.group_type_index AS index,
                groups.group_key AS key
         FROM groups
-        WHERE equals(groups.team_id, 99999)
+        WHERE and(equals(groups.team_id, 99999), equals(groups.is_deleted, 0))
         GROUP BY groups.group_type_index,
                  groups.group_key) AS groups ON equals(groups.key, source.group_key)
      ORDER BY groups.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
@@ -320,7 +320,7 @@
                groups.group_type_index AS index,
                groups.group_key AS key
         FROM groups
-        WHERE equals(groups.team_id, 99999)
+        WHERE and(equals(groups.team_id, 99999), equals(groups.is_deleted, 0))
         GROUP BY groups.group_type_index,
                  groups.group_key) AS groups ON equals(groups.key, source.actor_id)
      ORDER BY groups.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
