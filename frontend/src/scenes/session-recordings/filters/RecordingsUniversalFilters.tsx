@@ -299,7 +299,7 @@ export const RecordingsUniversalFilters = ({
                     'Show recordings showing user frustration',
                     'Show recordings of people who faced bugs',
                 ]}
-                onMaxOpen={() => setIsFiltersExpanded(true)}
+                onMaxOpen={() => setIsFiltersExpanded(false)}
             >
                 <>
                     <LemonButton
