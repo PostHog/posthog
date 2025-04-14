@@ -40,6 +40,7 @@ import { QuerySchema } from '~/queries/schema/schema-general'
 import { ProductKey } from '~/types'
 
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
+import { WebAnalyticsPageReportsCTA } from './WebAnalyticsPageReportsCTA'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
     const { tiles: tilesFromProps, compact = false } = props
@@ -442,6 +443,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                         <Filters />
                     </div>
 
+                    <WebAnalyticsPageReportsCTA />
                     <WebAnalyticsHealthCheck />
                     <MainContent />
                 </div>
