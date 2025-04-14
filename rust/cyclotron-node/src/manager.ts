@@ -6,10 +6,10 @@ import { CyclotronJobInit, CyclotronPoolConfig, CyclotronInternalPoolConfig } fr
 
 type CyclotronManagerInternalConfig = {
     shards: CyclotronInternalPoolConfig[]
-    shardDepthLimit: number
-    shardDepthCheckIntervalSeconds: number
-    shouldCompressVmState: boolean
-    shouldUseBulkJobCopy: boolean
+    shardDepthLimit?: number
+    shardDepthCheckIntervalSeconds?: number
+    shouldCompressVmState?: boolean
+    shouldUseBulkJobCopy?: boolean
 }
 
 export type CyclotronManagerConfig = Omit<CyclotronManagerInternalConfig, 'shards'> & {

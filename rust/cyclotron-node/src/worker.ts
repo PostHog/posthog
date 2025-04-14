@@ -36,13 +36,13 @@ type CyclotronWorkerNodeConfig = {
 
 
 type CyclotronWorkerInternalConfig = {
-    heartbeatWindowSeconds: number, // Defaults to 5
-    lingerTimeMs: number, // Defaults to 500
-    maxUpdatesBuffered: number, // Defaults to 100
-    maxBytesBuffered: number, // Defaults to 10MB
-    flushLoopIntervalMs: number, // Defaults to 10
-    shouldCompressVmState: boolean, // Defaults to "false"
-    shouldUseBulkJobCopy: boolean, // Defaults to "false"
+    heartbeatWindowSeconds?: number, // Defaults to 5
+    lingerTimeMs?: number, // Defaults to 500
+    maxUpdatesBuffered?: number, // Defaults to 100
+    maxBytesBuffered?: number, // Defaults to 10MB
+    flushLoopIntervalMs?: number, // Defaults to 10
+    shouldCompressVmState?: boolean, // Defaults to "false"
+    shouldUseBulkJobCopy?: boolean, // Defaults to "false"
 }
 
 
