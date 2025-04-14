@@ -696,6 +696,7 @@
          "posthog_grouptypemapping"."default_columns"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
+  ORDER BY "posthog_grouptypemapping"."group_type_index" ASC
   '''
 # ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.27
@@ -4869,6 +4870,7 @@
          "posthog_grouptypemapping"."default_columns"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."project_id" = 99999
+  ORDER BY "posthog_grouptypemapping"."group_type_index" ASC
   '''
 # ---
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.27

@@ -24,6 +24,7 @@ class PostHogConfig(AppConfig):
         posthoganalytics.personal_api_key = os.environ.get("POSTHOG_PERSONAL_API_KEY")
         posthoganalytics.poll_interval = 90
         posthoganalytics.enable_exception_autocapture = True
+        posthoganalytics.log_captured_exceptions = True
         posthoganalytics.exception_autocapture_integrations = [Integrations.Django]
 
         if settings.E2E_TESTING:

@@ -198,7 +198,11 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     }
 
     return (
-        <div className="DataVisualization flex flex-1 gap-2 h-full">
+        <div
+            className={clsx('DataVisualization flex flex-1 gap-2', {
+                'h-full': visualizationType !== ChartDisplayType.ActionsTable,
+            })}
+        >
             {!readOnly && showEditingUI && (
                 <div className="max-sm:hidden max-w-xs">
                     <DatabaseTableTreeWithItems inline />

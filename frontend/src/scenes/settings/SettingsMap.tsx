@@ -27,6 +27,7 @@ import {
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
+import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
 import { FeatureFlagSettings } from './environment/FeatureFlagSettings'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
@@ -353,6 +354,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <UserGroups />,
             },
             {
+                id: 'error-tracking-integrations',
+                title: 'Integrations',
+                component: <ErrorTrackingIntegrations />,
+                flag: 'ERROR_TRACKING_INTEGRATIONS',
+            },
+            {
                 id: 'error-tracking-symbol-sets',
                 title: 'Symbol sets',
                 component: <ErrorTrackingSymbolSets />,
@@ -394,6 +401,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-slack',
                 title: 'Slack integration',
                 component: <SlackIntegration />,
+            },
+            {
+                id: 'integration-error-tracking',
+                title: 'Error tracking integrations',
+                component: <ErrorTrackingIntegrations />,
+                flag: 'ERROR_TRACKING_INTEGRATIONS',
             },
             {
                 id: 'integration-other',
