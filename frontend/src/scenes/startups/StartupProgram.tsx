@@ -138,14 +138,20 @@ export function StartupProgram(): JSX.Element {
                         <div className="flex items-start">
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                             <div>
-                                <h4 className="font-semibold">$50,000 in PostHog credit</h4>
+                                <h4 className="font-semibold">
+                                    $50,000 in PostHog credit{' '}
+                                    <span className="text-[0.66em] align-super text-muted">1</span>
+                                </h4>
                                 <p className="text-muted text-sm">Valid for 1 year to use across all products</p>
                             </div>
                         </div>
                         <div className="flex items-start">
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                             <div>
-                                <h4 className="font-semibold">Exclusive founder merch</h4>
+                                <h4 className="font-semibold">
+                                    Exclusive founder merch{' '}
+                                    <span className="text-[0.66em] align-super text-muted">2</span>
+                                </h4>
                                 <p className="text-muted text-sm">
                                     Who wouldn't want free laptop stickers, hats, or t-shirts?
                                 </p>
@@ -184,6 +190,23 @@ export function StartupProgram(): JSX.Element {
                                     You've raised less than $5 million in funding
                                 </li>
                             </ul>
+                        </div>
+                    )}
+
+                    {isYC && (
+                        <div className="mt-4">
+                            <div className="text-xs text-muted space-y-1">
+                                <div className="flex gap-1">
+                                    <span className="text-xxs align-super">1</span>
+                                    Applies to current and previous 4 batches. Earlier batches get $25,000 for 12
+                                    months.
+                                </div>
+                                <div className="flex gap-1">
+                                    <span className="text-xxs align-super">2</span>
+                                    Boring international customs reasons mean users outside US/Canada get a $150 PostHog
+                                    merch voucher instead.
+                                </div>
+                            </div>
                         </div>
                     )}
                 </div>
