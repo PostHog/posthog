@@ -4,6 +4,7 @@ from posthog.hogql.context import HogQLContext
 
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
+    BooleanDatabaseField,
     LazyTable,
     IntegerDatabaseField,
     StringDatabaseField,
@@ -23,7 +24,7 @@ GROUPS_TABLE_FIELDS: dict[str, FieldOrTable] = {
     "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
     "updated_at": DateTimeDatabaseField(name="_timestamp", nullable=False),
     "properties": StringJSONDatabaseField(name="group_properties", nullable=False),
-    "is_deleted": IntegerDatabaseField(name="is_deleted", nullable=True),
+    "is_deleted": BooleanDatabaseField(name="is_deleted", nullable=False),
 }
 
 

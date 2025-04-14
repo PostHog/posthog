@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     created_at DateTime64,
     team_id Int64,
     group_properties VARCHAR,
-    is_deleted Boolean,
+    is_deleted Boolean DEFAULT false,
     {extra_fields}
 ) ENGINE = {engine}
 """
