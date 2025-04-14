@@ -376,6 +376,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         ...propertyTaxonomicGroupProps(),
                     },
                     {
+                        name: 'Issue properties',
+                        searchPlaceholder: 'issue properties',
+                        type: TaxonomicFilterGroupType.ErrorTrackingIssues,
+                        options: [
+                            { value: 'name', name: 'Name' },
+                            { value: 'assignee', name: 'Assignee' },
+                        ],
+                        getName: (option) => option.name,
+                        getValue: (option) => option.value,
+                        getPopoverHeader: () => 'Issue properties',
+                    },
+                    {
                         name: 'Numerical event properties',
                         searchPlaceholder: 'numerical event properties',
                         type: TaxonomicFilterGroupType.NumericalEventProperties,

@@ -835,6 +835,7 @@ export enum PropertyFilterType {
     HogQL = 'hogql',
     DataWarehouse = 'data_warehouse',
     DataWarehousePersonProperty = 'data_warehouse_person_property',
+    ErrorTrackingIssue = 'error_tracking_issue',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -3439,6 +3440,7 @@ export enum PropertyType {
     Duration = 'Duration',
     Selector = 'Selector',
     Cohort = 'Cohort',
+    Assignee = 'Assignee',
 }
 
 export enum PropertyDefinitionType {
@@ -3448,6 +3450,7 @@ export enum PropertyDefinitionType {
     Group = 'group',
     Session = 'session',
     LogEntry = 'log_entry',
+    Resource = 'resource',
     Meta = 'meta',
 }
 
