@@ -9,10 +9,11 @@ from prometheus_client import Counter
 from pydantic import BaseModel, ConfigDict
 from sentry_sdk import get_traceparent, push_scope, set_tag
 
+from posthog import settings
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import get_api_personal_rate_limiter
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries, clear_tag
+from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
@@ -365,6 +366,17 @@ def get_query_runner(
             team=team,
         )
 
+    if kind == "WebPageURLSearchQuery":
+        from .web_analytics.page_url_search_query_runner import PageUrlSearchQueryRunner
+
+        return PageUrlSearchQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "SessionAttributionExplorerQuery":
         from .web_analytics.session_attribution_explorer_query_runner import SessionAttributionExplorerQueryRunner
 
@@ -376,8 +388,49 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "RevenueAnalyticsOverviewQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
+            RevenueAnalyticsOverviewQueryRunner,
+        )
+
+        return RevenueAnalyticsOverviewQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "RevenueAnalyticsGrowthRateQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
+            RevenueAnalyticsGrowthRateQueryRunner,
+        )
+
+        return RevenueAnalyticsGrowthRateQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "RevenueAnalyticsChurnRateQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_churn_rate_query_runner import (
+            RevenueAnalyticsChurnRateQueryRunner,
+        )
+
+        return RevenueAnalyticsChurnRateQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "RevenueExampleEventsQuery":
-        from .web_analytics.revenue_example_events_query_runner import RevenueExampleEventsQueryRunner
+        from products.revenue_analytics.backend.hogql_queries.revenue_example_events_query_runner import (
+            RevenueExampleEventsQueryRunner,
+        )
 
         return RevenueExampleEventsQueryRunner(
             query=query,
@@ -388,7 +441,7 @@ def get_query_runner(
         )
 
     if kind == "RevenueExampleDataWarehouseTablesQuery":
-        from .web_analytics.revenue_example_data_warehouse_tables_query_runner import (
+        from products.revenue_analytics.backend.hogql_queries.revenue_example_data_warehouse_tables_query_runner import (
             RevenueExampleDataWarehouseTablesQueryRunner,
         )
 
@@ -630,7 +683,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_json=self.query.model_dump(),
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             refresh_requested=refresh_requested,
-            api_query_personal_key=self.query_endpoint_with_personal_key(),
+            is_query_service=self.is_query_service,
         )
 
     def get_async_query_status(self, *, cache_key: str) -> Optional[QueryStatus]:
@@ -658,7 +711,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if self.is_cached_response(cached_response_candidate):
             cached_response_candidate["is_cached"] = True
-            cached_response = CachedResponse(**cached_response_candidate)
+            # When rolling out schema changes, cached responses may not match the new schema.
+            # Trigger recomputation in this case.
+            try:
+                cached_response = CachedResponse(**cached_response_candidate)
+            except Exception as e:
+                capture_exception(Exception(f"Error parsing cached response: {e}"))
+                cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
         elif cached_response_candidate is None:
             cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
         else:
@@ -721,9 +780,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # Nothing useful out of cache, nor async query status
         return None
 
-    def query_endpoint_with_personal_key(self):
-        return self.is_query_service and get_query_tag_value("access_method") == "personal_api_key"
-
     def run(
         self,
         execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
@@ -778,13 +834,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             self.modifiers = create_default_modifiers_for_user(user, self.team, self.modifiers)
             self.modifiers.useMaterializedViews = True
 
+        concurrency_limit = self.get_api_queries_concurrency_limit()
         with get_api_personal_rate_limiter().run(
-            is_api=self.query_endpoint_with_personal_key(), team_id=self.team.pk, task_id=self.query_id
+            is_api=self.is_query_service,
+            team_id=self.team.pk,
+            org_id=self.team.organization_id,
+            task_id=self.query_id,
+            limit=concurrency_limit,
         ):
-            if self.query_endpoint_with_personal_key():
-                tag_queries(qaas=True)
-            else:
-                clear_tag("qaas")
+            if self.is_query_service:
+                tag_queries(chargeable=1)
 
             fresh_response_dict = {
                 **self.calculate().model_dump(),
@@ -812,6 +871,25 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
 
         return fresh_response
+
+    def get_api_queries_concurrency_limit(self):
+        """
+        :return: None - no feature, 0 - rate limited, 1,3,<other> for actual concurrency limit
+        """
+
+        if not settings.EE_AVAILABLE or not settings.API_QUERIES_ENABLED:
+            return None
+
+        from ee.billing.quota_limiting import list_limited_team_attributes, QuotaLimitingCaches, QuotaResource
+        from posthog.constants import AvailableFeature
+
+        if self.team.api_token in list_limited_team_attributes(
+            QuotaResource.API_QUERIES, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        ):
+            return 0
+
+        feature = self.team.organization.get_available_feature(AvailableFeature.API_QUERIES_CONCURRENCY)
+        return feature.get("limit") if feature else None
 
     @abstractmethod
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:

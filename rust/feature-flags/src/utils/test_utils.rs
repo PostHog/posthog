@@ -1,16 +1,16 @@
 use crate::{
     client::database::{get_pool, Client, CustomDatabaseError},
-    cohort::cohort_models::{Cohort, CohortId},
+    cohorts::cohort_models::{Cohort, CohortId},
     config::{Config, DEFAULT_TEST_CONFIG},
-    flags::{
-        flag_matching::PersonId,
-        flag_models::{FeatureFlag, FeatureFlagRow, TEAM_FLAGS_CACHE_PREFIX},
+    flags::flag_models::{
+        FeatureFlag, FeatureFlagRow, FlagFilters, FlagGroupType, TEAM_FLAGS_CACHE_PREFIX,
     },
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
 use anyhow::Error;
 use axum::async_trait;
 use common_redis::{Client as RedisClientTrait, RedisClient};
+use common_types::{PersonId, TeamId};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_json::{json, Value};
 use sqlx::{pool::PoolConnection, postgres::PgRow, Error as SqlxError, Postgres, Row};
@@ -33,9 +33,12 @@ pub async fn insert_new_team_in_redis(
     let token = random_string("phc_", 12);
     let team = Team {
         id,
-        project_id: i64::from(id) - 1,
+        project_id: i64::from(id),
         name: "team".to_string(),
         api_token: token,
+        cookieless_server_hash_mode: 0,
+        timezone: "UTC".to_string(),
+        ..Default::default()
     };
 
     let serialized_team = serde_json::to_string(&team)?;
@@ -201,8 +204,11 @@ pub async fn insert_new_team_in_pg(
     let team = Team {
         id,
         project_id: id as i64,
-        name: "team".to_string(),
-        api_token: token,
+        name: "Test Team".to_string(),
+        api_token: token.clone(),
+        cookieless_server_hash_mode: 0,
+        timezone: "UTC".to_string(),
+        ..Default::default()
     };
     let uuid = Uuid::now_v7();
 
@@ -224,9 +230,9 @@ pub async fn insert_new_team_in_pg(
     // Insert a team with the correct team-project relationship
     let res = sqlx::query(
         r#"INSERT INTO posthog_team 
-        (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical) VALUES
-        ($1, $2, $3::uuid, $4, $5, $6, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '["data-attr"]', false, false, '[]', '[]', '[]', '[]', '[]')"#
-    ).bind(team.id).bind(uuid).bind(ORG_ID).bind(team.project_id).bind(&team.api_token).bind(&team.name).execute(&mut *conn).await?;
+        (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode) VALUES
+        ($1, $2, $3::uuid, $4, $5, $6, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '["data-attr"]', false, false, '[]', '[]', '[]', '[]', '[]', $7)"#
+    ).bind(team.id).bind(uuid).bind(ORG_ID).bind(team.project_id).bind(&team.api_token).bind(&team.name).bind(team.cookieless_server_hash_mode).execute(&mut *conn).await?;
     assert_eq!(res.rows_affected(), 1);
 
     // Insert group type mappings
@@ -500,4 +506,39 @@ pub async fn create_group_in_pg(
         group_key: group_key.to_string(),
         group_properties,
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn create_test_flag(
+    id: Option<i32>,
+    team_id: Option<TeamId>,
+    name: Option<String>,
+    key: Option<String>,
+    filters: Option<FlagFilters>,
+    deleted: Option<bool>,
+    active: Option<bool>,
+    ensure_experience_continuity: Option<bool>,
+) -> FeatureFlag {
+    FeatureFlag {
+        id: id.unwrap_or(1),
+        team_id: team_id.unwrap_or(1),
+        name: name.or(Some("Test Flag".to_string())),
+        key: key.unwrap_or_else(|| "test_flag".to_string()),
+        filters: filters.unwrap_or_else(|| FlagFilters {
+            groups: vec![FlagGroupType {
+                properties: Some(vec![]),
+                rollout_percentage: Some(100.0),
+                variant: None,
+            }],
+            multivariate: None,
+            aggregation_group_type_index: None,
+            payloads: None,
+            super_groups: None,
+            holdout_groups: None,
+        }),
+        deleted: deleted.unwrap_or(false),
+        active: active.unwrap_or(true),
+        ensure_experience_continuity: ensure_experience_continuity.unwrap_or(false),
+        version: Some(1),
+    }
 }

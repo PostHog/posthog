@@ -6,6 +6,7 @@ import json
 import ssl
 import typing
 import uuid
+from urllib.parse import urljoin
 
 import aiohttp
 import pyarrow as pa
@@ -190,10 +191,11 @@ class ClickHouseClient:
         if self.session is None:
             raise ClickHouseClientNotConnected()
 
+        ping_url = urljoin(self.url, "ping")
+
         try:
             await self.session.get(
-                url=self.url,
-                params={**self.params, "query": "SELECT 1"},
+                url=ping_url,
                 headers=self.headers,
                 raise_for_status=True,
             )

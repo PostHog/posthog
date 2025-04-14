@@ -284,6 +284,7 @@ export class SessionRecordingIngester {
         gaugeSessionsRevoked.reset()
 
         const { team_id, session_id } = event
+
         const key = `${team_id}-${session_id}`
 
         const { partition, highOffset } = event.metadata

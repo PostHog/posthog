@@ -1,6 +1,7 @@
 import contextlib
 from collections import defaultdict
 
+from google.api_core.exceptions import Forbidden
 from google.cloud import bigquery
 from google.oauth2 import service_account
 
@@ -63,7 +64,13 @@ def delete_all_temp_destination_tables(
 
 
 def get_schemas(
-    dataset_id: str, project_id: str, private_key: str, private_key_id: str, client_email: str, token_uri: str
+    dataset_id: str,
+    project_id: str,
+    private_key: str,
+    private_key_id: str,
+    client_email: str,
+    token_uri: str,
+    logger: FilteringBoundLogger | None = None,
 ) -> dict[str, list[tuple[str, str]]]:
     schema_list = defaultdict(list)
 
@@ -71,7 +78,16 @@ def get_schemas(
         query = bq.query(
             f"SELECT table_name, column_name, data_type FROM `{dataset_id}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC"
         )
-        rows = query.result()
+        try:
+            rows = query.result()
+        except Forbidden:
+            if logger:
+                logger.warning(
+                    "Could not obtain new schemas from BigQuery due to missing permissions on '%s.INFORMATION_SCHEMA.COLUMNS'",
+                    dataset_id,
+                )
+            return {}
+
         for row in rows:
             schema_list[row.table_name].append((row.column_name, row.data_type))
 

@@ -1,6 +1,5 @@
 import 'chartjs-adapter-dayjs-3'
 
-import * as Sentry from '@sentry/react'
 import { LegendOptions, ScaleOptions } from 'chart.js'
 import { DeepPartial } from 'chart.js/dist/types/utils'
 import annotationPlugin from 'chartjs-plugin-annotation'
@@ -28,6 +27,7 @@ import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 import { createRoot, Root } from 'react-dom/client'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -44,6 +44,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { hexToRGBA, lightenDarkenColor } from '~/lib/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { GoalLine, TrendsFilter } from '~/queries/schema/schema-general'
+import { isInsightVizNode } from '~/queries/utils'
 import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 
 let tooltipRoot: Root
@@ -62,6 +63,13 @@ export function ensureTooltip(): [Root, HTMLElement] {
         tooltipRoot = createRoot(tooltipEl)
     }
     return [tooltipRoot, tooltipEl]
+}
+
+export function hideTooltip(): void {
+    const tooltipEl = document.getElementById('InsightTooltipWrapper')
+    if (tooltipEl) {
+        tooltipEl.style.opacity = '0'
+    }
 }
 
 function truncateString(str: string, num: number): string {
@@ -317,8 +325,10 @@ export function LineGraph_({
     const { isDarkModeOn } = useValues(themeLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
-    const { timezone, isTrends, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
+    const { timezone, isTrends, breakdownFilter, query } = useValues(insightVizDataLogic(insightProps))
     const { theme, getTrendsColor } = useValues(trendsDataLogic(insightProps))
+
+    const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [lineChart, setLineChart] = useState<Chart<ChartType, any, string>>()
@@ -338,6 +348,21 @@ export function LineGraph_({
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
     const showAnnotations = isTrends && !isHorizontal && !hideAnnotations
     const isLog10 = yAxisScaleType === 'log10' // Currently log10 is the only logarithmic scale supported
+
+    // Add scrollend event on main element to hide tooltips when scrolling
+    useEffect(() => {
+        if (!hideTooltipOnScroll) {
+            return
+        }
+
+        // Scroll events happen on the main element due to overflow-y: scroll
+        const main = document.getElementsByTagName('main')[0]
+        main.addEventListener('scrollend', hideTooltip)
+
+        return () => {
+            main.removeEventListener('scrollend', hideTooltip)
+        }
+    }, [hideTooltipOnScroll])
 
     // Remove tooltip element on unmount
     useEffect(() => {
@@ -366,7 +391,7 @@ export function LineGraph_({
                     console.error(event)
                 }
 
-                Sentry.captureException(event)
+                posthog.captureException(event)
             }
 
             canvas.addEventListener('contextlost', handleEvent)
@@ -565,7 +590,7 @@ export function LineGraph_({
         const tickOptions: Partial<TickOptions> = {
             color: colors.axisLabel as Color,
             font: {
-                family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
+                family: '"Emoji Flags Polyfill", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
                 size: 12,
                 weight: 'normal',
             },

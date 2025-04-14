@@ -25,20 +25,20 @@
     }
 
     &.LemonTag--primary {
-        color: var(--accent-primary);
+        color: var(--accent);
         background: none;
-        border-color: var(--accent-primary);
+        border-color: var(--accent);
     }
 
     &.LemonTag--option {
-        color: var(--accent-primary);
+        color: var(--accent);
         background-color: var(--bg-surface-primary);
     }
 
     &.LemonTag--highlight {
-        color: var(--accent-primary);
+        color: var(--accent);
         background: none;
-        border-color: var(--accent-primary);
+        border-color: var(--accent);
     }
 
     &.LemonTag--warning {
@@ -87,7 +87,7 @@
         line-height: 16px;
         color: var(--primary-alt);
         vertical-align: bottom;
-        background-color: var(--accent-primary-highlight);
+        background-color: var(--accent-highlight-secondary);
         border-radius: 40px;
     }
 

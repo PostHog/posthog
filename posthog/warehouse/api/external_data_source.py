@@ -38,6 +38,7 @@ from posthog.temporal.data_imports.pipelines.schemas import (
 )
 from posthog.temporal.data_imports.pipelines.stripe import (
     validate_credentials as validate_stripe_credentials,
+    StripePermissionError,
 )
 from posthog.temporal.data_imports.pipelines.vitally import (
     validate_credentials as validate_vitally_credentials,
@@ -205,7 +206,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "user",
             "schema",
             "ssh-tunnel",
-            "use_ssl",
+            "using_ssl",
             # vitally
             "payload",
             "prefix",
@@ -230,6 +231,23 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         }
         job_inputs = representation.get("job_inputs", {})
         if isinstance(job_inputs, dict):
+            # Reconstruct ssh-tunnel (if needed) structure for UI handling
+            if "ssh_tunnel_enabled" in job_inputs:
+                ssh_tunnel = {
+                    "enabled": job_inputs.pop("ssh_tunnel_enabled", False),
+                    "host": job_inputs.pop("ssh_tunnel_host", None),
+                    "port": job_inputs.pop("ssh_tunnel_port", None),
+                    "auth_type": {
+                        "selection": job_inputs.pop("ssh_tunnel_auth_type", None),
+                        "username": job_inputs.pop("ssh_tunnel_auth_type_username", None),
+                        "password": job_inputs.pop("ssh_tunnel_auth_type_password", None),
+                        "passphrase": job_inputs.pop("ssh_tunnel_auth_type_passphrase", None),
+                        "private_key": job_inputs.pop("ssh_tunnel_auth_type_private_key", None),
+                    },
+                }
+                job_inputs["ssh-tunnel"] = ssh_tunnel
+
+            # Remove sensitive fields
             for key in list(job_inputs.keys()):  # Use list() to avoid modifying dict during iteration
                 if key not in whitelisted_keys:
                     job_inputs.pop(key, None)
@@ -277,13 +295,36 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         """Update source ensuring we merge with existing job inputs to allow partial updates."""
         existing_job_inputs = instance.job_inputs
 
+        new_job_inputs = validated_data.get("job_inputs", {})
+        self._normalize_ssh_tunnel_structure(new_job_inputs)
+
+        if instance.source_type == ExternalDataSource.Type.SNOWFLAKE:
+            new_job_inputs = parse_snowflake_job_inputs(new_job_inputs)
+
         if existing_job_inputs:
-            new_job_inputs = validated_data.get("job_inputs", {})
             validated_data["job_inputs"] = {**existing_job_inputs, **new_job_inputs}
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
 
         return updated_source
+
+    def _normalize_ssh_tunnel_structure(self, job_inputs: dict) -> dict:
+        """Convert nested SSH tunnel structure to flat keys."""
+        if "ssh-tunnel" in job_inputs:
+            ssh_tunnel = job_inputs.pop("ssh-tunnel", {})  # Remove the nested structure after extracting
+            if ssh_tunnel:
+                job_inputs["ssh_tunnel_enabled"] = ssh_tunnel.get("enabled")
+                job_inputs["ssh_tunnel_host"] = ssh_tunnel.get("host")
+                job_inputs["ssh_tunnel_port"] = ssh_tunnel.get("port")
+
+                auth_type = ssh_tunnel.get("auth_type", {})
+                if auth_type:
+                    job_inputs["ssh_tunnel_auth_type"] = auth_type.get("selection")
+                    job_inputs["ssh_tunnel_auth_type_username"] = auth_type.get("username")
+                    job_inputs["ssh_tunnel_auth_type_password"] = auth_type.get("password")
+                    job_inputs["ssh_tunnel_auth_type_passphrase"] = auth_type.get("passphrase")
+                    job_inputs["ssh_tunnel_auth_type_private_key"] = auth_type.get("private_key")
+        return job_inputs
 
 
 class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
@@ -657,7 +698,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
         ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
 
-        using_ssl_str = payload.get("use_ssl", "1")
+        using_ssl_str = payload.get("using_ssl", "1")
         using_ssl = str_to_bool(using_ssl_str)
 
         if not self._validate_database_host(host, self.team_id, using_ssh_tunnel):
@@ -723,18 +764,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
-        account_id = payload.get("account_id")
-        database = payload.get("database")
-        warehouse = payload.get("warehouse")
-        role = payload.get("role")
-        schema = payload.get("schema")
-
-        auth_type_obj = payload.get("auth_type", {})
-        auth_type = auth_type_obj.get("selection", None)
-        auth_type_username = auth_type_obj.get("username", None)
-        auth_type_password = auth_type_obj.get("password", None)
-        auth_type_passphrase = auth_type_obj.get("passphrase", None)
-        auth_type_private_key = auth_type_obj.get("private_key", None)
+        job_inputs = parse_snowflake_job_inputs(payload)
 
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -744,32 +774,21 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             created_by=request.user if isinstance(request.user, User) else None,
             status="Running",
             source_type=source_type,
-            job_inputs={
-                "account_id": account_id,
-                "database": database,
-                "warehouse": warehouse,
-                "role": role,
-                "schema": schema,
-                "auth_type": auth_type,
-                "user": auth_type_username,
-                "password": auth_type_password,
-                "passphrase": auth_type_passphrase,
-                "private_key": auth_type_private_key,
-            },
+            job_inputs=job_inputs,
             prefix=prefix,
         )
 
         schemas = get_snowflake_schemas(
-            account_id=account_id,
-            database=database,
-            warehouse=warehouse,
-            user=auth_type_username,
-            password=auth_type_password,
-            schema=schema,
-            role=role,
-            passphrase=auth_type_passphrase,
-            private_key=auth_type_private_key,
-            auth_type=auth_type,
+            account_id=job_inputs["account_id"],
+            database=job_inputs["database"],
+            warehouse=job_inputs["warehouse"],
+            user=job_inputs["user"],
+            password=job_inputs["password"],
+            schema=job_inputs["schema"],
+            role=job_inputs["role"],
+            passphrase=job_inputs["passphrase"],
+            private_key=job_inputs["private_key"],
+            auth_type=job_inputs["auth_type"],
         )
 
         return new_source_model, list(schemas.keys())
@@ -928,7 +947,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Validate sourced credentials
         if source_type == ExternalDataSource.Type.STRIPE:
             key = request.data.get("stripe_secret_key", "")
-            if not validate_stripe_credentials(api_key=key):
+            try:
+                validate_stripe_credentials(api_key=key)
+            except StripePermissionError as e:
+                missing_resources = ", ".join(e.missing_permissions.keys())
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": f"Invalid credentials: Stripe API key lacks permissions for {missing_resources}"},
+                )
+            except Exception:
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Invalid credentials: Stripe secret is incorrect"},
@@ -989,6 +1016,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 private_key_id=private_key_id,
                 client_email=client_email,
                 token_uri=token_uri,
+                logger=logger,
             )
 
             filtered_results = [
@@ -1057,7 +1085,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ssh_tunnel_auth_type_passphrase = ssh_tunnel_auth_type_obj.get("passphrase", None)
             ssh_tunnel_auth_type_private_key = ssh_tunnel_auth_type_obj.get("private_key", None)
 
-            using_ssl_str = request.data.get("use_ssl", "1")
+            using_ssl_str = request.data.get("using_ssl", "1")
             using_ssl = str_to_bool(using_ssl_str)
 
             ssh_tunnel = SSHTunnel(
@@ -1402,3 +1430,31 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 class InternalPostgresError(Exception):
     pass
+
+
+def parse_snowflake_job_inputs(payload: dict[str, Any]) -> dict[str, Any]:
+    account_id = payload.get("account_id")
+    database = payload.get("database")
+    warehouse = payload.get("warehouse")
+    role = payload.get("role")
+    schema = payload.get("schema")
+
+    auth_type_obj = payload.get("auth_type", {})
+    auth_type = auth_type_obj.get("selection", None)
+    auth_type_username = auth_type_obj.get("username", None)
+    auth_type_password = auth_type_obj.get("password", None)
+    auth_type_passphrase = auth_type_obj.get("passphrase", None)
+    auth_type_private_key = auth_type_obj.get("private_key", None)
+
+    return {
+        "account_id": account_id,
+        "database": database,
+        "warehouse": warehouse,
+        "role": role,
+        "schema": schema,
+        "auth_type": auth_type,
+        "user": auth_type_username,
+        "password": auth_type_password,
+        "passphrase": auth_type_passphrase,
+        "private_key": auth_type_private_key,
+    }

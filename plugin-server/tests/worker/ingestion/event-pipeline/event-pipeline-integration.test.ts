@@ -305,7 +305,7 @@ describe('Event Pipeline integration test', () => {
         }
         expect(events.length).toEqual(2)
         expect(events[0].distinct_id.slice(0, 11)).toEqual('cookieless_') // should have set a distict id
-        expect(events[0].properties.$session_id).toBeDefined() // should have set a session id
+        expect(events[0].properties.$session_id).toBeTruthy() // should have set a session id
         expect(events[0].properties.$raw_user_agent).toBeUndefined() // should have removed personal data
         expect(events[0].distinct_id).toEqual(events[1].distinct_id) // events with the same hash should be assigned to the same user
         expect(events[0].properties.$session_id).toEqual(events[1].properties.$session_id)

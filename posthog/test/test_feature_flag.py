@@ -7,6 +7,7 @@ from django.db import IntegrityError, connection
 from django.test import TransactionTestCase
 from django.utils import timezone
 from freezegun import freeze_time
+from parameterized import parameterized
 import pytest
 
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
@@ -35,6 +36,18 @@ from posthog.test.base import (
 
 class TestFeatureFlagCohortExpansion(BaseTest):
     maxDiff = None
+
+    @parameterized.expand(
+        [
+            ("some_distinct_id", 0.7270002403585725),
+            ("test-identifier", 0.4493881716040236),
+            ("example_id", 0.9402003475831224),
+            ("example_id2", 0.6292740389966519),
+        ]
+    )
+    def test_calculate_hash(self, identifier, expected_hash):
+        result = FeatureFlagMatcher.calculate_hash("holdout-", identifier, "")
+        self.assertAlmostEqual(result, expected_hash)
 
     def test_cohort_expansion(self):
         cohort = Cohort.objects.create(

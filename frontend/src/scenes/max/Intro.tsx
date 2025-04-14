@@ -62,7 +62,7 @@ export function Intro(): JSX.Element {
                     />
                 </AIConsentPopoverWrapper>
             </div>
-            <div className="text-center mb-3">
+            <div className="text-center mb-1">
                 <h2 className="text-xl @md/max-welcome:text-2xl font-bold mb-2 text-balance">{headline}</h2>
                 <div className="text-sm text-secondary text-balance">
                     I'm Max, here to help you build a successful&nbsp;product. Ask&nbsp;me about your product and

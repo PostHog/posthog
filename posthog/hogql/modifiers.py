@@ -50,6 +50,9 @@ def create_default_modifiers_for_team(
     else:
         modifiers = modifiers.model_copy()
 
+    if modifiers.useMaterializedViews is None:
+        modifiers.useMaterializedViews = True
+
     if isinstance(team.modifiers, dict):
         for key, value in team.modifiers.items():
             if getattr(modifiers, key) is None:
@@ -94,18 +97,13 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
     if modifiers.sessionsV2JoinMode is None:
         modifiers.sessionsV2JoinMode = SessionsV2JoinMode.STRING
 
-    if (
-        modifiers.propertyGroupsMode is None
-        and is_cloud()
-        and posthoganalytics.feature_enabled(
-            "hogql-optimized-property-groups-mode-enabled",
-            str(team.uuid),
-            groups={"project": str(team.id)},
-            group_properties={"project": {"id": str(team.id), "created_at": team.created_at, "uuid": team.uuid}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-    ):
+    if modifiers.useMaterializedViews is None:
+        modifiers.useMaterializedViews = True
+
+    if modifiers.usePresortedEventsTable is None:
+        modifiers.usePresortedEventsTable = False
+
+    if modifiers.propertyGroupsMode is None and is_cloud():
         modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
 
 

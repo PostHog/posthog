@@ -1,6 +1,6 @@
 use crate::api::errors::FlagError;
 use crate::client::database::Client as DatabaseClient;
-use crate::cohort::cohort_models::CohortId;
+use crate::cohorts::cohort_models::CohortId;
 use crate::flags::flag_models::*;
 use crate::properties::property_models::PropertyFilter;
 use common_redis::Client as RedisClient;
@@ -55,6 +55,12 @@ impl FeatureFlagList {
         client: Arc<dyn RedisClient + Send + Sync>,
         project_id: i64,
     ) -> Result<FeatureFlagList, FlagError> {
+        tracing::info!(
+            "Attempting to read flags from Redis at key '{}{}'",
+            TEAM_FLAGS_CACHE_PREFIX,
+            project_id
+        );
+
         let serialized_flags = client
             .get(format!("{TEAM_FLAGS_CACHE_PREFIX}{}", project_id))
             .await?;
@@ -62,10 +68,15 @@ impl FeatureFlagList {
         let flags_list: Vec<FeatureFlag> =
             serde_json::from_str(&serialized_flags).map_err(|e| {
                 tracing::error!("failed to parse data to flags list: {}", e);
-                println!("failed to parse data: {}", e);
-
                 FlagError::RedisDataParsingError
             })?;
+
+        tracing::info!(
+            "Successfully read {} flags from Redis at key '{}{}'",
+            flags_list.len(),
+            TEAM_FLAGS_CACHE_PREFIX,
+            project_id
+        );
 
         Ok(FeatureFlagList { flags: flags_list })
     }
@@ -140,6 +151,13 @@ impl FeatureFlagList {
             tracing::error!("Failed to serialize flags: {}", e);
             FlagError::RedisDataParsingError
         })?;
+
+        tracing::info!(
+            "Writing flags to Redis at key '{}{}': {} flags",
+            TEAM_FLAGS_CACHE_PREFIX,
+            project_id,
+            flags.flags.len()
+        );
 
         client
             .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{}", project_id), payload)

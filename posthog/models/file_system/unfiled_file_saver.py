@@ -2,6 +2,9 @@
 
 from typing import Optional
 
+from posthog.models.action.action import Action
+from posthog.models.cohort import Cohort
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.file_system.file_system import FileSystem, split_path, escape_path
@@ -11,14 +14,23 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.experiment import Experiment
 from posthog.models.insight import Insight
 from posthog.models.dashboard import Dashboard
+from posthog.models.surveys.survey import Survey
 from posthog.models.notebook import Notebook
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from products.early_access_features.backend.models import EarlyAccessFeature
 
 MIXIN_MODELS = {
+    "action": Action,
     "feature_flag": FeatureFlag,
     "experiment": Experiment,
     "insight": Insight,
     "dashboard": Dashboard,
     "notebook": Notebook,
+    "early_access_feature": EarlyAccessFeature,
+    "session_recording_playlist": SessionRecordingPlaylist,
+    "cohort": Cohort,
+    "hog_function": HogFunction,
+    "survey": Survey,
 }
 
 
@@ -43,7 +55,7 @@ class UnfiledFileSaver:
             if rep.should_delete:
                 continue
 
-            path = self._generate_unique_path(rep.base_folder, rep.name)
+            path = f"{rep.base_folder}/{escape_path(rep.name)}"
             new_files.append(
                 FileSystem(
                     team=self.team,
@@ -54,20 +66,11 @@ class UnfiledFileSaver:
                     href=rep.href,
                     meta=rep.meta,
                     created_by=self.user,
+                    shortcut=False,
                 )
             )
         FileSystem.objects.bulk_create(new_files)
         return new_files
-
-    def _generate_unique_path(self, base_folder: str, name: str) -> str:
-        desired = f"{base_folder}/{escape_path(name)}"
-        path = desired
-        index = 1
-        while path in self._in_memory_paths or FileSystem.objects.filter(team=self.team, path=path).exists():
-            path = f"{desired} ({index})"
-            index += 1
-        self._in_memory_paths.add(path)
-        return path
 
     def save_all_unfiled(self) -> list[FileSystem]:
         created_all = []

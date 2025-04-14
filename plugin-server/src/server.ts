@@ -1,4 +1,3 @@
-import * as Sentry from '@sentry/node'
 import express from 'express'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes } from 'kafkajs'
@@ -28,7 +27,6 @@ import {
 import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
 import { DefaultBatchConsumerFactory } from './main/ingestion-queues/session-recording-v2/batch-consumer-factory'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
-import { PropertyDefsConsumer } from './property-defs/property-defs-consumer'
 import { setupCommonRoutes } from './router'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { closeHub, createHub } from './utils/db/hub'
@@ -38,7 +36,7 @@ import { isTestEnv } from './utils/env-utils'
 import { parseJSON } from './utils/json-parse'
 import { logger } from './utils/logger'
 import { getObjectStorage } from './utils/object_storage'
-import { shutdown as posthogShutdown } from './utils/posthog'
+import { captureException, shutdown as posthogShutdown } from './utils/posthog'
 import { PubSub } from './utils/pubsub'
 import { delay } from './utils/utils'
 import { teardownPlugins } from './worker/plugins/teardown'
@@ -235,14 +233,6 @@ export class PluginServer {
                 })
             }
 
-            if (capabilities.propertyDefs) {
-                serviceLoaders.push(async () => {
-                    const consumer = new PropertyDefsConsumer(hub)
-                    await consumer.start()
-                    return consumer.service
-                })
-            }
-
             if (capabilities.cdpInternalEvents) {
                 serviceLoaders.push(async () => {
                     const consumer = new CdpInternalEventsConsumer(hub)
@@ -338,9 +328,8 @@ export class PluginServer {
             pluginServerStartupTimeMs.inc(Date.now() - startupTimer.valueOf())
             logger.info('🚀', `All systems go in ${Date.now() - startupTimer.valueOf()}ms`)
         } catch (error) {
-            Sentry.captureException(error)
+            captureException(error)
             logger.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
-            void Sentry.flush().catch(() => null) // Flush Sentry in the background
             logger.error('💥', 'Exception while starting server, shutting down!', { error })
             await this.stop(error)
         }
@@ -358,7 +347,7 @@ export class PluginServer {
         process.on('unhandledRejection', (error: Error | any, promise: Promise<any>) => {
             logger.error('🤮', `Unhandled Promise Rejection`, { error: String(error), promise })
 
-            Sentry.captureException(error, {
+            captureException(error, {
                 extra: { detected_at: `pluginServer.ts on unhandledRejection` },
             })
         })

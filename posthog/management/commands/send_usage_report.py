@@ -10,11 +10,6 @@ class Command(BaseCommand):
         parser.add_argument("--dry-run", type=bool, help="Print information instead of sending it")
         parser.add_argument("--date", type=str, help="The date to be ran in format YYYY-MM-DD")
         parser.add_argument(
-            "--event-name",
-            type=str,
-            help="Override the event name to be sent - for testing",
-        )
-        parser.add_argument(
             "--skip-capture-event",
             type=str,
             help="Skip the posthog capture events - for retrying to billing service",
@@ -24,7 +19,6 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
         date = options["date"]
-        event_name = options["event_name"]
         skip_capture_event = options["skip_capture_event"]
         run_async = options["async"]
 
@@ -32,14 +26,12 @@ class Command(BaseCommand):
             send_all_org_usage_reports.delay(
                 dry_run=dry_run,
                 at=date,
-                capture_event_name=event_name,
                 skip_capture_event=skip_capture_event,
             )
         else:
             send_all_org_usage_reports(
                 dry_run=dry_run,
                 at=date,
-                capture_event_name=event_name,
                 skip_capture_event=skip_capture_event,
             )
 

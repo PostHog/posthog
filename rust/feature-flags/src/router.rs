@@ -5,6 +5,8 @@ use axum::{
     routing::{get, post},
     Router,
 };
+use common_cookieless::CookielessManager;
+use common_geoip::GeoIpClient;
 use common_metrics::{setup_metrics_recorder, track_metrics};
 use common_redis::Client as RedisClient;
 use health::HealthRegistry;
@@ -17,10 +19,10 @@ use tower_http::{
 
 use crate::{
     api::{endpoint, test_endpoint},
-    client::{database::Client as DatabaseClient, geoip::GeoIpClient},
-    cohort::cohort_cache_manager::CohortCacheManager,
+    client::database::Client as DatabaseClient,
+    cohorts::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdsToTrack},
-    metrics::metrics_utils::team_id_label_filter,
+    metrics::utils::team_id_label_filter,
 };
 
 #[derive(Clone)]
@@ -32,6 +34,7 @@ pub struct State {
     pub geoip: Arc<GeoIpClient>,
     pub team_ids_to_track: TeamIdsToTrack,
     pub billing_limiter: RedisLimiter,
+    pub cookieless_manager: Arc<CookielessManager>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -43,6 +46,7 @@ pub fn router<R, D>(
     geoip: Arc<GeoIpClient>,
     liveness: HealthRegistry,
     billing_limiter: RedisLimiter,
+    cookieless_manager: Arc<CookielessManager>,
     config: Config,
 ) -> Router
 where
@@ -57,6 +61,7 @@ where
         geoip,
         team_ids_to_track: config.team_ids_to_track.clone(),
         billing_limiter,
+        cookieless_manager,
     };
 
     // Very permissive CORS policy, as old SDK versions

@@ -1,5 +1,3 @@
-import './Components/Chart.scss'
-
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -200,7 +198,11 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     }
 
     return (
-        <div className="DataVisualization flex flex-1 gap-2">
+        <div
+            className={clsx('DataVisualization flex flex-1 gap-2', {
+                'h-full': visualizationType !== ChartDisplayType.ActionsTable,
+            })}
+        >
             {!readOnly && showEditingUI && (
                 <div className="max-sm:hidden max-w-xs">
                     <DatabaseTableTreeWithItems inline />
@@ -231,7 +233,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                     <AddVariableButton />
 
                                     {sourceFeatures.has(QueryFeature.dateRangePicker) &&
-                                        !router.values.location.pathname.includes(urls.dataWarehouse()) && ( // decouple this component from insights tab and datawarehouse scene
+                                        !router.values.location.pathname.includes(urls.sqlEditor()) && ( // decouple this component from insights tab and datawarehouse scene
                                             <DateRange
                                                 key="date-range"
                                                 query={query.source}

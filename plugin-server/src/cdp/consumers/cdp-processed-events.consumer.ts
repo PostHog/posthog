@@ -221,6 +221,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                       {
                           dbUrl: this.hub.CYCLOTRON_DATABASE_URL,
                           shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
+                          shouldUseBulkCopyJob: this.hub.CDP_CYCLOTRON_USE_BULK_COPY_JOB,
                       },
                   ],
                   shardDepthLimit: this.hub.CYCLOTRON_SHARD_DEPTH_LIMIT ?? 1000000,

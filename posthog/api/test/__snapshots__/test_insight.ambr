@@ -76,12 +76,12 @@
                       (SELECT person.id AS id,
                               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'fish'), ''), 'null'), '^"|"$', '') AS properties___fish
                        FROM person
-                       WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                            (SELECT person.id AS id, max(person.version) AS version
-                                                                             FROM person
-                                                                             WHERE equals(person.team_id, 99999)
-                                                                             GROUP BY person.id
-                                                                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                       WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                                     (SELECT person.id AS id, max(person.version) AS version
+                                                                      FROM person
+                                                                      WHERE equals(person.team_id, 99999)
+                                                                      GROUP BY person.id
+                                                                      HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                     WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('user did things', 'user signed up')), and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
@@ -97,7 +97,9 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestInsight.test_insight_funnels_hogql_breakdown.1
@@ -241,12 +243,12 @@
                    (SELECT person.id AS id,
                            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'fish'), ''), 'null'), '^"|"$', '') AS properties___fish
                     FROM person
-                    WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                         (SELECT person.id AS id, max(person.version) AS version
-                                                                          FROM person
-                                                                          WHERE equals(person.team_id, 99999)
-                                                                          GROUP BY person.id
-                                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                    WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                                  (SELECT person.id AS id, max(person.version) AS version
+                                                                   FROM person
+                                                                   WHERE equals(person.team_id, 99999)
+                                                                   GROUP BY person.id
+                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                  WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('user did things', 'user signed up')), and(and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1), ifNull(like(e__person.properties___fish, '%fish%'), 0))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
@@ -260,7 +262,9 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestInsight.test_insight_funnels_hogql_local_filters
@@ -316,12 +320,12 @@
                    (SELECT person.id AS id,
                            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'fish'), ''), 'null'), '^"|"$', '') AS properties___fish
                     FROM person
-                    WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                         (SELECT person.id AS id, max(person.version) AS version
-                                                                          FROM person
-                                                                          WHERE equals(person.team_id, 99999)
-                                                                          GROUP BY person.id
-                                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                    WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                                  (SELECT person.id AS id, max(person.version) AS version
+                                                                   FROM person
+                                                                   WHERE equals(person.team_id, 99999)
+                                                                   GROUP BY person.id
+                                                                   HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                  WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('user did things', 'user signed up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0)))))
            WHERE ifNull(equals(step_0, 1), 0)))
      GROUP BY aggregation_target,
@@ -335,7 +339,9 @@
                      max_ast_elements=4000000,
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=23622320128,
-                     allow_experimental_analyzer=1
+                     allow_experimental_analyzer=1,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_breakdown
@@ -376,7 +382,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_breakdown.1
@@ -462,7 +470,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_breakdown_materialized.1
@@ -534,7 +544,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters.1
@@ -561,12 +573,12 @@
           (SELECT person.id AS id,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'fish'), ''), 'null'), '^"|"$', '') AS properties___fish
            FROM person
-           WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                (SELECT person.id AS id, max(person.version) AS version
-                                                                 FROM person
-                                                                 WHERE equals(person.team_id, 99999)
-                                                                 GROUP BY person.id
-                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+           WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                          FROM person
+                                                          WHERE equals(person.team_id, 99999)
+                                                          GROUP BY person.id
+                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(and(ifNull(greater(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1), ifNull(like(e__person.properties___fish, '%fish%'), 0)))
         GROUP BY day_start)
      GROUP BY day_start
@@ -578,7 +590,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters_materialized
@@ -605,7 +619,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_global_filters_materialized.1
@@ -632,12 +648,12 @@
           (SELECT person.id AS id,
                   nullIf(nullIf(person.pmat_fish, ''), 'null') AS properties___fish
            FROM person
-           WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                (SELECT person.id AS id, max(person.version) AS version
-                                                                 FROM person
-                                                                 WHERE equals(person.team_id, 99999)
-                                                                 GROUP BY person.id
-                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+           WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                          FROM person
+                                                          WHERE equals(person.team_id, 99999)
+                                                          GROUP BY person.id
+                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(and(ifNull(greater(accurateCastOrNull(nullIf(nullIf(e.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 1), ifNull(like(e__person.properties___fish, '%fish%'), 0)))
         GROUP BY day_start)
      GROUP BY day_start
@@ -649,7 +665,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_local_filters
@@ -676,12 +694,12 @@
           (SELECT person.id AS id,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'fish'), ''), 'null'), '^"|"$', '') AS properties___fish
            FROM person
-           WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                (SELECT person.id AS id, max(person.version) AS version
-                                                                 FROM person
-                                                                 WHERE equals(person.team_id, 99999)
-                                                                 GROUP BY person.id
-                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+           WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                          FROM person
+                                                          WHERE equals(person.team_id, 99999)
+                                                          GROUP BY person.id
+                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(and(ifNull(less(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'int_value'), ''), 'null'), '^"|"$', ''), 'Int64'), 10), 0), 1), ifNull(like(e__person.properties___fish, '%fish%'), 0)))
         GROUP BY day_start)
      GROUP BY day_start
@@ -693,7 +711,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestInsight.test_insight_trend_hogql_local_filters_materialized
@@ -720,12 +740,12 @@
           (SELECT person.id AS id,
                   nullIf(nullIf(person.pmat_fish, ''), 'null') AS properties___fish
            FROM person
-           WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                (SELECT person.id AS id, max(person.version) AS version
-                                                                 FROM person
-                                                                 WHERE equals(person.team_id, 99999)
-                                                                 GROUP BY person.id
-                                                                 HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+           WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                         (SELECT person.id AS id, max(person.version) AS version
+                                                          FROM person
+                                                          WHERE equals(person.team_id, 99999)
+                                                          GROUP BY person.id
+                                                          HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2012-01-08 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2012-01-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(and(ifNull(less(accurateCastOrNull(nullIf(nullIf(e.mat_int_value, ''), 'null'), 'Int64'), 10), 0), 1), ifNull(like(e__person.properties___fish, '%fish%'), 0)))
         GROUP BY day_start)
      GROUP BY day_start
@@ -737,7 +757,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestInsight.test_listing_insights_does_not_nplus1
@@ -778,6 +800,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -805,6 +828,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -857,6 +881,8 @@
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
+         "posthog_dashboard"."breakdown_colors",
+         "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -877,6 +903,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -904,6 +931,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -955,6 +983,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -982,6 +1011,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -1087,6 +1117,8 @@
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
+         "posthog_dashboard"."breakdown_colors",
+         "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -1103,6 +1135,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -1130,6 +1163,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -1216,6 +1250,8 @@
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
+         "posthog_dashboard"."breakdown_colors",
+         "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -1308,6 +1344,8 @@
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
+         "posthog_dashboard"."breakdown_colors",
+         "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -1368,6 +1406,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -1395,6 +1434,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -1663,6 +1703,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -1690,6 +1731,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -1809,6 +1851,8 @@
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
+         "posthog_dashboard"."breakdown_colors",
+         "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -1818,6 +1862,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -1845,6 +1890,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -1942,6 +1988,8 @@
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
+         "posthog_dashboard"."breakdown_colors",
+         "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -1951,6 +1999,7 @@
          "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -1978,6 +2027,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -2184,6 +2234,8 @@
          "posthog_dashboard"."last_accessed_at",
          "posthog_dashboard"."filters",
          "posthog_dashboard"."variables",
+         "posthog_dashboard"."breakdown_colors",
+         "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."deprecated_tags",
@@ -2201,6 +2253,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -2228,6 +2281,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -2279,6 +2333,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -2306,6 +2361,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",
@@ -2385,6 +2441,7 @@
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
+         "posthog_team"."parent_team_id",
          "posthog_team"."project_id",
          "posthog_team"."api_token",
          "posthog_team"."app_urls",
@@ -2412,6 +2469,7 @@
          "posthog_team"."session_recording_url_trigger_config",
          "posthog_team"."session_recording_url_blocklist_config",
          "posthog_team"."session_recording_event_trigger_config",
+         "posthog_team"."session_recording_trigger_match_type_config",
          "posthog_team"."session_replay_config",
          "posthog_team"."survey_config",
          "posthog_team"."capture_console_log_opt_in",

@@ -101,17 +101,52 @@ def team_api_test_factory():
 
             self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
             self.assertEqual(response_data["has_group_types"], False)
+            self.assertEqual(response_data["group_types"], [])
 
-            # Creating a group type in the same project, but different team
             GroupTypeMapping.objects.create(
                 project=self.project, team=other_team, group_type="person", group_type_index=0
+            )
+            GroupTypeMapping.objects.create(
+                project=self.project, team=other_team, group_type="thing", group_type_index=2
+            )
+            GroupTypeMapping.objects.create(
+                project=self.project, team=other_team, group_type="place", group_type_index=1
             )
 
             response = self.client.get("/api/environments/@current/")
             response_data = response.json()
 
             self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
-            self.assertEqual(response_data["has_group_types"], True)  # Irreleveant that group type has different `team`
+            self.assertEqual(response_data["has_group_types"], True)
+            self.assertEqual(
+                response_data["group_types"],
+                [
+                    {
+                        "group_type": "person",
+                        "group_type_index": 0,
+                        "name_singular": None,
+                        "name_plural": None,
+                        "default_columns": None,
+                        "detail_dashboard": None,
+                    },
+                    {
+                        "group_type": "place",
+                        "group_type_index": 1,
+                        "name_singular": None,
+                        "name_plural": None,
+                        "default_columns": None,
+                        "detail_dashboard": None,
+                    },
+                    {
+                        "group_type": "thing",
+                        "group_type_index": 2,
+                        "name_singular": None,
+                        "name_plural": None,
+                        "default_columns": None,
+                        "detail_dashboard": None,
+                    },
+                ],
+            )
 
         def test_cant_retrieve_team_from_another_org(self):
             org = Organization.objects.create(name="New Org")
@@ -1061,14 +1096,9 @@ def team_api_test_factory():
             # and the existing second level nesting is not preserved
             self._assert_replay_config_is({"ai_config": {"opt_in": None, "included_event_properties": ["and another"]}})
 
-        @patch("posthog.api.project.report_user_action")
-        @patch("posthog.api.team.report_user_action")
+        @patch("posthog.event_usage.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")
-        def test_can_add_product_intent(
-            self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
-        ) -> None:
-            if self.client_class is EnvironmentToProjectRewriteClient:
-                mock_report_user_action = mock_report_user_action_legacy_endpoint
+        def test_can_add_product_intent(self, mock_report_user_action: MagicMock) -> None:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/add_product_intent/",
                 {"product_type": "product_analytics", "intent_context": "onboarding product selected"},
@@ -1096,13 +1126,11 @@ def team_api_test_factory():
 
         @patch("posthog.api.team.calculate_product_activation.delay", MagicMock())
         @patch("posthog.models.product_intent.ProductIntent.check_and_update_activation", return_value=False)
-        @patch("posthog.api.project.report_user_action")
-        @patch("posthog.api.team.report_user_action")
+        @patch("posthog.event_usage.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")
         def test_can_update_product_intent_if_already_exists(
             self,
             mock_report_user_action: MagicMock,
-            mock_report_user_action_legacy_endpoint: MagicMock,
             mock_check_and_update_activation: MagicMock,
         ) -> None:
             """
@@ -1114,8 +1142,6 @@ def team_api_test_factory():
             assert original_created_at == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
             # change the time of the existing intent
             with freeze_time("2024-01-02T00:00:00Z"):
-                if self.client_class is EnvironmentToProjectRewriteClient:
-                    mock_report_user_action = mock_report_user_action_legacy_endpoint
                 response = self.client.patch(
                     f"/api/environments/{self.team.id}/add_product_intent/",
                     {"product_type": "product_analytics"},
@@ -1133,7 +1159,7 @@ def team_api_test_factory():
                         "product_key": "product_analytics",
                         "$current_url": "https://posthogtest.com/my-url",
                         "$session_id": "test_session_id",
-                        "intent_context": None,
+                        "intent_context": "unknown",
                         "$set_once": {"first_onboarding_product_selected": "product_analytics"},
                         "is_first_intent_for_product": False,
                         "intent_created_at": datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
@@ -1145,20 +1171,16 @@ def team_api_test_factory():
 
         @patch("posthog.api.team.calculate_product_activation.delay", MagicMock())
         @patch("posthog.models.product_intent.ProductIntent.check_and_update_activation")
-        @patch("posthog.api.project.report_user_action")
-        @patch("posthog.api.team.report_user_action")
+        @patch("posthog.event_usage.report_user_action")
         @freeze_time("2024-01-05T00:00:00Z")
         def test_doesnt_send_event_for_already_activated_intent(
             self,
             mock_report_user_action: MagicMock,
-            mock_report_user_action_legacy_endpoint: MagicMock,
             mock_check_and_update_activation: MagicMock,
         ) -> None:
             ProductIntent.objects.create(
                 team=self.team, product_type="product_analytics", activated_at=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
             )
-            if self.client_class is EnvironmentToProjectRewriteClient:
-                mock_report_user_action = mock_report_user_action_legacy_endpoint
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/add_product_intent/",
                 {"product_type": "product_analytics"},

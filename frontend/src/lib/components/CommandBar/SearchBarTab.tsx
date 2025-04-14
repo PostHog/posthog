@@ -20,7 +20,7 @@ export const SearchBarTab = ({ tab, inputRef }: SearchBarTabProps): JSX.Element 
     return (
         <div
             className={`SearchBarTab flex items-center px-4 py-2 cursor-pointer text-xs whitespace-nowrap border-l-2 ${
-                isActive ? 'SearchBarTab__active font-bold border-accent-primary' : 'border-transparent'
+                isActive ? 'SearchBarTab__active font-bold border-accent' : 'border-transparent'
             } ${tab === Tab.All ? 'h-9' : ''}`}
             onClick={() => {
                 setActiveTab(tab)

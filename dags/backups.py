@@ -1,15 +1,15 @@
 from dataclasses import dataclass
 from datetime import datetime, UTC
-from functools import partial
 import re
 import time
-from typing import Optional
+from typing import Any, Optional
+from collections.abc import Callable
 from clickhouse_driver import Client
 import dagster
 from django.conf import settings
 import pydantic
 from dags.common import JobOwners
-from posthog.clickhouse.client.connection import NodeRole
+from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 
 from dagster_aws.s3 import S3Resource
@@ -22,7 +22,6 @@ SHARDED_TABLES = [
     "sharded_heatmaps",
     "sharded_ingestion_warnings",
     "sharded_performance_events",
-    "sharded_person_distinct_id",
     "sharded_raw_sessions",
     "sharded_session_replay_embeddings",
     "sharded_session_replay_events",
@@ -41,7 +40,6 @@ NON_SHARDED_TABLES = [
     "exchange_rate",
     "groups",
     "infi_clickhouse_orm_migrations",
-    "infi_clickhouse_orm_migrations_tmp",
     "log_entries",
     "metrics_query_log",
     "metrics_time_to_see_data",
@@ -50,7 +48,6 @@ NON_SHARDED_TABLES = [
     "person_collapsing",
     "person_distinct_id",
     "person_distinct_id2",
-    "person_distinct_id_backup",
     "person_distinct_id_overrides",
     "person_overrides",
     "person_static_cohort",
@@ -89,6 +86,9 @@ class Backup:
 
         return f"{base_path}/{shard_path}/{self.date}"
 
+    def _bucket_base_path(self, bucket: str):
+        return f"https://{bucket}.s3.amazonaws.com"
+
     @classmethod
     def from_s3_path(cls, path: str) -> "Backup":
         path_regex = re.compile(
@@ -111,17 +111,17 @@ class Backup:
             "async": "1",
         }
         if self.base_backup:
-            backup_settings["base_backup"] = "S3('https://{bucket}.s3.amazonaws.com/{path}')".format(
-                bucket=settings.CLICKHOUSE_BACKUPS_BUCKET,
+            backup_settings["base_backup"] = "S3('{bucket_base_path}/{path}')".format(
+                bucket_base_path=self._bucket_base_path(settings.CLICKHOUSE_BACKUPS_BUCKET),
                 path=self.base_backup.path,
             )
 
         query = """
         BACKUP {object} {name}
-        TO S3('https://{bucket}.s3.amazonaws.com/{path}')
+        TO S3('{bucket_base_path}/{path}')
         SETTINGS {settings}
         """.format(
-            bucket=settings.CLICKHOUSE_BACKUPS_BUCKET,
+            bucket_base_path=self._bucket_base_path(settings.CLICKHOUSE_BACKUPS_BUCKET),
             path=self.path,
             object="TABLE" if self.table else "DATABASE",
             name=self.table if self.table else self.database,
@@ -261,11 +261,12 @@ def check_latest_backup_status(
         context.log.info("No latest backup found. Skipping status check.")
         return
 
-    map_hosts = (
-        partial(cluster.map_all_hosts_in_shard, shard=latest_backup.shard)
-        if latest_backup.shard
-        else cluster.map_all_hosts
-    )
+    def map_hosts(func: Callable[[Client], Any]):
+        if latest_backup.shard:
+            return cluster.map_hosts_in_shard_by_role(
+                fn=func, shard_num=latest_backup.shard, node_role=NodeRole.DATA, workload=Workload.ONLINE
+            )
+        return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=Workload.ONLINE)
 
     is_done = map_hosts(latest_backup.is_done).result().values()
     if not all(is_done):
@@ -314,9 +315,17 @@ def run_backup(
         return
 
     if backup.shard:
-        cluster.map_any_host_in_shards({backup.shard: backup.create}).result()
+        cluster.map_any_host_in_shards_by_role(
+            {backup.shard: backup.create},
+            node_role=NodeRole.DATA,
+            workload=Workload.ONLINE,
+        ).result()
     else:
-        cluster.any_host_by_role(backup.create, NodeRole.DATA).result()
+        cluster.any_host_by_role(
+            backup.create,
+            node_role=NodeRole.DATA,
+            workload=Workload.ONLINE,
+        ).result()
 
     return backup
 
@@ -330,7 +339,14 @@ def wait_for_backup(
     """
     Wait for a backup to finish.
     """
-    map_hosts = partial(cluster.map_all_hosts_in_shard, shard=backup.shard) if backup.shard else cluster.map_all_hosts
+
+    def map_hosts(func: Callable[[Client], Any]):
+        if backup.shard:
+            return cluster.map_hosts_in_shard_by_role(
+                fn=func, shard_num=backup.shard, node_role=NodeRole.DATA, workload=Workload.ONLINE
+            )
+        return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=Workload.ONLINE)
+
     if backup:
         map_hosts(backup.wait).result().values()
         most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
@@ -397,7 +413,7 @@ def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
         incremental=incremental,
     )
     return dagster.RunRequest(
-        run_key=timestamp,
+        run_key=f"{timestamp}-{table}",
         run_config={
             "ops": {
                 "get_latest_backup": {"config": config.model_dump()},

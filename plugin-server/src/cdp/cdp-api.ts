@@ -177,7 +177,7 @@ export class CdpApi {
                 },
             }
 
-            if (['destination', 'internal_destination'].includes(compoundConfiguration.type)) {
+            if (['destination', 'internal_destination', 'broadcast'].includes(compoundConfiguration.type)) {
                 const {
                     invocations,
                     logs: filterLogs,
@@ -258,6 +258,15 @@ export class CdpApi {
                         await this.hogFunctionMonitoringService.processInvocationResults([response])
                     }
                 }
+
+                const wasSkipped = filterMetrics.some((m) => m.metric_name === 'filtered')
+
+                res.json({
+                    result: result,
+                    status: errors.length > 0 ? 'error' : wasSkipped ? 'skipped' : 'success',
+                    errors: errors.map((e) => String(e)),
+                    logs: logs,
+                })
             } else if (compoundConfiguration.type === 'transformation') {
                 // NOTE: We override the ID so that the transformer doesn't cache the result
                 // TODO: We could do this with a "special" ID to indicate no caching...
@@ -282,16 +291,20 @@ export class CdpApi {
                         errors.push(invocationResult.error)
                     }
                 }
+
+                const wasSkipped = response.invocationResults.some((r) =>
+                    r.metrics?.some((m) => m.metric_name === 'filtered')
+                )
+
+                res.json({
+                    result: result,
+                    status: errors.length > 0 ? 'error' : wasSkipped ? 'skipped' : 'success',
+                    errors: errors.map((e) => String(e)),
+                    logs: logs,
+                })
             } else {
                 return res.status(400).json({ error: 'Invalid function type' })
             }
-
-            res.json({
-                result: result,
-                status: errors.length > 0 ? 'error' : 'success',
-                errors: errors.map((e) => String(e)),
-                logs: logs,
-            })
         } catch (e) {
             console.error(e)
             res.status(500).json({ errors: [e.message] })

@@ -189,38 +189,32 @@ class RetentionQueryRunner(QueryRunner):
         self, property_name: str, breakdown_type: str, group_type_index: int | None = None
     ) -> ast.Expr:
         if breakdown_type == "person":
-            return ast.Call(
-                name="JSONExtractString",
-                args=[
-                    ast.Field(chain=["person", "properties"]),
-                    ast.Constant(value=property_name),
-                ],
-            )
+            properties_chain = ["person", "properties", property_name]
         elif breakdown_type == "group":
-            return ast.Call(
-                name="JSONExtractString",
-                args=[
-                    ast.Field(chain=[f"groups_{group_type_index}", "properties"]),
-                    ast.Constant(value=property_name),
-                ],
-            )
+            properties_chain = [f"groups_{group_type_index}", "properties", property_name]
+        else:
+            # Default to event properties
+            properties_chain = ["events", "properties", property_name]
 
-        # Default to event properties
+        # Just use the field chain directly, HogQL will handle the property access efficiently
         return ast.Call(
-            name="JSONExtractString",
+            name="toString",
             args=[
-                ast.Field(chain=["events", "properties"]),
-                ast.Constant(value=property_name),
+                ast.Call(
+                    name="ifNull",
+                    args=[
+                        ast.Call(
+                            name="nullIf",
+                            args=[
+                                ast.Field(chain=cast(list[str | int], properties_chain)),
+                                ast.Constant(value=""),
+                            ],
+                        ),
+                        ast.Constant(value=""),
+                    ],
+                ),
             ],
         )
-
-    def concat_breakdowns(self, fields: list[ast.Expr]) -> ast.Expr:
-        if not fields:
-            return ast.Constant(value="")
-
-        string_fields: list[ast.Expr] = [ast.Call(name="toString", args=[field]) for field in fields]
-
-        return ast.Call(name="arrayStringConcat", args=[ast.Array(exprs=string_fields), ast.Constant(value="::")])
 
     def actor_query(
         self,
@@ -239,7 +233,12 @@ class RetentionQueryRunner(QueryRunner):
         )
 
         start_entity_expr = entity_to_expr(self.start_event, self.team)
+        return_entity_expr = entity_to_expr(self.return_event, self.team)
         global_event_filters = self.events_where_clause(event_query_type)
+
+        # Pre-filter events to only those we care about
+        is_relevant_event = ast.Or(exprs=[start_entity_expr, return_entity_expr])
+        global_event_filters.append(is_relevant_event)
 
         start_event_timestamps = parse_expr(
             """
@@ -338,7 +337,7 @@ class RetentionQueryRunner(QueryRunner):
                         """,
                         {
                             "start_of_interval_timestamp": start_of_interval_sql,
-                            "returning_entity_expr": entity_to_expr(self.return_event, self.team),
+                            "returning_entity_expr": return_entity_expr,
                             "filter_timestamp": self.events_timestamp_filter,
                         },
                     ),
@@ -448,6 +447,7 @@ class RetentionQueryRunner(QueryRunner):
                 ]
             ),
         )
+
         if (
             self.query.samplingFactor is not None
             and isinstance(self.query.samplingFactor, float)
@@ -457,29 +457,21 @@ class RetentionQueryRunner(QueryRunner):
                 sample_value=ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
             )
 
-        breakdowns = []
-
         if self.query.breakdownFilter:
-            # multiple breakdowns
             if self.query.breakdownFilter.breakdowns:
-                # extract and group by all breakdowns
-                for i, breakdown in enumerate(self.query.breakdownFilter.breakdowns):
-                    breakdown_extract_expr = self.breakdown_extract_expr(
-                        breakdown.property, cast(str, breakdown.type), breakdown.group_type_index
-                    )
-                    breakdown_label = f"breakdown_{i}"
-                    breakdowns.append(breakdown_label)
+                # supporting only single breakdowns for now
+                breakdown = self.query.breakdownFilter.breakdowns[0]
+                breakdown_expr = self.breakdown_extract_expr(
+                    breakdown.property, cast(str, breakdown.type), breakdown.group_type_index
+                )
 
-                    # update both select and group by
-                    inner_query.select.append(ast.Alias(alias=breakdown_label, expr=breakdown_extract_expr))
-                    cast(list[ast.Expr], inner_query.group_by).append(ast.Field(chain=[breakdown_label]))
+                # update both select and group by
+                inner_query.select.append(ast.Alias(alias="breakdown_value", expr=breakdown_expr))
+                cast(list[ast.Expr], inner_query.group_by).append(ast.Field(chain=["breakdown_value"]))
             elif self.query.breakdownFilter.breakdown is not None:
                 raise ValueError(
                     "Single breakdowns are deprecated, make sure multiple-breakdowns feature flag is enabled"
                 )
-
-        concat_expr = self.concat_breakdowns([ast.Field(chain=[prop]) for prop in breakdowns])
-        inner_query.select.append(ast.Alias(alias="breakdown_value", expr=concat_expr))
 
         return inner_query
 
@@ -553,11 +545,6 @@ class RetentionQueryRunner(QueryRunner):
             interval, self.query_date_range.interval_name.title()
         )
 
-        if self.query_date_range.interval_type == IntervalType.HOUR:
-            utfoffset = self.team.timezone_info.utcoffset(date)
-            if utfoffset is not None:
-                date = date + utfoffset
-
         return date
 
     def calculate(self) -> RetentionQueryResponse:
@@ -596,7 +583,10 @@ class RetentionQueryRunner(QueryRunner):
                 breakdown_results = [
                     {
                         "values": [
-                            result_dict.get((start_interval, return_interval), {"count": 0})
+                            {
+                                **result_dict.get((start_interval, return_interval), {"count": 0}),
+                                "label": f"{self.query_date_range.interval_name.title()} {return_interval}",
+                            }
                             for return_interval in range(self.query_date_range.lookahead)
                         ],
                         "label": f"{self.query_date_range.interval_name.title()} {start_interval}",
@@ -617,7 +607,10 @@ class RetentionQueryRunner(QueryRunner):
             results = [
                 {
                     "values": [
-                        result_dict.get((start_interval, return_interval), {"count": 0})
+                        {
+                            **result_dict.get((start_interval, return_interval), {"count": 0}),
+                            "label": f"{self.query_date_range.interval_name.title()} {return_interval}",
+                        }
                         for return_interval in range(self.query_date_range.lookahead)
                     ],
                     "label": f"{self.query_date_range.interval_name.title()} {start_interval}",

@@ -14,6 +14,7 @@ from posthog.schema import (
     WebOverviewQueryResponse,
     WebOverviewQuery,
 )
+from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression_for_events
 
 
 class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
@@ -21,7 +22,7 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
     response: WebOverviewQueryResponse
     cached_response: CachedWebOverviewQueryResponse
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+    def to_query(self) -> ast.SelectQuery:
         return self.outer_select
 
     def calculate(self):
@@ -145,7 +146,7 @@ HAVING {inside_start_timestamp_period}
                 parsed_select.select.append(
                     ast.Alias(
                         alias="session_revenue",
-                        expr=self.revenue_sum_expression,
+                        expr=revenue_sum_expression_for_events(self.team.revenue_config),
                     )
                 )
 
@@ -153,7 +154,12 @@ HAVING {inside_start_timestamp_period}
 
     @cached_property
     def outer_select(self) -> ast.SelectQuery:
-        def current_period_aggregate(function_name, column_name, alias, params=None):
+        def current_period_aggregate(
+            function_name: str,
+            column_name: str,
+            alias: str,
+            params: Optional[list[ast.Expr]] = None,
+        ):
             if not self.query_compare_to_date_range:
                 return ast.Call(name=function_name, params=params, args=[ast.Field(chain=[column_name])])
 
@@ -166,7 +172,12 @@ HAVING {inside_start_timestamp_period}
                 params=params,
             )
 
-        def previous_period_aggregate(function_name, column_name, alias, params=None):
+        def previous_period_aggregate(
+            function_name: str,
+            column_name: str,
+            alias: str,
+            params: Optional[list[ast.Expr]] = None,
+        ):
             if not self.query_compare_to_date_range:
                 return ast.Alias(alias=alias, expr=ast.Constant(value=None))
 
@@ -204,6 +215,7 @@ HAVING {inside_start_timestamp_period}
                     ),
                 ),
             ]
+
             if self.query.includeRevenue:
                 select.extend(
                     [
@@ -224,6 +236,7 @@ HAVING {inside_start_timestamp_period}
                 current_period_aggregate("avg", "is_bounce", "bounce_rate"),
                 previous_period_aggregate("avg", "is_bounce", "prev_bounce_rate"),
             ]
+
             if self.query.includeRevenue:
                 select.extend(
                     [
@@ -232,12 +245,7 @@ HAVING {inside_start_timestamp_period}
                     ]
                 )
 
-        query = ast.SelectQuery(
-            select=select,
-            select_from=ast.JoinExpr(table=self.inner_select),
-        )
-        assert isinstance(query, ast.SelectQuery)
-        return query
+        return ast.SelectQuery(select=select, select_from=ast.JoinExpr(table=self.inner_select))
 
 
 def to_data(

@@ -11,7 +11,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_aggregated_one_without_events.1
@@ -26,7 +28,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown
@@ -66,7 +70,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown.1
@@ -106,7 +112,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown_aggregated
@@ -140,7 +148,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown_aggregated.1
@@ -174,7 +184,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort
@@ -234,7 +246,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort.3
@@ -274,7 +288,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort.4
@@ -304,10 +320,10 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
-                                                                                                                                                                                                                                                                                                                            (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                                                                                                                                                             FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                             WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), 0))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
+                                                                                                                                                                                                                                                                                                                     (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                      FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -324,7 +340,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort.5
@@ -354,10 +372,10 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'), ifNull(in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
-                                                                                                                                                                                                                                                                                                                            (SELECT cohortpeople.person_id AS person_id
-                                                                                                                                                                                                                                                                                                                             FROM cohortpeople
-                                                                                                                                                                                                                                                                                                                             WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), 0))
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'), in(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id),
+                                                                                                                                                                                                                                                                                                                     (SELECT cohortpeople.person_id AS person_id
+                                                                                                                                                                                                                                                                                                                      FROM cohortpeople
+                                                                                                                                                                                                                                                                                                                      WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))))
            GROUP BY day_start,
                     breakdown_value)
         GROUP BY day_start,
@@ -374,7 +392,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown_hogql
@@ -408,12 +428,12 @@
              (SELECT person.id AS id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
               FROM person
-              WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                   (SELECT person.id AS id, max(person.version) AS version
-                                                                    FROM person
-                                                                    WHERE equals(person.team_id, 99999)
-                                                                    GROUP BY person.id
-                                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+              WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                            (SELECT person.id AS id, max(person.version) AS version
+                                                             FROM person
+                                                             WHERE equals(person.team_id, 99999)
+                                                             GROUP BY person.id
+                                                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
                     breakdown_value)
@@ -431,7 +451,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown_hogql.1
@@ -465,12 +487,12 @@
              (SELECT person.id AS id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
               FROM person
-              WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                   (SELECT person.id AS id, max(person.version) AS version
-                                                                    FROM person
-                                                                    WHERE equals(person.team_id, 99999)
-                                                                    GROUP BY person.id
-                                                                    HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+              WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                            (SELECT person.id AS id, max(person.version) AS version
+                                                             FROM person
+                                                             WHERE equals(person.team_id, 99999)
+                                                             GROUP BY person.id
+                                                             HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
                     breakdown_value)
@@ -488,7 +510,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series
@@ -528,7 +552,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series.1
@@ -568,7 +594,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_formula_with_unique_sessions
@@ -594,7 +622,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_formula_with_unique_sessions.1
@@ -627,7 +657,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_hour_interval_day_level_relative
@@ -653,7 +685,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_hour_interval_day_level_relative.1
@@ -679,7 +713,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_hour_interval_hour_level_relative
@@ -705,7 +741,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_hour_interval_hour_level_relative.1
@@ -731,7 +769,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_session_duration_aggregation
@@ -753,7 +793,7 @@
              (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                      raw_sessions.session_id_v7 AS session_id_v7
               FROM raw_sessions
-              WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), 0))
+              WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC'))), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
               GROUP BY raw_sessions.session_id_v7,
                        raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')), e__session.session_id_v7)
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
@@ -770,7 +810,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_session_duration_aggregation.1
@@ -796,7 +838,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter
@@ -815,7 +859,7 @@
           (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                   raw_sessions.session_id_v7 AS session_id_v7
            FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), 0))
+           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC'))), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
            GROUP BY raw_sessions.session_id_v7,
                     raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')), e__session.session_id_v7)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'), ifNull(greater(e__session.`$session_duration`, 12.0), 0))
@@ -829,7 +873,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter.1
@@ -855,7 +901,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x
@@ -874,7 +922,7 @@
           (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                   raw_sessions.session_id_v7 AS session_id_v7
            FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), 0))
+           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC'))), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
            GROUP BY raw_sessions.session_id_v7,
                     raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')), e__session.session_id_v7)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, '$autocapture'), ifNull(less(e__session.`$session_duration`, 30.0), 0))
@@ -888,7 +936,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x.1
@@ -907,7 +957,7 @@
           (SELECT dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
                   raw_sessions.session_id_v7 AS session_id_v7
            FROM raw_sessions
-           WHERE and(equals(raw_sessions.team_id, 99999), ifNull(greaterOrEquals(plus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), 0), ifNull(lessOrEquals(minus(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), toIntervalDay(3)), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), 0))
+           WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC'))), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(3))))
            GROUP BY raw_sessions.session_id_v7,
                     raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, 'UUID')), e__session.session_id_v7)
         WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'), ifNull(greater(e__session.`$session_duration`, 500.0), 0))
@@ -921,6 +971,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=0
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
