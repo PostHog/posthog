@@ -71,8 +71,9 @@ class TestCodebaseSync(ClickhouseTestMixin, BaseTest):
 
         sync_execute(query + ", ".join(rows), args, team_id=self.team.id)
 
-    def _create_tree(self, server_tree):
-        self._create_artifacts(server_tree)
+    def _create_tree(self, server_tree: list[SerializedArtifact], create_artifacts: bool | None = True):
+        if create_artifacts:
+            self._create_artifacts(server_tree)
         return self.service.sync(server_tree)
 
     def _query_server_tree(self):
@@ -83,7 +84,14 @@ class TestCodebaseSync(ClickhouseTestMixin, BaseTest):
         return nodes
 
     def test_sync_new_codebase(self):
-        pass
+        client_tree = [
+            {"id": "root", "type": "dir", "parent_id": None, "synced": True},
+            {"id": "dir", "type": "dir", "parent_id": "root", "synced": True},
+            {"id": "file_1", "type": "file", "parent_id": "dir", "synced": False},
+        ]
+        diverging_nodes = self.service.sync(client_tree)
+        self.assertEqual(diverging_nodes, ["file_1"])
+        self.assertCountEqual(self._query_server_tree(), client_tree)
 
     def test_sync_new_codebase_with_existing_artifacts(self):
         pass
@@ -99,6 +107,8 @@ class TestCodebaseSync(ClickhouseTestMixin, BaseTest):
 
     def test_sync_replaces_leaf_node(self):
         """
+        Re-link the leaf nodes to a new parent tree.
+
         Root
             dir_1
                 file_1
@@ -124,3 +134,101 @@ class TestCodebaseSync(ClickhouseTestMixin, BaseTest):
         diverging_nodes = self.service.sync(client_tree)
         self.assertEqual(diverging_nodes, ["file_3"])
         self.assertCountEqual(self._query_server_tree(), client_tree)
+
+    def test_sync_finds_missing_leaf_nodes(self):
+        """
+        Leaf node hashes don't differ since files are the same.
+        However, if the file hasn't been uploaded yet, we should return it.
+
+        Root
+            dir_1
+                file_1
+        """
+        self._create_tree(
+            [
+                {"id": "root", "type": "dir", "parent_id": None},
+                {"id": "dir", "type": "dir", "parent_id": "root"},
+                {"id": "file_1", "type": "file", "parent_id": "dir"},
+            ],
+            create_artifacts=False,
+        )
+
+        client_tree = [
+            {"id": "root_new", "type": "dir", "parent_id": None, "synced": True},
+            {"id": "dir_new", "type": "dir", "parent_id": "root_new", "synced": True},
+            {"id": "file_1", "type": "file", "parent_id": "dir_new", "synced": False},
+        ]
+
+        diverging_nodes = self.service.sync(client_tree)
+        self.assertEqual(diverging_nodes, ["file_1"])
+        self.assertCountEqual(self._query_server_tree(), client_tree)
+
+    def test_sync_ignores_synced_leaf_nodes(self):
+        """
+        Leaf node hashes are the same, but parent id is different.
+        If the file is already synced, we should ignore it and only re-link the parent.
+
+        Root
+            dir_1
+                file_1
+        """
+        self._create_tree(
+            [
+                {"id": "root", "type": "dir", "parent_id": None},
+                {"id": "dir", "type": "dir", "parent_id": "root"},
+                {"id": "file_1", "type": "file", "parent_id": "dir"},
+            ],
+        )
+
+        client_tree = [
+            {"id": "root_new", "type": "dir", "parent_id": None, "synced": True},
+            {"id": "dir_new", "type": "dir", "parent_id": "root_new", "synced": True},
+            {"id": "file_1", "type": "file", "parent_id": "dir_new", "synced": True},
+        ]
+
+        diverging_nodes = self.service.sync(client_tree)
+        self.assertEqual(diverging_nodes, [])
+        self.assertCountEqual(self._query_server_tree(), client_tree)
+
+    def test_sync_ignores_tree_if_root_is_the_same(self):
+        """
+        Ignore all nodes if the root hash is the same.
+
+        Root
+            dir_1
+                file_1
+        """
+        server_tree = [
+            {"id": "root", "type": "dir", "parent_id": None, "synced": True},
+            {"id": "dir", "type": "dir", "parent_id": "root", "synced": True},
+            {"id": "file_1", "type": "file", "parent_id": "dir", "synced": True},
+        ]
+        self._create_tree(server_tree)
+
+        diverging_nodes = self.service.sync(server_tree)
+        self.assertEqual(diverging_nodes, [])
+        self.assertCountEqual(self._query_server_tree(), server_tree)
+
+    def test_sync_handles_new_branch(self):
+        """
+        Leaf nodes can stay the same while new branches are added,
+        so we don't return them.
+
+        Root
+            dir_1
+                file_1
+            dir_2
+                file_2
+        """
+        tree = [
+            {"id": "root", "type": "dir", "parent_id": None, "synced": True},
+            {"id": "dir_1", "type": "dir", "parent_id": "root", "synced": True},
+            {"id": "file_1", "type": "file", "parent_id": "dir_1", "synced": True},
+            {"id": "dir_2", "type": "dir", "parent_id": "root", "synced": True},
+            {"id": "file_2", "type": "file", "parent_id": "dir_2", "synced": True},
+        ]
+        self._create_tree(tree)
+
+        diverging_nodes = CodebaseSyncService(self.team, self.user, self.codebase, "new-branch").sync(tree)
+        self.assertEqual(diverging_nodes, [])
+        self.assertCountEqual(self._query_server_tree(), tree)

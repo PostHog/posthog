@@ -257,6 +257,7 @@ class CodebaseSyncService:
                 f"(%(team_id)s, %(user_id)s, %(codebase_id)s, %(branch)s, %(artifact_id_{i})s, %(parent_artifact_id_{i})s, %(type_{i})s, %(sign_{i})s)"
             )
 
+        # Must go first
         for i, node in enumerate(deleted_nodes):
             insert_node(i, node, True)
 
