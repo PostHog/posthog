@@ -8,6 +8,8 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models import User
+from products.editor.backend.chunking.exceptions import UnsupportedLanguage
+from products.editor.backend.chunking.parser import guess_language
 from products.editor.backend.models.codebase import Codebase
 from products.editor.backend.services.codebase_sync import CodebaseSyncService
 from products.editor.backend.tasks import embed_file
@@ -40,15 +42,23 @@ class CodebaseSyncResponseSerializer(serializers.Serializer):
     synced = serializers.SerializerMethodField()
     diverging_files = serializers.ListField(child=serializers.CharField())
 
-    def get_synced(self, obj):
+    def get_synced(self, obj: dict):
         return len(obj["diverging_files"]) == 0
 
 
 class CodebaseArtifactSerializer(serializers.Serializer):
     id = serializers.CharField()
-    type = serializers.ChoiceField(choices=["file", "dir"])
     path = serializers.CharField()
+    extension = serializers.CharField(required=False)
     content = serializers.CharField(max_length=4_000_000)  # Roughly 1 million tokens.
+
+    def validate(self, attrs):
+        try:
+            lang = guess_language(attrs["extension"])
+            attrs["programming_language"] = lang
+        except UnsupportedLanguage:
+            attrs["programming_language"] = None
+        return attrs
 
 
 class CodebaseSyncViewset(TeamAndOrgViewSetMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
@@ -94,6 +104,7 @@ class CodebaseSyncViewset(TeamAndOrgViewSetMixin, mixins.CreateModelMixin, views
             artifact_id=validated_data["id"],
             file_path=validated_data["path"],
             file_content=validated_data["content"],
+            language=validated_data["programming_language"],
         )
 
         return Response(status=status.HTTP_202_ACCEPTED)

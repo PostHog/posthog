@@ -6,6 +6,7 @@ from structlog import get_logger
 
 from posthog.clickhouse.client import sync_execute
 from products.editor.backend.chunking import chunk_text
+from products.editor.backend.chunking.parser import ProgrammingLanguage
 from products.editor.backend.chunking.types import Chunk
 
 logger = get_logger(__name__)
@@ -13,8 +14,8 @@ logger = get_logger(__name__)
 EmbeddingResult = list[tuple[Chunk, list[float]]]
 
 
-def chunk_and_embed(file_path: str, file_content: str) -> EmbeddingResult:
-    chunk = chunk_text(file_path, file_content)
+def chunk_and_embed(file_content: str, language: ProgrammingLanguage | None = None) -> EmbeddingResult:
+    chunk = chunk_text(file_content, language=language)
     client = OpenAI()
     embeddings: list[tuple[Chunk, list[float]]] = []
     for batch_size in range(0, len(chunk), 2048):
@@ -74,6 +75,7 @@ def embed_file(
     artifact_id: str,
     file_path: str,
     file_content: str,
+    language: ProgrammingLanguage | None = None,
 ):
     try:
         logger.info(
@@ -83,7 +85,7 @@ def embed_file(
             codebase_id=codebase_id,
             artifact_id=artifact_id,
         )
-        embeddings = chunk_and_embed(file_path, file_content)
+        embeddings = chunk_and_embed(file_content, language)
         insert_embeddings(team_id, user_id, codebase_id, artifact_id, file_path, embeddings)
     except Exception as e:
         logger.exception(
