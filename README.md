@@ -67,16 +67,16 @@ We *do not* provide customer support or offer guarantees for open source deploym
 
 Once you've got a PostHog instance, you can set it up by installing our [JavaScript web snippet](https://posthog.com/docs/getting-started/install?tab=snippet), one of [our SDKs](https://posthog.com/docs/getting-started/install?tab=sdks), or by [using our API](https://posthog.com/docs/getting-started/install?tab=api).
 
-We have SDKs for:
+We have SDKs and libraries for popular languages and frameworks like:
 
-|                                                     |                                                                 |                                                      |
-| --------------------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------- |
-| [JavaScript](https://posthog.com/docs/libraries/js) | [React Native](https://posthog.com/docs/libraries/react-native) | [Go](https://posthog.com/docs/libraries/go)          |
-| [Python](https://posthog.com/docs/libraries/python) | [Android](https://posthog.com/docs/libraries/android)           | [C#/.NET](https://posthog.com/docs/libraries/dotnet) |
-| [Node](https://posthog.com/docs/libraries/node)     | [iOS](https://posthog.com/docs/libraries/ios)                   | [Ruby](https://posthog.com/docs/libraries/ruby)      |
-| [PHP](https://posthog.com/docs/libraries/php)       | [Flutter](https://posthog.com/docs/libraries/flutter)           | More...                                              |
+| Frontend                                              | Mobile                                                          | Backend                                             |
+| ----------------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------- |
+| [JavaScript](https://posthog.com/docs/libraries/js)   | [React Native](https://posthog.com/docs/libraries/react-native) | [Python](https://posthog.com/docs/libraries/python) |
+| [Next.js](https://posthog.com/docs/libraries/next-js) | [Android](https://posthog.com/docs/libraries/android)           | [Node](https://posthog.com/docs/libraries/node)     |
+| [React](https://posthog.com/docs/libraries/react)     | [iOS](https://posthog.com/docs/libraries/ios)                   | [PHP](https://posthog.com/docs/libraries/php)       |
+| [Vue](https://posthog.com/docs/libraries/vue-js)      | [Flutter](https://posthog.com/docs/libraries/flutter)           | [Ruby](https://posthog.com/docs/libraries/ruby)     |
 
-We also have guides for frameworks like [Next.js](https://posthog.com/docs/libraries/next-js), [Vue](https://posthog.com/docs/libraries/vue-js), [Django](https://posthog.com/docs/libraries/django), [WordPress](https://posthog.com/docs/libraries/wordpress), [Webflow](https://posthog.com/docs/libraries/webflow), and more.
+Beyond this, we have docs and guides for [Go](https://posthog.com/docs/libraries/go), [.NET/C#](https://posthog.com/docs/libraries/dotnet), [Django](https://posthog.com/docs/libraries/django), [Angular](https://posthog.com/docs/libraries/angular), [WordPress](https://posthog.com/docs/libraries/wordpress), [Webflow](https://posthog.com/docs/libraries/webflow), and more.
 
 Once you've installed PostHog, see our [product docs](https://posthog.com/docs/product-os) for more information on how to set up [product analytics](https://posthog.com/docs/product-analytics/capture-events), [web analytics](https://posthog.com/docs/web-analytics/getting-started), [session replays](https://posthog.com/docs/session-replay/how-to-watch-recordings), [feature flags](https://posthog.com/docs/feature-flags/creating-feature-flags), [experiments](https://posthog.com/docs/experiments/creating-an-experiment), [error tracking](https://posthog.com/docs/error-tracking/installation#setting-up-exception-autocapture), [surveys](https://posthog.com/docs/surveys/installation), [data warehouse](https://posthog.com/docs/cdp/sources), and more.
 
