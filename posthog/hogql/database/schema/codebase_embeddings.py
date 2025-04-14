@@ -18,6 +18,7 @@ class CodebaseEmbeddingsTable(Table):
         "vector": FloatArrayDatabaseField(name="vector", nullable=False),
         "properties": StringJSONDatabaseField(name="properties", nullable=False),
         "timestamp": DateTimeDatabaseField(name="timestamp", nullable=False),
+        "is_deleted": IntegerDatabaseField(name="is_deleted", nullable=False),
     }
 
     def to_printed_clickhouse(self, context):

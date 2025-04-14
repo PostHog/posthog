@@ -72,7 +72,7 @@ class TestCodebaseTree(EditorTestQueryHelpersMixin, ClickhouseTestMixin, BaseTes
                 CatalogEntry(artifact_id="file2", parent_artifact_id="root", type="file"),
             ]
         )
-        self._create_artifacts([{"id": "file1", "type": "file", "parent_id": "root"}])
+        self._create_artifacts([{"id": "file1", "type": "file", "parent_id": "root"}], user_id=self.stable_user_id)
 
         response = CodebaseTreeQueryRunner(
             CodebaseTreeQuery(userId=self.stable_user_id, codebaseId=str(self.codebase.id)), self.team

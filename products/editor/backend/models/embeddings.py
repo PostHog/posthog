@@ -17,13 +17,14 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     vector Array(Float32),
     properties VARCHAR CODEC(ZSTD(3)),
     timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
+    is_deleted UInt8,
 ) ENGINE = {engine}
 """
 
 
 def CODEBASE_EMBEDDINGS_TABLE_ENGINE():
     return ReplacingMergeTree(
-        CODEBASE_EMBEDDINGS_TABLE_NAME(), replication_scheme=ReplicationScheme.REPLICATED, ver="timestamp"
+        CODEBASE_EMBEDDINGS_TABLE_NAME(), replication_scheme=ReplicationScheme.REPLICATED, ver="timestamp, is_deleted"
     )
 
 
