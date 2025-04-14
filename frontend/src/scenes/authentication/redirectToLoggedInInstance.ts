@@ -22,8 +22,8 @@
  */
 
 import { lemonToast } from '@posthog/lemon-ui'
-import { captureException } from '@sentry/react'
 import { getCookie } from 'lib/api'
+import posthog from 'posthog-js'
 
 // cookie values
 const PH_CURRENT_INSTANCE = 'ph_current_instance'
@@ -51,7 +51,7 @@ export function cleanedCookieSubdomain(loggedInInstance: string | null): Subdoma
         }
     } catch (e) {
         // let's not allow errors in this code break the log-in page 🤞
-        captureException(e, { extra: { loggedInInstance } })
+        posthog.captureException(e, { extra: { loggedInInstance } })
         return null
     }
 }
