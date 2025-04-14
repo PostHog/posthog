@@ -1,12 +1,12 @@
 import json
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.test.base import BaseTest
 from products.editor.backend.models.codebase import Codebase
-from products.editor.backend.services.codebase_sync import SerializedArtifact
 
 
 class CatalogEntry(BaseModel):
@@ -25,15 +25,14 @@ class EditorTestQueryHelpersMixin(BaseTest):
     codebase: Codebase
     stable_user_id: int = 99999
 
-    def _create_artifacts(self, tree: list[SerializedArtifact], user_id: int | None = None):
-        query = "INSERT INTO codebase_embeddings (team_id, user_id, codebase_id, artifact_id, chunk_id, vector, properties, is_deleted) VALUES "
+    def _create_artifacts(self, tree: list[dict[str, Any]], user_id: int | None = None, codebase_id: str | None = None):
+        query = "INSERT INTO codebase_embeddings (team_id, user_id, codebase_id, artifact_id, chunk_id, vector, properties, timestamp, is_deleted) VALUES "
         rows: list[str] = []
 
         args = {
             "team_id": self.team.id,
             "user_id": user_id or self.user.id,
-            "codebase_id": self.codebase.id,
-            "chunk_id": 0,
+            "codebase_id": codebase_id or self.codebase.id,
             "vector": [0.5, 0.5],
             "properties": json.dumps(
                 {
@@ -50,10 +49,13 @@ class EditorTestQueryHelpersMixin(BaseTest):
                 args.update(
                     {
                         f"artifact_id_{idx}": node["id"],
+                        f"chunk_id_{idx}": node.get("chunk_id", 0),
+                        f"is_deleted_{idx}": node.get("is_deleted", 0),
+                        f"timestamp_{idx}": node.get("timestamp"),
                     }
                 )
                 rows.append(
-                    f"(%(team_id)s, %(user_id)s, %(codebase_id)s, %(artifact_id_{idx})s, %(chunk_id)s, %(vector)s, %(properties)s, %(is_deleted)s)"
+                    f"(%(team_id)s, %(user_id)s, %(codebase_id)s, %(artifact_id_{idx})s, %(chunk_id_{idx})s, %(vector)s, %(properties)s, %(timestamp_{idx})s, %(is_deleted_{idx})s)"
                 )
 
         sync_execute(query + ", ".join(rows), args, team_id=self.team.id)

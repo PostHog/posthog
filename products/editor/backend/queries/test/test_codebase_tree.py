@@ -188,3 +188,62 @@ class TestCodebaseTree(EditorTestQueryHelpersMixin, ClickhouseTestMixin, BaseTes
             CodebaseTreeResponseItem(id="file", parentId="dir2", synced=False, type="file"),
         ]
         self.assertCountEqual(expected_result, response.results)
+
+    def test_multiple_codebases_same_user(self):
+        """Test that a single user can have multiple codebases with distinct results."""
+        # Create a second codebase
+        second_codebase = Codebase.objects.create(
+            team=self.team, user=self.user, id="019634cb-5198-0000-ab58-7ba5d8855148"
+        )
+
+        # Create data for first codebase
+        self._create_codebase_catalog(
+            [
+                CatalogEntry(artifact_id="first-root", user_id=self.stable_user_id, codebase_id=str(self.codebase.id)),
+                CatalogEntry(
+                    artifact_id="first-file",
+                    parent_artifact_id="first-root",
+                    type="file",
+                    user_id=self.stable_user_id,
+                    codebase_id=str(self.codebase.id),
+                ),
+            ]
+        )
+
+        # Create data for second codebase (same user)
+        self._create_codebase_catalog(
+            [
+                CatalogEntry(
+                    artifact_id="second-root", user_id=self.stable_user_id, codebase_id=str(second_codebase.id)
+                ),
+                CatalogEntry(
+                    artifact_id="second-file",
+                    parent_artifact_id="second-root",
+                    type="file",
+                    user_id=self.stable_user_id,
+                    codebase_id=str(second_codebase.id),
+                ),
+            ]
+        )
+
+        # Query first codebase
+        first_codebase_response = CodebaseTreeQueryRunner(
+            CodebaseTreeQuery(userId=self.stable_user_id, codebaseId=str(self.codebase.id)), self.team
+        ).run()
+
+        first_codebase_expected = [
+            CodebaseTreeResponseItem(id="first-root", parentId=None, synced=True, type="dir"),
+            CodebaseTreeResponseItem(id="first-file", parentId="first-root", synced=False, type="file"),
+        ]
+        self.assertCountEqual(first_codebase_expected, first_codebase_response.results)
+
+        # Query second codebase
+        second_codebase_response = CodebaseTreeQueryRunner(
+            CodebaseTreeQuery(userId=self.stable_user_id, codebaseId=str(second_codebase.id)), self.team
+        ).run()
+
+        second_codebase_expected = [
+            CodebaseTreeResponseItem(id="second-root", parentId=None, synced=True, type="dir"),
+            CodebaseTreeResponseItem(id="second-file", parentId="second-root", synced=False, type="file"),
+        ]
+        self.assertCountEqual(second_codebase_expected, second_codebase_response.results)
