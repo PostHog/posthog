@@ -17,6 +17,7 @@ import {
     ExperimentMetricMathType,
     FilterLogicalOperator,
     FilterType,
+    FunnelConversionWindowTimeUnit,
     FunnelMathType,
     FunnelsFilterType,
     GroupMathType,
@@ -103,6 +104,12 @@ export enum NodeKind {
     WebGoalsQuery = 'WebGoalsQuery',
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
+    WebPageURLSearchQuery = 'WebPageURLSearchQuery',
+
+    // Revenue analytics queries
+    RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
+    RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
+    RevenueAnalyticsChurnRateQuery = 'RevenueAnalyticsChurnRateQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -139,12 +146,16 @@ export type AnyDataNode =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
+    | RevenueAnalyticsOverviewQuery
+    | RevenueAnalyticsGrowthRateQuery
+    | RevenueAnalyticsChurnRateQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
+    | WebPageURLSearchQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
@@ -190,6 +201,12 @@ export type QuerySchema =
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
+    | WebPageURLSearchQuery
+
+    // Revenue analytics
+    | RevenueAnalyticsOverviewQuery
+    | RevenueAnalyticsGrowthRateQuery
+    | RevenueAnalyticsChurnRateQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -275,6 +292,7 @@ export interface HogQLQueryModifiers {
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
+    usePresortedEventsTable?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -413,7 +431,6 @@ export enum QueryIndexUsage {
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
-    isValidView?: boolean
     isUsingIndices?: QueryIndexUsage
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
@@ -688,6 +705,9 @@ export interface DataTableNode
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
+                    | RevenueAnalyticsOverviewQuery
+                    | RevenueAnalyticsGrowthRateQuery
+                    | RevenueAnalyticsChurnRateQuery
                     | RevenueExampleEventsQuery
                     | RevenueExampleDataWarehouseTablesQuery
                     | ErrorTrackingQuery
@@ -714,6 +734,9 @@ export interface DataTableNode
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
+        | RevenueAnalyticsOverviewQuery
+        | RevenueAnalyticsGrowthRateQuery
+        | RevenueAnalyticsChurnRateQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
         | ErrorTrackingQuery
@@ -1084,6 +1107,7 @@ export type FunnelsFilter = {
     breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
     breakdownAttributionValue?: integer
     funnelAggregateByHogQL?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
+    /** To select the range of steps for trends & time to convert funnels, 0-indexed */
     funnelToStep?: integer
     funnelFromStep?: integer
     /** @default ordered */
@@ -1156,6 +1180,7 @@ export type RetentionFilter = {
 
 export interface RetentionValue {
     count: integer
+    label?: string
 }
 
 export interface RetentionResult {
@@ -1763,7 +1788,6 @@ export type CachedSessionAttributionExplorerQueryResponse = CachedQueryResponse<
 
 export interface RevenueExampleEventsQuery extends DataNode<RevenueExampleEventsQueryResponse> {
     kind: NodeKind.RevenueExampleEventsQuery
-    revenueTrackingConfig: RevenueTrackingConfig
     limit?: integer
     offset?: integer
 }
@@ -1780,7 +1804,6 @@ export type CachedRevenueExampleEventsQueryResponse = CachedQueryResponse<Revenu
 export interface RevenueExampleDataWarehouseTablesQuery
     extends DataNode<RevenueExampleDataWarehouseTablesQueryResponse> {
     kind: NodeKind.RevenueExampleDataWarehouseTablesQuery
-    revenueTrackingConfig: RevenueTrackingConfig
     limit?: integer
     offset?: integer
 }
@@ -1794,6 +1817,44 @@ export interface RevenueExampleDataWarehouseTablesQueryResponse extends Analytic
 }
 export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
     CachedQueryResponse<RevenueExampleDataWarehouseTablesQueryResponse>
+
+/*
+ * Revenue Analytics Queries
+ */
+export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extends DataNode<R> {
+    dateRange?: DateRange
+}
+
+export interface RevenueAnalyticsOverviewQuery
+    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsOverviewQuery
+}
+
+export type RevenueAnalyticsOverviewItemKey = 'MRR' | 'ARR' | 'Customer Count' | 'New customers' | 'Churned customers'
+export interface RevenueAnalyticsOverviewItem {
+    key: RevenueAnalyticsOverviewItemKey
+    value?: number
+}
+
+export interface RevenueAnalyticsOverviewQueryResponse
+    extends AnalyticsQueryResponseBase<RevenueAnalyticsOverviewItem[]> {}
+export type CachedRevenueAnalyticsOverviewQueryResponse = CachedQueryResponse<RevenueAnalyticsOverviewQueryResponse>
+
+export interface RevenueAnalyticsGrowthRateQuery
+    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsGrowthRateQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsGrowthRateQuery
+}
+
+export interface RevenueAnalyticsGrowthRateQueryResponse extends AnalyticsQueryResponseBase<unknown> {}
+export type CachedRevenueAnalyticsGrowthRateQueryResponse = CachedQueryResponse<RevenueAnalyticsGrowthRateQueryResponse>
+
+export interface RevenueAnalyticsChurnRateQuery
+    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsChurnRateQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsChurnRateQuery
+}
+
+export interface RevenueAnalyticsChurnRateQueryResponse extends AnalyticsQueryResponseBase<unknown> {}
+export type CachedRevenueAnalyticsChurnRateQueryResponse = CachedQueryResponse<RevenueAnalyticsChurnRateQueryResponse>
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
@@ -1868,6 +1929,8 @@ export interface FileSystemEntry {
     meta?: Record<string, any>
     /** Timestamp when file was added. Used to check persistence */
     created_at?: string
+    /** Whether this is a shortcut or the actual item */
+    shortcut?: boolean
     /** Used to indicate pending actions, frontend only */
     _loading?: boolean
 }
@@ -1975,7 +2038,13 @@ export const enum ExperimentMetricType {
 export type ExperimentMetricBaseProperties = {
     kind: NodeKind.ExperimentMetric
     name?: string
-    time_window_hours?: number
+    conversion_window?: integer
+    conversion_window_unit?: FunnelConversionWindowTimeUnit
+}
+
+export type ExperimentMetricOutlierHandling = {
+    lower_bound_percentile?: number
+    upper_bound_percentile?: number
 }
 
 export interface ExperimentDataWarehouseNode extends EntityNode {
@@ -1990,15 +2059,22 @@ export type ExperimentMetricSource = EventsNode | ActionsNode | ExperimentDataWa
 
 export type ExperimentFunnelMetricStep = EventsNode | ActionsNode // ExperimentDataWarehouseNode is not supported yet
 
-export type ExperimentMeanMetric = ExperimentMetricBaseProperties & {
-    metric_type: ExperimentMetricType.MEAN
-    source: ExperimentMetricSource
-}
+export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
+    ExperimentMetricOutlierHandling & {
+        metric_type: ExperimentMetricType.MEAN
+        source: ExperimentMetricSource
+    }
+
+export const isExperimentMeanMetric = (metric: ExperimentMetric): metric is ExperimentMeanMetric =>
+    metric.metric_type === ExperimentMetricType.MEAN
 
 export type ExperimentFunnelMetric = ExperimentMetricBaseProperties & {
     metric_type: ExperimentMetricType.FUNNEL
     series: ExperimentFunnelMetricStep[]
 }
+
+export const isExperimentFunnelMetric = (metric: ExperimentMetric): metric is ExperimentFunnelMetric =>
+    metric.metric_type === ExperimentMetricType.FUNNEL
 
 export type ExperimentMeanMetricTypeProps = Omit<ExperimentMeanMetric, keyof ExperimentMetricBaseProperties>
 export type ExperimentFunnelMetricTypeProps = Omit<ExperimentFunnelMetric, keyof ExperimentMetricBaseProperties>
@@ -2248,7 +2324,7 @@ export interface DatabaseSchemaField {
 }
 
 export interface DatabaseSchemaTableCommon {
-    type: 'posthog' | 'data_warehouse' | 'view' | 'batch_export' | 'materialized_view'
+    type: 'posthog' | 'data_warehouse' | 'view' | 'batch_export' | 'materialized_view' | 'managed_view'
     id: string
     name: string
     fields: Record<string, DatabaseSchemaField>
@@ -2256,6 +2332,11 @@ export interface DatabaseSchemaTableCommon {
 
 export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
     type: 'view'
+    query: HogQLQuery
+}
+
+export interface DatabaseSchemaManagedViewTable extends DatabaseSchemaTableCommon {
+    type: 'managed_view'
     query: HogQLQuery
 }
 
@@ -2286,6 +2367,7 @@ export type DatabaseSchemaTable =
     | DatabaseSchemaPostHogTable
     | DatabaseSchemaDataWarehouseTable
     | DatabaseSchemaViewTable
+    | DatabaseSchemaManagedViewTable
     | DatabaseSchemaBatchExportTable
     | DatabaseSchemaMaterializedViewTable
 
@@ -2327,7 +2409,10 @@ export interface DateRange {
     explicitDate?: boolean | null
 }
 
-export type MultipleBreakdownType = Extract<BreakdownType, 'person' | 'event' | 'group' | 'session' | 'hogql'>
+export type MultipleBreakdownType = Extract<
+    BreakdownType,
+    'person' | 'event' | 'event_metadata' | 'group' | 'session' | 'hogql'
+>
 
 export interface Breakdown {
     type?: MultipleBreakdownType | null
@@ -2772,18 +2857,6 @@ export interface RevenueTrackingEventItem {
     revenueCurrencyProperty: RevenueCurrencyPropertyConfig
 }
 
-export interface RevenueTrackingDataWarehouseTable {
-    tableName: string
-    distinctIdColumn: string
-    timestampColumn: string
-    revenueColumn: string
-
-    /**
-     * @default {"static": "USD"}
-     */
-    revenueCurrencyColumn: RevenueCurrencyPropertyConfig
-}
-
 export interface RevenueTrackingConfig {
     /**
      * @default 'USD'
@@ -2794,9 +2867,23 @@ export interface RevenueTrackingConfig {
      * @default []
      */
     events: RevenueTrackingEventItem[]
-
-    /**
-     * @default []
-     */
-    dataWarehouseTables: RevenueTrackingDataWarehouseTable[]
 }
+
+export interface PageURL {
+    url: string
+    count: number
+}
+
+export interface WebPageURLSearchQuery extends WebAnalyticsQueryBase<WebPageURLSearchQueryResponse> {
+    kind: NodeKind.WebPageURLSearchQuery
+    searchTerm?: string
+    stripQueryParams?: boolean
+    limit?: integer
+}
+
+export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBase<PageURL[]> {
+    hasMore?: boolean
+    limit?: integer
+}
+
+export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>

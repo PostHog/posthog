@@ -15,7 +15,7 @@ import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
 export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
 
-export const API_KEY_SCOPE_PRESETS = [
+export const API_KEY_SCOPE_PRESETS: { value: string; label: string; scopes: string[]; isCloudOnly?: boolean }[] = [
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     {
         value: 'zapier',
@@ -27,6 +27,27 @@ export const API_KEY_SCOPE_PRESETS = [
         value: 'project_management',
         label: 'Project & user management',
         scopes: ['project:write', 'organization:read', 'organization_member:write'],
+    },
+    {
+        value: 'editor',
+        label: 'PostHog Editor',
+        scopes: [
+            'insight:read',
+            'project:read',
+            'organization:read',
+            'user:read',
+            'feature_flag:read',
+            'session_recording:read',
+            'session_recording_playlist:read',
+            'survey:read',
+            'dashboard:read',
+            'error_tracking:read',
+            'experiment:read',
+            'query:read',
+            'property_definition:read',
+            'event_definition:read',
+        ],
+        isCloudOnly: true,
     },
     { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]
@@ -113,9 +134,9 @@ export type EditingKeyFormValues = Pick<
 
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     path(['lib', 'components', 'PersonalAPIKeys', 'personalAPIKeysLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user']],
-    }),
+    })),
     actions({
         setEditingKeyId: (id: PersonalAPIKeyType['id'] | null) => ({ id }),
         loadKeys: true,

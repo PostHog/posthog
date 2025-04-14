@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestGroupsQueryRunner.test_groups_query_runner
   '''
-  SELECT coalesce(groups.properties___name, groups.key),
+  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
          groups.key AS key,
          1
   FROM
@@ -23,12 +23,13 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_normalize_multiple_groups
   '''
-  SELECT coalesce(groups.properties___name, groups.key),
+  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
          groups.key AS key,
          accurateCastOrNull(groups.properties___arr, 'Float64') AS arr,
          1
@@ -52,12 +53,13 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_numeric_property
   '''
-  SELECT coalesce(groups.properties___name, groups.key),
+  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
          groups.key AS key,
          accurateCastOrNull(groups.properties___arr, 'Float64') AS arr,
          1
@@ -81,12 +83,13 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_offset
   '''
-  SELECT coalesce(groups.properties___name, groups.key),
+  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
          groups.key AS key,
          1
   FROM
@@ -108,12 +111,13 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_order_by
   '''
-  SELECT coalesce(groups.properties___name, groups.key),
+  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
          groups.key AS key,
          accurateCastOrNull(groups.properties___arr, 'Float64') AS arr,
          1
@@ -136,12 +140,13 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_order_by.1
   '''
-  SELECT coalesce(groups.properties___name, groups.key),
+  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
          groups.key AS key,
          accurateCastOrNull(groups.properties___arr, 'Float64') AS arr,
          1
@@ -164,12 +169,13 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_order_by.2
   '''
-  SELECT coalesce(groups.properties___name, groups.key),
+  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
          groups.key AS key,
          1
   FROM
@@ -190,12 +196,13 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_property_columns
   '''
-  SELECT coalesce(groups.properties___name, groups.key),
+  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
          groups.key AS key,
          accurateCastOrNull(groups.properties___arr, 'Float64') AS arr,
          1
@@ -219,12 +226,13 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_search
   '''
-  SELECT coalesce(groups.properties___name, groups.key),
+  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
          groups.key AS key,
          1
   FROM
@@ -246,12 +254,13 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestGroupsQueryRunner.test_groups_query_runner_with_string_property
   '''
-  SELECT coalesce(groups.properties___name, groups.key),
+  SELECT coalesce(groups.properties___name, groups.key) AS `coalesce(properties.name, key)`,
          groups.key AS key,
          1
   FROM
@@ -273,6 +282,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---

@@ -1,6 +1,5 @@
 import 'chartjs-adapter-dayjs-3'
 
-import * as Sentry from '@sentry/react'
 import { LegendOptions, ScaleOptions } from 'chart.js'
 import { DeepPartial } from 'chart.js/dist/types/utils'
 import annotationPlugin from 'chartjs-plugin-annotation'
@@ -28,6 +27,7 @@ import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 import { createRoot, Root } from 'react-dom/client'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -391,7 +391,7 @@ export function LineGraph_({
                     console.error(event)
                 }
 
-                Sentry.captureException(event)
+                posthog.captureException(event)
             }
 
             canvas.addEventListener('contextlost', handleEvent)
@@ -590,7 +590,7 @@ export function LineGraph_({
         const tickOptions: Partial<TickOptions> = {
             color: colors.axisLabel as Color,
             font: {
-                family: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
+                family: '"Emoji Flags Polyfill", -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", "Roboto", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
                 size: 12,
                 weight: 'normal',
             },

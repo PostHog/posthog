@@ -269,7 +269,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": "TRENDS",
             }
 
-            baseline = 7
+            baseline = 6
 
             with self.assertNumQueries(baseline + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
@@ -1268,6 +1268,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "is_cached": False,
                 "last_refresh": None,
                 "layouts": {},
+                "order": 0,
                 "text": {
                     "body": "hello world",
                     "created_by": None,
@@ -1363,6 +1364,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "is_cached": False,
                 "last_refresh": None,
                 "layouts": {},
+                "order": 0,
                 "text": None,
             },
         ]
