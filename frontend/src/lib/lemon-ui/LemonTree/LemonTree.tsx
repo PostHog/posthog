@@ -432,55 +432,46 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         )}
                                                         {mode === 'table' &&
                                                             tableViewKeys?.headers.slice(1).map((header, index) => {
+                                                                const value = header.key
+                                                                    .split('.')
+                                                                    .reduce((obj, key) => (obj as any)?.[key], item)
+
                                                                 return (
                                                                     <span
                                                                         key={header.key}
                                                                         className="truncate text-left"
                                                                     >
-                                                                        {(() => {
-                                                                            const value = header.key
-                                                                                .split('.')
-                                                                                .reduce(
-                                                                                    (obj, key) => (obj as any)?.[key],
-                                                                                    item
-                                                                                )
-                                                                            return (
-                                                                                <Tooltip
-                                                                                    title={
-                                                                                        typeof header.tooltip ===
-                                                                                        'function'
-                                                                                            ? header.tooltip(value)
-                                                                                            : header.tooltip
+                                                                        <Tooltip
+                                                                            title={
+                                                                                typeof header.tooltip === 'function'
+                                                                                    ? header.tooltip(value)
+                                                                                    : header.tooltip
+                                                                            }
+                                                                            placement="top-start"
+                                                                        >
+                                                                            <span
+                                                                                className={cn(
+                                                                                    'starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100',
+                                                                                    {
+                                                                                        'font-normal':
+                                                                                            index !== 0 &&
+                                                                                            !isEmptyFolder,
+                                                                                        'font-semibold':
+                                                                                            index === 0 &&
+                                                                                            (isFolder ||
+                                                                                                (isFolder &&
+                                                                                                    !isEmptyFolder)),
+                                                                                        'opacity-0':
+                                                                                            index !== 0 &&
+                                                                                            isEmptyFolder,
                                                                                     }
-                                                                                    placement="top-start"
-                                                                                >
-                                                                                    <span
-                                                                                        className={cn(
-                                                                                            'starting:opacity-0 opacity-100 delay-50 motion-safe:transition-opacity duration-100',
-                                                                                            {
-                                                                                                'font-normal':
-                                                                                                    index !== 0 &&
-                                                                                                    !isEmptyFolder,
-                                                                                                'font-semibold':
-                                                                                                    index === 0 &&
-                                                                                                    (isFolder ||
-                                                                                                        (isFolder &&
-                                                                                                            !isEmptyFolder)),
-                                                                                                'opacity-0':
-                                                                                                    index !== 0 &&
-                                                                                                    isEmptyFolder,
-                                                                                            }
-                                                                                        )}
-                                                                                    >
-                                                                                        {header.formatFunction
-                                                                                            ? header.formatFunction(
-                                                                                                  value
-                                                                                              )
-                                                                                            : value}
-                                                                                    </span>
-                                                                                </Tooltip>
-                                                                            )
-                                                                        })()}
+                                                                                )}
+                                                                            >
+                                                                                {header.formatFunction
+                                                                                    ? header.formatFunction(value)
+                                                                                    : value}
+                                                                            </span>
+                                                                        </Tooltip>
                                                                     </span>
                                                                 )
                                                             })}
