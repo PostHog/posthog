@@ -36,13 +36,22 @@ type CyclotronWorkerNodeConfig = {
 
 
 type CyclotronWorkerInternalConfig = {
-    heartbeatWindowSeconds?: number, // Defaults to 5
-    lingerTimeMs?: number, // Defaults to 500
-    maxUpdatesBuffered?: number, // Defaults to 100
-    maxBytesBuffered?: number, // Defaults to 10MB
-    flushLoopIntervalMs?: number, // Defaults to 10
-    shouldCompressVmState?: boolean, // Defaults to "false"
-    shouldUseBulkJobCopy?: boolean, // Defaults to "false"
+    /** Heartbeat timeout. After this time without response from the worker loop the worker will be considered unhealthy. Default 30000 */
+    heartbeatTimeoutMs?: number
+    /** Heartbeat window. Default 5 */
+    heartbeatWindowSeconds?: number
+    /** Linger time. Default 500 */
+    lingerTimeMs?: number
+    /** Max updates buffered. Default 100 */
+    maxUpdatesBuffered?: number
+    /** Max bytes buffered. Default 10MB */
+    maxBytesBuffered?: number
+    /** Flush loop interval. Default 10 */
+    flushLoopIntervalMs?: number
+    /** Whether to compress vmState. Default false */
+    shouldCompressVmState?: boolean
+    /** Whether to use bulk job copy. Default false */
+    shouldUseBulkJobCopy?: boolean
 }
 
 
