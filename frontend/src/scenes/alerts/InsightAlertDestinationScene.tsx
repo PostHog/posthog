@@ -1,4 +1,5 @@
 import { kea, path, props, selectors } from 'kea'
+import { INSIGHT_ALERT_DESTINATION_LOGIC_KEY } from 'lib/components/Alerts/views/AlertDestinationSelector'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -7,7 +8,7 @@ import { Breadcrumb } from '~/types'
 
 import type { insightAlertDestinationSceneLogicType } from './InsightAlertDestinationSceneType'
 
-export type InsightAlertDestinationSceneLogicProps = { id?: string }
+export type InsightAlertDestinationSceneLogicProps = { id: string }
 
 export const insightAlertDestinationSceneLogic = kea<insightAlertDestinationSceneLogicType>([
     path((key) => ['scenes', 'insights', 'insightAlertDestinationSceneLogic', key]),
@@ -23,7 +24,7 @@ export const insightAlertDestinationSceneLogic = kea<insightAlertDestinationScen
                 },
                 {
                     key: Scene.InsightAlertDestination,
-                    name: id === 'new' ? 'Create alert destination' : 'Edit alert destination',
+                    name: id.includes('template') ? 'Create alert destination' : 'Edit alert destination',
                 },
             ],
         ],
@@ -36,12 +37,13 @@ export const scene: SceneExport = {
     paramsToProps: ({ params }): InsightAlertDestinationSceneLogicProps => ({ id: params.id }),
 }
 
-const INSIGHT_ALERT_FIRING_TEMPLATE_ID = 'hog-template-slack-insight-alert-firing'
-
-export const INSIGHT_ALERT_DESTINATION_LOGIC_KEY = 'insightAlertDestination'
-
-export function InsightAlertDestinationScene({ id }: InsightAlertDestinationSceneLogicProps = {}): JSX.Element {
-    const configProps = id && id === INSIGHT_ALERT_FIRING_TEMPLATE_ID ? { id: null, templateId: id } : { id }
+export function InsightAlertDestinationScene({
+    id,
+}: Partial<InsightAlertDestinationSceneLogicProps> = {}): JSX.Element {
+    const configProps =
+        id && id === 'template-slack-insight-alert-firing'
+            ? { id: null, templateId: 'template-slack-insight-alert-firing' }
+            : { id }
 
     return (
         <HogFunctionConfiguration

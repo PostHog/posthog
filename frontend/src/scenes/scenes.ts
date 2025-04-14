@@ -606,6 +606,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.survey(':id')]: [Scene.Survey, 'survey'],
     [urls.surveyTemplates()]: [Scene.SurveyTemplates, 'surveyTemplates'],
     [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
+    [urls.insightAlertDestination(':id')]: [Scene.InsightAlertDestination, 'insightAlertDestination'],
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
     [urls.annotations()]: [Scene.DataManagement, 'annotations'],

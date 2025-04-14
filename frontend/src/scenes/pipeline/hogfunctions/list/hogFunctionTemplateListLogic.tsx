@@ -42,6 +42,9 @@ export const shouldShowHogFunctionTemplate = (
     return true
 }
 
+/**
+ * Auto select the 'Trigger' on the new destination page
+ */
 const getFunctionFilters = (
     filters: HogFunctionTemplateListFilters,
     template: HogFunctionTemplateType['id']
@@ -50,6 +53,8 @@ const getFunctionFilters = (
         return { events: [{ id: '$error_tracking_issue_created', type: 'events' }] }
     } else if (template.includes('error-tracking-issue-reopened')) {
         return { events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] }
+    } else if (template.includes('insight-alert-firing')) {
+        return { events: [{ id: '$insight_alert_firing', type: 'events' }] }
     }
     return filters.filters
 }
