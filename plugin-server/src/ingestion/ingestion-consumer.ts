@@ -79,7 +79,6 @@ export class IngestionConsumer {
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
-
     constructor(
         private hub: Hub,
         overrides: Partial<
@@ -180,10 +179,38 @@ export class IngestionConsumer {
     public async handleKafkaBatch(messages: Message[]) {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
 
-        // TODO 1. Get all Teams for the events with lazyloader
-        // TODO 2. use getHogFunctionIdsForTeams to get the hog function ids for the teams
-        // TODO 3. use hogTransformer.fetchAndCacheHogFunctionStates to save the hog function states for the teams
-        // TODO 4. after batch is processed use hogTransformer.clearHogFunctionStates to clear the hog function states
+        // Extract all team IDs from the batch of events
+        const teamIds = new Set<number>()
+        Object.values(parsedMessages).forEach((items) => {
+            items.forEach(({ event }) => {
+                if (event.team_id) {
+                    teamIds.add(event.team_id)
+                }
+            })
+        })
+
+        // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
+        const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
+
+        // Get hog function IDs for all teams and cache function states only if hogwatcher is enabled
+        if (teamIds.size > 0 && shouldRunHogWatcher) {
+            await this.runInstrumented('fetchAndCacheHogFunctionStates', async () => {
+                const teamIdsArray = Array.from(teamIds)
+                // Get hog function IDs for transformations
+                const teamHogFunctionIds = await this.hogTransformer['hogFunctionManager'].getHogFunctionIdsForTeams(
+                    teamIdsArray,
+                    ['transformation']
+                )
+
+                // Flatten all hog function IDs into a single array
+                const allHogFunctionIds = Object.values(teamHogFunctionIds).flat()
+
+                if (allHogFunctionIds.length > 0) {
+                    // Cache the hog function states
+                    await this.hogTransformer.fetchAndCacheHogFunctionStates(allHogFunctionIds)
+                }
+            })
+        }
 
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
@@ -198,6 +225,11 @@ export class IngestionConsumer {
         logger.debug('🔁', `Waiting for promises`, { promises: this.promises.size })
         await this.runInstrumented('awaitScheduledWork', () => Promise.all(this.promises))
         logger.debug('🔁', `Processed batch`)
+
+        // Clear hog function states after processing, but only if we cached them
+        if (shouldRunHogWatcher) {
+            this.hogTransformer.clearHogFunctionStates()
+        }
 
         for (const message of messages) {
             if (message.timestamp) {

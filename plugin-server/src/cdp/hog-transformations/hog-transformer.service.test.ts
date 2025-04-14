@@ -1433,5 +1433,178 @@ describe('HogTransformer', () => {
             // Verify that the function throws the expected error
             expect(throwingFunction).toThrow(expectedErrorMessage)
         })
+
+        it('should skip transformation execution but continue when hogwatcher is enabled and function is disabled', async () => {
+            // Set sample rate to 100% to ensure hogwatcher logic runs
+            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+
+            // Create test transformation function
+            const testTemplate: HogFunctionTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-test',
+                name: 'Disabled Test Template',
+                description: 'A test template that should be skipped due to disabled state',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.should_not_be_set := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const hogFunctionId = '33333333-3333-4333-a333-333333333333'
+            const hogFunction = createHogFunction({
+                type: 'transformation',
+                name: testTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(testTemplate.hog),
+                id: hogFunctionId,
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
+
+            // Mock the cached state to indicate the function is disabled
+            hogTransformer['cachedStates'][hogFunctionId] = HogWatcherState.disabledForPeriod
+
+            // Create a spy to verify the executeHogFunction method is not called
+            const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
+
+            const event = createPluginEvent({ event: 'test-event' }, teamId)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            // Verify the executeHogFunction method was not called for this function
+            expect(executeHogFunctionSpy).not.toHaveBeenCalled()
+
+            // Verify the transformation result doesn't have the property that would be set
+            expect(result.event?.properties?.should_not_be_set).toBeUndefined()
+
+            // Verify there are no transformation records in the properties
+            expect(result.event?.properties?.$transformations_succeeded).toBeUndefined()
+            expect(result.event?.properties?.$transformations_failed).toBeUndefined()
+
+            // Reset spies
+            executeHogFunctionSpy.mockRestore()
+        })
+
+        it('should execute transformation when hogwatcher is enabled but function is in healthy state', async () => {
+            // Set sample rate to 100% to ensure hogwatcher logic runs
+            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+
+            // Create test transformation function
+            const testTemplate: HogFunctionTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-test',
+                name: 'Healthy Test Template',
+                description: 'A test template that should execute because state is healthy',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.should_be_set := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const hogFunctionId = '55555555-5555-5555-a555-555555555555'
+            const hogFunction = createHogFunction({
+                type: 'transformation',
+                name: testTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(testTemplate.hog),
+                id: hogFunctionId,
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
+
+            // Mock the cached state to indicate the function is healthy
+            hogTransformer['cachedStates'][hogFunctionId] = HogWatcherState.healthy
+
+            // Create a spy to verify the executeHogFunction method is called
+            const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
+
+            const event = createPluginEvent({ event: 'test-event' }, teamId)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            // Verify the executeHogFunction method was called for this function
+            expect(executeHogFunctionSpy).toHaveBeenCalledTimes(1)
+
+            // Verify the transformation result has the property that should be set
+            expect(result.event?.properties?.should_be_set).toBe(true)
+
+            // Verify the transformation is recorded as successful
+            expect(result.event?.properties?.$transformations_succeeded).toContain(
+                `${hogFunction.name} (${hogFunction.id})`
+            )
+
+            // Reset spies
+            executeHogFunctionSpy.mockRestore()
+        })
+
+        it('should apply transformation when hogwatcher is disabled even if function state is disabled', async () => {
+            // Set sample rate to 0% to ensure hogwatcher logic is skipped
+            hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
+
+            // Create test transformation function
+            const testTemplate: HogFunctionTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-test',
+                name: 'Test Template',
+                description: 'A test template that should execute despite disabled state because hogwatcher is off',
+                category: ['Custom'],
+                hog: `
+                    let returnEvent := event
+                    returnEvent.properties.should_be_set := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const hogFunctionId = '44444444-4444-4444-a444-444444444444'
+            const hogFunction = createHogFunction({
+                type: 'transformation',
+                name: testTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(testTemplate.hog),
+                id: hogFunctionId,
+            })
+
+            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
+
+            // Mock the cached state to indicate the function is disabled
+            hogTransformer['cachedStates'][hogFunctionId] = HogWatcherState.disabledForPeriod
+
+            // Create a spy to verify the executeHogFunction method is called
+            const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
+
+            const event = createPluginEvent({ event: 'test-event' }, teamId)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            // Verify the executeHogFunction method was called for this function
+            expect(executeHogFunctionSpy).toHaveBeenCalledTimes(1)
+
+            // Verify the transformation result has the property that should be set
+            expect(result.event?.properties?.should_be_set).toBe(true)
+
+            // Verify the transformation is recorded as successful
+            expect(result.event?.properties?.$transformations_succeeded).toContain(
+                `${hogFunction.name} (${hogFunction.id})`
+            )
+
+            // Reset spies
+            executeHogFunctionSpy.mockRestore()
+        })
     })
 })

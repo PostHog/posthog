@@ -174,24 +174,18 @@ export class HogTransformerService {
                 for (const hogFunction of teamHogFunctions) {
                     const transformationIdentifier = `${hogFunction.name} (${hogFunction.id})`
 
+                    // Check if function is in a degraded state, but only if hogwatcher is enabled
                     if (shouldRunHogWatcher) {
-                        // Check if function is in a degraded state
-                        const functionState = this.cachedStates[hogFunction.id] || null
-                        if (!functionState) {
-                            const errorMessage = `Critical error: Missing HogFunction state in cache for function ${hogFunction.id} - this should never happen`
-                            logger.error('⚠️', errorMessage)
-                            throw new Error(errorMessage)
-                        }
+                        const functionState = this.cachedStates[hogFunction.id]
 
                         // If the function is in a degraded state, skip it
-                        // If no state is found, we will continue with the transformation
                         if (functionState && functionState >= HogWatcherState.disabledForPeriod) {
                             hogTransformationDisabled
                                 .labels({
                                     state: HogWatcherState[functionState],
                                 })
                                 .inc()
-                            // For now we continue with the transformation, but in the future this will be a skip
+                            continue
                         }
                     }
 
