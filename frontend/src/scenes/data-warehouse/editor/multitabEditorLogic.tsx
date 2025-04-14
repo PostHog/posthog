@@ -29,6 +29,7 @@ import {
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { DATAWAREHOUSE_EDITOR_ITEM_ID, sizeOfInBytes } from '../utils'
+import { editorSceneLogic } from './editorSceneLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
 import { outputPaneLogic, OutputTab } from './outputPaneLogic'
 import { ViewEmptyState } from './ViewLoadingState'
@@ -94,6 +95,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             ],
             outputPaneLogic,
             ['setActiveTab'],
+            editorSceneLogic,
+            ['reportAIQueryPrompted', 'reportAIQueryAccepted', 'reportAIQueryRejected', 'reportAIQueryPromptOpen'],
         ],
     })),
     actions(({ values }) => ({
@@ -133,6 +136,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         editInsight: (query: string, insight: QueryBasedInsightModel) => ({ query, insight }),
         updateQueryTabState: (skipBreakpoint?: boolean) => ({ skipBreakpoint }),
         setLastRunQuery: (lastRunQuery: DataVisualizationNode | null) => ({ lastRunQuery }),
+        setSuggestedQueryInput: (suggestedQueryInput: string) => ({ suggestedQueryInput }),
+        _setSuggestedQueryInput: (suggestedQueryInput: string) => ({ suggestedQueryInput }),
+        onAcceptSuggestedQueryInput: true,
+        onRejectSuggestedQueryInput: true,
         setResponse: (response: Record<string, any> | null) => ({ response, currentTab: values.activeModelUri }),
     })),
     propsChanged(({ actions, props }, oldProps) => {
@@ -272,8 +279,44 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
         editorKey: [props.key],
+        suggestedQueryInput: [
+            '',
+            {
+                _setSuggestedQueryInput: (_, { suggestedQueryInput }) => suggestedQueryInput,
+            },
+        ],
     })),
     listeners(({ values, props, actions, asyncActions }) => ({
+        setSuggestedQueryInput: ({ suggestedQueryInput }) => {
+            if (values.queryInput) {
+                actions._setSuggestedQueryInput(suggestedQueryInput)
+            } else {
+                actions.setQueryInput(suggestedQueryInput)
+            }
+        },
+        onAcceptSuggestedQueryInput: () => {
+            actions.reportAIQueryAccepted()
+            actions.setQueryInput(values.suggestedQueryInput)
+            // CLUDGE: suggestedQueryInput purges monaco model so we need to re-create it
+            if (props.monaco && values.activeModelUri) {
+                const newModel = props.monaco.editor.createModel(
+                    values.suggestedQueryInput,
+                    'hogQL',
+                    values.activeModelUri.uri
+                )
+                props.editor?.setModel(newModel)
+            }
+            actions.setSuggestedQueryInput('')
+        },
+        onRejectSuggestedQueryInput: () => {
+            actions.reportAIQueryRejected()
+            actions.setSuggestedQueryInput('')
+            // CLUDGE: suggestedQueryInput purges monaco model so we need to re-create it
+            if (props.monaco && values.activeModelUri) {
+                const newModel = props.monaco.editor.createModel(values.queryInput, 'hogQL', values.activeModelUri.uri)
+                props.editor?.setModel(newModel)
+            }
+        },
         editView: ({ query, view }) => {
             const maybeExistingTab = values.allTabs.find((tab) => tab.view?.id === view.id)
             if (maybeExistingTab) {
