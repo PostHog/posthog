@@ -23,11 +23,18 @@ Don't include raw `elements_chain_texts` data in your summary, but use it to imp
 </events_input>
 
 <session_metadata_input_format>
-Use session metadata to understand:
-- Session duration and user engagement level
-- Error frequency and potential technical issues
-- Overall interaction intensity
-- Starting point of the user journey
+Use session metadata to understand user engagement context:
+
+- active_seconds: Total time user actively engaged with the application
+  * <30 seconds: Very brief session, likely a single objective
+  * 30-120 seconds: Short session, typically 1-3 distinct objectives
+  * 120-300 seconds: Medium session, may contain 3-5 related objectives
+  * >300 seconds: Extensive session, likely contains multiple complex objectives
+- inactive_seconds: Periods when user wasn't interacting with the application
+- click_count, keypress_count, mouse_activity_count: Interaction density
+- start_url: Entry point to the application, often indicates initial user intent
+
+Use these metrics to calibrate your analysis of user objectives and engagement quality.
 </session_metadata_input_format>
 
 <session_medata_input>
@@ -68,10 +75,7 @@ Use this information to understand user navigation patterns and parallel browsin
 <identify_objectives_instructions>
 CRITICAL WARNING: DO NOT hallucinate errors. Only mark events as errors when there is EXPLICIT evidence in the event data that an error occurred.
 
-1. Identify the primary user objectives (goals) in the session. The number of objectives should be proportional to session length and complexity:
-   - Short sessions (under 1 minute) typically have 1-3 objectives
-   - Medium sessions (1-5 minutes) may have 3-5 objectives
-   - Longer sessions (over 5 minutes) might have 5-10 objectives
+1. Identify the primary user objectives (goals) in the session. The number of objectives should be proportional to session length and complexity (as described in the `session_metadata_input_format`).
 
 2. Each objective must represent something the user was actively trying to accomplish (e.g., "login to the application," "filter products," "complete checkout"), not technical events or metrics.
 
