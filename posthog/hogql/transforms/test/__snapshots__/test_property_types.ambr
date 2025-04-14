@@ -19,12 +19,13 @@
 # name: TestPropertyTypes.test_group_boolean_property_types
   '''
   
-  SELECT ifNull(equals(toBool(transform(toString(events__group_0.properties___group_boolean), %(hogql_val_2)s, %(hogql_val_3)s, NULL)), 1), 0), ifNull(equals(toBool(transform(toString(events__group_0.properties___group_boolean), %(hogql_val_4)s, %(hogql_val_5)s, NULL)), 0), 0), isNull(toBool(transform(toString(events__group_0.properties___group_boolean), %(hogql_val_6)s, %(hogql_val_7)s, NULL))) 
+  SELECT ifNull(equals(toBool(transform(toString(events__group_0.properties___group_boolean), %(hogql_val_3)s, %(hogql_val_4)s, NULL)), 1), 0), ifNull(equals(toBool(transform(toString(events__group_0.properties___group_boolean), %(hogql_val_5)s, %(hogql_val_6)s, NULL)), 0), 0), isNull(toBool(transform(toString(events__group_0.properties___group_boolean), %(hogql_val_7)s, %(hogql_val_8)s, NULL))) 
   FROM events LEFT JOIN (
   SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, %(hogql_val_1)s)) AS properties___group_boolean, groups.group_type_index AS index, groups.group_key AS key 
   FROM groups 
   WHERE and(equals(groups.team_id, 420), equals(index, 0)) 
-  GROUP BY groups.group_type_index, groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key) 
+  GROUP BY groups.group_type_index, groups.group_key 
+  HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, %(hogql_val_2)s)), 0)) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key) 
   WHERE equals(events.team_id, 420) 
   LIMIT 50000
   '''
@@ -32,12 +33,13 @@
 # name: TestPropertyTypes.test_group_property_types
   '''
   
-  SELECT accurateCastOrNull(events__group_0.properties___inty, %(hogql_val_2)s) AS inty 
+  SELECT accurateCastOrNull(events__group_0.properties___inty, %(hogql_val_3)s) AS inty 
   FROM events LEFT JOIN (
   SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, %(hogql_val_1)s)) AS properties___inty, groups.group_type_index AS index, groups.group_key AS key 
   FROM groups 
   WHERE and(equals(groups.team_id, 420), equals(index, 0)) 
-  GROUP BY groups.group_type_index, groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key) 
+  GROUP BY groups.group_type_index, groups.group_key 
+  HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, %(hogql_val_2)s)), 0)) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key) 
   WHERE equals(events.team_id, 420) 
   LIMIT 50000
   '''

@@ -13,7 +13,8 @@
         FROM groups
         WHERE equals(groups.team_id, 99999)
         GROUP BY groups.group_type_index,
-                 groups.group_key) AS groups
+                 groups.group_key
+        HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, 'UTC')), 0)) AS groups
      WHERE and(isNotNull(prop), ifNull(equals(groups.index, 0), 0))
      ORDER BY groups.created_at DESC)
   LIMIT 100 SETTINGS readonly=2,
@@ -41,7 +42,8 @@
         FROM groups
         WHERE equals(groups.team_id, 99999)
         GROUP BY groups.group_type_index,
-                 groups.group_key) AS groups
+                 groups.group_key
+        HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, 'UTC')), 0)) AS groups
      WHERE and(isNotNull(prop), ifNull(equals(groups.index, 0), 0))
      ORDER BY groups.created_at DESC)
   LIMIT 100 SETTINGS readonly=2,
@@ -69,7 +71,8 @@
         FROM groups
         WHERE equals(groups.team_id, 99999)
         GROUP BY groups.group_type_index,
-                 groups.group_key) AS groups
+                 groups.group_key
+        HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, 'UTC')), 0)) AS groups
      WHERE and(isNotNull(prop), ifNull(equals(groups.index, 0), 0))
      ORDER BY groups.created_at DESC)
   LIMIT 100 SETTINGS readonly=2,
