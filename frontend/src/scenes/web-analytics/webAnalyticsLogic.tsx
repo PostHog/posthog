@@ -1977,7 +1977,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                           E.g. an image that looks like a button.
                                                       </li>
                                                       <li>
-                                                          Rage clicks are clicks that are followed by a scroll, text
+                                                          Rage clicks are clicks that are not immediately followed by a scroll, text
                                                           selection change, or DOM mutation.
                                                       </li>
                                                       <li>
