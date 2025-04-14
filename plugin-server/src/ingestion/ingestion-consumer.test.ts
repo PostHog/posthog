@@ -186,72 +186,79 @@ describe('IngestionConsumer', () => {
 
             describe('force overflow', () => {
                 beforeEach(async () => {
-                    // Reset ingester with force overflow tokens
+                    // Reset ingester with force overflow token:distinct_id pair
                     await ingester.stop()
-                    hub.INGESTION_FORCE_OVERFLOW_TOKENS = team.api_token
+                    hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `${team.api_token}:team1-user`
                     ingester = new IngestionConsumer(hub)
                     await ingester.start()
                 })
 
-                it('should force events with matching token to overflow', async () => {
+                it('should force events with matching token:distinct_id to overflow', async () => {
                     const events = [
-                        createEvent({ token: team.api_token, distinct_id: 'team1-user' }),
-                        createEvent({ token: team2.api_token, distinct_id: 'team2-user' }),
+                        createEvent({ token: team.api_token, distinct_id: 'team1-user' }), // should overflow
+                        createEvent({ token: team.api_token, distinct_id: 'team1-other' }), // should not overflow (different distinct_id)
+                        createEvent({ token: team2.api_token, distinct_id: 'team1-user' }), // should not overflow (different token)
                     ]
                     const messages = createKafkaMessages(events)
 
                     await ingester.handleKafkaBatch(messages)
 
-                    // The team1 event should be routed to overflow
+                    // Only the matching token:distinct_id event should be routed to overflow
                     expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(1)
-                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(1)
+                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(2)
 
-                    // Verify the right event went to overflow (team1) and the right event was processed normally (team2)
+                    // Verify the right event went to overflow and the right events were processed normally
                     const overflowMessages = getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')
                     const normalMessages = getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
 
                     expect(overflowMessages[0].value.distinct_id).toEqual('team1-user')
-                    expect(normalMessages[0].value.distinct_id).toEqual('team2-user')
+                    expect(overflowMessages[0].value.token).toEqual(team.api_token)
+                    expect(normalMessages.map((m) => m.value.distinct_id).sort()).toEqual(['team1-other', 'team1-user'])
 
                     // Add snapshot for the overflow messages
                     expect(forSnapshot(overflowMessages)).toMatchSnapshot('force overflow messages')
                 })
 
-                it('should handle multiple tokens in the force overflow setting', async () => {
-                    // Reset ingester with multiple force overflow tokens
+                it('should handle multiple token:distinct_id pairs in force overflow setting', async () => {
+                    // Reset ingester with multiple force overflow token:distinct_id pairs
                     await ingester.stop()
-                    hub.INGESTION_FORCE_OVERFLOW_TOKENS = `${team.api_token},${team2.api_token}`
-                    hub.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID = `${team.api_token}:distinct-id-team1`
+                    hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID = `${team.api_token}:user1,${team2.api_token}:user2`
                     ingester = new IngestionConsumer(hub)
                     await ingester.start()
 
-                    // Create events for both teams
                     const events = [
-                        createEvent({ token: team.api_token, distinct_id: 'distinct-id-team1' }),
-                        createEvent({ token: team2.api_token, distinct_id: 'distinct-id-team2' }),
+                        createEvent({ token: team.api_token, distinct_id: 'user1' }), // should overflow
+                        createEvent({ token: team.api_token, distinct_id: 'other' }), // should not overflow
+                        createEvent({ token: team2.api_token, distinct_id: 'user2' }), // should overflow
+                        createEvent({ token: team2.api_token, distinct_id: 'other' }), // should not overflow
                     ]
                     const messages = createKafkaMessages(events)
 
                     await ingester.handleKafkaBatch(messages)
 
-                    // Both events should be routed to overflow
+                    // Both matching token:distinct_id pairs should be routed to overflow
                     expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(2)
-                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(0)
+                    expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).toHaveLength(2)
 
-                    // Verify both team events went to overflow
+                    // Verify both matching events went to overflow
                     const overflowMessages = getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')
+                    const normalMessages = getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
 
                     // Sort messages by distinct_id to make the test deterministic
                     const sortedOverflowMessages = [...overflowMessages].sort((a, b) =>
                         String(a.value.distinct_id).localeCompare(String(b.value.distinct_id))
                     )
 
-                    // First one is randomized as it is marked for skipping persons
-                    expect(sortedOverflowMessages[0].value.distinct_id).toEqual('distinct-id-team1')
-                    expect(sortedOverflowMessages[0].key).toEqual(null)
-                    // Second one is not randomized as it is not marked for skipping persons
-                    expect(sortedOverflowMessages[1].value.distinct_id).toEqual('distinct-id-team2')
-                    expect(sortedOverflowMessages[1].key).toEqual(`${team2.api_token}:distinct-id-team2`)
+                    expect(sortedOverflowMessages.map((m) => [m.value.token, m.value.distinct_id])).toEqual([
+                        [team.api_token, 'user1'],
+                        [team2.api_token, 'user2'],
+                    ])
+                    expect(normalMessages.map((m) => m.value.distinct_id).sort()).toEqual(['other', 'other'])
+
+                    // Add snapshot for the overflow messages
+                    expect(forSnapshot(sortedOverflowMessages)).toMatchSnapshot(
+                        'force overflow messages multiple pairs'
+                    )
                 })
             })
         })

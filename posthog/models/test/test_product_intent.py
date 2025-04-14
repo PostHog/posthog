@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from freezegun import freeze_time
+from unittest.mock import patch
 
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
@@ -13,6 +14,7 @@ from posthog.models.product_intent.product_intent import (
 )
 from ...session_recordings.models.session_recording import SessionRecording
 from posthog.test.base import BaseTest
+from posthog.utils import get_instance_realm
 from posthog.models.dashboard import Dashboard
 
 
@@ -42,6 +44,34 @@ class TestProductIntent(BaseTest):
 
         assert intent is not None
         assert intent.contexts == {"test": 2}
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    def test_register_with_onboarding_sets_onboarding_completed_at(self):
+        ProductIntent.register(
+            team=self.team,
+            product_type="product_analytics",
+            context="onboarding product selected - primary",
+            user=self.user,
+            is_onboarding=True,
+        )
+
+        intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
+        assert intent.onboarding_completed_at == datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
+        assert intent.contexts == {"onboarding product selected - primary": 1}
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    def test_register_without_onboarding_does_not_set_onboarding_completed_at(self):
+        ProductIntent.register(
+            team=self.team,
+            product_type="product_analytics",
+            context="test context",
+            user=self.user,
+            is_onboarding=False,
+        )
+
+        intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
+        assert intent.onboarding_completed_at is None
+        assert intent.contexts == {"test context": 1}
 
     @freeze_time("2024-06-15T12:00:00Z")
     def test_has_activated_data_warehouse_with_valid_query(self):
@@ -263,6 +293,62 @@ class TestProductIntent(BaseTest):
             recording.check_viewed_for_user(self.user, save_viewed=True)
 
         assert self.product_intent.has_activated_session_replay() is False
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @patch("posthog.event_usage.report_user_action")
+    def test_register_reports_correct_user_action_for_onboarding(self, mock_report_user_action):
+        ProductIntent.register(
+            team=self.team,
+            product_type="product_analytics",
+            context="onboarding product selected - primary",
+            user=self.user,
+            metadata={"extra": "data"},
+            is_onboarding=True,
+        )
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "user showed product intent",
+            {
+                "extra": "data",
+                "product_key": "product_analytics",
+                "$set_once": {"first_onboarding_product_selected": "product_analytics"},
+                "intent_context": "onboarding product selected - primary",
+                "is_first_intent_for_product": True,
+                "intent_created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+                "intent_updated_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+                "realm": get_instance_realm(),
+            },
+            team=self.team,
+        )
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @patch("posthog.event_usage.report_user_action")
+    def test_register_reports_correct_user_action_for_non_onboarding(self, mock_report_user_action):
+        ProductIntent.register(
+            team=self.team,
+            product_type="product_analytics",
+            context="test context",
+            user=self.user,
+            metadata={"extra": "data"},
+            is_onboarding=False,
+        )
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "user showed product intent",
+            {
+                "extra": "data",
+                "product_key": "product_analytics",
+                "$set_once": {},
+                "intent_context": "test context",
+                "is_first_intent_for_product": True,
+                "intent_created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+                "intent_updated_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+                "realm": get_instance_realm(),
+            },
+            team=self.team,
+        )
 
     def test_has_activated_product_analytics_with_all_criteria(self):
         self.product_intent.product_type = "product_analytics"
