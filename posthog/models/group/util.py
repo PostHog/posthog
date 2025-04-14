@@ -96,7 +96,6 @@ def raw_delete_group_ch(
     team_id: int,
     group_type_index: GroupTypeIndex,
     group_key: str,
-    sync: bool = False,
 ):
     """Mark ClickHouse-only Group record as deleted.
 

@@ -166,7 +166,6 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.Gene
                 team_id=self.team.pk,
                 group_type_index=group.group_type_index,
                 group_key=group.group_key,
-                sync=True,
             )
             log_activity(
                 organization_id=self.organization.id,
