@@ -110,14 +110,17 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     <LemonButton
                                         className="whitespace-nowrap"
                                         loading={savedQuery?.status === 'Running'}
-                                        disabledReason={savedQuery?.status === 'Running' && 'Query is already running'}
+                                        disabledReason={
+                                            savedQuery?.status === 'Running' && 'Materialization is already running'
+                                        }
                                         onClick={() => editingView && runDataWarehouseSavedQuery(editingView.id)}
                                         type="secondary"
                                         sideAction={{
                                             icon: <IconX fontSize={16} />,
                                             tooltip: 'Cancel materialization',
                                             onClick: () => editingView && cancelDataWarehouseSavedQuery(editingView.id),
-                                            disabledReason: savedQuery?.status !== 'Running' && 'Query is not running',
+                                            disabledReason:
+                                                savedQuery?.status !== 'Running' && 'Materialization is not running',
                                         }}
                                     >
                                         Sync now
@@ -125,7 +128,9 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     <LemonSelect
                                         className="h-9"
                                         disabledReason={
-                                            savedQuery?.status === 'Running' ? 'Query is already running' : false
+                                            savedQuery?.status === 'Running'
+                                                ? 'Materialization is already running'
+                                                : false
                                         }
                                         value={
                                             editingView
