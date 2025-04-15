@@ -4,10 +4,8 @@ from pathlib import Path
 from freezegun import freeze_time
 
 from posthog.schema import (
-    CurrencyCode,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleDataWarehouseTablesQueryResponse,
-    RevenueTrackingConfig,
 )
 from posthog.test.base import (
     APIBaseTest,
