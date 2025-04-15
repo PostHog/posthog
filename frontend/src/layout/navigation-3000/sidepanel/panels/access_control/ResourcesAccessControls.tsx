@@ -448,24 +448,28 @@ export function ResourcesAccessControls(): JSX.Element {
                         )}
                     </div>
 
-                    {/* Roles permissions table */}
-                    <div className="space-y-2">
-                        <div className="flex gap-2 items-center justify-between">
-                            <h3 className="mb-0">Roles</h3>
-                            <LemonButton
-                                type="primary"
-                                onClick={() => setRoleModalOpen(true)}
-                                disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
-                            >
-                                Add
-                            </LemonButton>
+                    <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                        {/* Roles permissions table */}
+                        <div className="space-y-2">
+                            <div className="flex gap-2 items-center justify-between">
+                                <h3 className="mb-0">Roles</h3>
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => setRoleModalOpen(true)}
+                                    disabledReason={
+                                        !canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined
+                                    }
+                                >
+                                    Add
+                                </LemonButton>
+                            </div>
+                            {roleResourceAccessControls.length > 0 ? (
+                                <LemonTable columns={roleColumns} dataSource={roleResourceAccessControls} />
+                            ) : (
+                                <LemonTable columns={roleColumns} dataSource={[]} emptyState="No entries" />
+                            )}
                         </div>
-                        {roleResourceAccessControls.length > 0 ? (
-                            <LemonTable columns={roleColumns} dataSource={roleResourceAccessControls} />
-                        ) : (
-                            <LemonTable columns={roleColumns} dataSource={[]} emptyState="No entries" />
-                        )}
-                    </div>
+                    </PayGateMini>
                 </div>
             </PayGateMini>
 
