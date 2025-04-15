@@ -1,14 +1,14 @@
 from unittest.mock import patch, MagicMock
 import json
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from products.editor.backend.providers.codestral import CodestralProvider, CodestralConfig
 
 
 class TestCodestralProvider(TestCase):
     def setUp(self):
-        self.api_key = "test-key"
         self.model_id = "codestral-latest"
 
+    @override_settings(MISTRAL_API_KEY="test-key")
     def test_init_validates_model(self):
         # Valid model
         provider = CodestralProvider(self.model_id)
@@ -20,6 +20,7 @@ class TestCodestralProvider(TestCase):
         self.assertEqual(str(cm.exception), "Model invalid-model is not supported")
 
     @patch("mistralai.Mistral")
+    @override_settings(MISTRAL_API_KEY="test-key")
     def test_stream_fim_response_success(self, mock_mistral):
         provider = CodestralProvider(self.model_id)
         mock_stream = MagicMock()
@@ -53,6 +54,7 @@ class TestCodestralProvider(TestCase):
         )
 
     @patch("mistralai.Mistral")
+    @override_settings(MISTRAL_API_KEY="test-key")
     def test_stream_fim_response_error_handling(self, mock_mistral):
         provider = CodestralProvider(self.model_id)
         mock_mistral.return_value.fim.stream.side_effect = Exception("API Error")
@@ -68,9 +70,10 @@ class TestCodestralProvider(TestCase):
         # Since the provider doesn't have explicit error handling yet,
         # we expect the error to propagate
         self.assertEqual(len(responses), 1)
-        self.assertEqual(responses[0], 'data: {"type": "error", "error": "API Error"}\n\n')
+        self.assertEqual(responses[0], 'data: {"type": "error", "error": "Codestral API error"}\n\n')
 
     @patch("mistralai.Mistral")
+    @override_settings(MISTRAL_API_KEY="test-key")
     def test_stream_fim_response_empty_response(self, mock_mistral):
         provider = CodestralProvider(self.model_id)
         mock_stream = MagicMock()

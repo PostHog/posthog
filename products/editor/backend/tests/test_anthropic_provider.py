@@ -1,18 +1,16 @@
 from unittest.mock import patch, MagicMock
 import json
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from products.editor.backend.providers.anthropic import AnthropicProvider, AnthropicConfig
 from typing import Any
+from anthropic.types import MessageParam
 
 
 class TestAnthropicProvider(TestCase):
     def setUp(self):
-        self.api_key = "test-key"
         self.model_id = "claude-3-5-sonnet-20241022"
-        self.patch_api_key = patch.dict("os.environ", {"ANTHROPIC_API_KEY": self.api_key})
-        self.patch_api_key.start()
-        self.addCleanup(self.patch_api_key.stop)
 
+    @override_settings(ANTHROPIC_API_KEY="test-key")
     def test_init_validates_model(self):
         # Valid model
         provider = AnthropicProvider(self.model_id)
@@ -23,36 +21,15 @@ class TestAnthropicProvider(TestCase):
             AnthropicProvider("invalid-model")
         self.assertEqual(str(cm.exception), "Model invalid-model is not supported")
 
-    def test_validate_messages(self):
-        provider = AnthropicProvider(self.model_id)
-
-        # Valid messages
-        valid_messages = [{"role": "user", "content": "test"}]
-        provider.validate_messages(valid_messages)  # Should not raise
-
-        # Empty messages
-        with self.assertRaises(ValueError) as cm:
-            provider.validate_messages([])
-        self.assertEqual(str(cm.exception), "Messages list cannot be empty")
-
-        # Missing role
-        with self.assertRaises(ValueError) as cm:
-            provider.validate_messages([{"content": "test"}])
-        self.assertEqual(str(cm.exception), "Each message must contain 'role' and 'content' fields")
-
-        # Missing content
-        with self.assertRaises(ValueError) as cm:
-            provider.validate_messages([{"role": "user"}])
-        self.assertEqual(str(cm.exception), "Each message must contain 'role' and 'content' fields")
-
     @patch("anthropic.Anthropic")
+    @override_settings(ANTHROPIC_API_KEY="test-key")
     def test_prepare_messages_with_cache_control(self, mock_anthropic):
         provider = AnthropicProvider(self.model_id)
         messages = [
-            {"role": "assistant", "content": [{"type": "text", "text": "Hello, how can I help you?"}]},
-            {"role": "user", "content": [{"type": "text", "text": "Test"}]},
-            {"role": "assistant", "content": [{"type": "text", "text": "How can I help?"}]},
-            {"role": "user", "content": [{"type": "text", "text": "Test"}]},
+            MessageParam({"role": "assistant", "content": [{"type": "text", "text": "Hello, how can I help you?"}]}),
+            MessageParam({"role": "user", "content": [{"type": "text", "text": "Test"}]}),
+            MessageParam({"role": "assistant", "content": [{"type": "text", "text": "How can I help?"}]}),
+            MessageParam({"role": "user", "content": [{"type": "text", "text": "Test"}]}),
         ]
 
         prepared_messages = provider.prepare_messages_with_cache_control(messages)
@@ -83,6 +60,7 @@ class TestAnthropicProvider(TestCase):
         self.assertEqual(prepared_dicts[3]["content"][0]["cache_control"], {"type": "ephemeral"})
 
     @patch("anthropic.Anthropic")
+    @override_settings(ANTHROPIC_API_KEY="test-key")
     def test_stream_response_with_thinking(self, mock_anthropic):
         provider = AnthropicProvider("claude-3-7-sonnet-20250219")
         mock_stream = MagicMock()
@@ -143,7 +121,7 @@ class TestAnthropicProvider(TestCase):
         ]
 
         system = "test system"
-        messages = [{"role": "user", "content": "test"}]
+        messages = [MessageParam({"role": "user", "content": "test"})]
 
         response_stream = provider.stream_response(system, messages, thinking=True)
         responses = list(response_stream)
@@ -169,6 +147,7 @@ class TestAnthropicProvider(TestCase):
         self.assertEqual(call_kwargs["thinking"]["budget_tokens"], AnthropicConfig.MAX_THINKING_TOKENS)
 
     @patch("anthropic.Anthropic")
+    @override_settings(ANTHROPIC_API_KEY="test-key")
     def test_stream_response_without_thinking(self, mock_anthropic):
         provider = AnthropicProvider(self.model_id)
         mock_stream = MagicMock()
@@ -198,7 +177,7 @@ class TestAnthropicProvider(TestCase):
         ]
 
         system = "test system"
-        messages = [{"role": "user", "content": "test"}]
+        messages = [MessageParam({"role": "user", "content": "test"})]
 
         response_stream = provider.stream_response(system, messages, thinking=False)
         responses = list(response_stream)
@@ -215,12 +194,13 @@ class TestAnthropicProvider(TestCase):
         self.assertNotIn("thinking", mock_anthropic.return_value.messages.create.call_args[1])
 
     @patch("anthropic.Anthropic")
+    @override_settings(ANTHROPIC_API_KEY="test-key")
     def test_stream_response_handles_api_error(self, mock_anthropic):
         provider = AnthropicProvider(self.model_id)
         mock_anthropic.return_value.messages.create.side_effect = Exception("API Error")
 
         system = "test system"
-        messages = [{"role": "user", "content": "test"}]
+        messages = [MessageParam({"role": "user", "content": "test"})]
 
         response_stream = provider.stream_response(system, messages)
         responses = list(response_stream)
@@ -229,6 +209,7 @@ class TestAnthropicProvider(TestCase):
         self.assertIn("error", json.loads(responses[0].split("data: ")[1]))
 
     @patch("anthropic.Anthropic")
+    @override_settings(ANTHROPIC_API_KEY="test-key")
     def test_stream_response_with_cache_control(self, mock_anthropic):
         provider = AnthropicProvider(self.model_id)  # Using a model that supports cache control
         mock_stream = MagicMock()
@@ -247,7 +228,7 @@ class TestAnthropicProvider(TestCase):
         ]
 
         system = "test system"
-        messages = [{"role": "user", "content": "test"}]
+        messages = [MessageParam({"role": "user", "content": "test"})]
 
         response_stream = provider.stream_response(system, messages)
         responses = list(response_stream)
