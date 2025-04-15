@@ -4,6 +4,7 @@ When analyzing session data:
 1. Look for clusters of related actions that serve a common purpose
 2. Identify clear transitions between different user goals
 3. Recognize when errors or obstacles interrupt user progress
+4. Ensure objectives are distributed throughout the whole session timeline
 
 Keep your analysis FOCUSED and MEANINGFUL - identify only genuine user goals, not technical states. Be judicious with the number of objectives - quality over quantity. Errors should be incorporated into relevant user goals, not listed separately.
 

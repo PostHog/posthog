@@ -78,7 +78,9 @@ CRITICAL WARNING: DO NOT hallucinate errors. Only mark events as errors when the
 # Step 1: Identify User Objectives
 First, analyze the entire session to identify distinct user objectives. Follow these guidelines:
 
-1.1. Identify the primary user objectives (goals) in the session. Scale appropriately based on session length and complexity (as described in the `session_metadata_input_format`).
+1.1. Identify the primary user objectives (goals) in the session. Scale appropriately based on session length and complexity (as described in the `session_metadata_input_format`):
+   - IMPORTANT: Ensure you identify objectives throughout the ENTIRE session timeline - not just at the beginning.
+   - Analyze the full timeline from first to last event to avoid recency or primacy bias.
 
 1.2. Each objective must represent an intentional user goal:
    ✓ GOOD OBJECTIVES: "Login to application," "Filter products," "Complete checkout"
@@ -102,14 +104,16 @@ First, analyze the entire session to identify distinct user objectives. Follow t
    - Signs of user confusion, repeated attempts, or workarounds
 
 # Step 2: Link Key Actions to Objectives
-After identifying objectives, determine which events are key actions for each objective.
+After identifying objectives, determine which events are key actions for each objective. There would be lots of actions important to the user's goal, we can't include all of them, so we ONLY want to include the most important ones.
 
 2.1. Key Actions Guidelines:
    - Include 1-5 key actions per objective based on objective's complexity and duration
    - Each key action should represent a significant step in the user's journey toward the objective
    - Consolidate repeated similar actions (e.g., "Clicked search button 3 times")
-   - Each key action could be a user action (`"error": false`) or an error (`"error": true`) based on the guidelines below
    - Create separate key actions for repeated behaviors ONLY if they represent distinct phases
+   - Select key actions that occur close together in time
+   - Avoid combining actions with large time gaps between them into the same objective
+   - Each key action could be a user action (`"error": false`) or an error (`"error": true`) based on the guidelines below
 
 2.2. Error Identification Guidelines (CRITICAL):
    - NEVER flag as errors:
@@ -139,7 +143,6 @@ After identifying objectives, determine which events are key actions for each ob
    - For complex actions, briefly include the outcome
    - Prioritize actions showing progress or completion of the objective
 
-
 # Step 3: Determine Initial Goal
    - Analyze the `start_url` from the `session_medata_input` to identify the entry point context
    - Review the user's objectives/actions during the session
@@ -167,6 +170,11 @@ Before finalizing your analysis, verify:
    - Does the sequence of objectives and actions tell a coherent story of the user's session?
    - Is the initial goal consistent with the start URL and first objective?
    - Is the session outcome assessment supported by the final actions in the data?
+
+4. Temporal Coverage Verification:
+   - Are later events in the session represented proportionally in the identified objectives and key actions?
+   - Are key actions within the same objective happening close together in time?
+   - If most key actions are from early in the session, revisit the later events to ensure important activities aren't overlooked
 
 Revise your analysis if any inconsistencies are found.
 </identify_objectives_instructions>
