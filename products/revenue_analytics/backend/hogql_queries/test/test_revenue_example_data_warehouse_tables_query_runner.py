@@ -117,6 +117,7 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
     def test_database_query(self):
         response = self._run_revenue_example_external_tables_query()
         results = response.results
+        breakpoint()
 
         # Not all rows in the CSV have a status of "succeeded", let's filter them out here
         assert len(results) == len(self.csv_df[self.csv_df["status"] == "succeeded"])
