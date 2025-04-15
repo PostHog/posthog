@@ -63,35 +63,6 @@ exports[`IngestionConsumer general overflow force overflow should handle multipl
 ]
 `;
 
-exports[`IngestionConsumer general overflow should allow some events to pass 1`] = `
-[
-  {
-    "key": null,
-    "topic": "events_plugin_ingestion_overflow_test",
-    "value": {
-      "data": "{"distinct_id":"overflow-distinct-id","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
-      "distinct_id": "overflow-distinct-id",
-      "ip": "127.0.0.1",
-      "now": "2025-01-01T00:00:00.000Z",
-      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
-      "uuid": "<REPLACED-UUID-0>",
-    },
-  },
-  {
-    "key": null,
-    "topic": "events_plugin_ingestion_overflow_test",
-    "value": {
-      "data": "{"distinct_id":"overflow-distinct-id","uuid":"<REPLACED-UUID-1>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
-      "distinct_id": "overflow-distinct-id",
-      "ip": "127.0.0.1",
-      "now": "2025-01-01T00:00:00.000Z",
-      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
-      "uuid": "<REPLACED-UUID-1>",
-    },
-  },
-]
-`;
-
 exports[`IngestionConsumer general overflow should emit to overflow if token and distinct_id are overflowed 1`] = `
 [
   {

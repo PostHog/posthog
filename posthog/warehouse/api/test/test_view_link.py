@@ -76,6 +76,20 @@ class TestViewLinkQuery(APIBaseTest):
         )
         self.assertEqual(response.status_code, 400, response.content)
 
+    def test_field_name_periods(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/",
+            {
+                "source_table_name": "events",
+                "joining_table_name": "persons",
+                "source_table_key": "uuid",
+                "joining_table_key": "id",
+                "field_name": "some_field.other.field",
+                "configuration": None,
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+
     def test_create_saved_query_key_error(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_view_links/",
