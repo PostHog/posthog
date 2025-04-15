@@ -65,4 +65,8 @@ pub enum VmError {
     NativeCallFailed(String),
     #[error("Invalid regex {0}: {1}")]
     InvalidRegex(String, String),
+    #[error("Out of memory")]
+    OutOfMemory,
+    #[error("Integer overflow")]
+    IntegerOverflow,
 }

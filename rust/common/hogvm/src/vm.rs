@@ -12,15 +12,11 @@ use crate::{
     values::{Callable, Closure, FromHogLiteral, HogLiteral, HogValue, LocalCallable, Num, NumOp},
 };
 
-/*
-TODO:
-- All the math operations here aren't hardened to overflow
-*/
-
 pub struct ExecutionContext<'a> {
     pub bytecode: &'a [JsonValue],
     pub globals: HashMap<String, HogValue>,
     pub max_stack_depth: usize,
+    pub max_heap_size: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -108,7 +104,7 @@ impl<'a> VmState<'a> {
             throw_frames: Vec::new(),
             ip,
             context,
-            heap: Default::default(),
+            heap: VmHeap::new(context.max_heap_size),
             version: version as usize,
         })
     }
@@ -464,7 +460,7 @@ impl<'a> VmState<'a> {
                 let base = self.current_frame_base();
                 // Usize as a positive offset from the current frame
                 let offset: usize = self.next()?;
-                let ptr = self.hoist(base + offset)?;
+                let ptr = self.hoist(base.checked_add(offset).ok_or(VmError::IntegerOverflow)?)?;
                 self.push_stack(ptr)?;
             }
             Operation::SetLocal => {
@@ -473,7 +469,10 @@ impl<'a> VmState<'a> {
                 // Usize as a positive offset from the current frame
                 let offset: usize = self.next()?;
                 let value = self.pop_stack()?;
-                self.set_stack_val(base + offset, value)?;
+                self.set_stack_val(
+                    base.checked_add(offset).ok_or(VmError::IntegerOverflow)?,
+                    value,
+                )?;
             }
             Operation::Return => {
                 let result = self.pop_stack()?;
@@ -494,13 +493,17 @@ impl<'a> VmState<'a> {
             Operation::Jump => {
                 // i32 to permit branching backwards
                 let offset: i32 = self.next()?;
-                self.ip = (self.ip as i64 + offset as i64) as usize;
+                self.ip = ((self.ip as i64)
+                    .checked_add(offset as i64)
+                    .ok_or(VmError::IntegerOverflow)?) as usize;
             }
             Operation::JumpIfFalse => {
                 // i32 to permit branching backwards
                 let offset: i32 = self.next()?;
                 if !self.pop_stack_as::<bool>()? {
-                    self.ip = (self.ip as i64 + offset as i64) as usize;
+                    self.ip = ((self.ip as i64)
+                        .checked_add(offset as i64)
+                        .ok_or(VmError::IntegerOverflow)?) as usize;
                 }
             }
             Operation::JumpIfStackNotNull => {
@@ -511,7 +514,10 @@ impl<'a> VmState<'a> {
                     let item = self.clone_stack_item(self.stack.len() - 1)?;
                     let item = item.deref(&self.heap)?;
                     if !matches!(item, HogLiteral::Null) {
-                        self.ip = (self.ip as i64 + offset as i64) as usize;
+                        self.ip = ((self.ip as i64)
+                            .checked_add(offset as i64)
+                            .ok_or(VmError::IntegerOverflow)?)
+                            as usize;
                     }
                 }
             }
@@ -613,13 +619,27 @@ impl<'a> VmState<'a> {
                     }
                 };
 
-                target.set_property(key, val)?;
+                let mut allocated_bytes = val.size();
+                let key_bytes = key.size();
+                let freed_bytes = target.set_property(key, val)?;
+                if freed_bytes == 0 {
+                    allocated_bytes += key_bytes; // We inserted a new key as well as a new prop
+                }
+
+                // This doesn't assert the allocation is possible - the next one will fail, which is good enough
+                self.heap.current_bytes = self
+                    .heap
+                    .current_bytes
+                    .saturating_sub(freed_bytes)
+                    .saturating_add(allocated_bytes);
             }
             Operation::Try => {
                 // i32 to permit setting a catch offset lower than the IP
                 let catch_offset: i32 = self.next()?;
                 // +1 to skip the POP_TRY that follows the try'd operations
-                let catch_ip = (self.ip as i64 + catch_offset as i64 + 1) as usize;
+                let catch_ip = (self.ip as i64)
+                    .checked_add(catch_offset as i64 + 1)
+                    .ok_or(VmError::IntegerOverflow)? as usize;
                 let frame = ThrowFrame {
                     catch_ptr: catch_ip,
                     stack_start: self.stack.len(),
@@ -677,7 +697,9 @@ impl<'a> VmState<'a> {
                 }
                 .into();
                 self.push_stack(HogLiteral::Callable(callable))?;
-                self.ip += body_length;
+                self.ip
+                    .checked_add(body_length)
+                    .ok_or(VmError::IntegerOverflow)?;
             }
             // A closure is a callable, plus some captured arguments from the scope
             // it was constructed in.
@@ -701,7 +723,10 @@ impl<'a> VmState<'a> {
                     // usize as closures can only capture stack variables in the current scope
                     let offset: usize = self.next()?;
                     if is_local {
-                        let index = self.current_frame_base() + offset;
+                        let index = self
+                            .current_frame_base()
+                            .checked_add(offset)
+                            .ok_or(VmError::IntegerOverflow)?;
                         captures.push(self.hoist(index)?);
                     } else {
                         captures.push(self.get_capture(offset)?);
@@ -721,7 +746,7 @@ impl<'a> VmState<'a> {
                         callable.stack_arg_count, arg_count
                     )));
                 }
-                let null_args = callable.stack_arg_count - arg_count;
+                let null_args = callable.stack_arg_count.saturating_sub(arg_count);
                 // For pure-hog function calls (calls to "local" callables), we just push a null onto the stack for each missing argument,
                 // then construct the stack frame, and jump to the callable's frame ip. For other kinds of calls (which we don't support yet),
                 // we'll have to do something more complicated
@@ -730,7 +755,7 @@ impl<'a> VmState<'a> {
                 }
                 let frame = CallFrame {
                     ret_ptr: self.ip,
-                    stack_start: self.stack.len() - callable.stack_arg_count,
+                    stack_start: self.stack.len().saturating_sub(callable.stack_arg_count),
                     captures: closure.captures,
                 };
                 self.stack_frames.push(frame);
@@ -747,8 +772,20 @@ impl<'a> VmState<'a> {
                 // If the top of the stack was a reference, we write that reference to the capture,
                 // but if it was a literal, we write the literal to the heap location the capture points
                 // to.
-                match self.pop_stack()? {
-                    HogValue::Lit(hog_literal) => *self.heap.get_mut(ptr)? = hog_literal,
+                let val = self.pop_stack()?;
+                let new_size = val.size();
+                match val {
+                    HogValue::Lit(hog_literal) => {
+                        let target = self.heap.get_mut(ptr)?;
+                        let old_size = target.size();
+                        *target = hog_literal;
+                        // This doesn't assert the allocation is possible - the next one will fail, which is good enough
+                        self.heap.current_bytes = self
+                            .heap
+                            .current_bytes
+                            .saturating_sub(old_size)
+                            .saturating_add(new_size)
+                    }
                     HogValue::Ref(heap_reference) => self.set_capture(index, heap_reference)?,
                 }
             }
@@ -780,6 +817,7 @@ pub fn sync_execute(
         bytecode,
         globals: HashMap::new(),
         max_stack_depth: 1024,
+        max_heap_size: 1024 * 1024,
     };
 
     let mut native_fns: HashMap<String, NativeFunction> =
@@ -814,7 +852,20 @@ pub fn sync_execute(
                 };
                 let result = native_fn(&vm, args);
                 match result {
-                    Ok(value) => vm.push_stack(value).map_err(|e| fail(e, Some(&vm), i))?,
+                    Ok(HogValue::Ref(ptr)) => {
+                        vm.push_stack(ptr).map_err(|e| fail(e, Some(&vm), i))?
+                    }
+                    Ok(HogValue::Lit(lit)) => match lit {
+                        // Object types returned from native functions get heap allocated, just like ones declared
+                        // in the bytecode, whereas other types are pushed directly onto the stack. The purity of
+                        // native functions means we don't need to worry about memory management for these values,
+                        // beyond what the heap internally manages.
+                        HogLiteral::Array(_) | HogLiteral::Object(_) => {
+                            let ptr = vm.heap.emplace(lit).map_err(|e| fail(e, Some(&vm), i))?;
+                            vm.push_stack(ptr).map_err(|e| fail(e, Some(&vm), i))?;
+                        }
+                        _ => vm.push_stack(lit).map_err(|e| fail(e, Some(&vm), i))?,
+                    },
                     Err(err) => return Err(fail(err, Some(&vm), i)),
                 };
             }

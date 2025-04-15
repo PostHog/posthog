@@ -5,6 +5,8 @@ use crate::{
     vm::VmState,
 };
 
+pub const TO_STRING_RECURSION_LIMIT: usize = 32;
+
 // A "native function" is a function that can be called from within the VM. It takes a list
 // of arguments, and returns either a value, or null. It's pure (cannot modify the VM state).
 pub type NativeFunction = fn(&VmState, Vec<HogValue>) -> Result<HogValue, VmError>;
@@ -131,7 +133,7 @@ pub const fn stl() -> &'static [(&'static str, NativeFunction)] {
                         .partition(Result::is_ok);
                     if errs.is_empty() {
                         let mut vals = vals.into_iter().map(|v| v.unwrap()).collect::<Vec<_>>();
-                        vals.sort_unstable_by(|a, b| a.cmp(b));
+                        vals.sort_unstable_by(|a, b| a.compare(b));
                         Ok(HogLiteral::Array(vals.into_iter().map(|v| v.into()).collect()).into())
                     } else {
                         Err(VmError::NativeCallFailed(
@@ -169,7 +171,7 @@ pub const fn stl() -> &'static [(&'static str, NativeFunction)] {
                         .partition(Result::is_ok);
                     if errs.is_empty() {
                         let mut vals = vals.into_iter().map(|v| v.unwrap()).collect::<Vec<_>>();
-                        vals.sort_unstable_by(|a, b| a.cmp(b));
+                        vals.sort_unstable_by(|a, b| a.compare(b));
                         vals.reverse();
                         Ok(HogLiteral::Array(vals.into_iter().map(|v| v.into()).collect()).into())
                     } else {
@@ -217,11 +219,9 @@ pub const fn stl() -> &'static [(&'static str, NativeFunction)] {
                     }
                     Ok(HogLiteral::Null.into())
                 }
-                _ => {
-                    return Err(VmError::NativeCallFailed(
-                        "indexOf() only supports arrays".to_string(),
-                    ))
-                }
+                _ => Err(VmError::NativeCallFailed(
+                    "indexOf() only supports arrays".to_string(),
+                )),
             }
         }),
     ]
@@ -230,7 +230,7 @@ pub const fn stl() -> &'static [(&'static str, NativeFunction)] {
 // TODO - this is slow, because rather than using a string buffer, we're allocating a new string each time
 // we recurse
 fn to_string(heap: &VmHeap, val: &HogValue, depth: usize) -> Result<String, VmError> {
-    if depth > 30 {
+    if depth > TO_STRING_RECURSION_LIMIT {
         return Err(VmError::NativeCallFailed(
             "Maximum toString recursion depth exceeded".to_string(),
         ));

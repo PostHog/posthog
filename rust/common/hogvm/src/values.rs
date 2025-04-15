@@ -159,6 +159,13 @@ impl HogValue {
             )),
         }
     }
+
+    pub fn size(&self) -> usize {
+        match self {
+            HogValue::Lit(lit) => lit.size(),
+            HogValue::Ref(_) => std::mem::size_of::<HeapReference>(),
+        }
+    }
 }
 
 impl HogLiteral {
@@ -172,6 +179,26 @@ impl HogLiteral {
             HogLiteral::Null => "Null",
             HogLiteral::Callable(_) => "Callable",
             HogLiteral::Closure(_) => "Closure",
+        }
+    }
+
+    // Size of the literal, in bytes. If it's a non-primitive type, returns the size of all values, but
+    // if a value is on the heap, returns the size of the reference. This underestimates the size slightly,
+    // because it doesn't account for the enum discriminant, and it gets the size of callables wrong by ignoring
+    // the length of the callable's name, but is close enough for most purposes.
+    pub fn size(&self) -> usize {
+        match self {
+            HogLiteral::String(s) => s.len(),
+            HogLiteral::Number(_) => std::mem::size_of::<f64>(),
+            HogLiteral::Boolean(_) => std::mem::size_of::<bool>(),
+            HogLiteral::Array(a) => a.iter().map(|v| v.size()).sum(),
+            HogLiteral::Object(o) => o.iter().map(|(k, v)| k.len() + v.size()).sum(),
+            HogLiteral::Null => std::mem::size_of::<()>(),
+            HogLiteral::Callable(_) => std::mem::size_of::<Callable>(),
+            HogLiteral::Closure(c) => {
+                std::mem::size_of::<Closure>()
+                    + (c.captures.len() * std::mem::size_of::<HeapReference>())
+            }
         }
     }
 
@@ -248,7 +275,8 @@ impl HogLiteral {
         Ok((lhs == rhs).into())
     }
 
-    pub fn set_property(&mut self, key: HogLiteral, val: HogValue) -> Result<(), VmError> {
+    // Set a property, returning the number of bytes the old value used
+    pub fn set_property(&mut self, key: HogLiteral, val: HogValue) -> Result<usize, VmError> {
         match self {
             HogLiteral::Array(vals) => {
                 let index: Num = key.try_into()?;
@@ -259,16 +287,18 @@ impl HogLiteral {
                 if index >= vals.len() {
                     return Err(VmError::IndexOutOfBounds(index, vals.len()));
                 }
+                let old_size = vals[index].size();
                 vals[index] = val;
+                Ok(old_size)
             }
             HogLiteral::Object(map) => {
                 let key: String = key.try_into()?;
+                let old_size = map.get(&key).map(|v| v.size()).unwrap_or(0);
                 map.insert(key, val);
+                Ok(old_size)
             }
-            _ => return Err(VmError::ExpectedObject),
-        };
-
-        Ok(())
+            _ => Err(VmError::ExpectedObject),
+        }
     }
 }
 
@@ -487,12 +517,12 @@ impl Num {
         }
     }
 
-    pub fn cmp(&self, other: &Num) -> Ordering {
+    pub fn compare(&self, other: &Num) -> Ordering {
         match (self, other) {
             (Num::Float(a), Num::Float(b)) => a.total_cmp(b),
             (Num::Integer(a), Num::Integer(b)) => a.cmp(b),
             (Num::Float(a), Num::Integer(b)) => a.total_cmp(&(*b as f64)),
-            (Num::Integer(a), Num::Float(b)) => (&(*a as f64)).partial_cmp(b).unwrap(),
+            (Num::Integer(a), Num::Float(b)) => (*a as f64).partial_cmp(b).unwrap(),
         }
     }
 
@@ -501,6 +531,7 @@ impl Num {
         if needs_coerce {
             let a = a.to_float();
             let b = b.to_float();
+            // NOTE: none of this is NaN/Inf checked
             match op {
                 NumOp::Add => Ok((a + b).into()),
                 NumOp::Sub => Ok((a - b).into()),
@@ -521,10 +552,10 @@ impl Num {
             }
 
             match op {
-                NumOp::Add => Ok((a + b).into()),
-                NumOp::Sub => Ok((a - b).into()),
-                NumOp::Mul => Ok((a * b).into()),
-                NumOp::Div => Ok((a / b).into()),
+                NumOp::Add => Ok((a.saturating_add(b)).into()),
+                NumOp::Sub => Ok((a.saturating_sub(b)).into()),
+                NumOp::Mul => Ok((a.saturating_mul(b)).into()),
+                NumOp::Div => Ok((a.saturating_div(b)).into()),
                 NumOp::Mod => Ok((a % b).into()),
                 NumOp::Gt => Ok((a > b).into()),
                 NumOp::Lt => Ok((a < b).into()),
