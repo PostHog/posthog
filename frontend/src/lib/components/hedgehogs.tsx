@@ -164,11 +164,11 @@ export const JudgeHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={judgeHog} {...props} />
 }
 export const ClimberHog1 = (props: HedgehogProps): JSX.Element => {
-    return <SquaredHedgehog src={climberHog1} {...props} />
+    return <RectangularHedgehog src={climberHog1} width={378} height={417} {...props} />
 }
 export const ClimberHog2 = (props: HedgehogProps): JSX.Element => {
-    return <RectangularHedgehog src={climberHog2} {...props} />
+    return <RectangularHedgehog src={climberHog2} width={518} height={1586} {...props} />
 }
 export const YCHog = (props: HedgehogProps): JSX.Element => {
-    return <RectangularHedgehog src={ycHog} {...props} />
+    return <RectangularHedgehog src={ycHog} width={1134} height={651} {...props} />
 }

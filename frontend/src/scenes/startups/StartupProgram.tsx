@@ -100,7 +100,9 @@ export function StartupProgram(): JSX.Element {
                 {isYC ? (
                     <div className="flex flex-col items-center mt-8">
                         <div className="px-4 w-full max-w-100 mb-4">
-                            <YCHog className="h-auto" />
+                            <div className="relative">
+                                <YCHog className="h-auto w-full" />
+                            </div>
                         </div>
                         <div className="text-center">
                             <h1 className="text-2xl sm:text-3xl mb-2 sm:mb-3">
@@ -115,7 +117,9 @@ export function StartupProgram(): JSX.Element {
                 ) : (
                     <div className="flex items-center justify-center -mt-6 md:gap-8 mb-3">
                         <div className="flex items-end self-end">
-                            <ClimberHog1 className="w-35 min-w-18 h-auto" />
+                            <div className="relative w-35 min-w-18">
+                                <ClimberHog1 className="h-auto w-full" />
+                            </div>
                         </div>
                         <div className="text-center">
                             <h1 className="text-xl sm:text-3xl mb-2 sm:mb-3">Apply for PostHog's startup program</h1>
@@ -125,7 +129,9 @@ export function StartupProgram(): JSX.Element {
                             </p>
                         </div>
                         <div className="flex items-center">
-                            <ClimberHog2 className="w-35 min-w-18 h-auto" />
+                            <div className="relative w-35 min-w-18">
+                                <ClimberHog2 className="h-auto w-full" />
+                            </div>
                         </div>
                     </div>
                 )}
