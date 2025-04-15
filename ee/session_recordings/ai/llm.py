@@ -115,9 +115,9 @@ def call_llm(
         raise ValueError(f"No messages to send to LLM for session_id {session_id}")
     # TODO Make temperature/top_p/max_tokens configurable through input to use for different prompts
     result = openai.chat.completions.create(
-        model="gpt-4o-mini",
-        # Keep the temperature low to have more predictable results (but not 0 to allow for some randomness)
-        temperature=0.1,
+        model="o3-mini-2025-01-31",
+        # TODO: Start with low reasoning for faster responses, iterate afterward based on user experience
+        reasoning_effort="low",
         messages=messages,  # type: ignore
         user=f"{instance_region}/{user_key}",
     )
