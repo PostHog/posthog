@@ -49,10 +49,12 @@ async fn it_drops_events_if_dropper_enabled() -> Result<()> {
 
     let main_topic = EphemeralTopic::new().await;
     let histo_topic = EphemeralTopic::new().await;
+    let overflow_topic = EphemeralTopic::new().await;
     let mut config = DEFAULT_CONFIG.clone();
     config.kafka.kafka_topic = main_topic.topic_name().to_string();
     config.kafka.kafka_historical_topic = histo_topic.topic_name().to_string();
-    config.dropped_keys = Some(format!("{}:{}", token, dropped_id));
+    config.kafka.kafka_overflow_topic = overflow_topic.topic_name().to_string();
+    config.drop_events_by_token_distinct_id = Some(format!("{}:{}", token, dropped_id));
     let server = ServerHandle::for_config(config).await;
 
     let event = json!({
@@ -229,32 +231,40 @@ async fn it_overflows_events_on_burst() -> Result<()> {
     let distinct_id = random_string("id", 16);
 
     let topic = EphemeralTopic::new().await;
+    let overflow_topic = EphemeralTopic::new().await;
 
     let mut config = DEFAULT_CONFIG.clone();
+    config.kafka.kafka_hosts = "localhost:9092".to_string();
+    config.kafka.kafka_producer_linger_ms = 0; // Send messages immediately
+    config.kafka.kafka_message_timeout_ms = 10000; // 10s timeout
+    config.kafka.kafka_producer_max_retries = 3;
     config.kafka.kafka_topic = topic.topic_name().to_string();
+    config.kafka.kafka_overflow_topic = overflow_topic.topic_name().to_string();
     config.overflow_enabled = true;
     config.overflow_burst_limit = NonZeroU32::new(2).unwrap();
     config.overflow_per_second_limit = NonZeroU32::new(1).unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
-    let event = json!([{
+    let events = json!([{
         "token": token,
         "event": "event1",
-        "distinct_id": distinct_id
+        "distinct_id": distinct_id,
     },{
         "token": token,
         "event": "event2",
-        "distinct_id": distinct_id
-    },{
+        "distinct_id": distinct_id,
+    },
+    {
         "token": token,
-        "event": "event3",
-        "distinct_id": distinct_id
+        "event": "event3_to_overflow",
+        "distinct_id": distinct_id,
     }]);
 
-    let res = server.capture_events(event.to_string()).await;
+    let res = server.capture_events(events.to_string()).await;
     assert_eq!(StatusCode::OK, res.status());
 
+    // First two events should go to main topic
     assert_eq!(
         topic.next_message_key()?.unwrap(),
         format!("{}:{}", token, distinct_id)
@@ -265,7 +275,19 @@ async fn it_overflows_events_on_burst() -> Result<()> {
         format!("{}:{}", token, distinct_id)
     );
 
-    assert_eq!(topic.next_message_key()?, None);
+    topic.assert_empty();
+
+    // Third event should be in overflow topic, but has no
+    // message key as overflow events are round-robined
+    assert_json_include!(
+        actual: overflow_topic.next_event()?,
+        expected: json!({
+            "token": token,
+            "distinct_id": distinct_id,
+        })
+    );
+
+    overflow_topic.assert_empty();
 
     Ok(())
 }
@@ -322,9 +344,11 @@ async fn it_skips_overflows_when_disabled() -> Result<()> {
     let distinct_id = random_string("id", 16);
 
     let topic = EphemeralTopic::new().await;
+    let overflow_topic = EphemeralTopic::new().await;
 
     let mut config = DEFAULT_CONFIG.clone();
     config.kafka.kafka_topic = topic.topic_name().to_string();
+    config.kafka.kafka_overflow_topic = overflow_topic.topic_name().to_string();
     config.overflow_enabled = false;
     config.overflow_burst_limit = NonZeroU32::new(2).unwrap();
     config.overflow_per_second_limit = NonZeroU32::new(1).unwrap();
