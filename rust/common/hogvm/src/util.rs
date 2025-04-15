@@ -1,6 +1,11 @@
 use regex::RegexBuilder;
+use serde_json::Value;
 
-use crate::error::VmError;
+use crate::{
+    error::VmError,
+    values::{HogValue, Num},
+    vm::VmState,
+};
 
 pub fn like(
     val: impl AsRef<str>,
@@ -61,6 +66,48 @@ fn like_to_regex(pattern: &str) -> String {
 
     result.push('$');
     result
+}
+
+pub fn get_json_nested(
+    haystack: &Value,
+    mut chain: &[HogValue],
+    vm: &VmState,
+) -> Result<Option<Value>, VmError> {
+    let mut current = Some(haystack);
+
+    while let Some(val) = current {
+        if chain.is_empty() {
+            // We found a value pointed to by the last element in the chain
+            return Ok(Some(val.clone()));
+        }
+
+        let next_key = chain.first().unwrap().deref(&vm.heap)?;
+
+        match val {
+            Value::Array(values) => {
+                let key: &Num = next_key.try_as()?;
+                if key.is_float() || key.to_integer() < 1 {
+                    return Err(VmError::InvalidIndex);
+                }
+                let key = (key.to_integer() as usize) - 1; // Hog indices are 1 based
+                let Some(found) = values.get(key) else {
+                    return Ok(None);
+                };
+                current = Some(found);
+            }
+            Value::Object(map) => {
+                let key: &str = next_key.try_as()?;
+                let Some(found) = map.get(key) else {
+                    return Ok(None);
+                };
+                current = Some(found);
+            }
+            _ => return Ok(None),
+        }
+        chain = &chain[1..];
+    }
+
+    Ok(None)
 }
 
 #[cfg(test)]

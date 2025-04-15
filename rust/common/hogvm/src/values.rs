@@ -88,6 +88,7 @@ impl HogValue {
         }
     }
 
+    // TODO - unroll this to be a loop rather than recursing
     pub fn get_nested<'a, 'b: 'a>(
         &'a self,
         chain: &[HogValue],
@@ -477,6 +478,37 @@ impl From<f64> for Num {
 impl From<usize> for Num {
     fn from(value: usize) -> Self {
         Num::Integer(value as i64)
+    }
+}
+
+impl From<serde_json::Number> for Num {
+    fn from(value: serde_json::Number) -> Self {
+        if value.is_f64() {
+            Num::Float(value.as_f64().unwrap())
+        } else if value.is_i64() {
+            Num::Integer(value.as_i64().unwrap())
+        } else {
+            let num = value.as_u64().unwrap();
+            if num <= (i64::MAX as u64) {
+                Num::Integer(num as i64)
+            } else {
+                // TODO - this isn't optimal behaviour, we should add a u64 variant to Num instead
+                Num::Float(num as f64)
+            }
+        }
+    }
+}
+
+impl TryFrom<Num> for serde_json::Number {
+    type Error = VmError;
+
+    fn try_from(value: Num) -> Result<Self, Self::Error> {
+        match value {
+            // All my homies hate floating point numbers
+            Num::Float(value) => serde_json::Number::from_f64(value)
+                .ok_or(VmError::InvalidNumber(format!("{:?}", value))),
+            Num::Integer(value) => Ok(value.into()),
+        }
     }
 }
 

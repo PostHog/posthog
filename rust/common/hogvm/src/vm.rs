@@ -8,13 +8,15 @@ use crate::{
     memory::{HeapReference, VmHeap},
     ops::Operation,
     stl::{stl, NativeFunction},
-    util::{like, regex_match},
+    util::{get_json_nested, like, regex_match},
     values::{Callable, Closure, FromHogLiteral, HogLiteral, HogValue, LocalCallable, Num, NumOp},
 };
 
+const MAX_JSON_SERDE_DEPTH: usize = 64;
+
 pub struct ExecutionContext<'a> {
     pub bytecode: &'a [JsonValue],
-    pub globals: HashMap<String, HogValue>,
+    pub globals: JsonValue, // Generally an object, but can be anything really
     pub max_stack_depth: usize,
     pub max_heap_size: usize,
 }
@@ -221,7 +223,7 @@ impl<'a> VmState<'a> {
 
     // TODO - we don't support function imports right now - most trivial programs don't need them,
     // and filters are generally trivial
-    fn get_fn_reference(&self, _chain: &[String]) -> Result<HogLiteral, VmError> {
+    fn get_fn_reference(&self, _chain: &[HogValue]) -> Result<HogLiteral, VmError> {
         Err(VmError::NotImplemented("imports".to_string()))
     }
 
@@ -248,6 +250,90 @@ impl<'a> VmState<'a> {
         self.step()
     }
 
+    // Construct a hog value from a Json object. If the json object would be heap allocated
+    // as a HogValue (e.g. if it's an array or object), then it will be allocated onto the heap,
+    // and a reference will be returned. Nested json objects are flattened during allocation,
+    // such that e.g. [[1,2],[3,4]] would lead to an array of [HeapReference, HeapReference] being
+    // put into the heap, and a HeapReference being returned.
+    //
+    // This is a function on the VM, rather than being standalone, because hog values don't really
+    // exist outside of the context of a VM (and specifically a heap). It could be a function on the
+    // heap itself, though.
+    pub fn json_to_hog(&mut self, json: JsonValue) -> Result<HogValue, VmError> {
+        self.json_to_hog_impl(json, 0)
+    }
+
+    fn json_to_hog_impl(&mut self, current: JsonValue, depth: usize) -> Result<HogValue, VmError> {
+        if depth > MAX_JSON_SERDE_DEPTH {
+            return Err(VmError::RecursionLimitExceeded);
+        };
+
+        match current {
+            JsonValue::Null => Ok(HogLiteral::Null.into()),
+            JsonValue::Bool(b) => Ok(HogLiteral::Boolean(b).into()),
+            JsonValue::Number(n) => Ok(HogLiteral::Number(n.into()).into()),
+            JsonValue::String(s) => Ok(HogLiteral::String(s).into()),
+            JsonValue::Array(arr) => {
+                let mut values = Vec::new();
+                for value in arr {
+                    values.push(self.json_to_hog_impl(value, depth + 1)?);
+                }
+                let to_emplace = HogLiteral::Array(values);
+                let ptr = self.heap.emplace(to_emplace)?;
+                Ok(ptr.into())
+            }
+            JsonValue::Object(obj) => {
+                let mut map = HashMap::new();
+                for (key, value) in obj {
+                    map.insert(key, self.json_to_hog_impl(value, depth + 1)?);
+                }
+                let to_emplace = HogLiteral::Object(map);
+                let ptr = self.heap.emplace(to_emplace)?;
+                Ok(ptr.into())
+            }
+        }
+    }
+
+    // Convert back from an arbitrary HogValue to a json Value. Again, this function exists on
+    // the VM, because HogValues don't really exist in any other context.
+    pub fn hog_to_json(&self, value: &HogValue) -> Result<JsonValue, VmError> {
+        self.hog_to_json_impl(value, 0)
+    }
+
+    fn hog_to_json_impl(&self, value: &HogValue, depth: usize) -> Result<JsonValue, VmError> {
+        if depth > MAX_JSON_SERDE_DEPTH {
+            return Err(VmError::RecursionLimitExceeded);
+        };
+
+        let val = value.deref(&self.heap)?;
+        match val {
+            HogLiteral::Null => Ok(JsonValue::Null),
+            HogLiteral::Boolean(b) => Ok(JsonValue::Bool(*b)),
+            HogLiteral::Number(n) => Ok(JsonValue::Number(n.clone().try_into()?)),
+            HogLiteral::String(s) => Ok(JsonValue::String(s.clone())),
+            HogLiteral::Array(arr) => {
+                let mut json_arr = Vec::new();
+                for elem in arr {
+                    json_arr.push(self.hog_to_json_impl(elem, depth + 1)?);
+                }
+                Ok(JsonValue::Array(json_arr))
+            }
+            HogLiteral::Object(obj) => {
+                let mut map = serde_json::Map::new();
+                for (key, value) in obj {
+                    map.insert(key.clone(), self.hog_to_json_impl(value, depth + 1)?);
+                }
+                Ok(JsonValue::Object(map))
+            }
+            HogLiteral::Callable(_) => Err(VmError::NotImplemented(
+                "Callable serialisation".to_string(),
+            )),
+            HogLiteral::Closure(_) => {
+                Err(VmError::NotImplemented("Closure serialisation".to_string()))
+            }
+        }
+    }
+
     pub fn step(&mut self) -> Result<StepOutcome, VmError> {
         let op: Operation = self.next()?;
 
@@ -255,37 +341,22 @@ impl<'a> VmState<'a> {
             Operation::GetGlobal => {
                 // GetGlobal is used to do 1 of 2 things, either push a value from a global variable onto the stack, or push a new
                 // function reference (referred to in other impls as a "closure") onto the stack - either a native one, or a hog one
-                let mut chain: Vec<String> = Vec::new();
+                let mut chain = Vec::new();
                 let count: usize = self.next()?;
                 for _ in 0..count {
-                    chain.push(self.pop_stack_as()?);
+                    chain.push(self.pop_stack()?);
                 }
                 if chain.is_empty() {
                     return Err(VmError::UnknownGlobal("".to_string()));
                 }
-                if let Some(chain_start) = self.context.globals.get(&chain[0]) {
-                    // TODO - this is a lot more strict that other
 
-                    let rest_of_chain: Vec<HogValue> = chain
-                        .into_iter()
-                        .skip(1)
-                        .map(HogLiteral::from)
-                        .map(HogValue::from)
-                        .collect();
-
-                    self.push_stack(
-                        chain_start
-                            .get_nested(&rest_of_chain, &self.heap)?
-                            .ok_or(VmError::UnknownGlobal(format!(
-                                "{:?}.{:?}",
-                                chain_start, rest_of_chain
-                            )))?
-                            .clone(),
-                    )?;
+                if let Some(found) = get_json_nested(&self.context.globals, &chain, self)? {
+                    let val = self.json_to_hog(found)?;
+                    self.push_stack(val)?;
                 } else if let Ok(closure) = self.get_fn_reference(&chain) {
                     self.push_stack(closure)?;
                 } else {
-                    return Err(VmError::UnknownGlobal(chain.join(".")));
+                    return Err(VmError::UnknownGlobal(format!("{:?}", chain)));
                 }
             }
             // We don't implement DeclareFn, because it's not used in the current compiler - it uses
@@ -816,7 +887,7 @@ pub fn sync_execute(
 ) -> Result<HogLiteral, VmFailure> {
     let context = ExecutionContext {
         bytecode,
-        globals: HashMap::new(),
+        globals: serde_json::json!({}),
         max_stack_depth: 1024,
         max_heap_size: 1024 * 1024,
     };
