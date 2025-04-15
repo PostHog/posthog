@@ -612,9 +612,6 @@ describe('HogTransformer', () => {
         })
 
         it('should track skipped transformations when filter does not match', async () => {
-            // Enable filter transformations
-            hub.FILTER_TRANSFORMATIONS_ENABLED = true
-
             const filterTemplate = {
                 free: true,
                 status: 'beta',
@@ -672,9 +669,6 @@ describe('HogTransformer', () => {
         })
 
         it('should track both successful and skipped transformations in sequence', async () => {
-            // Enable filter transformations
-            hub.FILTER_TRANSFORMATIONS_ENABLED = true
-
             const successTemplate = {
                 free: true,
                 status: 'beta',
@@ -924,10 +918,6 @@ describe('HogTransformer', () => {
     })
 
     describe('filter-based transformations', () => {
-        beforeEach(() => {
-            hub.FILTER_TRANSFORMATIONS_ENABLED = true
-        })
-
         it('should skip transformation when filter does not match', async () => {
             const filterTemplate = {
                 free: true,
@@ -1146,51 +1136,6 @@ describe('HogTransformer', () => {
             )
         })
 
-        it('should not check filters when FILTER_TRANSFORMATIONS_ENABLED is false', async () => {
-            // Disable filter transformations
-            hub.FILTER_TRANSFORMATIONS_ENABLED = false
-
-            const filterTemplate = {
-                free: true,
-                status: 'beta',
-                type: 'transformation',
-                id: 'template-test',
-                name: 'Filter Template',
-                description: 'A template with filters that should be ignored',
-                category: ['Custom'],
-                hog: `
-                    let returnEvent := event
-                    returnEvent.properties.always_apply := 'applied'
-                    return returnEvent
-                `,
-                inputs_schema: [],
-            }
-
-            const hogFunction = createHogFunction({
-                type: 'transformation',
-                name: filterTemplate.name,
-                team_id: teamId,
-                enabled: true,
-                bytecode: await compileHog(filterTemplate.hog),
-                filters: {
-                    bytecode: await compileHog(`
-                    return event = 'match-me'
-                    `),
-                },
-            })
-
-            await insertHogFunction(hub.db.postgres, teamId, hogFunction)
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [hogFunction.id])
-
-            const event = createPluginEvent({ event: 'match-me' }, teamId)
-            const result = await hogTransformer.transformEventAndProduceMessages(event)
-
-            expect(result.event?.properties?.always_apply).toBe('applied')
-            expect(result.event?.properties?.$transformations_succeeded).toContain(
-                `${hogFunction.name} (${hogFunction.id})`
-            )
-        })
-
         it('should skip transformation when none of multiple filters match', async () => {
             const multiFilterTemplate = {
                 free: true,
@@ -1293,7 +1238,6 @@ describe('HogTransformer', () => {
     describe('HogWatcher integration', () => {
         beforeEach(() => {
             hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
-            hub.FILTER_TRANSFORMATIONS_ENABLED = true
         })
 
         it('should skip HogWatcher operations when sample rate is 0', async () => {
