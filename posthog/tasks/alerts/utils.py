@@ -2,7 +2,7 @@ from dateutil.relativedelta import relativedelta, MO
 from django.utils import timezone
 import pytz
 
-from datetime import datetime
+from datetime import datetime, UTC
 import structlog
 
 from posthog.email import EmailMessage
@@ -13,6 +13,9 @@ from posthog.schema import (
     AlertCalculationInterval,
 )
 from dataclasses import dataclass
+from posthog.exceptions_capture import capture_exception
+from posthog.plugins.plugin_server_api import create_hog_invocation_test
+from posthog.api.hog_function import HogFunctionSerializer
 
 logger = structlog.get_logger(__name__)
 
@@ -114,31 +117,91 @@ def next_check_time(alert: AlertConfiguration) -> datetime:
             raise ValueError(f"Invalid alert calculation interval: {alert.calculation_interval}")
 
 
-def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str]) -> None:
-    subject = f"PostHog alert {alert.name} is firing"
-    campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
-    insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
-    alert_url = f"{insight_url}?alert_id={alert.id}"
-    message = EmailMessage(
-        campaign_key=campaign_key,
-        subject=subject,
-        template_name="alert_check_firing",
-        template_context={
-            "match_descriptions": breaches,
-            "insight_url": insight_url,
-            "insight_name": alert.insight.name,
-            "alert_url": alert_url,
-            "alert_name": alert.name,
+def trigger_alert_hog_functions(alert: AlertConfiguration, event_name: str, properties: dict) -> None:
+    """Trigger all HogFunctions linked to the alert as notification destinations."""
+    invocation_globals = {
+        "alert": {
+            "id": str(alert.id),
+            "name": alert.name,
+            "insight_id": str(alert.insight_id),
+            "insight_short_id": alert.insight.short_id,
+            "state": alert.state,
+            "last_checked_at": alert.last_checked_at.isoformat() if alert.last_checked_at else None,
         },
-    )
-    targets = alert.subscribed_users.all().values_list("email", flat=True)
-    if not targets:
-        raise RuntimeError(f"no targets configured for the alert {alert.id}")
-    for target in targets:
-        message.add_recipient(email=target)
+        "event": {
+            "event": event_name,
+            "properties": {
+                "$alert_id": str(alert.id),
+                "$alert_name": alert.name,
+                **properties,  # Include specific properties like breaches or error
+            },
+            "timestamp": datetime.now(UTC).isoformat(),
+        },
+        "team_id": alert.team_id,
+    }
 
-    logger.info(f"Send notifications about {len(breaches)} anomalies", alert_id=alert.id)
-    message.send()
+    for hog_function in alert.notification_destinations.filter(enabled=True):
+        logger.info(
+            "Triggering HogFunction for alert notification",
+            alert_id=alert.id,
+            hog_function_id=hog_function.id,
+            hog_function_name=hog_function.name,
+            event_name=event_name,
+        )
+        try:
+            api_payload = {
+                "configuration": HogFunctionSerializer(hog_function).data,
+                "globals": invocation_globals,
+                "mock_async_functions": False,  # Ensure this is false for production
+            }
+
+            response = create_hog_invocation_test(
+                team_id=alert.team_id,
+                hog_function_id=str(hog_function.id),
+                payload=api_payload,
+            )
+            response.raise_for_status()
+
+        except Exception as e:
+            logger.error(
+                "Failed to trigger HogFunction invocation via API",
+                alert_id=alert.id,
+                hog_function_id=hog_function.id,
+                error=str(e),
+                exc_info=True,
+            )
+            capture_exception(e, tags={"alert_id": str(alert.id), "hog_function_id": str(hog_function.id)})
+
+
+def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str]) -> None:
+    # first send email if configured
+    email_targets = alert.subscribed_users.all().values_list("email", flat=True)
+    if email_targets:
+        subject = f"PostHog alert {alert.name} is firing"
+        campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
+        insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
+        alert_url = f"{insight_url}?alert_id={alert.id}"
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            subject=subject,
+            template_name="alert_check_firing",
+            template_context={
+                "match_descriptions": breaches,
+                "insight_url": insight_url,
+                "insight_name": alert.insight.name,
+                "alert_url": alert_url,
+                "alert_name": alert.name,
+            },
+        )
+
+        for target in email_targets:
+            message.add_recipient(email=target)
+
+        logger.info(f"Send notifications about {len(breaches)} anomalies", alert_id=alert.id)
+        message.send()
+
+    # Trigger Hog Function destinations
+    trigger_alert_hog_functions(alert=alert, event_name="$alert_fired", properties={"$alert_breaches": breaches})
 
 
 def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> None:
@@ -162,9 +225,14 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> Non
     #     },
     # )
     # targets = alert.subscribed_users.all().values_list("email", flat=True)
-    # if not targets:
-    #     raise RuntimeError(f"no targets configured for the alert {alert.id}")
     # for target in targets:
     #     message.add_recipient(email=target)
 
     # message.send()
+
+    # # Trigger Hog Function destinations
+    # trigger_alert_hog_functions(
+    #     alert=alert,
+    #     event_name="$alert_check_error",
+    #     properties={"$alert_error": str(error.get("message", "Unknown error"))},
+    # )

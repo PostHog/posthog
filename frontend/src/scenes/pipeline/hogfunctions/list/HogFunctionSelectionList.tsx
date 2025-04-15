@@ -9,11 +9,13 @@ import { hogFunctionListLogic, HogFunctionListLogicProps } from './hogFunctionLi
 export type HogFunctionSelectionListProps = HogFunctionListLogicProps & {
     selectedHogFunctionIds: string[]
     onSelectionChange: (selectedIds: string[]) => void
+    extraControls?: JSX.Element
 }
 
 export function HogFunctionSelectionList({
     selectedHogFunctionIds,
     onSelectionChange,
+    extraControls,
     ...props
 }: HogFunctionSelectionListProps): JSX.Element {
     const logic = hogFunctionListLogic(props)
@@ -51,6 +53,7 @@ export function HogFunctionSelectionList({
                 )}
                 <div className="flex-1" />
                 <span className="text-muted text-sm mr-2">{selectedHogFunctionIds.length} selected</span>
+                {extraControls}
             </div>
 
             <BindLogic logic={hogFunctionListLogic} props={props}>

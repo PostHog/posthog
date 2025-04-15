@@ -424,12 +424,3 @@ def add_alert_check(
     alert.save()
 
     return alert_check
-
-
-def trigger_alert_hog_functions(alert: AlertConfiguration, breaches: list[str]) -> None:
-    """Trigger all HogFunctions linked to the alert as notification targets."""
-    for _ in alert.notification_destinations.filter(enabled=True):
-        logger.info(
-            "Triggering HogFunction for alert breach",
-            alert_id=alert.id,
-        )

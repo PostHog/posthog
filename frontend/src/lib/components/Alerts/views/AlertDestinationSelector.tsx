@@ -44,12 +44,12 @@ export function AlertDestinationSelector({
                 type={type}
                 selectedHogFunctionIds={selectedDestinationIds}
                 onSelectionChange={setSelectedDestinationIds}
+                extraControls={
+                    <LemonButton type="secondary" size="small" onClick={() => setShowNewDestination(true)}>
+                        New destination
+                    </LemonButton>
+                }
             />
-            <div className="mt-2">
-                <LemonButton type="tertiary" size="small" onClick={() => setShowNewDestination(true)}>
-                    New destination
-                </LemonButton>
-            </div>
         </div>
     )
 }
