@@ -206,6 +206,10 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             expr.chain = [table_name, *expr.chain]
         elif isinstance(expr, ast.Call) and isinstance(expr.args[0], ast.Field):
             expr.args[0].chain = [table_name, *expr.args[0].chain]
+        elif (
+            isinstance(expr, ast.Alias) and isinstance(expr.expr, ast.Call) and isinstance(expr.expr.args[0], ast.Field)
+        ):
+            expr.expr.args[0].chain = [table_name, *expr.expr.args[0].chain]
         else:
             raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
 
