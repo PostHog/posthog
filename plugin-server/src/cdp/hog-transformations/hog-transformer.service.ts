@@ -190,7 +190,7 @@ export class HogTransformerService {
                     }
 
                     // Check if we should apply this transformation based on its filters
-                    if (this.hub.FILTER_TRANSFORMATIONS_ENABLED_TEAMS.includes(event.team_id)) {
+                    if (this.hub.FILTER_TRANSFORMATIONS_ENABLED) {
                         const globals = this.createInvocationGlobals(event)
                         const filterGlobals = convertToHogFunctionFilterGlobal(globals)
 

@@ -912,7 +912,7 @@ describe('HogTransformer', () => {
 
     describe('filter-based transformations', () => {
         beforeEach(() => {
-            hub.FILTER_TRANSFORMATIONS_ENABLED_TEAMS = [1, 2]
+            hub.FILTER_TRANSFORMATIONS_ENABLED = true
         })
 
         it('should skip transformation when filter does not match', async () => {
@@ -1135,7 +1135,7 @@ describe('HogTransformer', () => {
 
         it('should not check filters when FILTER_TRANSFORMATIONS_ENABLED is false', async () => {
             // Disable filter transformations
-            hub.FILTER_TRANSFORMATIONS_ENABLED_TEAMS = [1, 2]
+            hub.FILTER_TRANSFORMATIONS_ENABLED = false
 
             const filterTemplate = {
                 free: true,
@@ -1280,7 +1280,7 @@ describe('HogTransformer', () => {
     describe('HogWatcher integration', () => {
         beforeEach(() => {
             hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
-            hub.FILTER_TRANSFORMATIONS_ENABLED_TEAMS = [teamId]
+            hub.FILTER_TRANSFORMATIONS_ENABLED = true
         })
 
         it('should skip HogWatcher operations when sample rate is 0', async () => {
