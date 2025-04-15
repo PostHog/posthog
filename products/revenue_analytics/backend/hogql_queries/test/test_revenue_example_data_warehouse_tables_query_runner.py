@@ -1,17 +1,13 @@
-from freezegun import freeze_time
-from pathlib import Path
 from decimal import Decimal
+from pathlib import Path
 
-from products.revenue_analytics.backend.hogql_queries.revenue_example_data_warehouse_tables_query_runner import (
-    RevenueExampleDataWarehouseTablesQueryRunner,
-)
-from products.revenue_analytics.backend.models import STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER
+from freezegun import freeze_time
 
 from posthog.schema import (
-    RevenueExampleDataWarehouseTablesQuery,
-    RevenueTrackingConfig,
-    RevenueExampleDataWarehouseTablesQueryResponse,
     CurrencyCode,
+    RevenueExampleDataWarehouseTablesQuery,
+    RevenueExampleDataWarehouseTablesQueryResponse,
+    RevenueTrackingConfig,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -19,9 +15,11 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from posthog.warehouse.models import ExternalDataSchema
-
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
-
+from products.revenue_analytics.backend.hogql_queries.revenue_example_data_warehouse_tables_query_runner import (
+    RevenueExampleDataWarehouseTablesQueryRunner,
+)
+from products.revenue_analytics.backend.models import STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER
 
 STRIPE_CHARGE_COLUMNS = {
     "id": "String",
@@ -117,7 +115,6 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
     def test_database_query(self):
         response = self._run_revenue_example_external_tables_query()
         results = response.results
-        breakpoint()
 
         # Not all rows in the CSV have a status of "succeeded", let's filter them out here
         assert len(results) == len(self.csv_df[self.csv_df["status"] == "succeeded"])
