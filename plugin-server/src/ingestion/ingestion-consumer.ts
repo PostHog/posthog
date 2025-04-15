@@ -298,25 +298,23 @@ export class IngestionConsumer {
      * Fetches and caches hog function states for all teams in the batch
      */
     private async fetchAndCacheHogFunctionStates(parsedMessages: IncomingEventsByDistinctId): Promise<void> {
-        // Clear cached hog function states before fetching new ones
-        this.hogTransformer.clearHogFunctionStates()
-
-        // Extract all team IDs from the batch of events
-        const teamIds = new Set<number>()
-        Object.values(parsedMessages).forEach((eventsForDistinctId) => {
-            eventsForDistinctId.events.forEach(({ event }) => {
-                if (event.team_id) {
-                    teamIds.add(event.team_id)
-                }
-            })
-        })
-
-        if (teamIds.size === 0) {
-            return // No teams to process
-        }
-
         await this.runInstrumented('fetchAndCacheHogFunctionStates', async () => {
-            const teamIdsArray = Array.from(teamIds)
+            // Clear cached hog function states before fetching new ones
+            this.hogTransformer.clearHogFunctionStates()
+
+            const tokensToFetch = new Set<string>()
+            Object.values(parsedMessages).forEach((eventsForDistinctId) => tokensToFetch.add(eventsForDistinctId.token))
+
+            if (tokensToFetch.size === 0) {
+                return // No teams to process
+            }
+
+            const teams = await this.hub.teamManagerLazy.getTeamsByTokens(Array.from(tokensToFetch))
+
+            const teamIdsArray = Object.values(teams)
+                .map((x) => x?.id)
+                .filter(Boolean) as number[]
+
             // Get hog function IDs for transformations
             const teamHogFunctionIds = await this.hogTransformer['hogFunctionManager'].getHogFunctionIdsForTeams(
                 teamIdsArray,
