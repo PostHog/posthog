@@ -2,7 +2,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useState } from 'react'
 import { HogFunctionSelectionList } from 'scenes/pipeline/hogfunctions/list/HogFunctionSelectionList'
 import { HogFunctionTemplateList } from 'scenes/pipeline/hogfunctions/list/HogFunctionTemplateList'
-
 export interface AlertDestinationSelectorProps {
     selectedDestinationIds: string[]
     setSelectedDestinationIds: (ids: string[]) => void
@@ -46,6 +45,11 @@ export function AlertDestinationSelector({
                 selectedHogFunctionIds={selectedDestinationIds}
                 onSelectionChange={setSelectedDestinationIds}
             />
+            <div className="mt-2">
+                <LemonButton type="tertiary" size="small" onClick={() => setShowNewDestination(true)}>
+                    New destination
+                </LemonButton>
+            </div>
         </div>
     )
 }

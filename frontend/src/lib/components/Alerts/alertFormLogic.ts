@@ -32,6 +32,7 @@ export type AlertFormType = Pick<
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
     insight?: QueryBasedInsightModel['id']
+    notification_destinations?: string[]
 }
 
 export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): boolean {
@@ -104,6 +105,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     calculation_interval: AlertCalculationInterval.DAILY,
                     skip_weekend: false,
                     insight: props.insightId,
+                    notification_destinations: [],
                 } as AlertFormType),
             errors: ({ name }) => ({
                 name: !name ? 'You need to give your alert a name' : undefined,
@@ -123,6 +125,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         ...alert.config,
                         check_ongoing_interval: canCheckOngoingInterval(alert) && alert.config.check_ongoing_interval,
                     },
+                    notification_destinations: alert.notification_destinations ?? [],
                 }
 
                 // absolute value alert can only have absolute threshold

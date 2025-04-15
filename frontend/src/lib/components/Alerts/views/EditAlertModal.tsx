@@ -359,12 +359,9 @@ export function EditAlertModal({
                                 <div className="deprecated-space-y-5">
                                     <div className="flex flex-col">
                                         <AlertDestinationSelector
-                                            selectedDestinationIds={
-                                                // alertForm.notification_targets?.map((t) => t.id) ??
-                                                []
-                                            }
-                                            setSelectedDestinationIds={() => {
-                                                // setAlertFormValue('notification_targets', value)
+                                            selectedDestinationIds={alertForm.notification_destinations ?? []}
+                                            setSelectedDestinationIds={(value) => {
+                                                setAlertFormValue('notification_destinations', value)
                                             }}
                                         />
                                     </div>

@@ -15,6 +15,7 @@ from posthog.models.alert import (
 )
 from posthog.schema import AlertState
 from posthog.api.insight import InsightBasicSerializer
+from posthog.models.hog_functions.hog_function import HogFunction
 
 from posthog.utils import relative_date_parse
 from zoneinfo import ZoneInfo
@@ -91,7 +92,15 @@ class AlertSerializer(serializers.ModelSerializer):
         many=True,
         required=True,
         write_only=True,
-        allow_empty=False,
+        allow_empty=True,
+    )
+    notification_destinations = serializers.PrimaryKeyRelatedField(
+        queryset=HogFunction.objects.all(),
+        many=True,
+        required=False,
+        write_only=True,
+        allow_empty=True,
+        help_text="Hog function IDs to trigger when the alert fires.",
     )
     snoozed_until = RelativeDateTimeField(allow_null=True, required=False)
 
@@ -116,6 +125,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "calculation_interval",
             "snoozed_until",
             "skip_weekend",
+            "notification_destinations",
         ]
         read_only_fields = [
             "id",
@@ -130,6 +140,7 @@ class AlertSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         data["subscribed_users"] = UserBasicSerializer(instance.subscribed_users.all(), many=True, read_only=True).data
         data["insight"] = InsightBasicSerializer(instance.insight).data
+        data["notification_destinations"] = list(instance.notification_destinations.values_list("id", flat=True))
         return data
 
     def add_threshold(self, threshold_data, validated_data):
@@ -146,6 +157,7 @@ class AlertSerializer(serializers.ModelSerializer):
         validated_data["created_by"] = self.context["request"].user
         subscribed_users = validated_data.pop("subscribed_users")
         threshold_data = validated_data.pop("threshold", None)
+        notification_destinations_data = validated_data.pop("notification_destinations", [])
 
         if threshold_data:
             threshold_instance = self.add_threshold(threshold_data, validated_data)
@@ -157,6 +169,8 @@ class AlertSerializer(serializers.ModelSerializer):
             AlertSubscription.objects.create(
                 user=user, alert_configuration=instance, created_by=self.context["request"].user
             )
+
+        instance.notification_destinations.set(notification_destinations_data)
 
         return instance
 
@@ -204,6 +218,14 @@ class AlertSerializer(serializers.ModelSerializer):
                 threshold_instance = self.add_threshold(threshold_data, validated_data)
                 validated_data["threshold"] = threshold_instance
                 conditions_or_threshold_changed = True
+
+        notification_destinations_data = validated_data.pop("notification_destinations", None)
+        if notification_destinations_data is not None:
+            current_destination_ids = set(instance.notification_destinations.values_list("id", flat=True))
+            new_destination_ids = {target.id for target in notification_destinations_data}
+
+            if current_destination_ids != new_destination_ids:
+                instance.notification_destinations.set(notification_destinations_data)
 
         subscribed_users = validated_data.pop("subscribed_users", None)
         if subscribed_users is not None:
