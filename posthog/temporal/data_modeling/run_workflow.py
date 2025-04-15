@@ -388,12 +388,12 @@ async def materialize_model(
         table_columns[column_name] = column_schema
 
     hogql_query = saved_query.query["query"]
-
     destination = get_dlt_destination()
     pipeline = dlt.pipeline(
         pipeline_name=f"materialize_model_{model_label}",
         destination=destination,
         dataset_name=f"team_{team.pk}_model_{model_label}",
+        refresh="drop_sources",
     )
 
     try:
