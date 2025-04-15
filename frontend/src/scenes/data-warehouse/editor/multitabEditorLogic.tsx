@@ -138,7 +138,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         setLastRunQuery: (lastRunQuery: DataVisualizationNode | null) => ({ lastRunQuery }),
         setSuggestedQueryInput: (suggestedQueryInput: string) => ({ suggestedQueryInput }),
         _setSuggestedQueryInput: (suggestedQueryInput: string) => ({ suggestedQueryInput }),
-        onAcceptSuggestedQueryInput: true,
+        onAcceptSuggestedQueryInput: (shouldRunQuery?: boolean) => ({ shouldRunQuery }),
         onRejectSuggestedQueryInput: true,
         setResponse: (response: Record<string, any> | null) => ({ response, currentTab: values.activeModelUri }),
     })),
@@ -294,9 +294,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 actions.setQueryInput(suggestedQueryInput)
             }
         },
-        onAcceptSuggestedQueryInput: () => {
+        onAcceptSuggestedQueryInput: ({ shouldRunQuery }) => {
             actions.reportAIQueryAccepted()
             actions.setQueryInput(values.suggestedQueryInput)
+
+            if (shouldRunQuery) {
+                actions.runQuery(values.suggestedQueryInput)
+            }
 
             // Re-create the model to prevent it from being purged
             if (props.monaco && values.activeModelUri) {
