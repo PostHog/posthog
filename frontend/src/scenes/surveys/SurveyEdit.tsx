@@ -339,9 +339,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         title="Feedback button"
                                                         description="Set up a survey based on your own custom button or our prebuilt feedback tab"
                                                         value={SurveyType.Widget}
-                                                    >
-                                                        <></>
-                                                    </PresentationTypeCard>
+                                                    />
                                                 </div>
                                                 {survey.type === SurveyType.Widget && <SurveyWidgetCustomization />}
                                             </div>
