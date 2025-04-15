@@ -198,8 +198,9 @@ def get_table(context: HogQLContext, join_expr: ast.JoinExpr, ctes: Optional[dic
                         return resolve_fields_on_table(table, query)
 
         # Handle a base table
-        if context.database.has_table(table_name):
-            return context.database.get_table(table_name)
+        table_chain = [str(e) for e in join_expr.table.chain]
+        if context.database.has_table(table_chain):
+            return context.database.get_table_by_chain(table_chain)
     elif isinstance(join_expr.table, ast.SelectQuery):
         if join_expr.table.select_from is None:
             return None

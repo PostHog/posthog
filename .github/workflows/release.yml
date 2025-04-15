@@ -110,6 +110,7 @@ jobs:
         container: ${{ matrix.container && matrix.container.image || null }}
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
             BUILD_MANIFEST_NAME: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
         steps:
             - name: enable windows longpaths
@@ -172,6 +173,7 @@ jobs:
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
             BUILD_MANIFEST_NAME: target/distrib/global-dist-manifest.json
+            POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
         steps:
             - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
               with:

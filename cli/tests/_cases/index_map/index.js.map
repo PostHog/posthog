@@ -1,0 +1,26 @@
+{
+  "version" : 3,
+  "file": "app.js",
+  "sections": [
+    {
+      "offset": {"line": 0, "column": 0},
+      "map": {
+        "version" : 3,
+        "file": "section.js",
+        "sources": ["foo.js", "bar.js"],
+        "names": ["src", "maps", "are", "fun"],
+        "mappings": "AAAA,E;;ABCDE"
+      }
+    },
+    {
+      "offset": {"line": 100, "column": 10},
+      "map": {
+        "version" : 3,
+        "file": "another_section.js",
+        "sources": ["more.js"],
+        "names": ["more", "is", "better"],
+        "mappings": "AAAA,E;AACA,C;ABCDE"
+      }
+    }
+  ]
+}

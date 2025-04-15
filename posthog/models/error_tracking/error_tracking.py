@@ -108,6 +108,8 @@ class ErrorTrackingAssignmentRule(UUIDModel):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
     user_group = models.ForeignKey(UserGroup, null=True, on_delete=models.CASCADE)
+    # TODO: make rules orderable
+    order = models.IntegerField()
     created_at = models.DateTimeField(auto_now_add=True)
     bytecode = models.JSONField(null=False, blank=False)
     filters = models.JSONField(null=False, blank=False)

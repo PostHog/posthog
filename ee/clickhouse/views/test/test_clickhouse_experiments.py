@@ -2031,6 +2031,62 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["feature_flag"]["id"], feature_flag.id)
 
+    def test_create_multiple_experiments_with_same_feature_flag(self):
+        # Create a feature flag with proper structure for experiments
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Shared feature flag",
+            key="shared-feature-flag",
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+            created_by=self.user,
+        )
+
+        # Create first experiment with this feature flag
+        first_experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "First experiment",
+                "feature_flag_key": feature_flag.key,
+                "parameters": {},
+            },
+        )
+
+        self.assertEqual(first_experiment_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(first_experiment_response.json()["feature_flag"]["id"], feature_flag.id)
+
+        # Create second experiment with the same feature flag - this would have previously failed
+        second_experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Second experiment",
+                "feature_flag_key": feature_flag.key,
+                "parameters": {},
+            },
+        )
+
+        # Assert that the second experiment is created successfully
+        self.assertEqual(second_experiment_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second_experiment_response.json()["feature_flag"]["id"], feature_flag.id)
+
+        # Verify both experiments exist and point to the same feature flag
+        first_experiment_id = first_experiment_response.json()["id"]
+        second_experiment_id = second_experiment_response.json()["id"]
+
+        # Ensure both experiments exist in the database
+        first_experiment = Experiment.objects.get(id=first_experiment_id)
+        second_experiment = Experiment.objects.get(id=second_experiment_id)
+
+        # Verify both experiments use the same feature flag
+        self.assertEqual(first_experiment.feature_flag_id, feature_flag.id)
+        self.assertEqual(second_experiment.feature_flag_id, feature_flag.id)
+
     def test_feature_flag_and_experiment_sync(self):
         # Create an experiment with control and test variants
         response = self.client.post(

@@ -3,9 +3,10 @@ use std::path::Path;
 use tracing::info;
 use uuid;
 
-use crate::utils::sourcemaps::read_pairs;
+use crate::utils::{posthog::capture_command_invoked, sourcemaps::read_pairs};
 
 pub fn inject(directory: &Path) -> Result<()> {
+    let capture_handle = capture_command_invoked("sourcemap_inject", None::<&str>);
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(
             "Directory '{}' not found or inaccessible: {}",
@@ -28,5 +29,6 @@ pub fn inject(directory: &Path) -> Result<()> {
         pair.save()?;
     }
     info!("Finished processing directory");
+    let _ = capture_handle.join();
     Ok(())
 }

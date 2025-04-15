@@ -589,6 +589,15 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             if pa.types.is_binary(field.type):
                 drop_column_names.add(field_name)
 
+            # Ensure duration columns have the correct arrow type
+            col = columnar_table_data[field_name]
+            if (
+                isinstance(col, pa.Array)
+                and pa.types.is_duration(col.type)
+                and not pa.types.is_duration(arrow_schema.field(field_index).type)
+            ):
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(col.type))
+
         # Convert UUIDs to strings
         if issubclass(py_type, uuid.UUID):
             uuid_str_array = pa.array([None if s is None else str(s) for s in columnar_table_data[field_name].tolist()])

@@ -51,6 +51,9 @@ class ViewLinkSerializer(serializers.ModelSerializer):
         if field_name is None:
             raise serializers.ValidationError("Field name must not be empty.")
 
+        if "." in field_name:
+            raise serializers.ValidationError("Field name must not contain a period: '.'")
+
         database = create_hogql_database(team_id)
         table = database.get_table(table_name)
         field = table.fields.get(field_name)

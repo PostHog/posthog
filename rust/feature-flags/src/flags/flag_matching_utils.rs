@@ -65,13 +65,13 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     team_id: TeamId,
     group_type_indexes: &HashSet<GroupTypeIndex>,
     group_keys: &HashSet<String>,
-    cohort_ids: Option<Vec<CohortId>>,
+    static_cohort_ids: Vec<CohortId>,
 ) -> Result<(), FlagError> {
     let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &[]);
     let mut conn = reader.as_ref().get_connection().await?;
     conn_timer.fin();
 
-    // First query: Get person data
+    // First query: Get person data from the distinct_id (person_id and person_properties)
     let person_query = r#"
         SELECT DISTINCT ON (ppd.distinct_id)
             p.id as person_id,
@@ -96,12 +96,9 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
     if let Some(person_id) = person_id {
         flag_evaluation_state.set_person_id(person_id);
-
-        // If we have cohort IDs to check and a valid person_id, do the cohort query
-        if let Some(cohort_ids) = cohort_ids {
-            // Only run the query if we actually have cohort IDs to check
-            if !cohort_ids.is_empty() {
-                let cohort_query = r#"
+        // If we have static cohort IDs to check and a valid person_id, do the cohort query
+        if !static_cohort_ids.is_empty() {
+            let cohort_query = r#"
                     WITH cohort_membership AS (
                         SELECT c.cohort_id, 
                                CASE WHEN pc.cohort_id IS NOT NULL THEN true ELSE false END AS is_member
@@ -114,34 +111,38 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                     FROM cohort_membership
                 "#;
 
-                let cohort_timer = common_metrics::timing_guard(FLAG_COHORT_QUERY_TIME, &[]);
-                let cohort_rows = sqlx::query(cohort_query)
-                    .bind(&cohort_ids)
-                    .bind(person_id)
-                    .fetch_all(&mut *conn)
-                    .await?;
-                cohort_timer.fin();
+            let cohort_timer = common_metrics::timing_guard(FLAG_COHORT_QUERY_TIME, &[]);
+            let cohort_rows = sqlx::query(cohort_query)
+                .bind(&static_cohort_ids)
+                .bind(person_id)
+                .fetch_all(&mut *conn)
+                .await?;
+            cohort_timer.fin();
 
-                let cohort_processing_timer =
-                    common_metrics::timing_guard(FLAG_COHORT_PROCESSING_TIME, &[]);
-                let cohort_results: HashMap<CohortId, bool> = cohort_rows
-                    .into_iter()
-                    .map(|row| {
-                        let cohort_id: CohortId = row.get("cohort_id");
-                        let is_member: bool = row.get("is_member");
-                        (cohort_id, is_member)
-                    })
-                    .collect();
+            let cohort_processing_timer =
+                common_metrics::timing_guard(FLAG_COHORT_PROCESSING_TIME, &[]);
+            let cohort_results: HashMap<CohortId, bool> = cohort_rows
+                .into_iter()
+                .map(|row| {
+                    let cohort_id: CohortId = row.get("cohort_id");
+                    let is_member: bool = row.get("is_member");
+                    (cohort_id, is_member)
+                })
+                .collect();
 
-                flag_evaluation_state.set_static_cohort_matches(cohort_results);
-                cohort_processing_timer.fin();
-            } else {
-                // If we have no cohort IDs, just set an empty map
-                flag_evaluation_state.set_static_cohort_matches(HashMap::new());
-            }
+            flag_evaluation_state.set_static_cohort_matches(cohort_results);
+            cohort_processing_timer.fin();
+        } else {
+            // TRICKY: if there are no static cohorts to check, we want to return an empty map to show that
+            // we checked the cohorts and found no matches. I want to differentiate from returning None, which
+            // would indicate that that we had an error doing this evaluation in the first place.
+            // i.e.: if there are no static cohort ID matches, it means we checked, and if there's None, it means something
+            // went wrong.  This is handled in the caller.
+            flag_evaluation_state.set_static_cohort_matches(HashMap::new());
         }
     }
 
+    // if we have person properties, set them
     if let Some(person_props) = person_props {
         flag_evaluation_state.set_person_properties(
             person_props

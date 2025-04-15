@@ -8,7 +8,13 @@ from parameterized import parameterized
 
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.database.database import create_hogql_database, serialize_database
-from posthog.hogql.database.models import FieldTraverser, LazyJoin, StringDatabaseField, ExpressionField, Table
+from posthog.hogql.database.models import (
+    FieldTraverser,
+    LazyJoin,
+    StringDatabaseField,
+    ExpressionField,
+    Table,
+)
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
@@ -770,6 +776,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         db = create_hogql_database(team=self.team, modifiers=modifiers)
+
+        stripe_table = db.get_table("stripe.table")
+        assert isinstance(stripe_table, Table)
 
         # Ensure the correct table was retrieved by checking the original table name in dot notation mapping
         context = HogQLContext(

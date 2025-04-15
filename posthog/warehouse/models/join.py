@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, cast
 from warnings import warn
 from datetime import datetime
 from django.db import models
@@ -43,6 +43,10 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     field_name = models.CharField(max_length=400)
     configuration = models.JSONField(default=dict, null=True)
 
+    @property
+    def joining_table_name_chain(self) -> list[str | int]:
+        return cast(list[str | int], self.joining_table_name.split("."))
+
     def soft_delete(self):
         self.deleted = True
         self.deleted_at = datetime.now()
@@ -73,7 +77,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                         ast.Alias(alias=alias, expr=ast.Field(chain=chain))
                         for alias, chain in join_to_add.fields_accessed.items()
                     ],
-                    select_from=ast.JoinExpr(table=ast.Field(chain=[self.joining_table_name])),
+                    select_from=ast.JoinExpr(table=ast.Field(chain=self.joining_table_name_chain)),
                 ),
                 join_type="LEFT JOIN",
                 alias=join_to_add.to_table,

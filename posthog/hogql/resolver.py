@@ -70,16 +70,17 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
 
 
 def resolve_types_from_table(
-    expr: ast.Expr, table_name: str, context: HogQLContext, dialect: Literal["hogql", "clickhouse"]
+    expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: Literal["hogql", "clickhouse"]
 ) -> ast.Expr:
     if context.database is None:
         raise QueryError("Database needs to be defined")
 
-    if not context.database.has_table(table_name):
-        raise QueryError(f'Table "{table_name}" does not exist')
+    if not context.database.has_table(table_chain):
+        raise QueryError(f'Table "{".".join(table_chain)}" does not exist')
 
     select_node = ast.SelectQuery(
-        select=[ast.Field(chain=["*"])], select_from=ast.JoinExpr(table=ast.Field(chain=[table_name]))
+        select=[ast.Field(chain=["*"])],
+        select_from=ast.JoinExpr(table=ast.Field(chain=cast(list[str | int], table_chain))),
     )
     select_node_with_types = cast(ast.SelectQuery, resolve_types(select_node, context, dialect))
     assert select_node_with_types.type is not None
@@ -316,13 +317,12 @@ class Resolver(CloningVisitor):
 
         if isinstance(node.table, ast.Field):
             table_name_chain = [str(n) for n in node.table.chain]
-            table_name_dot_notation = ".".join(table_name_chain)
             table_name_alias = "__".join(table_name_chain)
             table_alias: str = node.alias or table_name_alias
             if table_alias in scope.tables:
                 raise QueryError(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
 
-            database_table = self.database.get_table(table_name_dot_notation)
+            database_table = self.database.get_table_by_chain(table_name_chain)
 
             if isinstance(database_table, SavedQuery):
                 self.current_view_depth += 1

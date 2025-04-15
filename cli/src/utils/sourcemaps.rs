@@ -99,8 +99,18 @@ impl SourcePair {
         let new_sourcemap = {
             // Update the sourcemap with the new mappings
             let mut original_sourcemap =
-                SourceMap::from_slice(self.sourcemap.content.as_bytes())
-                    .map_err(|err| anyhow!("Failed to parse sourcemap: {}", err))?;
+                match sourcemap::decode_slice(self.sourcemap.content.as_bytes())
+                    .map_err(|err| anyhow!("Failed to parse sourcemap: {}", err))?
+                {
+                    sourcemap::DecodedMap::Regular(map) => map,
+                    sourcemap::DecodedMap::Index(index_map) => index_map
+                        .flatten()
+                        .map_err(|err| anyhow!("Failed to parse sourcemap: {}", err))?,
+                    sourcemap::DecodedMap::Hermes(_) => {
+                        anyhow::bail!("Hermes source maps are not supported")
+                    }
+                };
+
             original_sourcemap.adjust_mappings(&source_adjustment);
 
             let mut new_sourcemap_bytes = Vec::new();

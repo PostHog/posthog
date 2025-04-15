@@ -161,6 +161,33 @@ class Table(FieldOrTable):
         return asterisk
 
 
+class TableGroup(FieldOrTable):
+    tables: dict[str, "Table | TableGroup"] = field(default_factory=dict)
+
+    def has_table(self, name: str) -> bool:
+        return name in self.tables
+
+    def get_table(self, name: str) -> "Table | TableGroup":
+        return self.tables[name]
+
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
+        raise NotImplementedError("TableGroup.to_printed_clickhouse not overridden")
+
+    def to_printed_hogql(self) -> str:
+        raise NotImplementedError("TableGroup.to_printed_hogql not overridden")
+
+    def resolve_all_table_names(self) -> list[str]:
+        names: list[str] = []
+        for name, table in self.tables.items():
+            if isinstance(table, Table):
+                names.append(name)
+            elif isinstance(table, TableGroup):
+                child_names = table.resolve_all_table_names()
+                names.extend([f"{name}.{x}" for x in child_names])
+
+        return names
+
+
 class LazyJoin(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
