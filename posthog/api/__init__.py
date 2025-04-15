@@ -45,7 +45,8 @@ from . import (
     instance_settings,
     instance_status,
     integration,
-    messaging,
+    messages,
+    message_templates,
     notebook,
     organization,
     organization_domain,
@@ -647,8 +648,15 @@ register_grandfathered_environment_nested_viewset(
 )
 
 environments_router.register(
-    r"messaging",
-    messaging.MessagingViewSet,
+    r"messaging/messages",
+    messages.MessageViewSet,
     "project_messaging",
+    ["project_id"],
+)
+
+environments_router.register(
+    r"messaging/templates",
+    message_templates.MessageTemplateViewSet,
+    "project_messaging_templates",
     ["project_id"],
 )

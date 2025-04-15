@@ -23,6 +23,7 @@ export interface EmailTemplaterLogicProps {
     formFieldsPrefix?: string
     globals?: Record<string, any>
     emailMetaFields?: ('from' | 'to' | 'subject')[]
+    allowEmailTemplates?: boolean
 }
 
 export const emailTemplaterLogic = kea<emailTemplaterLogicType>([

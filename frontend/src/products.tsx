@@ -43,8 +43,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LLMObservabilityUsers: () => import('../../products/llm_observability/frontend/LLMObservabilityUsers'),
     MessagingCampaigns: () => import('../../products/messaging/frontend/Campaigns'),
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
-    MessagingLibrary: () => import('../../products/messaging/frontend/Library'),
-    MessagingLibraryTemplate: () => import('../../products/messaging/frontend/LibraryTemplate'),
+    MessagingLibrary: () => import('../../products/messaging/frontend/library/Library'),
+    MessagingLibraryTemplate: () => import('../../products/messaging/frontend/library/LibraryTemplate'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
 }
 
@@ -182,7 +182,8 @@ export const productUrls = {
     messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
     messagingLibrary: (): string => '/messaging/library',
     messagingLibraryTemplate: (id?: string): string => `/messaging/library/templates/${id}`,
-    messagingLibraryTemplateFromMessage: (id?: string): string => `/messaging/library/templates/new?messageId=${id}`,
+    messagingLibraryTemplateFromMessage: (configuration?: object): string =>
+        `/messaging/library/templates/new?#configuration=${encodeURIComponent(JSON.stringify(configuration))}`,
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,

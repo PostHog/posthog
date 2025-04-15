@@ -18,12 +18,12 @@ export const manifest: ProductManifest = {
             projectBased: true,
         },
         MessagingLibrary: {
-            import: () => import('./frontend/Library'),
+            import: () => import('./frontend/library/Library'),
             name: 'Messaging',
             projectBased: true,
         },
         MessagingLibraryTemplate: {
-            import: () => import('./frontend/LibraryTemplate'),
+            import: () => import('./frontend/library/LibraryTemplate'),
             name: 'Messaging',
             projectBased: true,
         },
@@ -51,8 +51,8 @@ export const manifest: ProductManifest = {
         messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
         messagingLibrary: (): string => '/messaging/library',
         messagingLibraryTemplate: (id?: string): string => `/messaging/library/templates/${id}`,
-        messagingLibraryTemplateFromMessage: (id?: string): string =>
-            `/messaging/library/templates/new?messageId=${id}`,
+        messagingLibraryTemplateFromMessage: (configuration?: object): string =>
+            `/messaging/library/templates/new?#configuration=${encodeURIComponent(JSON.stringify(configuration))}`,
     },
     fileSystemTypes: {
         'hog_function/broadcast': {

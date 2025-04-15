@@ -286,6 +286,7 @@ export type HogFunctionTypeType =
     | 'activity'
     | 'alert'
     | 'broadcast'
+    | 'messaging_template'
 
 export type HogFunctionKind = 'messaging_campaign' | null
 
