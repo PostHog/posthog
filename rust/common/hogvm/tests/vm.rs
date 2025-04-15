@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::Path};
+use std::collections::HashMap;
 
 use hogvm::{stl::NativeFunction, values::HogLiteral, vm::sync_execute};
 use serde_json::Value;
@@ -51,7 +51,6 @@ fn load_test_programs() -> Vec<(String, String)> {
         .expect("Could read test programs")
     {
         let file = file.unwrap();
-        println!("{:?}", file.path());
         if !file.file_name().to_str().unwrap().ends_with(".hoge") {
             continue;
         }
@@ -69,8 +68,9 @@ pub fn test_vm() {
         let (name, code) = program;
         println!("Running: {}", name);
         let parsed: Vec<Value> = serde_json::from_str(&code).unwrap();
-        let res = sync_execute(&parsed, 10000, to_extension(stl_test_extensions()), true);
+        let res = sync_execute(&parsed, 10000, to_extension(stl_test_extensions()), false);
         println!("{:?}", res);
         assert!(res.is_ok());
+        assert!(matches!(res, Ok(HogLiteral::Boolean(true))))
     }
 }

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display, str::FromStr};
+use std::{cmp::Ordering, collections::HashMap, fmt::Display, str::FromStr};
 
 use crate::{
     error::VmError,
@@ -84,7 +84,7 @@ impl HogValue {
     pub fn deref<'a, 'b: 'a>(&'a self, heap: &'b VmHeap) -> Result<&HogLiteral, VmError> {
         match self {
             HogValue::Lit(lit) => Ok(lit),
-            HogValue::Ref(ptr) => heap.deref(*ptr),
+            HogValue::Ref(ptr) => heap.get(*ptr),
         }
     }
 
@@ -99,7 +99,7 @@ impl HogValue {
 
         let lit = match self {
             HogValue::Lit(lit) => lit,
-            HogValue::Ref(ptr) => heap.deref(*ptr)?,
+            HogValue::Ref(ptr) => heap.get(*ptr)?,
         };
 
         match lit {
@@ -242,12 +242,13 @@ impl HogLiteral {
     }
 
     fn equals(&self, rhs: &HogLiteral) -> Result<HogLiteral, VmError> {
-        let (lhs, rhs) = self.coerce_types(rhs)?;
+        let Ok((lhs, rhs)) = self.coerce_types(rhs) else {
+            return Ok(false.into()); // If we can't coerce types, they are not equal
+        };
         Ok((lhs == rhs).into())
     }
 
     pub fn set_property(&mut self, key: HogLiteral, val: HogValue) -> Result<(), VmError> {
-        println!("Setting property {:?} to {:?} on {:?}", key, val, self);
         match self {
             HogLiteral::Array(vals) => {
                 let index: Num = key.try_into()?;
@@ -483,6 +484,15 @@ impl Num {
         match self {
             Num::Float(value) => *value as i64,
             Num::Integer(value) => *value,
+        }
+    }
+
+    pub fn cmp(&self, other: &Num) -> Ordering {
+        match (self, other) {
+            (Num::Float(a), Num::Float(b)) => a.total_cmp(b),
+            (Num::Integer(a), Num::Integer(b)) => a.cmp(b),
+            (Num::Float(a), Num::Integer(b)) => a.total_cmp(&(*b as f64)),
+            (Num::Integer(a), Num::Float(b)) => (&(*a as f64)).partial_cmp(b).unwrap(),
         }
     }
 

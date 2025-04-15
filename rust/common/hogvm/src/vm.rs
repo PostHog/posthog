@@ -135,6 +135,20 @@ impl<'a> VmState<'a> {
             .ok_or(VmError::CaptureOutOfBounds(index))
     }
 
+    // Changes the location on the heap a capture points to, as distinct from changing the
+    // value on the heap the capture points to. Think of this like storing a new pointer into
+    // a variable name, vs. writing a new value into the variable itself
+    fn set_capture(&mut self, index: usize, value: HeapReference) -> Result<(), VmError> {
+        let Some(frame) = self.stack_frames.last_mut() else {
+            return Err(VmError::NoFrame);
+        };
+        frame
+            .captures
+            .get_mut(index)
+            .ok_or(VmError::CaptureOutOfBounds(index))
+            .map(|capture| *capture = value)
+    }
+
     fn next<T>(&mut self) -> Result<T, VmError>
     where
         T: DeserializeOwned + Any,
@@ -177,7 +191,7 @@ impl<'a> VmState<'a> {
         let item = self.clone_stack_item(idx)?;
         match item {
             HogValue::Lit(lit) => {
-                let ptr = self.heap.emplace(HogValue::Lit(lit))?;
+                let ptr = self.heap.emplace(lit)?;
                 self.set_stack_val(idx, ptr)?;
                 Ok(ptr)
             }
@@ -298,9 +312,9 @@ impl<'a> VmState<'a> {
                 for _ in 0..arg_count {
                     args.push(self.pop_stack()?);
                 }
-                if self.version == 0 {
+                if self.version != 0 {
                     // In v0, the arguments were expected to be passed in
-                    // stack push order, not pop order. We simulate that here
+                    // stack pop order, not push order. We simulate that here
                     // but always popping, but then maybe reversing
                     args.reverse();
                 }
@@ -468,9 +482,10 @@ impl<'a> VmState<'a> {
                     return Ok(StepOutcome::Finished(result.deref(&self.heap)?.clone()));
                 };
 
-                if self.stack_frames.is_empty() {
-                    return Ok(StepOutcome::Finished(result.deref(&self.heap)?.clone()));
-                };
+                // NOTE - this diverges from the TS impl
+                // if self.stack_frames.is_empty() {
+                //     return Ok(StepOutcome::Finished(result.deref(&self.heap)?.clone()));
+                // };
 
                 self.truncate_stack(frame.stack_start)?;
                 self.ip = frame.ret_ptr;
@@ -522,7 +537,7 @@ impl<'a> VmState<'a> {
                 // behaviour, but that means we have to either always heap-allocate our indexable values, or hoist in GetProperty. I've decided
                 // to pay the cost of heap-allocating them up-front (and therefore chasing an extra pointer), because I think it more closely
                 // mirrors the semantics of e.g. JavaScript or Python, which is what hog is based around.
-                let ptr = self.heap.emplace(HogValue::Lit(obj))?;
+                let ptr = self.heap.emplace(obj)?;
                 self.push_stack(ptr)?;
             }
             Operation::Array => {
@@ -535,7 +550,7 @@ impl<'a> VmState<'a> {
                 elements.reverse();
                 let array = HogLiteral::Array(elements);
                 // See above
-                let ptr = self.heap.emplace(HogValue::Lit(array))?;
+                let ptr = self.heap.emplace(array)?;
                 self.push_stack(ptr)?;
             }
             Operation::Tuple => {
@@ -550,7 +565,7 @@ impl<'a> VmState<'a> {
                 elements.reverse();
                 let tuple = HogLiteral::Array(elements);
                 // See above
-                let ptr = self.heap.emplace(HogValue::Lit(tuple))?;
+                let ptr = self.heap.emplace(tuple)?;
                 self.push_stack(ptr)?;
             }
             Operation::GetProperty => {
@@ -588,7 +603,7 @@ impl<'a> VmState<'a> {
                 // from the head, so we can modify it
                 let mut target = self.pop_stack()?;
                 let target = match &mut target {
-                    HogValue::Ref(ptr) => self.heap.deref_mut(*ptr)?,
+                    HogValue::Ref(ptr) => self.heap.get_mut(*ptr)?,
                     HogValue::Lit(_) => {
                         // TODO - this is a divergence from the original implementation - basically, if the target you've specified isn't on the heap,
                         // we'll drop it immediately after setting the property, which is a no-op. This should never happen - we should be using GET_LOCAL
@@ -729,7 +744,13 @@ impl<'a> VmState<'a> {
             Operation::SetUpvalue => {
                 let index: usize = self.next()?;
                 let ptr = self.get_capture(index)?;
-                *self.heap.get_mut(ptr)? = self.pop_stack()?;
+                // If the top of the stack was a reference, we write that reference to the capture,
+                // but if it was a literal, we write the literal to the heap location the capture points
+                // to.
+                match self.pop_stack()? {
+                    HogValue::Lit(hog_literal) => *self.heap.get_mut(ptr)? = hog_literal,
+                    HogValue::Ref(heap_reference) => self.set_capture(index, heap_reference)?,
+                }
             }
             Operation::CloseUpvalue => {
                 // The TS impl just pops here - I don't really understand why

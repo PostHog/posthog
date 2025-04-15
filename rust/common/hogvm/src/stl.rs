@@ -1,7 +1,7 @@
 use crate::{
     error::VmError,
     memory::VmHeap,
-    values::{HogLiteral, HogValue},
+    values::{HogLiteral, HogValue, Num},
     vm::VmState,
 };
 
@@ -56,6 +56,172 @@ pub const fn stl() -> &'static [(&'static str, NativeFunction)] {
                 _ => Err(VmError::NativeCallFailed(
                     "length() only supports arrays, objects and strings".to_string(),
                 )),
+            }
+        }),
+        ("arrayPushBack", |vm, args| {
+            // notably, due to all native functions being pure, we don't mutate these arrays in place
+            assert_argc(&args, 2, "arrayPushBack")?;
+            let array = args[0].deref(&vm.heap)?;
+            let value = args[1].clone();
+            match array {
+                HogLiteral::Array(arr) => {
+                    let mut arr = arr.clone();
+                    arr.push(value);
+                    Ok(HogLiteral::Array(arr).into())
+                }
+                _ => Err(VmError::NativeCallFailed(
+                    "arrayPushBack() only supports arrays".to_string(),
+                )),
+            }
+        }),
+        ("arrayPushFront", |vm, args| {
+            assert_argc(&args, 2, "arrayPushFront")?;
+            let array = args[0].deref(&vm.heap)?;
+            let value = args[1].clone();
+            match array {
+                HogLiteral::Array(arr) => {
+                    let mut arr = arr.clone();
+                    arr.insert(0, value);
+                    Ok(HogLiteral::Array(arr).into())
+                }
+                _ => Err(VmError::NativeCallFailed(
+                    "arrayPushFront() only supports arrays".to_string(),
+                )),
+            }
+        }),
+        ("arrayPopBack", |vm, args| {
+            assert_argc(&args, 1, "arrayPopBack")?;
+            let array = args[0].deref(&vm.heap)?;
+            match array {
+                HogLiteral::Array(arr) => {
+                    let mut arr = arr.clone();
+                    arr.pop();
+                    Ok(HogLiteral::Array(arr).into())
+                }
+                _ => Err(VmError::NativeCallFailed(
+                    "arrayPopBack() only supports arrays".to_string(),
+                )),
+            }
+        }),
+        ("arrayPopFront", |vm, args| {
+            assert_argc(&args, 1, "arrayPopFront")?;
+            let array = args[0].deref(&vm.heap)?;
+            match array {
+                HogLiteral::Array(arr) => {
+                    let mut arr = arr.clone();
+                    // TODO - lol, lmao. This is silly, google the right function to actually use
+                    arr.reverse();
+                    arr.pop();
+                    arr.reverse();
+                    Ok(HogLiteral::Array(arr).into())
+                }
+                _ => Err(VmError::NativeCallFailed(
+                    "arrayPopFront() only supports arrays".to_string(),
+                )),
+            }
+        }),
+        ("arraySort", |vm, args| {
+            assert_argc(&args, 1, "arraySort")?;
+            let array = args[0].deref(&vm.heap)?;
+            match array {
+                HogLiteral::Array(arr) => {
+                    let (vals, errs): (Vec<_>, Vec<_>) = arr
+                        .iter()
+                        .map(|v| v.deref(&vm.heap).and_then(|v| v.try_as::<Num>()).cloned())
+                        .partition(Result::is_ok);
+                    if errs.is_empty() {
+                        let mut vals = vals.into_iter().map(|v| v.unwrap()).collect::<Vec<_>>();
+                        vals.sort_unstable_by(|a, b| a.cmp(b));
+                        Ok(HogLiteral::Array(vals.into_iter().map(|v| v.into()).collect()).into())
+                    } else {
+                        Err(VmError::NativeCallFailed(
+                            "arraySort() only supports arrays of numbers".to_string(),
+                        ))
+                    }
+                }
+                _ => Err(VmError::NativeCallFailed(
+                    "arraySort() only supports arrays".to_string(),
+                )),
+            }
+        }),
+        ("arrayReverse", |vm, args| {
+            assert_argc(&args, 1, "arrayReverse")?;
+            let array = args[0].deref(&vm.heap)?;
+            match array {
+                HogLiteral::Array(arr) => {
+                    let mut arr = arr.clone();
+                    arr.reverse();
+                    Ok(HogLiteral::Array(arr).into())
+                }
+                _ => Err(VmError::NativeCallFailed(
+                    "arrayReverse() only supports arrays".to_string(),
+                )),
+            }
+        }),
+        ("arrayReverseSort", |vm, args| {
+            assert_argc(&args, 1, "arrayReverseSort")?;
+            let array = args[0].deref(&vm.heap)?;
+            match array {
+                HogLiteral::Array(arr) => {
+                    let (vals, errs): (Vec<_>, Vec<_>) = arr
+                        .iter()
+                        .map(|v| v.deref(&vm.heap).and_then(|v| v.try_as::<Num>()).cloned())
+                        .partition(Result::is_ok);
+                    if errs.is_empty() {
+                        let mut vals = vals.into_iter().map(|v| v.unwrap()).collect::<Vec<_>>();
+                        vals.sort_unstable_by(|a, b| a.cmp(b));
+                        vals.reverse();
+                        Ok(HogLiteral::Array(vals.into_iter().map(|v| v.into()).collect()).into())
+                    } else {
+                        Err(VmError::NativeCallFailed(
+                            "arrayReverseSort() only supports arrays of numbers".to_string(),
+                        ))
+                    }
+                }
+                _ => Err(VmError::NativeCallFailed(
+                    "arrayReverseSort() only supports arrays".to_string(),
+                )),
+            }
+        }),
+        ("arrayStringConcat", |vm, args| {
+            assert_argc(&args, 2, "arrayStringConcat")?;
+            let vals = args[0].deref(&vm.heap)?;
+            let sep = args[1].deref(&vm.heap)?.try_as::<str>()?;
+            let HogLiteral::Array(vals) = vals else {
+                return Err(VmError::NativeCallFailed(
+                    "arrayStringConcat() only supports arrays".to_string(),
+                ));
+            };
+            let mut parts = Vec::with_capacity(vals.len());
+            for val in vals.iter() {
+                parts.push(to_string(&vm.heap, val, 0)?);
+            }
+            Ok(HogLiteral::String(parts.join(sep)).into())
+        }),
+        ("has", |vm, args| {
+            assert_argc(&args, 2, "has")?;
+            let haystack = &args[0];
+            let needle = &args[1];
+            haystack.contains(needle, &vm.heap).map(|res| res.into())
+        }),
+        ("indexOf", |vm, args| {
+            assert_argc(&args, 2, "indexOf")?;
+            let haystack = &args[0].deref(&vm.heap)?;
+            let needle = &args[1];
+            match haystack {
+                HogLiteral::Array(vals) => {
+                    for (i, val) in vals.iter().enumerate() {
+                        if *needle.equals(val, &vm.heap)?.try_as()? {
+                            return Ok((i as i64).saturating_add(1).into());
+                        }
+                    }
+                    Ok(HogLiteral::Null.into())
+                }
+                _ => {
+                    return Err(VmError::NativeCallFailed(
+                        "indexOf() only supports arrays".to_string(),
+                    ))
+                }
             }
         }),
     ]

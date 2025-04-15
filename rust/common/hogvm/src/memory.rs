@@ -1,14 +1,9 @@
-use std::collections::HashSet;
-
-use crate::{
-    error::VmError,
-    values::{HogLiteral, HogValue},
-};
+use crate::{error::VmError, values::HogLiteral};
 
 #[derive(Debug, Clone)]
 pub struct HeapValue {
     epoch: usize,
-    value: HogValue, // TODO - this should probably be HogLiteral, rather than HogValue
+    value: HogLiteral,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -24,7 +19,7 @@ pub struct VmHeap {
 }
 
 impl VmHeap {
-    pub fn emplace(&mut self, value: HogValue) -> Result<HeapReference, VmError> {
+    pub fn emplace(&mut self, value: HogLiteral) -> Result<HeapReference, VmError> {
         let (next_idx, next_epoch) = match self.freed.pop() {
             Some(ptr) => (ptr.idx, ptr.epoch + 1),
             None => (self.inner.len(), 0),
@@ -61,14 +56,14 @@ impl VmHeap {
 
         // All existing references to this value are now invalid, and any use of them will result in a UseAfterFree error.
         to_free.epoch += 1;
-        to_free.value = HogValue::Lit(HogLiteral::Null);
+        to_free.value = HogLiteral::Null;
 
         // This slot's now available for reuse.
         self.freed.push(ptr);
         Ok(())
     }
 
-    pub fn get(&self, ptr: HeapReference) -> Result<&HogValue, VmError> {
+    pub fn get(&self, ptr: HeapReference) -> Result<&HogLiteral, VmError> {
         if self.inner.len() < ptr.idx {
             return Err(VmError::HeapIndexOutOfBounds);
         }
@@ -82,7 +77,7 @@ impl VmHeap {
         Ok(&to_load.value)
     }
 
-    pub fn get_mut(&mut self, ptr: HeapReference) -> Result<&mut HogValue, VmError> {
+    pub fn get_mut(&mut self, ptr: HeapReference) -> Result<&mut HogLiteral, VmError> {
         if self.inner.len() < ptr.idx {
             return Err(VmError::HeapIndexOutOfBounds);
         }
@@ -96,11 +91,11 @@ impl VmHeap {
         Ok(&mut to_load.value)
     }
 
-    pub fn clone(&self, ptr: HeapReference) -> Result<HogValue, VmError> {
+    pub fn clone(&self, ptr: HeapReference) -> Result<HogLiteral, VmError> {
         self.get(ptr).cloned()
     }
 
-    pub fn replace(&mut self, ptr: HeapReference, value: HogValue) -> Result<(), VmError> {
+    pub fn replace(&mut self, ptr: HeapReference, value: HogLiteral) -> Result<(), VmError> {
         if self.inner.len() < ptr.idx {
             return Err(VmError::HeapIndexOutOfBounds);
         }
@@ -113,54 +108,5 @@ impl VmHeap {
 
         to_store.value = value;
         Ok(())
-    }
-
-    // Pointer chasing until it's got a literal.
-    pub fn deref(&self, ptr: HeapReference) -> Result<&HogLiteral, VmError> {
-        let mut seen = HashSet::new();
-        self.deref_inner(ptr, &mut seen)
-    }
-
-    fn deref_inner(
-        &self,
-        ptr: HeapReference,
-        seen: &mut HashSet<HeapReference>,
-    ) -> Result<&HogLiteral, VmError> {
-        if seen.contains(&ptr) {
-            return Err(VmError::CycleDetected);
-        }
-        seen.insert(ptr);
-
-        match self.get(ptr)? {
-            HogValue::Ref(ptr) => self.deref_inner(*ptr, seen),
-            HogValue::Lit(lit) => Ok(lit),
-        }
-    }
-
-    pub fn deref_mut(&mut self, ptr: HeapReference) -> Result<&mut HogLiteral, VmError> {
-        let mut seen = HashSet::new();
-        self.deref_mut_inner(ptr, &mut seen)
-    }
-
-    fn deref_mut_inner<'a>(
-        &'a mut self,
-        ptr: HeapReference,
-        seen: &mut HashSet<HeapReference>,
-    ) -> Result<&'a mut HogLiteral, VmError> {
-        if seen.contains(&ptr) {
-            return Err(VmError::CycleDetected);
-        }
-        seen.insert(ptr);
-
-        let res = self.get(ptr)?;
-
-        // TODO - remove when polonius lands, and do the obvious thing instead
-        match res {
-            HogValue::Ref(ptr) => self.deref_mut_inner(*ptr, seen),
-            HogValue::Lit(_) => match self.get_mut(ptr).expect("just worked") {
-                HogValue::Lit(lit) => Ok(lit),
-                _ => unreachable!(),
-            },
-        }
     }
 }
