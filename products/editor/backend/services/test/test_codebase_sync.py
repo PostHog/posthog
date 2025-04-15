@@ -1,6 +1,6 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from products.editor.backend.models.codebase import Codebase
-from products.editor.backend.test import EditorTestQueryHelpersMixin
+from products.editor.backend.test.base import EditorTestQueryHelpersMixin
 
 from ..codebase_sync import ArtifactNode, CodebaseSyncService, SerializedArtifact
 

@@ -2,7 +2,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.schema import CodebaseTreeQuery, CodebaseTreeResponseItem
 from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from products.editor.backend.models.codebase import Codebase
-from products.editor.backend.test import CatalogEntry, EditorTestQueryHelpersMixin
+from products.editor.backend.test.base import CatalogEntry, EditorTestQueryHelpersMixin
 
 from ..codebase_tree import CodebaseTreeQueryRunner
 

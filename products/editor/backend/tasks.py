@@ -14,12 +14,14 @@ logger = get_logger(__name__)
 EmbeddingResult = list[tuple[Chunk, list[float]]]
 
 
-def chunk_and_embed(file_content: str, language: ProgrammingLanguage | None = None) -> EmbeddingResult:
-    chunk = chunk_text(file_content, language=language)
+def chunk_and_embed(
+    file_content: str, language: ProgrammingLanguage | None = None, batch_size: int = 2048
+) -> EmbeddingResult:
+    chunks = chunk_text(file_content, language=language)
     client = OpenAI()
     embeddings: list[tuple[Chunk, list[float]]] = []
-    for batch_size in range(0, len(chunk), 2048):
-        chunk_slice = chunk[batch_size : batch_size + 2048]
+    for batch_start in range(0, len(chunks), batch_size):
+        chunk_slice = chunks[batch_start : batch_start + batch_size]
         response = client.embeddings.create(
             input=[chunk.text for chunk in chunk_slice],
             model="text-embedding-3-small",
@@ -55,8 +57,8 @@ def insert_embeddings(
                 f"properties_{idx}": json.dumps(
                     {
                         "path": file_path,
-                        "startLine": chunk.line_start,
-                        "endLine": chunk.line_end,
+                        "line_start": chunk.line_start,
+                        "line_end": chunk.line_end,
                     }
                 ),
             }

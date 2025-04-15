@@ -3,7 +3,7 @@ from datetime import datetime
 from posthog.schema import SyncedArtifactsQuery, SyncedArtifactsResponseItem
 from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from products.editor.backend.models.codebase import Codebase
-from products.editor.backend.test import EditorTestQueryHelpersMixin
+from products.editor.backend.test.base import EditorTestQueryHelpersMixin
 
 from ..synced_artifacts import SyncedArtifactsQueryRunner
 
