@@ -26,6 +26,10 @@ STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER = "Charge"
 STRIPE_DATA_WAREHOUSE_CUSTOMER_IDENTIFIER = "Customer"
 STRIPE_CHARGE_SUCCEEDED_STATUS = "succeeded"
 
+# Keep in sync with `revenueAnalyticsLogic.ts`
+CHARGE_REVENUE_VIEW_SUFFIX = "charge_revenue_view"
+CUSTOMER_REVENUE_VIEW_SUFFIX = "customer_revenue_view"
+
 # Stripe represents most currencies with integer amounts multiplied by 100,
 # since most currencies have its smallest unit as 1/100 of their base unit
 # It just so happens that some currencies don't have that concept, so they're listed here
@@ -217,7 +221,7 @@ class RevenueAnalyticsRevenueView(SavedQuery):
 
         return RevenueAnalyticsRevenueView(
             id=str(table.id),
-            name=RevenueAnalyticsRevenueView.__get_view_name_for(source, "charge_revenue_view"),
+            name=RevenueAnalyticsRevenueView.__get_view_name_for(source, CHARGE_REVENUE_VIEW_SUFFIX),
             query=query.to_hogql(),
             fields=CHARGE_FIELDS,
         )
@@ -243,7 +247,7 @@ class RevenueAnalyticsRevenueView(SavedQuery):
 
         return RevenueAnalyticsRevenueView(
             id=str(table.id),
-            name=RevenueAnalyticsRevenueView.__get_view_name_for(source, "customer_revenue_view"),
+            name=RevenueAnalyticsRevenueView.__get_view_name_for(source, CUSTOMER_REVENUE_VIEW_SUFFIX),
             query=query.to_hogql(),
             fields=CUSTOMER_FIELDS,
         )

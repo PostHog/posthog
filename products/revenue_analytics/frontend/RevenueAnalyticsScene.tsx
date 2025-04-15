@@ -16,8 +16,8 @@ import { PipelineStage, ProductKey } from '~/types'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 import { GrossRevenueTile } from './tiles/GrossRevenueTile'
 import { OverviewTile } from './tiles/OverviewTile'
-import { RevenueChurnTile } from './tiles/RevenueChurnTile'
 import { RevenueGrowthRateTile } from './tiles/RevenueGrowthRateTile'
+import { RevenueChurnTile } from './tiles/TopCustomers'
 
 export const scene: SceneExport = {
     component: RevenueAnalyticsScene,

@@ -18,11 +18,11 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         # If there are no revenue views, we return a query that returns 0 for all values
-        select_from = self.all_revenue_views()
-        if select_from is None:
+        charge_subquery, _ = self.revenue_subqueries()
+        if charge_subquery is None:
             return ast.SelectQuery.empty()
 
-        monthly_mrr_cte = self.monthly_mrr_cte(select_from)
+        monthly_mrr_cte = self.monthly_mrr_cte(charge_subquery)
         mrr_with_growth_cte = self.mrr_with_growth_cte(monthly_mrr_cte)
 
         return ast.SelectQuery(
@@ -56,7 +56,7 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
             limit=ast.Constant(value=24),  # Limit to last 24 months
         )
 
-    def monthly_mrr_cte(self, select_from: ast.JoinExpr) -> ast.CTE:
+    def monthly_mrr_cte(self, select_from: ast.SelectQuery | ast.SelectSetQuery) -> ast.CTE:
         return ast.CTE(
             name="monthly_mrr",
             expr=ast.SelectQuery(
@@ -70,7 +70,7 @@ class RevenueAnalyticsGrowthRateQueryRunner(RevenueAnalyticsQueryRunner):
                         expr=ast.Call(name="sum", args=[ast.Field(chain=["amount"])]),
                     ),
                 ],
-                select_from=select_from,
+                select_from=ast.JoinExpr(table=select_from),
                 group_by=[ast.Field(chain=["month"])],
                 order_by=[ast.OrderExpr(expr=ast.Field(chain=["month"]))],
             ),

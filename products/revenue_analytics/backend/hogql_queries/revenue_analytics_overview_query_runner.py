@@ -20,15 +20,15 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner):
     cached_response: CachedRevenueAnalyticsOverviewQueryResponse
 
     def to_query(self) -> ast.SelectQuery:
-        # If there are no revenue views, we return a query that returns 0 for all values
-        select_from = self.all_revenue_views()
-        if select_from is None:
+        # If there are no charge revenue views, we return a query that returns 0 for all values
+        charge_subquery, _ = self.revenue_subqueries()
+        if charge_subquery is None:
             return ast.SelectQuery(
                 select=[
                     ast.Alias(alias="revenue", expr=CONSTANT_ZERO),
                     ast.Alias(alias="paying_customer_count", expr=CONSTANT_ZERO),
                     ast.Alias(alias="avg_revenue_per_customer", expr=CONSTANT_ZERO),
-                ]
+                ],
             )
 
         return ast.SelectQuery(
@@ -67,7 +67,7 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner):
                     ),
                 ),
             ],
-            select_from=ast.JoinExpr(table=select_from),
+            select_from=ast.JoinExpr(table=charge_subquery),
             where=self.where_clause(),
         )
 

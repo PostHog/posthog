@@ -7,16 +7,16 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
-    RevenueAnalyticsChurnRateQuery,
+    RevenueAnalyticsTopCustomersQuery,
     RevenueAnalyticsGrowthRateQuery,
     RevenueAnalyticsOverviewQuery,
 )
-from ..models import RevenueAnalyticsRevenueView
+from ..models import RevenueAnalyticsRevenueView, CHARGE_REVENUE_VIEW_SUFFIX, CUSTOMER_REVENUE_VIEW_SUFFIX
 
 
 # Base class, empty for now but might include some helpers in the future
 class RevenueAnalyticsQueryRunner(QueryRunner):
-    query: Union[RevenueAnalyticsChurnRateQuery, RevenueAnalyticsGrowthRateQuery, RevenueAnalyticsOverviewQuery]
+    query: Union[RevenueAnalyticsTopCustomersQuery, RevenueAnalyticsGrowthRateQuery, RevenueAnalyticsOverviewQuery]
     database: Database
     hogql_context: HogQLContext
 
@@ -29,25 +29,37 @@ class RevenueAnalyticsQueryRunner(QueryRunner):
         self.database = create_hogql_database(team=self.team)
         self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database)
 
-    def all_revenue_views(self) -> ast.JoinExpr | None:
-        selects = []
+    def revenue_subqueries(
+        self,
+    ) -> tuple[ast.SelectQuery | ast.SelectSetQuery | None, ast.SelectQuery | ast.SelectSetQuery | None]:
+        charge_selects = []
+        customer_selects = []
+
         for view_name in self.database.get_views():
             view = self.database.get_table(view_name)
             if isinstance(view, RevenueAnalyticsRevenueView):
-                selects.append(
-                    ast.SelectQuery(
-                        select=[ast.Field(chain=["*"])],
-                        select_from=ast.JoinExpr(table=ast.Field(chain=[view.name])),
-                    )
+                select = ast.SelectQuery(
+                    select=[ast.Field(chain=["*"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=[view.name])),
                 )
+                if CHARGE_REVENUE_VIEW_SUFFIX in view.name:
+                    charge_selects.append(select)
+                elif CUSTOMER_REVENUE_VIEW_SUFFIX in view.name:
+                    customer_selects.append(select)
 
-        if len(selects) == 0:
-            return None
+        charge_subquery = None
+        if len(charge_selects) == 1:
+            charge_subquery = charge_selects[0]
+        elif len(charge_selects) > 1:
+            charge_subquery = ast.SelectSetQuery.create_from_queries(charge_selects, set_operator="UNION ALL")
 
-        if len(selects) == 1:
-            return ast.JoinExpr(table=selects[0])
+        customer_subquery = None
+        if len(customer_selects) == 1:
+            customer_subquery = customer_selects[0]
+        elif len(customer_selects) > 1:
+            customer_subquery = ast.SelectSetQuery.create_from_queries(customer_selects, set_operator="UNION ALL")
 
-        return ast.JoinExpr(table=ast.SelectSetQuery.create_from_queries(selects, set_operator="UNION ALL"))
+        return (charge_subquery, customer_subquery)
 
     @cached_property
     def query_date_range(self):

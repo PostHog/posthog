@@ -36,3 +36,11 @@ STRIPE_CHARGE_COLUMNS = {
     "outcome": "String",
     "payment_method_details": "String",
 }
+
+STRIPE_CUSTOMER_COLUMNS = {
+    "id": "String",
+    "created": "DateTime",
+    "name": "String",
+    "email": "String",
+    "phone": "String",
+}
