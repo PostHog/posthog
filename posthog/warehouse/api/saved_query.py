@@ -1,5 +1,6 @@
 from typing import Any
 from django.conf import settings
+from django.utils import timezone
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -18,6 +19,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
+from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.models import (
     CLICKHOUSE_HOGQL_MAPPING,
     DataWarehouseJoin,
@@ -329,6 +331,39 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             descendants = descendants.union(map(try_convert_to_uuid, model_path.path[start:end]))
 
         return response.Response({"descendants": descendants})
+
+    @action(methods=["POST"], detail=True)
+    def cancel(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Cancel a running saved query workflow."""
+        saved_query = self.get_object()
+
+        if saved_query.status != DataWarehouseSavedQuery.Status.RUNNING:
+            return response.Response(
+                {"error": "Cannot cancel a query that is not running"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        temporal = sync_connect()
+        workflow_id = f"data-modeling-run-{saved_query.id.hex}"
+
+        try:
+            workflow_handle = temporal.get_workflow_handle(workflow_id)
+            async_to_sync(workflow_handle.cancel)()
+
+            # Update saved query status
+            saved_query.status = DataWarehouseSavedQuery.Status.CANCELLED
+            saved_query.save()
+
+            # Update any related DataModelingJob
+            DataModelingJob.objects.filter(
+                saved_query_id=saved_query.id, status=DataModelingJob.Status.RUNNING, workflow_id=workflow_id
+            ).update(status=DataModelingJob.Status.CANCELLED, last_run_at=timezone.now())
+
+            return response.Response(status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.exception("Failed to cancel workflow", workflow_id=workflow_id, error=str(e))
+            return response.Response(
+                {"error": f"Failed to cancel workflow: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 def try_convert_to_uuid(s: str) -> uuid.UUID | str:

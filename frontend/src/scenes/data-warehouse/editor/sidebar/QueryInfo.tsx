@@ -68,7 +68,8 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
         dataModelingJobs,
         hasMoreJobsToLoad,
     } = useValues(dataWarehouseViewsLogic)
-    const { updateDataWarehouseSavedQuery, loadOlderDataModelingJobs } = useActions(dataWarehouseViewsLogic)
+    const { updateDataWarehouseSavedQuery, loadOlderDataModelingJobs, cancelDataWarehouseSavedQuery } =
+        useActions(dataWarehouseViewsLogic)
 
     // note: editingView is stale, but dataWarehouseSavedQueryMapById gets updated
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
@@ -105,16 +106,37 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     </div>
                                 )}
                                 <div className="flex gap-4 mt-2">
-                                    <LemonButton
-                                        loading={savedQuery?.status === 'Running'}
-                                        disabledReason={
-                                            savedQuery?.status === 'Running' ? 'Query is already running' : false
-                                        }
-                                        onClick={() => editingView && runDataWarehouseSavedQuery(editingView.id)}
-                                        type="secondary"
-                                    >
-                                        Sync now
-                                    </LemonButton>
+                                    {savedQuery?.status === 'Running' ? (
+                                        <>
+                                            <LemonButton
+                                                onClick={() =>
+                                                    editingView && cancelDataWarehouseSavedQuery(editingView.id)
+                                                }
+                                                type="secondary"
+                                                status="danger"
+                                            >
+                                                Cancel
+                                            </LemonButton>
+                                            <LemonButton
+                                                loading={false}
+                                                disabledReason="Query is currently running"
+                                                type="secondary"
+                                            >
+                                                Sync now
+                                            </LemonButton>
+                                        </>
+                                    ) : (
+                                        <LemonButton
+                                            loading={savedQuery?.status === 'Running'}
+                                            disabledReason={
+                                                savedQuery?.status === 'Running' ? 'Query is already running' : false
+                                            }
+                                            onClick={() => editingView && runDataWarehouseSavedQuery(editingView.id)}
+                                            type="secondary"
+                                        >
+                                            Sync now
+                                        </LemonButton>
+                                    )}
                                     <LemonSelect
                                         className="h-9"
                                         disabledReason={
