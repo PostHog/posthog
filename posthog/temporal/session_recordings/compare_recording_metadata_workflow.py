@@ -78,7 +78,6 @@ def get_session_replay_events(
 
 
 FIELD_NAMES = [
-    "team_id",
     "distinct_id",
     "min_first_timestamp_agg",
     "max_last_timestamp_agg",
