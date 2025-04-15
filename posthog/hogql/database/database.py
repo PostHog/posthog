@@ -501,6 +501,7 @@ def create_hogql_database(
                             last_group = new_group
 
                     joined_table_chain = ".".join(table_chain)
+                    s3_table.name = joined_table_chain
                     warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
 
     # For every Stripe source, let's generate its own revenue view
