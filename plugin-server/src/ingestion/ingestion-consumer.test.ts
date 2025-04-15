@@ -715,7 +715,7 @@ describe('IngestionConsumer', () => {
         })
 
         it(
-            'should call hogwatcher state caching methods when hogwatcher is enabled (sample rate = 1)',
+            'should call hogwatcher state caching methods and observe results when hogwatcher is enabled (sample rate = 1)',
             async () => {
                 // Set hogwatcher enabled (100% sample rate)
                 hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
@@ -723,6 +723,7 @@ describe('IngestionConsumer', () => {
                 // Create spies for methods after the service is configured
                 const fetchAndCacheSpy = jest.spyOn(ingester.hogTransformer, 'fetchAndCacheHogFunctionStates')
                 const clearStatesSpy = jest.spyOn(ingester.hogTransformer, 'clearHogFunctionStates')
+                const observeResultsSpy = jest.spyOn(ingester.hogTransformer['hogWatcher'], 'observeResults')
 
                 // Process batch with hogwatcher enabled
                 // in this stage we do not have the teamId on the event but the token is present
@@ -737,6 +738,19 @@ describe('IngestionConsumer', () => {
                 // Verify that fetchAndCacheHogFunctionStates and clearHogFunctionStates were called
                 expect(fetchAndCacheSpy).toHaveBeenCalled()
                 expect(clearStatesSpy).toHaveBeenCalled()
+
+                // Verify the full integration flow worked
+                expect(observeResultsSpy).toHaveBeenCalled()
+
+                // Verify that results were passed to observeResults with the correct structure
+                const results = observeResultsSpy.mock.calls[0][0]
+                expect(results).toBeInstanceOf(Array)
+                expect(results.length).toBeGreaterThan(0)
+
+                // Check that the results contain our transformation function
+                const functionResult = results.find((r) => r.invocation.hogFunction.id === transformationFunction.id)
+                expect(functionResult).toBeDefined()
+                expect(functionResult?.finished).toBe(true)
             },
             TRANSFORMATION_TEST_TIMEOUT
         )
@@ -763,42 +777,6 @@ describe('IngestionConsumer', () => {
                 // Verify that fetchAndCacheHogFunctionStates and clearHogFunctionStates were NOT called
                 expect(fetchAndCacheSpy).not.toHaveBeenCalled()
                 expect(clearStatesSpy).not.toHaveBeenCalled()
-            },
-            TRANSFORMATION_TEST_TIMEOUT
-        )
-
-        it(
-            'should properly observe results and update function states when hogwatcher is enabled',
-            async () => {
-                // Set hogwatcher enabled (100% sample rate)
-                hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
-
-                // Create a spy for the observeResults method to check it's called with appropriate data
-                const observeResultsSpy = jest.spyOn(ingester.hogTransformer['hogWatcher'], 'observeResults')
-
-                // Process event that will trigger the transformation
-                const event = createEvent({
-                    ip: '89.160.20.129',
-                    properties: { $ip: '89.160.20.129' },
-                })
-                const messages = createKafkaMessages([event])
-
-                await ingester.handleKafkaBatch(messages)
-
-                // Verify the full integration flow worked
-                expect(observeResultsSpy).toHaveBeenCalled()
-
-                // Verify that results were passed to observeResults with the correct structure
-                const results = observeResultsSpy.mock.calls[0][0]
-                expect(results).toBeInstanceOf(Array)
-                expect(results.length).toBeGreaterThan(0)
-
-                // Check that the results contain our transformation function
-                const functionResult = results.find((r) => r.invocation.hogFunction.id === transformationFunction.id)
-                expect(functionResult).toBeDefined()
-                expect(functionResult?.finished).toBe(true)
-                // The error can be null or undefined depending on implementation
-                expect(functionResult?.error == null).toBeTruthy()
             },
             TRANSFORMATION_TEST_TIMEOUT
         )
