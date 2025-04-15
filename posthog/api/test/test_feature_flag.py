@@ -4055,14 +4055,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     "value": False,
                     "evaluation": {
                         "reason": "out_of_rollout_bound",
-                        "condition_index": 0,
+                        "condition_index": None,
                     },
                 },
                 "beta-feature": {
                     "value": False,
                     "evaluation": {
                         "reason": "no_condition_match",
-                        "condition_index": 0,
+                        "condition_index": None,
                     },
                 },
                 "group-feature": {
@@ -4148,14 +4148,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     "value": False,
                     "evaluation": {
                         "reason": "out_of_rollout_bound",
-                        "condition_index": 0,
+                        "condition_index": None,
                     },
                 },
                 "beta-feature": {
                     "value": False,
                     "evaluation": {
                         "reason": "no_condition_match",
-                        "condition_index": 0,
+                        "condition_index": None,
                     },
                 },
                 "group-feature": {
