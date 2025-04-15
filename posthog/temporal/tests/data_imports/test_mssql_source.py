@@ -19,10 +19,12 @@ import datetime as dt
 import os
 import uuid
 from collections.abc import Generator
+from decimal import Decimal
 from typing import Any
 
 import pymssql
 import pytest
+import pytz
 
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
@@ -39,9 +41,42 @@ REQUIRED_ENV_VARS = (
 MSSQL_TABLE_NAME = "test_table"
 
 TEST_DATA = [
-    (1, "John Doe", "john@example.com", dt.datetime(2025, 1, 1, tzinfo=dt.UTC), 100),
-    (2, "Jane Smith", "jane@example.com", dt.datetime(2025, 1, 2, tzinfo=dt.UTC), 2000000),
-    (3, "Bob Wilson", "bob@example.com", dt.datetime(2025, 1, 3, tzinfo=dt.UTC), 3409892966),
+    (
+        1,
+        "John Doe",
+        "john@example.com",
+        dt.datetime(2025, 1, 1, tzinfo=pytz.UTC),
+        100,
+        '{"key":"value"}',
+        True,
+        Decimal("13.33"),
+        Decimal("19.99"),
+        17678785.785690,
+    ),
+    (
+        2,
+        "Jane Smith",
+        "jane@example.com",
+        dt.datetime(2025, 1, 2, tzinfo=pytz.UTC),
+        2000000,
+        '{"num":10.5}',
+        False,
+        Decimal("10.5"),
+        Decimal("10.5"),
+        478756.0,
+    ),
+    (
+        3,
+        "Bob Wilson",
+        "bob@example.com",
+        dt.datetime(2025, 1, 3, tzinfo=pytz.UTC),
+        3409892966,
+        '{"key":{"nested":"value"}}',
+        True,
+        Decimal("10.5"),
+        Decimal("10.5"),
+        -9579990.124,
+    ),
 ]
 
 
@@ -71,16 +106,15 @@ def mssql_config() -> dict[str, Any]:
 
 @pytest.fixture
 def mssql_connection(mssql_config: dict[str, Any]) -> Generator[pymssql.Connection, None, None]:
-    connection = pymssql.connect(
+    with pymssql.connect(
         server=mssql_config["host"],
         port=mssql_config["port"],
         database=mssql_config["database"],
         user=mssql_config["user"],
         password=mssql_config["password"],
-    )
-
-    yield connection
-    connection.close()
+        login_timeout=5,
+    ) as connection:
+        yield connection
 
 
 @pytest.fixture
@@ -88,42 +122,47 @@ def mssql_source_table(
     mssql_connection: pymssql.Connection, mssql_config: dict[str, Any]
 ) -> Generator[pymssql.Cursor, None, None]:
     """Create a MS SQL Server table with test data and clean it up after the test."""
-    cursor = mssql_connection.cursor()
-    full_table_name = f"[{mssql_config['schema']}].[{MSSQL_TABLE_NAME}]"
+    with mssql_connection.cursor() as cursor:
+        full_table_name = f"[{mssql_config['schema']}].[{MSSQL_TABLE_NAME}]"
 
-    # Create test table
-    cursor.execute(f"""
-        IF NOT EXISTS (
-            SELECT *
-            FROM sys.tables t
-            JOIN sys.schemas s ON t.schema_id = s.schema_id
-            WHERE s.name = '{mssql_config['schema']}'
-            AND t.name = '{MSSQL_TABLE_NAME}'
-        )
-        BEGIN
-            CREATE TABLE {full_table_name} (
-                id INTEGER,
-                name NVARCHAR(255),
-                email NVARCHAR(255),
-                created_at DATETIME2 DEFAULT GETUTCDATE(),
-                big_int BIGINT
+        # Create test table
+        cursor.execute(f"""
+            IF NOT EXISTS (
+                SELECT *
+                FROM sys.tables t
+                JOIN sys.schemas s ON t.schema_id = s.schema_id
+                WHERE s.name = '{mssql_config['schema']}'
+                AND t.name = '{MSSQL_TABLE_NAME}'
             )
-        END
-    """)
+            BEGIN
+                CREATE TABLE {full_table_name} (
+                    id INTEGER,
+                    name NVARCHAR(255),
+                    email NVARCHAR(255),
+                    created_at DATETIME2 DEFAULT GETUTCDATE(),
+                    big_int BIGINT,
+                    json_data JSON,
+                    active BIT,
+                    decimal_data DECIMAL(10, 2),
+                    price MONEY,
+                    float_data FLOAT
+                )
+            END
+        """)
 
-    # Insert test data
-    for row in TEST_DATA:
-        cursor.execute(
-            f"INSERT INTO {full_table_name} (id, name, email, created_at, big_int) VALUES (%d, %s, %s, %s, %d)", row
-        )
-    mssql_connection.commit()
+        # Insert test data
+        for row in TEST_DATA:
+            cursor.execute(
+                f"INSERT INTO {full_table_name} (id, name, email, created_at, big_int, json_data, active, decimal_data, price, float_data) VALUES (%d, %s, %s, %s, %d, %s, %d, %s, %s, %s)",
+                row,
+            )
+        mssql_connection.commit()
 
-    yield cursor
+        yield cursor
 
-    # Cleanup
-    cursor.execute(f"DROP TABLE IF EXISTS {full_table_name}")
-    mssql_connection.commit()
-    cursor.close()
+        # Cleanup
+        cursor.execute(f"DROP TABLE IF EXISTS {full_table_name}")
+        mssql_connection.commit()
 
 
 @pytest.fixture
@@ -172,7 +211,18 @@ async def test_mssql_source_full_refresh(
         table_name=table_name,
         expected_rows_synced=expected_num_rows,
         expected_total_rows=expected_num_rows,
-        expected_columns=["id", "name", "email", "created_at", "big_int"],
+        expected_columns=[
+            "id",
+            "name",
+            "email",
+            "created_at",
+            "big_int",
+            "json_data",
+            "active",
+            "decimal_data",
+            "price",
+            "float_data",
+        ],
     )
 
     assert list(res.results) == TEST_DATA
