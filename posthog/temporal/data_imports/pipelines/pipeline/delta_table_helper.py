@@ -62,7 +62,7 @@ class DeltaTableHelper:
                 "region_name": settings.AIRBYTE_BUCKET_REGION,
                 "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
                 "AWS_ALLOW_HTTP": "true",
-                "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+                "AWS_S3_ALLOW_UNSAFE_RENAME": "false",
             }
 
         return {
@@ -70,7 +70,7 @@ class DeltaTableHelper:
             "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
             "region_name": settings.AIRBYTE_BUCKET_REGION,
             "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "false",
         }
 
     def _get_delta_table_uri(self) -> str:
@@ -187,6 +187,9 @@ class DeltaTableHelper:
                     mode=mode,
                     schema_mode=schema_mode,
                     engine="rust",
+                    storage_options={
+                        "conditional_put": "etag",
+                    },
                 )  # type: ignore
             except deltalake.exceptions.SchemaMismatchError as e:
                 logger.exception("Attempting to overwrite schema due to SchemaMismatchError", exc_info=e)
@@ -199,6 +202,9 @@ class DeltaTableHelper:
                     mode=mode,
                     schema_mode="overwrite",
                     engine="rust",
+                    storage_options={
+                        "conditional_put": "etag",
+                    },
                 )  # type: ignore
 
         delta_table = self.get_delta_table()
