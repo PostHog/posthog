@@ -418,9 +418,6 @@
                 },
                 {
                     "$ref": "#/definitions/VectorSearchQuery"
-                },
-                {
-                    "$ref": "#/definitions/EditorSemanticSearchQuery"
                 }
             ]
         },
@@ -2400,71 +2397,6 @@
                 },
                 "results": {
                     "$ref": "#/definitions/CodebaseTreeResponse"
-                },
-                "timezone": {
-                    "type": "string"
-                },
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": [
-                "cache_key",
-                "is_cached",
-                "last_refresh",
-                "next_allowed_client_refresh",
-                "results",
-                "timezone"
-            ],
-            "type": "object"
-        },
-        "CachedEditorSemanticSearchQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "cache_key": {
-                    "type": "string"
-                },
-                "cache_target_age": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "calculation_trigger": {
-                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
-                    "type": "string"
-                },
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "is_cached": {
-                    "type": "boolean"
-                },
-                "last_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "next_allowed_client_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "results": {
-                    "$ref": "#/definitions/EditorSemanticSearchResponse"
                 },
                 "timezone": {
                     "type": "string"
@@ -7694,101 +7626,6 @@
             "enum": ["duration", "active_seconds", "inactive_seconds"],
             "type": "string"
         },
-        "EditorSemanticSearchQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "branch": {
-                    "type": ["string", "null"]
-                },
-                "codebaseId": {
-                    "type": "string"
-                },
-                "embedding": {
-                    "items": {
-                        "type": "number"
-                    },
-                    "type": "array"
-                },
-                "kind": {
-                    "const": "EditorSemanticSearchQuery",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "response": {
-                    "$ref": "#/definitions/EditorSemanticSearchQueryResponse"
-                },
-                "userId": {
-                    "$ref": "#/definitions/integer"
-                }
-            },
-            "required": ["branch", "codebaseId", "embedding", "kind", "userId"],
-            "type": "object"
-        },
-        "EditorSemanticSearchQueryResponse": {
-            "additionalProperties": false,
-            "description": "All analytics query responses must inherit from this.",
-            "properties": {
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "results": {
-                    "$ref": "#/definitions/EditorSemanticSearchResponse"
-                },
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["results"],
-            "type": "object"
-        },
-        "EditorSemanticSearchResponse": {
-            "items": {
-                "$ref": "#/definitions/EditorSemanticSearchResponseItem"
-            },
-            "type": "array"
-        },
-        "EditorSemanticSearchResponseItem": {
-            "additionalProperties": false,
-            "properties": {
-                "artifactId": {
-                    "type": "string"
-                },
-                "distance": {
-                    "type": "number"
-                },
-                "lineEnd": {
-                    "type": "string"
-                },
-                "lineStart": {
-                    "type": "string"
-                },
-                "obfuscatedPath": {
-                    "type": "string"
-                }
-            },
-            "required": ["artifactId", "obfuscatedPath", "lineStart", "lineEnd", "distance"],
-            "type": "object"
-        },
         "ElementPropertyFilter": {
             "additionalProperties": false,
             "description": "Sync with plugin-server/src/types.ts",
@@ -12127,7 +11964,6 @@
                 "ActorsPropertyTaxonomyQuery",
                 "TracesQuery",
                 "VectorSearchQuery",
-                "EditorSemanticSearchQuery",
                 "CodebaseTreeQuery",
                 "SyncedArtifactsQuery"
             ],
@@ -15472,39 +15308,6 @@
                     },
                     "required": ["results"],
                     "type": "object"
-                },
-                {
-                    "additionalProperties": false,
-                    "properties": {
-                        "error": {
-                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                            "type": "string"
-                        },
-                        "hogql": {
-                            "description": "Generated HogQL query.",
-                            "type": "string"
-                        },
-                        "modifiers": {
-                            "$ref": "#/definitions/HogQLQueryModifiers",
-                            "description": "Modifiers used when performing the query"
-                        },
-                        "query_status": {
-                            "$ref": "#/definitions/QueryStatus",
-                            "description": "Query status indicates whether next to the provided data, a query is still running."
-                        },
-                        "results": {
-                            "$ref": "#/definitions/EditorSemanticSearchResponse"
-                        },
-                        "timings": {
-                            "description": "Measured timings for different parts of the query generation process",
-                            "items": {
-                                "$ref": "#/definitions/QueryTiming"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["results"],
-                    "type": "object"
                 }
             ]
         },
@@ -15662,9 +15465,6 @@
                 },
                 {
                     "$ref": "#/definitions/VectorSearchQuery"
-                },
-                {
-                    "$ref": "#/definitions/EditorSemanticSearchQuery"
                 }
             ],
             "required": ["kind"],
