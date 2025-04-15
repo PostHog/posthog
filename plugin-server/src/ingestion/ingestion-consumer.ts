@@ -50,8 +50,14 @@ const forcedOverflowEventsCounter = new Counter({
 
 type IncomingEvent = { message: Message; event: PipelineEvent }
 
+type EventsForDistinctId = {
+    token: string
+    distinctId: string
+    events: IncomingEvent[]
+}
+
 type IncomingEventsByDistinctId = {
-    [key: string]: IncomingEvent[]
+    [key: string]: EventsForDistinctId
 }
 
 const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
@@ -223,34 +229,38 @@ export class IngestionConsumer {
      * Redirect events to overflow or testing topic based on their configuration
      * returning events that have not been redirected
      */
-    private redirectEvents(incomingEvents: IncomingEvent[]): IncomingEvent[] {
-        if (!incomingEvents.length) {
-            return []
+    private redirectEvents(eventsForDistinctId: EventsForDistinctId): EventsForDistinctId {
+        if (!eventsForDistinctId.events.length) {
+            return eventsForDistinctId
         }
 
         if (this.testingTopic) {
-            void this.scheduleWork(this.emitToTestingTopic(incomingEvents.map((x) => x.message)))
-            return []
+            void this.scheduleWork(this.emitToTestingTopic(eventsForDistinctId.events.map((x) => x.message)))
+            return eventsForDistinctId
         }
 
         // NOTE: We know at this point that all these events are the same token distinct_id
-        const token = incomingEvents[0].event.token
-        const distinctId = incomingEvents[0].event.distinct_id
-        const kafkaTimestamp = incomingEvents[0].message.timestamp
+        const token = eventsForDistinctId.token
+        const distinctId = eventsForDistinctId.distinctId
+        const kafkaTimestamp = eventsForDistinctId.events[0].message.timestamp
         const eventKey = `${token}:${distinctId}`
 
         // Check if this token is in the force overflow list
         const shouldForceOverflow = this.shouldForceOverflow(token, distinctId)
 
         // Check the rate limiter and emit to overflow if necessary
-        const isBelowRateLimit = this.overflowRateLimiter.consume(eventKey, incomingEvents.length, kafkaTimestamp)
+        const isBelowRateLimit = this.overflowRateLimiter.consume(
+            eventKey,
+            eventsForDistinctId.events.length,
+            kafkaTimestamp
+        )
 
         if (this.overflowEnabled() && (shouldForceOverflow || !isBelowRateLimit)) {
-            ingestionPartitionKeyOverflowed.inc(incomingEvents.length)
+            ingestionPartitionKeyOverflowed.inc(eventsForDistinctId.events.length)
 
             if (shouldForceOverflow) {
                 forcedOverflowEventsCounter.inc()
-            } else if (this.ingestionWarningLimiter.consume(eventKey, incomingEvents.length)) {
+            } else if (this.ingestionWarningLimiter.consume(eventKey, eventsForDistinctId.events.length)) {
                 logger.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
             }
 
@@ -261,20 +271,23 @@ export class IngestionConsumer {
 
             void this.scheduleWork(
                 this.emitToOverflow(
-                    incomingEvents.map((x) => x.message),
+                    eventsForDistinctId.events.map((x) => x.message),
                     preserveLocality
                 )
             )
 
-            return []
+            return {
+                ...eventsForDistinctId,
+                events: [],
+            }
         }
 
-        return incomingEvents
+        return eventsForDistinctId
     }
 
-    private async processEventsForDistinctId(incomingEvents: IncomingEvent[]): Promise<void> {
+    private async processEventsForDistinctId(eventsForDistinctId: EventsForDistinctId): Promise<void> {
         // Process every message sequentially, stash promises to await on later
-        for (const incomingEvent of incomingEvents) {
+        for (const incomingEvent of eventsForDistinctId.events) {
             // Track $set usage in events that aren't known to use it, before ingestion adds anything there
             trackIfNonPersonEventUpdatesPersons(incomingEvent.event)
             await this.runEventRunnerV1(incomingEvent)
@@ -406,10 +419,14 @@ export class IngestionConsumer {
             // We collect the events grouped by token and distinct_id so that we can process batches in parallel whilst keeping the order of events
             // for a given distinct_id
             if (!batches[eventKey]) {
-                batches[eventKey] = []
+                batches[eventKey] = {
+                    token: event.token ?? '',
+                    distinctId: event.distinct_id ?? '',
+                    events: [],
+                }
             }
 
-            batches[eventKey].push({ message, event })
+            batches[eventKey].events.push({ message, event })
         }
 
         return Promise.resolve(batches)
