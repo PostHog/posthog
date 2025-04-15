@@ -4,66 +4,65 @@ use serde::de::DeserializeOwned;
 use serde_json::{Number, Value as JsonValue};
 
 use crate::{
+    context::ExecutionContext,
     error::VmError,
     memory::{HeapReference, VmHeap},
     ops::Operation,
-    stl::{stl, NativeFunction},
     util::{get_json_nested, like, regex_match},
     values::{Callable, Closure, FromHogLiteral, HogLiteral, HogValue, LocalCallable, Num, NumOp},
 };
 
 const MAX_JSON_SERDE_DEPTH: usize = 64;
 
-pub struct ExecutionContext<'a> {
-    pub bytecode: &'a [JsonValue],
-    pub globals: JsonValue, // Generally an object, but can be anything really
-    pub max_stack_depth: usize,
-    pub max_heap_size: usize,
-}
-
+/// The outcome of a virtual machine step.
 #[derive(Debug, Clone)]
 pub enum StepOutcome {
-    Finished(HogLiteral),
+    /// The program has completed, returning a value
+    Finished(JsonValue),
+    /// The program has requested a native function call
     NativeCall(String, Vec<HogValue>),
+    /// The program has requested another step
     Continue,
 }
 
-pub struct CallFrame {
-    pub ret_ptr: usize,               // Where to jump back to when we're done
-    pub stack_start: usize,           // Point in the stack the frame values start
-    pub captures: Vec<HeapReference>, // Values captured from the parent scope/frame
-}
-
-pub struct ThrowFrame {
-    pub catch_ptr: usize,   // The ptr to jump to if we throw
-    pub stack_start: usize, // The stack size when we entered the try
-    pub call_depth: usize,  // The depth of the call stack when we entered the try
-}
-
-pub struct VmState<'a> {
-    pub stack: Vec<HogValue>,
-    pub heap: VmHeap,
-
-    pub stack_frames: Vec<CallFrame>,
-    pub throw_frames: Vec<ThrowFrame>,
+/// Some debug information about a virtual machine failure, returned by some
+/// helpers when a VM step returns an error
+#[derive(Debug, Clone)]
+pub struct VmFailure {
+    pub error: VmError,
     pub ip: usize,
-
-    pub context: &'a ExecutionContext<'a>,
-    pub version: usize,
+    pub stack: Vec<HogValue>, // TODO - only used for debugging, should remove
+    pub step: usize,
 }
 
-fn next_type_name(next: &JsonValue) -> String {
-    match next {
-        JsonValue::Null => "null".to_string(),
-        JsonValue::Bool(_) => "bool".to_string(),
-        JsonValue::Number(_) => "number".to_string(),
-        JsonValue::String(_) => "string".to_string(),
-        JsonValue::Array(_) => "array".to_string(),
-        JsonValue::Object(_) => "object".to_string(),
-    }
+/// The Hog Virtual Machine. Represents the state of a running program.
+pub struct HogVM<'a> {
+    /// The heap of the virtual machine. Generally used for `HogValue::deref`, to allow you to access
+    /// `HogLiteral` values for native function implementation.
+    pub heap: VmHeap, // Needs to be pub to allow users to write their own extension native functions
+    stack: Vec<HogValue>,
+
+    stack_frames: Vec<CallFrame>,
+    throw_frames: Vec<ThrowFrame>,
+    ip: usize,
+
+    context: &'a ExecutionContext<'a>,
+    version: usize,
 }
 
-impl<'a> VmState<'a> {
+struct CallFrame {
+    ret_ptr: usize,               // Where to jump back to when we're done
+    stack_start: usize,           // Point in the stack the frame values start
+    captures: Vec<HeapReference>, // Values captured from the parent scope/frame
+}
+
+struct ThrowFrame {
+    catch_ptr: usize,   // The ptr to jump to if we throw
+    stack_start: usize, // The stack size when we entered the try
+    call_depth: usize,  // The depth of the call stack when we entered the try
+}
+
+impl<'a> HogVM<'a> {
     pub fn new(context: &'a ExecutionContext<'a>) -> Result<Self, VmError> {
         if context.bytecode.is_empty() {
             return Err(VmError::InvalidBytecode(
@@ -111,131 +110,7 @@ impl<'a> VmState<'a> {
         })
     }
 
-    // Returns the first stack item in this call frames scope
-    fn current_frame_base(&self) -> usize {
-        if self.stack_frames.is_empty() {
-            0
-        } else {
-            self.stack_frames[self.stack_frames.len() - 1].stack_start
-        }
-    }
-
-    // Returns a ptr to the captured value in this frames scope, if there is one,
-    // or an error if the index is out of bounds
-    fn get_capture(&self, index: usize) -> Result<HeapReference, VmError> {
-        let Some(frame) = self.stack_frames.last() else {
-            return Err(VmError::NoFrame);
-        };
-        frame
-            .captures
-            .get(index)
-            .cloned()
-            .ok_or(VmError::CaptureOutOfBounds(index))
-    }
-
-    // Changes the location on the heap a capture points to, as distinct from changing the
-    // value on the heap the capture points to. Think of this like storing a new pointer into
-    // a variable name, vs. writing a new value into the variable itself
-    fn set_capture(&mut self, index: usize, value: HeapReference) -> Result<(), VmError> {
-        let Some(frame) = self.stack_frames.last_mut() else {
-            return Err(VmError::NoFrame);
-        };
-        frame
-            .captures
-            .get_mut(index)
-            .ok_or(VmError::CaptureOutOfBounds(index))
-            .map(|capture| *capture = value)
-    }
-
-    fn next<T>(&mut self) -> Result<T, VmError>
-    where
-        T: DeserializeOwned + Any,
-    {
-        let Some(next) = self.context.bytecode.get(self.ip) else {
-            return Err(VmError::EndOfProgram(self.ip));
-        };
-
-        self.ip += 1;
-
-        let next_type_name = next_type_name(next);
-        let expected = std::any::type_name::<T>();
-
-        serde_json::from_value(next.clone())
-            .map_err(|_| VmError::InvalidValue(next_type_name, expected.to_string()))
-    }
-
-    fn pop_stack(&mut self) -> Result<HogValue, VmError> {
-        if self.stack.len() <= self.current_frame_base() {
-            return Err(VmError::StackUnderflow);
-        }
-        self.stack.pop().ok_or(VmError::StackUnderflow)
-    }
-
-    // As above, but with a handy pointer chase and a cast/unwrap. Necessarily clones
-    // if the stack item was a reference.
-    fn pop_stack_as<T>(&mut self) -> Result<T, VmError>
-    where
-        T: FromHogLiteral,
-    {
-        match self.pop_stack()? {
-            HogValue::Lit(lit) => lit.try_into(), // Purely an optimisation to skip a clone
-            other => other.deref(&self.heap)?.clone().try_into(),
-        }
-    }
-
-    // Move a value from the stack onto the heap, replacing it with a reference to the heap value,
-    // and returning a reference to it. If it was already a reference, return it.
-    fn hoist(&mut self, idx: usize) -> Result<HeapReference, VmError> {
-        let item = self.clone_stack_item(idx)?;
-        match item {
-            HogValue::Lit(lit) => {
-                let ptr = self.heap.emplace(lit)?;
-                self.set_stack_val(idx, ptr)?;
-                Ok(ptr)
-            }
-            HogValue::Ref(ptr) => Ok(ptr),
-        }
-    }
-
-    fn set_stack_val(&mut self, idx: usize, value: impl Into<HogValue>) -> Result<(), VmError> {
-        // TODO - revisit this, idk about it
-        self.stack
-            .get_mut(idx)
-            .ok_or(VmError::StackIndexOutOfBounds)
-            .map(|v| *v = value.into())
-    }
-
-    fn truncate_stack(&mut self, new_len: usize) -> Result<(), VmError> {
-        if new_len > self.stack.len() {
-            return Err(VmError::StackIndexOutOfBounds);
-        }
-        self.stack.truncate(new_len);
-        Ok(())
-    }
-
-    fn push_stack(&mut self, value: impl Into<HogValue>) -> Result<(), VmError> {
-        if self.stack.len() >= self.context.max_stack_depth {
-            return Err(VmError::StackOverflow);
-        }
-        self.stack.push(value.into());
-        Ok(())
-    }
-
-    // TODO - we don't support function imports right now - most trivial programs don't need them,
-    // and filters are generally trivial
-    fn get_fn_reference(&self, _chain: &[HogValue]) -> Result<HogLiteral, VmError> {
-        Err(VmError::NotImplemented("imports".to_string()))
-    }
-
-    fn clone_stack_item(&self, idx: usize) -> Result<HogValue, VmError> {
-        self.stack.get(idx).cloned().ok_or(VmError::StackUnderflow)
-    }
-
-    fn prep_native_call(&self, name: String, args: Vec<HogValue>) -> StepOutcome {
-        StepOutcome::NativeCall(name, args)
-    }
-
-    // TODO - should use Write trait
+    /// Step the virtual machine, writing some debug information to the provided output function.
     pub fn debug_step(&mut self, output: &dyn Fn(String)) -> Result<StepOutcome, VmError> {
         let op: Operation = self.next()?;
         self.ip -= 1;
@@ -250,90 +125,7 @@ impl<'a> VmState<'a> {
         self.step()
     }
 
-    // Construct a hog value from a Json object. If the json object would be heap allocated
-    // as a HogValue (e.g. if it's an array or object), then it will be allocated onto the heap,
-    // and a reference will be returned. Nested json objects are flattened during allocation,
-    // such that e.g. [[1,2],[3,4]] would lead to an array of [HeapReference, HeapReference] being
-    // put into the heap, and a HeapReference being returned.
-    //
-    // This is a function on the VM, rather than being standalone, because hog values don't really
-    // exist outside of the context of a VM (and specifically a heap). It could be a function on the
-    // heap itself, though.
-    pub fn json_to_hog(&mut self, json: JsonValue) -> Result<HogValue, VmError> {
-        self.json_to_hog_impl(json, 0)
-    }
-
-    fn json_to_hog_impl(&mut self, current: JsonValue, depth: usize) -> Result<HogValue, VmError> {
-        if depth > MAX_JSON_SERDE_DEPTH {
-            return Err(VmError::RecursionLimitExceeded);
-        };
-
-        match current {
-            JsonValue::Null => Ok(HogLiteral::Null.into()),
-            JsonValue::Bool(b) => Ok(HogLiteral::Boolean(b).into()),
-            JsonValue::Number(n) => Ok(HogLiteral::Number(n.into()).into()),
-            JsonValue::String(s) => Ok(HogLiteral::String(s).into()),
-            JsonValue::Array(arr) => {
-                let mut values = Vec::new();
-                for value in arr {
-                    values.push(self.json_to_hog_impl(value, depth + 1)?);
-                }
-                let to_emplace = HogLiteral::Array(values);
-                let ptr = self.heap.emplace(to_emplace)?;
-                Ok(ptr.into())
-            }
-            JsonValue::Object(obj) => {
-                let mut map = HashMap::new();
-                for (key, value) in obj {
-                    map.insert(key, self.json_to_hog_impl(value, depth + 1)?);
-                }
-                let to_emplace = HogLiteral::Object(map);
-                let ptr = self.heap.emplace(to_emplace)?;
-                Ok(ptr.into())
-            }
-        }
-    }
-
-    // Convert back from an arbitrary HogValue to a json Value. Again, this function exists on
-    // the VM, because HogValues don't really exist in any other context.
-    pub fn hog_to_json(&self, value: &HogValue) -> Result<JsonValue, VmError> {
-        self.hog_to_json_impl(value, 0)
-    }
-
-    fn hog_to_json_impl(&self, value: &HogValue, depth: usize) -> Result<JsonValue, VmError> {
-        if depth > MAX_JSON_SERDE_DEPTH {
-            return Err(VmError::RecursionLimitExceeded);
-        };
-
-        let val = value.deref(&self.heap)?;
-        match val {
-            HogLiteral::Null => Ok(JsonValue::Null),
-            HogLiteral::Boolean(b) => Ok(JsonValue::Bool(*b)),
-            HogLiteral::Number(n) => Ok(JsonValue::Number(n.clone().try_into()?)),
-            HogLiteral::String(s) => Ok(JsonValue::String(s.clone())),
-            HogLiteral::Array(arr) => {
-                let mut json_arr = Vec::new();
-                for elem in arr {
-                    json_arr.push(self.hog_to_json_impl(elem, depth + 1)?);
-                }
-                Ok(JsonValue::Array(json_arr))
-            }
-            HogLiteral::Object(obj) => {
-                let mut map = serde_json::Map::new();
-                for (key, value) in obj {
-                    map.insert(key.clone(), self.hog_to_json_impl(value, depth + 1)?);
-                }
-                Ok(JsonValue::Object(map))
-            }
-            HogLiteral::Callable(_) => Err(VmError::NotImplemented(
-                "Callable serialisation".to_string(),
-            )),
-            HogLiteral::Closure(_) => {
-                Err(VmError::NotImplemented("Closure serialisation".to_string()))
-            }
-        }
-    }
-
+    /// Step the virtual machine one cycle.
     pub fn step(&mut self) -> Result<StepOutcome, VmError> {
         let op: Operation = self.next()?;
 
@@ -549,7 +341,7 @@ impl<'a> VmState<'a> {
                 let result = self.pop_stack()?;
                 let last_frame = self.stack_frames.pop();
                 let Some(frame) = last_frame else {
-                    return Ok(StepOutcome::Finished(result.deref(&self.heap)?.clone()));
+                    return Ok(StepOutcome::Finished(self.hog_to_json(&result)?));
                 };
 
                 // NOTE - this diverges from the TS impl
@@ -869,46 +661,234 @@ impl<'a> VmState<'a> {
 
         Ok(StepOutcome::Continue)
     }
+
+    // Returns the first stack item in this call frames scope
+    fn current_frame_base(&self) -> usize {
+        if self.stack_frames.is_empty() {
+            0
+        } else {
+            self.stack_frames[self.stack_frames.len() - 1].stack_start
+        }
+    }
+
+    // Returns a ptr to the captured value in this frames scope, if there is one,
+    // or an error if the index is out of bounds
+    fn get_capture(&self, index: usize) -> Result<HeapReference, VmError> {
+        let Some(frame) = self.stack_frames.last() else {
+            return Err(VmError::NoFrame);
+        };
+        frame
+            .captures
+            .get(index)
+            .cloned()
+            .ok_or(VmError::CaptureOutOfBounds(index))
+    }
+
+    // Changes the location on the heap a capture points to, as distinct from changing the
+    // value on the heap the capture points to. Think of this like storing a new pointer into
+    // a variable name, vs. writing a new value into the variable itself
+    fn set_capture(&mut self, index: usize, value: HeapReference) -> Result<(), VmError> {
+        let Some(frame) = self.stack_frames.last_mut() else {
+            return Err(VmError::NoFrame);
+        };
+        frame
+            .captures
+            .get_mut(index)
+            .ok_or(VmError::CaptureOutOfBounds(index))
+            .map(|capture| *capture = value)
+    }
+
+    fn next<T>(&mut self) -> Result<T, VmError>
+    where
+        T: DeserializeOwned + Any,
+    {
+        let Some(next) = self.context.bytecode.get(self.ip) else {
+            return Err(VmError::EndOfProgram(self.ip));
+        };
+
+        self.ip += 1;
+
+        let next_type_name = next_type_name(next);
+        let expected = std::any::type_name::<T>();
+
+        serde_json::from_value(next.clone())
+            .map_err(|_| VmError::InvalidValue(next_type_name, expected.to_string()))
+    }
+
+    fn pop_stack(&mut self) -> Result<HogValue, VmError> {
+        if self.stack.len() <= self.current_frame_base() {
+            return Err(VmError::StackUnderflow);
+        }
+        self.stack.pop().ok_or(VmError::StackUnderflow)
+    }
+
+    // As above, but with a handy pointer chase and a cast/unwrap. Necessarily clones
+    // if the stack item was a reference.
+    fn pop_stack_as<T>(&mut self) -> Result<T, VmError>
+    where
+        T: FromHogLiteral,
+    {
+        match self.pop_stack()? {
+            HogValue::Lit(lit) => lit.try_into(), // Purely an optimisation to skip a clone
+            other => other.deref(&self.heap)?.clone().try_into(),
+        }
+    }
+
+    // Move a value from the stack onto the heap, replacing it with a reference to the heap value,
+    // and returning a reference to it. If it was already a reference, return it.
+    fn hoist(&mut self, idx: usize) -> Result<HeapReference, VmError> {
+        let item = self.clone_stack_item(idx)?;
+        match item {
+            HogValue::Lit(lit) => {
+                let ptr = self.heap.emplace(lit)?;
+                self.set_stack_val(idx, ptr)?;
+                Ok(ptr)
+            }
+            HogValue::Ref(ptr) => Ok(ptr),
+        }
+    }
+
+    fn set_stack_val(&mut self, idx: usize, value: impl Into<HogValue>) -> Result<(), VmError> {
+        // TODO - revisit this, idk about it
+        self.stack
+            .get_mut(idx)
+            .ok_or(VmError::StackIndexOutOfBounds)
+            .map(|v| *v = value.into())
+    }
+
+    fn truncate_stack(&mut self, new_len: usize) -> Result<(), VmError> {
+        if new_len > self.stack.len() {
+            return Err(VmError::StackIndexOutOfBounds);
+        }
+        self.stack.truncate(new_len);
+        Ok(())
+    }
+
+    fn push_stack(&mut self, value: impl Into<HogValue>) -> Result<(), VmError> {
+        if self.stack.len() >= self.context.max_stack_depth {
+            return Err(VmError::StackOverflow);
+        }
+        self.stack.push(value.into());
+        Ok(())
+    }
+
+    // TODO - we don't support function imports right now - most trivial programs don't need them,
+    // and filters are generally trivial
+    fn get_fn_reference(&self, _chain: &[HogValue]) -> Result<HogLiteral, VmError> {
+        Err(VmError::NotImplemented("imports".to_string()))
+    }
+
+    fn clone_stack_item(&self, idx: usize) -> Result<HogValue, VmError> {
+        self.stack.get(idx).cloned().ok_or(VmError::StackUnderflow)
+    }
+
+    fn prep_native_call(&self, name: String, args: Vec<HogValue>) -> StepOutcome {
+        StepOutcome::NativeCall(name, args)
+    }
+
+    // Construct a hog value from a Json object. If the json object would be heap allocated
+    // as a HogValue (e.g. if it's an array or object), then it will be allocated onto the heap,
+    // and a reference will be returned. Nested json objects are flattened during allocation,
+    // such that e.g. [[1,2],[3,4]] would lead to an array of [HeapReference, HeapReference] being
+    // put into the heap, and a HeapReference being returned.
+    //
+    // This is a function on the VM, rather than being standalone, because hog values don't really
+    // exist outside of the context of a VM (and specifically a heap). It could be a function on the
+    // heap itself, though.
+    fn json_to_hog(&mut self, json: JsonValue) -> Result<HogValue, VmError> {
+        self.json_to_hog_impl(json, 0)
+    }
+
+    fn json_to_hog_impl(&mut self, current: JsonValue, depth: usize) -> Result<HogValue, VmError> {
+        if depth > MAX_JSON_SERDE_DEPTH {
+            return Err(VmError::OutOfResource(
+                "json->hog deserialization depth".to_string(),
+            ));
+        };
+
+        match current {
+            JsonValue::Null => Ok(HogLiteral::Null.into()),
+            JsonValue::Bool(b) => Ok(HogLiteral::Boolean(b).into()),
+            JsonValue::Number(n) => Ok(HogLiteral::Number(n.into()).into()),
+            JsonValue::String(s) => Ok(HogLiteral::String(s).into()),
+            JsonValue::Array(arr) => {
+                let mut values = Vec::new();
+                for value in arr {
+                    values.push(self.json_to_hog_impl(value, depth + 1)?);
+                }
+                let to_emplace = HogLiteral::Array(values);
+                let ptr = self.heap.emplace(to_emplace)?;
+                Ok(ptr.into())
+            }
+            JsonValue::Object(obj) => {
+                let mut map = HashMap::new();
+                for (key, value) in obj {
+                    map.insert(key, self.json_to_hog_impl(value, depth + 1)?);
+                }
+                let to_emplace = HogLiteral::Object(map);
+                let ptr = self.heap.emplace(to_emplace)?;
+                Ok(ptr.into())
+            }
+        }
+    }
+
+    // Convert back from an arbitrary HogValue to a json Value. Again, this function exists on
+    // the VM, because HogValues don't really exist in any other context.
+    fn hog_to_json(&self, value: &HogValue) -> Result<JsonValue, VmError> {
+        self.hog_to_json_impl(value, 0)
+    }
+
+    fn hog_to_json_impl(&self, value: &HogValue, depth: usize) -> Result<JsonValue, VmError> {
+        if depth > MAX_JSON_SERDE_DEPTH {
+            return Err(VmError::OutOfResource(
+                "hog->json serialization depth".to_string(),
+            ));
+        };
+
+        let val = value.deref(&self.heap)?;
+        match val {
+            HogLiteral::Null => Ok(JsonValue::Null),
+            HogLiteral::Boolean(b) => Ok(JsonValue::Bool(*b)),
+            HogLiteral::Number(n) => Ok(JsonValue::Number(n.clone().try_into()?)),
+            HogLiteral::String(s) => Ok(JsonValue::String(s.clone())),
+            HogLiteral::Array(arr) => {
+                let mut json_arr = Vec::new();
+                for elem in arr {
+                    json_arr.push(self.hog_to_json_impl(elem, depth + 1)?);
+                }
+                Ok(JsonValue::Array(json_arr))
+            }
+            HogLiteral::Object(obj) => {
+                let mut map = serde_json::Map::new();
+                for (key, value) in obj {
+                    map.insert(key.clone(), self.hog_to_json_impl(value, depth + 1)?);
+                }
+                Ok(JsonValue::Object(map))
+            }
+            HogLiteral::Callable(_) => Err(VmError::NotImplemented(
+                "Callable serialisation".to_string(),
+            )),
+            HogLiteral::Closure(_) => {
+                Err(VmError::NotImplemented("Closure serialisation".to_string()))
+            }
+        }
+    }
 }
 
-#[derive(Debug, Clone)]
-pub struct VmFailure {
-    pub error: VmError,
-    pub ip: usize,
-    pub stack: Vec<HogValue>,
-    pub step: usize,
-}
-
-pub fn sync_execute(
-    bytecode: &[JsonValue],
-    max_steps: usize,
-    stl_extensions: HashMap<String, NativeFunction>,
-    debug: bool,
-) -> Result<HogLiteral, VmFailure> {
-    let context = ExecutionContext {
-        bytecode,
-        globals: serde_json::json!({}),
-        max_stack_depth: 1024,
-        max_heap_size: 1024 * 1024,
-    };
-
-    let mut native_fns: HashMap<String, NativeFunction> =
-        stl().iter().map(|(a, b)| (a.to_string(), *b)).collect();
-
-    native_fns.extend(stl_extensions);
-
-    let fail = |e, vm: Option<&VmState>, step: usize| VmFailure {
+// Helper function to simply run a program until it either finishes or returns an error
+pub fn sync_execute(context: &ExecutionContext, print_debug: bool) -> Result<JsonValue, VmFailure> {
+    let fail = |e, vm: Option<&HogVM>, step: usize| VmFailure {
         error: e,
         ip: vm.map_or(0, |vm| vm.ip),
         stack: vm.map_or(Vec::new(), |vm| vm.stack.clone()),
         step,
     };
 
-    let mut vm = VmState::new(&context).map_err(|e| fail(e, None, 0))?;
+    let mut vm = HogVM::new(context).map_err(|e| fail(e, None, 0))?;
 
     let mut i = 0;
-    while i < max_steps {
-        let res = if debug {
+    while i < context.max_steps {
+        let res = if print_debug {
             vm.debug_step(&|s| println!("{}", s))
                 .map_err(|e| fail(e, Some(&vm), i))?
         } else {
@@ -919,7 +899,7 @@ pub fn sync_execute(
             StepOutcome::Continue => {}
             StepOutcome::Finished(res) => return Ok(res),
             StepOutcome::NativeCall(name, args) => {
-                let Some(native_fn) = native_fns.get(&name) else {
+                let Some(native_fn) = context.native_fns.get(&name) else {
                     return Err(fail(VmError::UnknownFunction(name), Some(&vm), i));
                 };
                 let result = native_fn(&vm, args);
@@ -948,4 +928,15 @@ pub fn sync_execute(
     let err = VmError::OutOfResource("steps".to_string());
 
     Err(fail(err, Some(&vm), i))
+}
+
+fn next_type_name(next: &JsonValue) -> String {
+    match next {
+        JsonValue::Null => "null".to_string(),
+        JsonValue::Bool(_) => "bool".to_string(),
+        JsonValue::Number(_) => "number".to_string(),
+        JsonValue::String(_) => "string".to_string(),
+        JsonValue::Array(_) => "array".to_string(),
+        JsonValue::Object(_) => "object".to_string(),
+    }
 }

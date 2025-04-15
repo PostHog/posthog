@@ -16,15 +16,17 @@ pub struct HeapReference {
 pub struct VmHeap {
     inner: Vec<HeapValue>,
     // TODO - we never actually free heap allocations, because we don't do reference counting anywhere. We could
-    // improve this.
+    // improve this. Right now our heap is append-only
     freed: Vec<HeapReference>, // Indices of freed heap values, for reuse
 
-    pub current_bytes: usize,
+    pub(crate) current_bytes: usize, // Pub: the vm occasionally directly writes to this
     max_bytes: usize,
 }
 
+/// All heap functions are pub(crate) for now, because function authors should never use them directly,
+/// going through either the VM or the `HogValue` interface instead
 impl VmHeap {
-    pub fn new(max_bytes: usize) -> Self {
+    pub(crate) fn new(max_bytes: usize) -> Self {
         Self {
             inner: Vec::new(),
             freed: Vec::new(),
@@ -33,15 +35,15 @@ impl VmHeap {
         }
     }
 
-    pub fn assert_can_allocate(&self, new_bytes: usize) -> Result<(), VmError> {
+    fn assert_can_allocate(&self, new_bytes: usize) -> Result<(), VmError> {
         if self.current_bytes.saturating_add(new_bytes) > self.max_bytes {
-            Err(VmError::OutOfMemory)
+            Err(VmError::OutOfResource("Heap Memory".to_string()))
         } else {
             Ok(())
         }
     }
 
-    pub fn emplace(&mut self, value: HogLiteral) -> Result<HeapReference, VmError> {
+    pub(crate) fn emplace(&mut self, value: HogLiteral) -> Result<HeapReference, VmError> {
         self.assert_can_allocate(value.size())?;
 
         let (next_idx, next_epoch) = match self.freed.pop() {
@@ -69,29 +71,7 @@ impl VmHeap {
         })
     }
 
-    pub fn free(&mut self, ptr: HeapReference) -> Result<(), VmError> {
-        if self.inner.len() < ptr.idx {
-            return Err(VmError::HeapIndexOutOfBounds);
-        }
-
-        let to_free = &mut self.inner[ptr.idx];
-
-        if to_free.epoch != ptr.epoch {
-            return Err(VmError::UseAfterFree);
-        }
-
-        self.current_bytes = self.current_bytes.saturating_sub(to_free.value.size());
-
-        // All existing references to this value are now invalid, and any use of them will result in a UseAfterFree error.
-        to_free.epoch += 1;
-        to_free.value = HogLiteral::Null;
-
-        // This slot's now available for reuse.
-        self.freed.push(ptr);
-        Ok(())
-    }
-
-    pub fn get(&self, ptr: HeapReference) -> Result<&HogLiteral, VmError> {
+    pub(crate) fn get(&self, ptr: HeapReference) -> Result<&HogLiteral, VmError> {
         if self.inner.len() < ptr.idx {
             return Err(VmError::HeapIndexOutOfBounds);
         }
@@ -108,7 +88,7 @@ impl VmHeap {
     // NOTE - accessing mutable references to heap values bypasses size counts, which can let
     // us allocate more than the strict limit. We assert the limits in places we use get_mut,
     // by calling assert_can_allocate above
-    pub fn get_mut(&mut self, ptr: HeapReference) -> Result<&mut HogLiteral, VmError> {
+    pub(crate) fn get_mut(&mut self, ptr: HeapReference) -> Result<&mut HogLiteral, VmError> {
         if self.inner.len() < ptr.idx {
             return Err(VmError::HeapIndexOutOfBounds);
         }
@@ -120,34 +100,5 @@ impl VmHeap {
         }
 
         Ok(&mut to_load.value)
-    }
-
-    pub fn clone(&self, ptr: HeapReference) -> Result<HogLiteral, VmError> {
-        self.get(ptr).cloned()
-    }
-
-    pub fn replace(&mut self, ptr: HeapReference, value: HogLiteral) -> Result<(), VmError> {
-        if self.inner.len() < ptr.idx {
-            return Err(VmError::HeapIndexOutOfBounds);
-        }
-
-        let byte_change = value
-            .size()
-            .saturating_sub(self.inner[ptr.idx].value.size()); // 0, if the new value is smaller than the old one
-        self.assert_can_allocate(byte_change)?;
-
-        let to_store = &mut self.inner[ptr.idx];
-
-        if to_store.epoch != ptr.epoch {
-            return Err(VmError::UseAfterFree);
-        }
-
-        self.current_bytes = self
-            .current_bytes
-            .saturating_sub(to_store.value.size())
-            .saturating_add(value.size());
-
-        to_store.value = value;
-        Ok(())
     }
 }

@@ -4,7 +4,7 @@ use serde_json::Value;
 use crate::{
     error::VmError,
     values::{HogValue, Num},
-    vm::VmState,
+    vm::HogVM,
 };
 
 pub fn like(
@@ -71,7 +71,7 @@ fn like_to_regex(pattern: &str) -> String {
 pub fn get_json_nested(
     haystack: &Value,
     mut chain: &[HogValue],
-    vm: &VmState,
+    vm: &HogVM,
 ) -> Result<Option<Value>, VmError> {
     let mut current = Some(haystack);
 

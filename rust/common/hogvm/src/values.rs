@@ -12,11 +12,6 @@ pub enum Num {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum CallableType {
-    Local,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub enum Callable {
     Local(LocalCallable),
 }

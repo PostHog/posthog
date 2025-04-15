@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use hogvm::{stl::NativeFunction, values::HogLiteral, vm::sync_execute};
-use serde_json::Value;
+use hogvm::{sync_execute, ExecutionContext, HogLiteral, NativeFunction};
+use serde_json::{json, Value};
 
 const fn stl_test_extensions() -> &'static [(&'static str, NativeFunction)] {
     &[
@@ -36,6 +36,7 @@ const fn stl_test_extensions() -> &'static [(&'static str, NativeFunction)] {
     ]
 }
 
+// This could maybe be moved to the stl module, it seems useful
 fn to_extension(ext: &'static [(&'static str, NativeFunction)]) -> HashMap<String, NativeFunction> {
     ext.iter().map(|(a, b)| (a.to_string(), *b)).collect()
 }
@@ -61,6 +62,20 @@ fn load_test_programs() -> Vec<(String, String)> {
     res
 }
 
+pub fn test_globals() -> Value {
+    json!({
+        "test": "value",
+        "an_array": [1, 2, 3],
+        "a_string": "Hello, World!",
+        "a_number": 42,
+        "a_boolean": true,
+        "a_null": null,
+        "a_nested_object": {
+            "nested_key": "nested_value"
+        }
+    })
+}
+
 #[test]
 pub fn test_vm() {
     let programs = load_test_programs();
@@ -68,9 +83,12 @@ pub fn test_vm() {
         let (name, code) = program;
         println!("Running: {}", name);
         let parsed: Vec<Value> = serde_json::from_str(&code).unwrap();
-        let res = sync_execute(&parsed, 10000, to_extension(stl_test_extensions()), false);
+        let ctx = ExecutionContext::with_defaults(&parsed)
+            .with_ext_fns(to_extension(stl_test_extensions()))
+            .with_globals(test_globals());
+        let res = sync_execute(&ctx, false);
         println!("{:?}", res);
         assert!(res.is_ok());
-        assert!(matches!(res, Ok(HogLiteral::Boolean(true))))
+        assert!(matches!(res, Ok(Value::Bool(true))))
     }
 }

@@ -1,15 +1,21 @@
+use std::collections::HashMap;
+
 use crate::{
     error::VmError,
     memory::VmHeap,
     values::{HogLiteral, HogValue, Num},
-    vm::VmState,
+    vm::HogVM,
 };
 
 pub const TO_STRING_RECURSION_LIMIT: usize = 32;
 
 // A "native function" is a function that can be called from within the VM. It takes a list
 // of arguments, and returns either a value, or null. It's pure (cannot modify the VM state).
-pub type NativeFunction = fn(&VmState, Vec<HogValue>) -> Result<HogValue, VmError>;
+pub type NativeFunction = fn(&HogVM, Vec<HogValue>) -> Result<HogValue, VmError>;
+
+pub fn stl_map() -> HashMap<String, NativeFunction> {
+    stl().iter().map(|(a, b)| (a.to_string(), *b)).collect()
+}
 
 pub const fn stl() -> &'static [(&'static str, NativeFunction)] {
     &[
