@@ -141,9 +141,7 @@ const ExceptionContent = (): JSX.Element => {
             <PanelLayout.Panel primary={false}>
                 <StacktraceDisplay />
             </PanelLayout.Panel>
-            <PanelLayout.Panel primary={false}>
-                <RecordingPlayer />
-            </PanelLayout.Panel>
+            <RecordingPlayer />
         </PanelLayout>
     )
 }

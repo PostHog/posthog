@@ -4,6 +4,7 @@ import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { dayjs } from 'lib/dayjs'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -14,6 +15,8 @@ import { pluralize } from 'lib/utils'
 import { AutocaptureImageTab, autocaptureToImage } from 'lib/utils/event-property-utls'
 import { ConversationDisplay } from 'products/llm_observability/frontend/ConversationDisplay/ConversationDisplay'
 import { useState } from 'react'
+import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
+import { SessionRecordingPlayerLogicProps } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
 import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
@@ -182,6 +185,29 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                     />
                 </div>
             ),
+        })
+    }
+
+    if (mightHaveRecording(event.properties)) {
+        const logicProps: SessionRecordingPlayerLogicProps = {
+            playerKey: 'eventDetail',
+            sessionRecordingId: event.properties['$session_id'],
+            autoPlay: true,
+            matchingEventsMatchType: {
+                matchType: 'uuid',
+                eventUUIDs: [event.id],
+            },
+        }
+
+        // TODO: fix height
+        tabs.push({
+            key: 'recording',
+            content: (
+                <div className="min-h-[26rem]">
+                    <SessionRecordingPlayer {...logicProps} noMeta noBorder />
+                </div>
+            ),
+            label: 'Recording',
         })
     }
 
