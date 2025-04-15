@@ -78,7 +78,8 @@ body[theme=light] {
     --secondary-3000-button-border-hover: #d40b76;
 }`
 
-const LUMON_THEME = /* === Import Input Sans Font from Google Fonts === */
+const LUMON_THEME = `
+/* === Import Input Sans Font from Google Fonts === */
 @import url('https://fonts.googleapis.com/css2?family=Input+Sans:wght@300;400;500;600&display=swap');
 
 /* === Override default variables === */
