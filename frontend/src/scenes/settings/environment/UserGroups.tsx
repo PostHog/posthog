@@ -25,7 +25,7 @@ export const UserGroups = (): JSX.Element => {
 
     const columns: LemonTableColumns<UserGroup> = [
         {
-            title: 'Team',
+            title: 'Group',
             dataIndex: 'name',
             key: 'name',
             width: 0,

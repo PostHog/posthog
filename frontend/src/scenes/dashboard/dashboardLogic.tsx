@@ -111,6 +111,15 @@ export interface RefreshStatus {
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
 
+/**
+ * Run a set of tasks **in order** with a limit on the number of concurrent tasks.
+ * Important to be in order so that we poll dashboard insights in the
+ * same order as they are calculated on the backend.
+ *
+ * @param tasks - An array of functions that return promises.
+ * @param limit - The maximum number of concurrent tasks.
+ * @returns A promise that resolves to an array of results from the tasks.
+ */
 async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number): Promise<T[]> {
     const results: T[] = []
     const activePromises: Set<Promise<void>> = new Set()
@@ -292,6 +301,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             allVariables: values.variables,
             isNull,
         }),
+        setLoadLayoutFromServerOnPreview: (loadLayoutFromServerOnPreview: boolean) => ({
+            loadLayoutFromServerOnPreview,
+        }),
 
         resetVariables: () => ({ variables: values.insightVariables }),
         resetDashboardFilters: () => true,
@@ -321,7 +333,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         // don't update dashboard tile layouts if we're previewing
                         // we want to retain what the user has temporarily set
-                        if (action === 'preview' && dashboard) {
+                        if (action === 'preview' && dashboard && !values.loadLayoutFromServerOnPreview) {
                             const editModeTileLayouts: Record<number, DashboardTile['layouts']> = {}
                             values.dashboard?.tiles.forEach((tile: DashboardTile<QueryBasedInsightModel>) => {
                                 editModeTileLayouts[tile.id] = tile.layouts
@@ -824,6 +836,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setDashboardMode: (_, { mode }) => mode,
             },
         ],
+        loadLayoutFromServerOnPreview: [
+            false,
+            {
+                setLoadLayoutFromServerOnPreview: (_, { loadLayoutFromServerOnPreview }) =>
+                    loadLayoutFromServerOnPreview,
+            },
+        ],
         autoRefresh: [
             {
                 interval: AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
@@ -1194,24 +1213,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     : null
             },
         ],
-
-        sortTilesByLayout: [
-            (s) => [s.layoutForItem],
-            (layoutForItem) => (tiles: Array<DashboardTile>) => {
-                return [...tiles].sort((a: DashboardTile, b: DashboardTile) => {
-                    const ax = layoutForItem[a.id]?.x ?? 0
-                    const ay = layoutForItem[a.id]?.y ?? 0
-                    const bx = layoutForItem[b.id]?.x ?? 0
-                    const by = layoutForItem[b.id]?.y ?? 0
-                    if (ay < by || (ay == by && ax < bx)) {
-                        return -1
-                    } else if (ay > by || (ay == by && ax > bx)) {
-                        return 1
-                    }
-                    return 0
-                })
-            },
-        ],
         dataColorTheme: [
             (s) => [s.dataColorThemeId, s.getTheme],
             (dataColorThemeId, getTheme): DataColorTheme | null => getTheme(dataColorThemeId),
@@ -1383,14 +1384,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return true
                     }
                 })
-                // sort tiles by layout to ensure insights are computed in order of appearance on dashboard
-                .sort((a, b) => {
-                    const ay = a.layouts?.xs?.y ?? 0
-                    const ax = a.layouts?.xs?.x ?? 0
-                    const by = b.layouts?.xs?.y ?? 0
-                    const bx = b.layouts?.xs?.x ?? 0
-                    return ay !== by ? ay - by : ax - bx
-                })
+                // sort tiles so we poll them in the exact order they are computed on the backend
+                .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
                 .map((t) => t.insight)
                 .filter((i): i is QueryBasedInsightModel => !!i)
 
@@ -1514,7 +1509,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             })
 
-            await runWithLimit(fetchItemFunctions, 2)
+            await runWithLimit(fetchItemFunctions, 1)
 
             eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.newestRefreshed)
         },

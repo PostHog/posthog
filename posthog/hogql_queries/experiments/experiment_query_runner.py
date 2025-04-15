@@ -29,6 +29,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
 from posthog.hogql_queries.experiments.base_query_utils import (
+    conversion_window_to_seconds,
     event_or_action_to_filter,
     get_data_warehouse_metric_source,
     get_metric_value,
@@ -119,7 +120,7 @@ class ExperimentQueryRunner(QueryRunner):
         )
 
     def _get_metric_time_window(self, left: ast.Expr) -> list[ast.CompareOperation]:
-        if self.metric.time_window_hours:
+        if self.metric.conversion_window is not None and self.metric.conversion_window_unit is not None:
             # Define conversion window as hours after exposure
             time_window_clause = ast.CompareOperation(
                 left=left,
@@ -127,7 +128,16 @@ class ExperimentQueryRunner(QueryRunner):
                     name="plus",
                     args=[
                         ast.Field(chain=["exposure_data", "first_exposure_time"]),
-                        ast.Call(name="toIntervalHour", args=[ast.Constant(value=self.metric.time_window_hours)]),
+                        ast.Call(
+                            name="toIntervalSecond",
+                            args=[
+                                ast.Constant(
+                                    value=conversion_window_to_seconds(
+                                        self.metric.conversion_window, self.metric.conversion_window_unit
+                                    )
+                                ),
+                            ],
+                        ),
                     ],
                 ),
                 op=ast.CompareOperationOp.Lt,
@@ -222,7 +232,8 @@ class ExperimentQueryRunner(QueryRunner):
             if exposure_config.get("properties"):
                 for property in exposure_config.get("properties"):
                     exposure_property_filters.append(property_to_expr(property, self.team))
-            exposure_conditions.append(ast.And(exprs=exposure_property_filters))
+            if exposure_property_filters:
+                exposure_conditions.append(ast.And(exprs=exposure_property_filters))
 
         # For the $feature_flag_called events, we need an additional filter to ensure the event is for the correct feature flag
         if event == "$feature_flag_called":
@@ -463,6 +474,58 @@ class ExperimentQueryRunner(QueryRunner):
             ],
         )
 
+    def _get_winsorized_metric_values_query(self, metric_events_query: ast.SelectQuery) -> ast.SelectQuery:
+        """
+        Returns the query to winsorize metric values
+        One row per entity where the value is winsorized to the lower and upper bounds
+        Columns: variant, entity_id, value (winsorized metric values)
+        """
+
+        if not isinstance(self.metric, ExperimentMeanMetric):
+            return metric_events_query
+
+        if self.metric.lower_bound_percentile is not None:
+            lower_bound_expr = parse_expr(
+                "quantile({level})(value)",
+                placeholders={"level": ast.Constant(value=self.metric.lower_bound_percentile)},
+            )
+        else:
+            lower_bound_expr = parse_expr("min(value)")
+
+        if self.metric.upper_bound_percentile is not None:
+            upper_bound_expr = parse_expr(
+                "quantile({level})(value)",
+                placeholders={"level": ast.Constant(value=self.metric.upper_bound_percentile)},
+            )
+        else:
+            upper_bound_expr = parse_expr("max(value)")
+
+        percentiles = ast.SelectQuery(
+            select=[
+                ast.Alias(alias="lower_bound", expr=lower_bound_expr),
+                ast.Alias(alias="upper_bound", expr=upper_bound_expr),
+            ],
+            select_from=ast.JoinExpr(table=metric_events_query, alias="metric_events"),
+        )
+
+        return ast.SelectQuery(
+            select=[
+                ast.Field(chain=["metric_events", "variant"]),
+                ast.Field(chain=["metric_events", "entity_id"]),
+                ast.Alias(
+                    expr=parse_expr(
+                        "least(greatest(percentiles.lower_bound, metric_events.value), percentiles.upper_bound)"
+                    ),
+                    alias="value",
+                ),
+            ],
+            select_from=ast.JoinExpr(
+                table=metric_events_query,
+                alias="metric_events",
+                next_join=ast.JoinExpr(table=percentiles, alias="percentiles", join_type="CROSS JOIN"),
+            ),
+        )
+
     def _get_experiment_variant_results_query(
         self, metrics_aggregated_per_entity_query: ast.SelectQuery
     ) -> ast.SelectQuery:
@@ -493,6 +556,14 @@ class ExperimentQueryRunner(QueryRunner):
         metrics_aggregated_per_entity_query = self._get_metrics_aggregated_per_entity_query(
             exposure_query, metric_events_query
         )
+
+        # Get the winsorized metric values if configured
+        if isinstance(self.metric, ExperimentMeanMetric) and (
+            self.metric.lower_bound_percentile or self.metric.upper_bound_percentile
+        ):
+            metrics_aggregated_per_entity_query = self._get_winsorized_metric_values_query(
+                metrics_aggregated_per_entity_query
+            )
 
         # Get the final results for each variant
         experiment_variant_results_query = self._get_experiment_variant_results_query(

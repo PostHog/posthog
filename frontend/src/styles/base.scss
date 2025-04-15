@@ -592,6 +592,7 @@
     --z-raised: 5;
 
     // Elements
+    --side-panel-bar-width: 3rem;
     --project-navbar-width: 250px;
     --project-navbar-width-collapsed: 45px;
     --project-panel-width: 320px;
@@ -1528,6 +1529,30 @@
 
     .animate-float {
         animation: float 3s infinite ease-in-out;
+    }
+
+    // Primitive classes
+
+    // Used for ui/dropdown-menu and ui/context-menu
+    .primitive-menu-content {
+        z-index: var(--z-popover);
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        min-width: 8rem;
+        max-width: 200px;
+        max-height: calc(90vh - 100px);
+        overflow: hidden;
+        color: var(--text-primary);
+        background-color: var(--bg-surface-primary);
+        border: 1px solid var(--border-secondary);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow);
+    }
+
+    .primitive-menu-content-inner {
+        max-height: calc(90vh - 100px);
+        padding: var(--spacing);
     }
 
     // Highlight background blink

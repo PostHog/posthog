@@ -280,6 +280,7 @@ class Team(UUIDClassicModel):
     session_recording_event_trigger_config = ArrayField(
         models.TextField(null=True, blank=True), default=list, blank=True, null=True
     )
+    session_recording_trigger_match_type_config = models.CharField(null=True, blank=True, max_length=24)
     session_replay_config = models.JSONField(null=True, blank=True)
     survey_config = models.JSONField(null=True, blank=True)
     capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)

@@ -252,6 +252,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         signatures=[
             ((IntegerType(),), IntegerType()),
             ((FloatType(),), FloatType()),
+            ((DecimalType(),), DecimalType()),
         ],
     ),
     "abs": HogQLFunctionMeta(

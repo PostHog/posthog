@@ -1,6 +1,6 @@
 use crate::api::errors::FlagError;
 use crate::client::database::Client as DatabaseClient;
-use crate::cohort::cohort_models::CohortId;
+use crate::cohorts::cohort_models::CohortId;
 use crate::flags::flag_models::*;
 use crate::properties::property_models::PropertyFilter;
 use common_redis::Client as RedisClient;
@@ -68,8 +68,6 @@ impl FeatureFlagList {
         let flags_list: Vec<FeatureFlag> =
             serde_json::from_str(&serialized_flags).map_err(|e| {
                 tracing::error!("failed to parse data to flags list: {}", e);
-                println!("failed to parse data: {}", e);
-
                 FlagError::RedisDataParsingError
             })?;
 

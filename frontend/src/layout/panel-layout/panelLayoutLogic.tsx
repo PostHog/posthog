@@ -1,5 +1,5 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { LemonTreeRef, TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
@@ -26,6 +26,8 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         setPanelTreeRef: (ref: PanelLayoutTreeRef) => ({ ref }),
         setMainContentRef: (ref: PanelLayoutMainContentRef) => ({ ref }),
         toggleLayoutNavCollapsed: (override?: boolean) => ({ override }),
+        setVisibleSideAction: (sideAction: string) => ({ sideAction }),
+        setProjectTreeMode: (mode: TreeMode) => ({ mode }),
     }),
     reducers({
         isLayoutNavbarVisibleForDesktop: [
@@ -104,6 +106,18 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             { persist: true },
             {
                 toggleLayoutNavCollapsed: (state, { override }) => override ?? !state,
+            },
+        ],
+        visibleSideAction: [
+            '',
+            {
+                setVisibleSideAction: (_, { sideAction }) => sideAction,
+            },
+        ],
+        projectTreeMode: [
+            'tree' as TreeMode,
+            {
+                setProjectTreeMode: (_, { mode }) => mode,
             },
         ],
     }),

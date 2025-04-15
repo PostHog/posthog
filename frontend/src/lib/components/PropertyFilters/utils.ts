@@ -1,5 +1,4 @@
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
 import {
     allOperatorsMapping,
     capitalizeFirstLetter,
@@ -11,6 +10,7 @@ import {
 import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
     AnyFilterLike,
     AnyPropertyFilter,

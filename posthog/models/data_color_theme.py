@@ -1,9 +1,10 @@
 from django.db import models
 
 from posthog.models.team import Team
+from posthog.models.utils import RootTeamMixin
 
 
-class DataColorTheme(models.Model):
+class DataColorTheme(RootTeamMixin, models.Model):
     team = models.ForeignKey(Team, on_delete=models.CASCADE, null=True, blank=True)
     project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True, blank=True)
 
