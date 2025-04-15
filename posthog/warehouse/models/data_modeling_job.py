@@ -8,6 +8,7 @@ class DataModelingJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         RUNNING = "Running", "Running"
         COMPLETED = "Completed", "Completed"
         FAILED = "Failed", "Failed"
+        CANCELLED = "Cancelled", "Cancelled"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.SET_NULL, null=True)
     saved_query = models.ForeignKey("posthog.DataWarehouseSavedQuery", on_delete=models.SET_NULL, null=True)

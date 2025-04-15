@@ -73,6 +73,12 @@ class EmptyHogQLResponseColumnsError(Exception):
         super().__init__("After running a HogQL query, no columns where returned")
 
 
+class DataModelingCancelledException(Exception):
+    """Exception raised when a data modeling job is cancelled."""
+
+    pass
+
+
 @dataclasses.dataclass(frozen=True)
 class ModelNode:
     """A node representing a model in a DAG.
@@ -190,7 +196,6 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
     async with Heartbeater():
         while True:
             message = await queue.get()
-
             match message:
                 case QueueMessage(status=ModelStatus.READY, label=label):
                     model = inputs.dag[label]
@@ -289,8 +294,11 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
 
             saved_query = await get_saved_query(team, model.label)
             job = await start_job_modeling_run(team, workflow_id, workflow_run_id, saved_query)
-
-            key, delta_table, job_id = await materialize_model(model.label, team, saved_query, job)
+            try:
+                key, delta_table, job_id = await materialize_model(model.label, team, saved_query, job)
+            except DataModelingCancelledException:
+                # don't do anything, just continue
+                pass
     except CHQueryErrorMemoryLimitExceeded as err:
         await handle_error(job, model, queue, err, "Memory limit exceeded for model %s: %s")
     except CannotCoerceColumnException as err:
@@ -415,11 +423,16 @@ async def materialize_model(
             raise CannotCoerceColumnException(f"Type coercion error in model {model_label}: {error_message}") from e
         else:
             saved_query.latest_error = f"Failed to materialize model {model_label}"
+            error_message = "Your query failed to materialize. If this query ran for a long time, try optimizing it."
             await database_sync_to_async(saved_query.save)()
+            await mark_job_as_failed(job, error_message)
             raise Exception(f"Failed to materialize model {model_label}: {error_message}") from e
 
-    tables = get_delta_tables(pipeline)
+    data_modeling_job = await database_sync_to_async(DataModelingJob.objects.get)(id=job.id)
+    if data_modeling_job.status == DataModelingJob.Status.CANCELLED:
+        raise DataModelingCancelledException("Data modeling run was cancelled")
 
+    tables = get_delta_tables(pipeline)
     for table in tables.values():
         table.optimize.compact()
         table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False)
