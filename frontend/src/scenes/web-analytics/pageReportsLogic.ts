@@ -199,6 +199,44 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     return query
                 }
 
+                // Enforcing the type to be QuerySchema so we can build it in a type-safe way
+                const getTopEventsQuery = (): QuerySchema | undefined => ({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: null,
+                                name: 'All events',
+                                math: BaseMathType.TotalCount,
+                            },
+                        ],
+                        trendsFilter: {},
+                        breakdownFilter: {
+                            breakdowns: [
+                                {
+                                    property: 'event',
+                                    type: 'event_metadata',
+                                },
+                            ],
+                        },
+                        properties: [
+                            ...(pageUrl ? [createUrlPropertyFilter(pageUrl, stripQueryParams)] : []),
+                            {
+                                key: 'event',
+                                value: ['$pageview', '$pageleave'],
+                                operator: PropertyOperator.IsNot,
+                                type: PropertyFilterType.EventMetadata,
+                            },
+                        ],
+                        filterTestAccounts: shouldFilterTestAccounts,
+                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                    },
+                    embedded: true,
+                    hidePersonsModal: true,
+                })
+
                 return {
                     // Path queries
                     entryPathsQuery: getQuery(TileId.PATHS, PathTab.INITIAL_PATH),
@@ -221,43 +259,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     timezonesQuery: getQuery(TileId.GEOGRAPHY, GeographyTab.TIMEZONES),
                     languagesQuery: getQuery(TileId.GEOGRAPHY, GeographyTab.LANGUAGES),
 
-                    // Top events query
-                    topEventsQuery: {
-                        kind: NodeKind.InsightVizNode,
-                        source: {
-                            kind: NodeKind.TrendsQuery,
-                            series: [
-                                {
-                                    kind: NodeKind.EventsNode,
-                                    event: null,
-                                    name: 'All events',
-                                    math: 'total',
-                                },
-                            ],
-                            trendsFilter: {},
-                            breakdownFilter: {
-                                breakdowns: [
-                                    {
-                                        property: 'event',
-                                        type: 'event_metadata',
-                                    },
-                                ],
-                            },
-                            properties: [
-                                ...(pageUrl ? [createUrlPropertyFilter(pageUrl, stripQueryParams)] : []),
-                                {
-                                    key: 'event',
-                                    value: ['$pageview', '$pageleave'],
-                                    operator: PropertyOperator.IsNot,
-                                    type: PropertyFilterType.EventMetadata,
-                                },
-                            ],
-                            filterTestAccounts: shouldFilterTestAccounts,
-                            dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
-                        },
-                        embedded: true,
-                        hidePersonsModal: true,
-                    },
+                    topEventsQuery: getTopEventsQuery(),
                 }
             },
         ],
