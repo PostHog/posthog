@@ -1,6 +1,7 @@
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { useEffect, useState } from 'react'
 import { HogDebug } from 'scenes/debug/HogDebug'
+import { EventsHeatMap } from 'scenes/web-analytics/EventsHeatMap/EventsHeatMap'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
@@ -26,6 +27,7 @@ import { WebVitalsPathBreakdown } from '../nodes/WebVitals/WebVitalsPathBreakdow
 import {
     isDataTableNode,
     isDataVisualizationNode,
+    isActiveHoursHeatMapQuery,
     isHogQuery,
     isInsightVizNode,
     isSavedInsightNode,
@@ -149,6 +151,8 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         component = <WebVitalsPathBreakdown query={query} cachedResults={props.cachedResults} context={queryContext} />
     } else if (isHogQuery(query)) {
         component = <HogDebug query={query} setQuery={setQuery as (query: any) => void} queryKey={String(uniqueKey)} />
+    } else if (isActiveHoursHeatMapQuery(query)) {
+        component = <EventsHeatMap query={query} context={queryContext}/>
     } else {
         component = <DataNode query={query} cachedResults={props.cachedResults} />
     }

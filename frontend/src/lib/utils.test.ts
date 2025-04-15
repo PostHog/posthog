@@ -29,6 +29,7 @@ import {
     hexToRGBA,
     humanFriendlyDuration,
     humanFriendlyLargeNumber,
+    humanFriendlyLargeNumberMaxChars,
     identifierToHuman,
     is12HoursOrLess,
     isExternalLink,
@@ -511,6 +512,19 @@ describe('lib/utils', () => {
             expect(humanFriendlyLargeNumber(-Infinity)).toEqual('-inf')
         })
     })
+
+    describe('humanFriendlyLargeNumberMaxChars()', () => {
+            it('returns the correct string', () => {
+                expect(humanFriendlyLargeNumberMaxChars(1.234, 2)).toEqual('1.2')
+                expect(humanFriendlyLargeNumberMaxChars(12.34, 2)).toEqual('12')
+                expect(humanFriendlyLargeNumberMaxChars(123.4, 2)).toEqual('123')
+                expect(humanFriendlyLargeNumberMaxChars(1234, 2)).toEqual('1.2K')
+                expect(humanFriendlyLargeNumberMaxChars(12345, 2)).toEqual('12K')
+                expect(humanFriendlyLargeNumberMaxChars(123456, 2)).toEqual('123K')
+                expect(humanFriendlyLargeNumberMaxChars(1234567, 2)).toEqual('1.2M')
+        })
+    })
+
     describe('humanFriendlyDuration()', () => {
         it('returns correct value for 0 <= t < 1', () => {
             expect(humanFriendlyDuration(0)).toEqual('0s')

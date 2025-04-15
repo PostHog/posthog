@@ -105,6 +105,7 @@ export enum NodeKind {
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
+    ActiveHoursHeatMapQuery = 'ActiveHoursHeatMapQuery',
 
     // Revenue analytics queries
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
@@ -165,6 +166,7 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | VectorSearchQuery
+    | ActiveHoursHeatMapQuery
 
 /**
  * @discriminator kind
@@ -202,6 +204,7 @@ export type QuerySchema =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
+    | ActiveHoursHeatMapQuery
 
     // Revenue analytics
     | RevenueAnalyticsOverviewQuery
@@ -704,6 +707,7 @@ export interface DataTableNode
                     | WebGoalsQuery
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
+                    | ActiveHoursHeatMapQuery
                     | SessionAttributionExplorerQuery
                     | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsGrowthRateQuery
@@ -733,6 +737,7 @@ export interface DataTableNode
         | WebGoalsQuery
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
+        | ActiveHoursHeatMapQuery
         | SessionAttributionExplorerQuery
         | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsGrowthRateQuery
@@ -2887,3 +2892,20 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 }
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
+
+export interface ActiveHoursHeatMapQuery extends WebAnalyticsQueryBase<ActiveHoursHeatMapQueryResponse> {
+    kind: NodeKind.ActiveHoursHeatMapQuery
+}
+
+export interface ActiveHoursHeatMapQueryResponse extends AnalyticsQueryResponseBase<ActiveHoursHeatMapResult[]> {
+    hasMore?: boolean
+    limit?: integer
+}
+
+export interface ActiveHoursHeatMapResult {
+    day: integer
+    hour: integer
+    total: integer
+}
+
+export type CachedActiveHoursHeatMapQueryResponse = CachedQueryResponse<ActiveHoursHeatMapQueryResponse>

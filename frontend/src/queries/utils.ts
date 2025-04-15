@@ -11,6 +11,7 @@ import {
     DataTableNode,
     DataVisualizationNode,
     DataWarehouseNode,
+    ActiveHoursHeatMapQuery,
     DateRange,
     ErrorTrackingQuery,
     EventsNode,
@@ -210,6 +211,10 @@ export function isRevenueExampleDataWarehouseTablesQuery(
 
 export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
     return node?.kind === NodeKind.ErrorTrackingQuery
+}
+
+export function isActiveHoursHeatMapQuery(node?: Record<string, any> | null): node is ActiveHoursHeatMapQuery {
+    return node?.kind === NodeKind.ActiveHoursHeatMapQuery
 }
 
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {

@@ -516,6 +516,50 @@ export function humanFriendlyLargeNumber(d: number): string {
     return `${prefix}${d}`
 }
 
+export function humanFriendlyLargeNumberMaxChars(d: number, maxChars: number): string {
+    if (isNaN(d)) {
+        return 'NaN'
+    } else if (!isFinite(d)) {
+        if (d > 0) {
+            return 'inf'
+        }
+        return '-inf'
+    }
+    const trillion = 1_000_000_000_000
+    const billion = 1_000_000_000
+    const million = 1_000_000
+    const thousand = 1_000
+
+    const prefix = d >= 0 ? '' : '-'
+    d = Math.abs(d)
+    
+    // Account for prefix in available chars
+    const availableChars = maxChars - (prefix ? 1 : 0)
+    
+    // Helper to format with suffix
+    const formatWithSuffix = (num: number, suffix: string): string => {
+        const maxDigits = availableChars - suffix.length
+        if (maxDigits <= 0) {
+            return `${prefix}${Math.round(num)}${suffix}`
+        }
+        const rounded = parseFloat(num.toPrecision(maxDigits))
+        return `${prefix}${rounded}${suffix}`
+    }
+
+    if (d >= trillion && availableChars > 1) {
+        return formatWithSuffix(d / trillion, 'T')
+    } else if (d >= billion && availableChars > 1) {
+        return formatWithSuffix(d / billion, 'B')
+    } else if (d >= million && availableChars > 1) {
+        return formatWithSuffix(d / million, 'M')
+    } else if (d >= thousand && availableChars > 1) {
+        return formatWithSuffix(d / thousand, 'K')
+    }
+    
+    // For regular numbers, just use toPrecision with available chars
+    return `${prefix}${parseFloat(d.toPrecision(availableChars))}`
+}
+
 /** Format currency from string with commas and a number of decimal places (defaults to 2). */
 export function humanFriendlyCurrency(d: string | undefined | number, precision: number = 2): string {
     if (!d) {
@@ -590,7 +634,7 @@ export function humanFriendlyDuration(
     } else {
         units = [hDisplay, mDisplay, sDisplay].filter(Boolean)
     }
-    return units.slice(0, maxUnits ?? undefined).join(' ')
+    return units.slice(0, maxUnits ?? undefined).join(' ')
 }
 
 export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | string): string {
@@ -600,8 +644,8 @@ export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | 
 
 export function humanFriendlyDetailedTime(
     date: dayjs.Dayjs | string | null | undefined,
-    formatDate = 'MMMM DD, YYYY',
-    formatTime = 'h:mm:ss A'
+    formatDate = 'MMMM DD, YYYY',
+    formatTime = 'h:mm:ss A'
 ): string {
     if (!date) {
         return 'Never'
@@ -614,9 +658,9 @@ export function humanFriendlyDetailedTime(
     }
     let formatString: string
     if (parsedDate.isSame(today, 'd')) {
-        formatString = `[Today] ${formatTime}`
+        formatString = `[Today] ${formatTime}`
     } else if (parsedDate.isSame(yesterday, 'd')) {
-        formatString = `[Yesterday] ${formatTime}`
+        formatString = `[Yesterday] ${formatTime}`
     } else {
         formatString = `${formatDate} ${formatTime}`
     }
@@ -1395,7 +1439,7 @@ export function pluralize(count: number, singular: string, plural?: string, incl
         plural = singular + 's'
     }
     const form = count === 1 ? singular : plural
-    return includeNumber ? `${humanFriendlyNumber(count)} ${form}` : form
+    return includeNumber ? `${humanFriendlyNumber(count)} ${form}` : form
 }
 
 const WORD_PLURALIZATION_RULES = [
@@ -1457,7 +1501,7 @@ export function compactNumber(value: number | null): string {
         magnitude++
         value /= 1000
     }
-    return magnitude > 0 ? `${value} ${COMPACT_NUMBER_MAGNITUDES[magnitude]}` : value.toString()
+    return magnitude > 0 ? `${value} ${COMPACT_NUMBER_MAGNITUDES[magnitude]}` : value.toString()
 }
 
 export function roundToDecimal(value: number | null, places: number = 2): string {

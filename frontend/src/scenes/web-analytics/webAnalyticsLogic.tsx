@@ -274,6 +274,7 @@ export enum GeographyTab {
     REGIONS = 'REGIONS',
     CITIES = 'CITIES',
     TIMEZONES = 'TIMEZONES',
+    HEATMAP = 'HEATMAP',
     LANGUAGES = 'LANGUAGES',
 }
 
@@ -755,7 +756,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         sourceTab: [(s) => [s._sourceTab], (sourceTab: string | null) => sourceTab || SourceTab.CHANNEL],
         deviceTab: [(s) => [s._deviceTab], (deviceTab: string | null) => deviceTab || DeviceTab.DEVICE_TYPE],
         pathTab: [(s) => [s._pathTab], (pathTab: string | null) => pathTab || PathTab.PATH],
-        geographyTab: [(s) => [s._geographyTab], (geographyTab: string | null) => geographyTab || GeographyTab.MAP],
+        geographyTab: [(s) => [s._geographyTab], (geographyTab: string | null) => geographyTab || GeographyTab.MAP || GeographyTab.HEATMAP],
         isPathCleaningEnabled: [
             (s) => [s._isPathCleaningEnabled, s.hasAvailableFeature],
             (isPathCleaningEnabled: boolean, hasAvailableFeature) => {
@@ -1695,7 +1696,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               layout: {
                                   colSpanClassName: 'md:col-span-full',
                               },
-                              activeTabId: geographyTab || GeographyTab.MAP,
+                              activeTabId: geographyTab || GeographyTab.MAP || GeographyTab.HEATMAP,
                               setTabId: actions.setGeographyTab,
                               tabs: [
                                   {
@@ -1754,6 +1755,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       'Cities',
                                       WebStatsBreakdown.City
                                   ),
+                                  {
+                                    id: GeographyTab.HEATMAP,
+                                    title: 'Active hours',
+                                    linkText: 'Active hours',
+                                    canOpenModal: true,
+                                    query: {
+                                        kind: NodeKind.ActiveHoursHeatMapQuery,
+                                        properties: webAnalyticsFilters,
+                                        dateRange,
+                                    },
+                                    insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.HEATMAP),
+                                },
                                   createTableTab(
                                       TileId.GEOGRAPHY,
                                       GeographyTab.TIMEZONES,

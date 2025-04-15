@@ -1,0 +1,82 @@
+.EventsHeatMapContainer {
+    background: var(--bg-surface-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius);
+    padding: 0.5rem;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.EventsHeatMap {
+    width: 100%;
+    font-weight: 500;
+
+    th {
+        padding: 0 0.5rem;
+        font-weight: 500;
+        text-align: center;
+        white-space: nowrap;
+        border-top: 10px solid transparent;
+        border-bottom: 10px solid transparent;
+    }
+
+    tr {
+        border-left: 0.25rem solid transparent;
+
+        &:not(:nth-of-type(-n + 1)) {
+            &:hover {
+                border-left-color: var(--heatmap-table-color);
+            }
+        }
+    }
+
+    .EventsHeatMap__TextTab {
+        padding: 0 1rem 0 0.5rem;
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .EventsHeatMap__Cell {
+        min-height: 2rem;
+        padding: 0.2rem;
+        margin: 2px;
+        text-align: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: var(--retention-table-color); // NOTE: This is usually overridden in JS
+        border-radius: var(--radius);
+
+        &.EventsHeatMap__Cell--clickable {
+            transition: transform 200ms ease-out;
+
+            &:hover {
+                transform: scale(1.05);
+            }
+        }
+
+        &.EventsHeatMap__Cell--period {
+            color: var(--text-secondary);
+            background-color: var(--bg-surface-primary);
+            border: 1px solid var(--border-primary);
+            border-style: dashed;
+        }
+    }
+
+    &.EventsHeatMap--non-interactive {
+        tr {
+            &:hover {
+                border-left-color: transparent;
+            }
+        }
+
+        .EventsHeatMap__Cell {
+            cursor: initial;
+            &:hover {
+                transform: none;
+            }
+        }
+    }
+}
