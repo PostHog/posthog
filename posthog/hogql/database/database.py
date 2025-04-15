@@ -501,6 +501,7 @@ def create_hogql_database(
                             last_group = new_group
 
                     joined_table_chain = ".".join(table_chain)
+                    s3_table.name = joined_table_chain
                     warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
 
     # For every Stripe source, let's generate its own revenue view
@@ -648,6 +649,12 @@ def create_hogql_database(
                 field = parse_expr(join.source_table_key)
                 if isinstance(field, ast.Field):
                     from_field = field.chain
+                elif (
+                    isinstance(field, ast.Alias)
+                    and isinstance(field.expr, ast.Call)
+                    and isinstance(field.expr.args[0], ast.Field)
+                ):
+                    from_field = field.expr.args[0].chain
                 elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
                     from_field = field.args[0].chain
                 else:
@@ -656,6 +663,12 @@ def create_hogql_database(
                 field = parse_expr(join.joining_table_key)
                 if isinstance(field, ast.Field):
                     to_field = field.chain
+                elif (
+                    isinstance(field, ast.Alias)
+                    and isinstance(field.expr, ast.Call)
+                    and isinstance(field.expr.args[0], ast.Field)
+                ):
+                    to_field = field.expr.args[0].chain
                 elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
                     to_field = field.args[0].chain
                 else:
