@@ -11,7 +11,7 @@ import { ProjectTree } from './ProjectTree/ProjectTree'
 import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
 
 const panelLayoutStyles = cva({
-    base: 'gap-0 w-fit relative h-screen z-[var(--z-layout-panel)]',
+    base: 'gap-0 w-fit relative h-screen z-[var(--z-layout-panel)] motion-safe:transition-[transform] [transition-behavior:allow-discrete] duration-50',
     variants: {
         isLayoutNavbarVisibleForMobile: {
             true: 'translate-x-0',
@@ -46,12 +46,12 @@ const panelLayoutStyles = cva({
         {
             isMobileLayout: true,
             isLayoutNavbarVisibleForMobile: true,
-            className: 'translate-x-0',
+            className: 'block',
         },
         {
             isMobileLayout: true,
             isLayoutNavbarVisibleForMobile: false,
-            className: 'translate-x-[calc(var(--project-navbar-width)*-1)]',
+            className: 'hidden',
         },
         // Tree mode
         {
