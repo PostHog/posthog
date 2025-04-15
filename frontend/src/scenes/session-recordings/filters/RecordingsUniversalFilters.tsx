@@ -239,25 +239,35 @@ export const RecordingsUniversalFilters = ({
                             <RecordingsUniversalFilterGroup size="small" totalFiltersCount={totalFiltersCount} />
                         </UniversalFilters>
                     </div>
-                    {(totalFiltersCount ?? 0) > 0 &&
-                        !savedFilters.results?.find((filter) => equal(filter.filters, filters)) && (
-                            <div className="flex gap-2 p-2 justify-start">
-                                <LemonInput
-                                    value={savedFilterName}
-                                    placeholder="Saved filter name"
-                                    onChange={setSavedFilterName}
-                                    size="small"
-                                    autoFocus
-                                    fullWidth
-                                    onClick={(e) => {
-                                        e.stopPropagation() // Prevent dropdown from closing
-                                    }}
-                                />
-                                <LemonButton type="primary" size="xsmall" onClick={() => void newPlaylistHandler()}>
-                                    Save filters
-                                </LemonButton>
-                            </div>
-                        )}
+                    {(totalFiltersCount ?? 0) > 0 && (
+                        <div className="flex gap-2 p-2 justify-start">
+                            {savedFilters.results?.find((filter) => equal(filter.filters, filters)) ? (
+                                <div className="text-sm italic text-text-secondary inline-flex items-center font-medium gap-1">
+                                    "
+                                    {savedFilters.results?.find((filter) => equal(filter.filters, filters))?.name ||
+                                        'Unnamed'}
+                                    " saved filter applied
+                                </div>
+                            ) : (
+                                <>
+                                    <LemonInput
+                                        value={savedFilterName}
+                                        placeholder="Saved filter name"
+                                        onChange={setSavedFilterName}
+                                        size="small"
+                                        autoFocus
+                                        fullWidth
+                                        onClick={(e) => {
+                                            e.stopPropagation() // Prevent dropdown from closing
+                                        }}
+                                    />
+                                    <LemonButton type="primary" size="xsmall" onClick={() => void newPlaylistHandler()}>
+                                        Save filters
+                                    </LemonButton>
+                                </>
+                            )}
+                        </div>
+                    )}
                 </div>
             ),
         },

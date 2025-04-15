@@ -2,14 +2,11 @@ import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
-import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
 import { Hub } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { killGracefully } from '../../utils/utils'
-import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { addMetricsEventListeners } from './kafka-metrics'
 
 type ConsumerManagementPayload = {
@@ -159,60 +156,6 @@ export class KafkaJSIngestionConsumer {
         })
         setupEventHandlers(consumer)
         return consumer
-    }
-}
-
-type EachBatchFunction = (messages: Message[], queue: IngestionConsumer) => Promise<void>
-
-export class IngestionConsumer {
-    public pluginsServer: Hub
-    public topic: string
-    public consumerGroupId: string
-    public eachBatch: EachBatchFunction
-    public consumer?: BatchConsumer
-    public eventsProcessor: EventsProcessor
-
-    constructor(pluginsServer: Hub, topic: string, consumerGroupId: string, batchHandler: EachBatchFunction) {
-        this.pluginsServer = pluginsServer
-        this.topic = topic
-        this.consumerGroupId = consumerGroupId
-        this.eachBatch = batchHandler
-        this.eventsProcessor = new EventsProcessor(pluginsServer)
-    }
-
-    async start(): Promise<BatchConsumer> {
-        this.consumer = await startBatchConsumer({
-            batchingTimeoutMs: this.pluginsServer.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
-            consumerErrorBackoffMs: this.pluginsServer.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
-            connectionConfig: createRdConnectionConfigFromEnvVars(this.pluginsServer, 'consumer'),
-            topic: this.topic,
-            groupId: this.consumerGroupId,
-            autoCommit: true,
-            sessionTimeout: this.pluginsServer.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
-            maxPollIntervalMs: this.pluginsServer.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
-            consumerMaxBytes: this.pluginsServer.KAFKA_CONSUMPTION_MAX_BYTES,
-            consumerMaxBytesPerPartition: this.pluginsServer.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
-            consumerMaxWaitMs: this.pluginsServer.KAFKA_CONSUMPTION_MAX_WAIT_MS,
-            fetchBatchSize: this.pluginsServer.INGESTION_BATCH_SIZE,
-            topicCreationTimeoutMs: this.pluginsServer.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
-            topicMetadataRefreshInterval: this.pluginsServer.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
-            eachBatch: (payload) => this.eachBatchConsumer(payload),
-        })
-        return this.consumer
-    }
-
-    async eachBatchConsumer(messages: Message[]): Promise<void> {
-        await instrumentEachBatch(this.topic, (messages) => this.eachBatch(messages, this), messages)
-    }
-
-    async stop(): Promise<void> {
-        logger.info('⏳', 'Stopping Kafka queue...')
-        try {
-            await this.consumer?.stop()
-            logger.info('⏹', 'Kafka consumer stopped!')
-        } catch (error) {
-            logger.error('⚠️', 'An error occurred while stopping Kafka queue:\n', error)
-        }
     }
 }
 
