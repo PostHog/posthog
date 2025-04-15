@@ -7,7 +7,7 @@
 # ---
 # name: TestSyncedArtifacts.test_artifacts_from_the_list_are_returned.1
   '''
-  SELECT argMax(DISTINCT codebase_embeddings.artifact_id, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS synced_artifact_id,
+  SELECT codebase_embeddings.artifact_id AS synced_artifact_id,
          argMax(codebase_embeddings.is_deleted, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS deleted
   FROM codebase_embeddings
   WHERE and(equals(codebase_embeddings.team_id, 99999), equals(codebase_embeddings.user_id, 99999), equals(codebase_embeddings.codebase_id, '019634cb-5198-0000-ab58-7ba5d8855147'), in(codebase_embeddings.artifact_id, ['file2']))
@@ -32,7 +32,7 @@
 # ---
 # name: TestSyncedArtifacts.test_synced_artifacts.1
   '''
-  SELECT argMax(DISTINCT codebase_embeddings.artifact_id, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS synced_artifact_id,
+  SELECT codebase_embeddings.artifact_id AS synced_artifact_id,
          argMax(codebase_embeddings.is_deleted, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS deleted
   FROM codebase_embeddings
   WHERE and(equals(codebase_embeddings.team_id, 99999), equals(codebase_embeddings.user_id, 99999), equals(codebase_embeddings.codebase_id, '019634cb-5198-0000-ab58-7ba5d8855147'), in(codebase_embeddings.artifact_id, ['file1']))

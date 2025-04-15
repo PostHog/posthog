@@ -25,7 +25,7 @@ class DistinctSyncedArtifactsQuery:
             parse_select(
                 """
                 SELECT
-                    argMax(DISTINCT artifact_id, timestamp) AS synced_artifact_id,
+                    artifact_id AS synced_artifact_id,
                     argMax(is_deleted, timestamp) AS deleted
                 FROM
                     codebase_embeddings

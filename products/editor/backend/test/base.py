@@ -59,7 +59,6 @@ class EditorTestQueryHelpersMixin(BaseTest):
                 )
 
         sync_execute(query + ", ".join(rows), args, team_id=self.team.id)
-        sync_execute("select * from codebase_embeddings", team_id=self.team.id)
 
     def _create_codebase_catalog(self, tree: list[CatalogEntry]):
         query = "INSERT INTO codebase_catalog (team_id, user_id, codebase_id, artifact_id, parent_artifact_id, branch, type, timestamp, sign) VALUES "

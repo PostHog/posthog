@@ -133,7 +133,7 @@ class TestArtifactNode(BaseTest):
 
         added, deleted = ArtifactNode.compare(server_node, client_node)
 
-        # Root nodes have the same hash, so they should not be in added/deleted
+        # Root nodes have different hashes ('root' vs 'root_new')
         # The deleted subtree should be in the deleted set
         self.assertEqual(added, {"root_new", "dir2"})
         self.assertEqual(deleted, {"root", "dir1", "file1", "file2"})
@@ -161,7 +161,7 @@ class TestArtifactNode(BaseTest):
 
         added, deleted = ArtifactNode.compare(server_node, client_node)
 
-        # Root nodes have the same hash, so they should not be marked as deleted
+        # Root nodes have different hashes ('root' vs 'root_old')
         # The new subtree should be in the added set
         self.assertEqual(added, {"root", "dir1", "file1", "file2"})
         self.assertEqual(deleted, {"root_old", "dir1_old"})
