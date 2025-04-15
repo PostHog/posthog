@@ -10,13 +10,21 @@ from posthog.schema import (
     RevenueAnalyticsTopCustomersQuery,
     RevenueAnalyticsGrowthRateQuery,
     RevenueAnalyticsOverviewQuery,
+    RevenueExampleDataWarehouseTablesQuery,
+    RevenueExampleEventsQuery,
 )
 from ..models import RevenueAnalyticsRevenueView, CHARGE_REVENUE_VIEW_SUFFIX, CUSTOMER_REVENUE_VIEW_SUFFIX
 
 
 # Base class, empty for now but might include some helpers in the future
 class RevenueAnalyticsQueryRunner(QueryRunner):
-    query: Union[RevenueAnalyticsTopCustomersQuery, RevenueAnalyticsGrowthRateQuery, RevenueAnalyticsOverviewQuery]
+    query: Union[
+        RevenueAnalyticsTopCustomersQuery,
+        RevenueAnalyticsGrowthRateQuery,
+        RevenueAnalyticsOverviewQuery,
+        RevenueExampleDataWarehouseTablesQuery,
+        RevenueExampleEventsQuery,
+    ]
     database: Database
     hogql_context: HogQLContext
 
@@ -47,13 +55,13 @@ class RevenueAnalyticsQueryRunner(QueryRunner):
                 elif CUSTOMER_REVENUE_VIEW_SUFFIX in view.name:
                     customer_selects.append(select)
 
-        charge_subquery = None
+        charge_subquery: ast.SelectQuery | ast.SelectSetQuery | None = None
         if len(charge_selects) == 1:
             charge_subquery = charge_selects[0]
         elif len(charge_selects) > 1:
             charge_subquery = ast.SelectSetQuery.create_from_queries(charge_selects, set_operator="UNION ALL")
 
-        customer_subquery = None
+        customer_subquery: ast.SelectQuery | ast.SelectSetQuery | None = None
         if len(customer_selects) == 1:
             customer_subquery = customer_selects[0]
         elif len(customer_selects) > 1:
