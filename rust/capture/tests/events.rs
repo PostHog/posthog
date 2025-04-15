@@ -257,7 +257,7 @@ async fn it_overflows_events_on_burst() -> Result<()> {
     },
     {
         "token": token,
-        "event": "event3",
+        "event": "event3_to_overflow",
         "distinct_id": distinct_id,
     }]);
 
@@ -277,10 +277,14 @@ async fn it_overflows_events_on_burst() -> Result<()> {
 
     topic.assert_empty();
 
-    // Third event should be in overflow topic
-    assert_eq!(
-        overflow_topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token, distinct_id),
+    // Third event should be in overflow topic, but has no
+    // message key as overflow events are round-robined
+    assert_json_include!(
+        actual: overflow_topic.next_event()?,
+        expected: json!({
+            "token": token,
+            "distinct_id": distinct_id,
+        })
     );
 
     overflow_topic.assert_empty();

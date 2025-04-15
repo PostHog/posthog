@@ -23,7 +23,7 @@ use time::OffsetDateTime;
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
 use tokio::time::timeout;
-use tracing::{debug, warn};
+use tracing::{info, warn};
 
 use capture::config::{CaptureMode, Config, KafkaConfig};
 use capture::server::serve;
@@ -260,13 +260,13 @@ impl EphemeralTopic {
 
 impl Drop for EphemeralTopic {
     fn drop(&mut self) {
-        debug!("dropping EphemeralTopic {}...", self.topic_name);
+        info!("dropping EphemeralTopic {}...", self.topic_name);
         self.consumer.unsubscribe();
         match futures::executor::block_on(timeout(
             Duration::from_secs(10),
             delete_topic(self.topic_name.clone()),
         )) {
-            Ok(_) => debug!("dropped topic"),
+            Ok(_) => info!("dropped topic: {}", self.topic_name.clone()),
             Err(err) => warn!("failed to drop topic: {}", err),
         }
     }

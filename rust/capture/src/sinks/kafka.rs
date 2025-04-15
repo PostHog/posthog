@@ -237,9 +237,7 @@ impl KafkaSink {
                     None => false,
                     Some(partition) => partition.is_limited(&event_key, &token),
                 };
-                // a cookieless capture event is partitioned by "<token>:<ip_addr>"
-                // the rest are partitioned by "<token>:<distinct_id>" and overflow
-                // are not keyed (to balance partitions)
+
                 if is_limited {
                     // Analytics overflow goes to the overflow topic without locality
                     (&self.overflow_topic, None)
