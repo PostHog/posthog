@@ -3,7 +3,7 @@ import './SessionRecordingPreview.scss'
 import { IconBug, IconCursorClick, IconKeyboard, IconLive, IconPinFilled } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
+import { PropertyIcons } from 'lib/components/PropertyIcons/PropertyIcons'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -11,7 +11,6 @@ import { colonDelimitedDuration } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
-import { countryTitleFrom } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { playerSettingsLogic, TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { urls } from 'scenes/urls'
 
@@ -61,61 +60,6 @@ function ErrorCount({
         <div className="flex items-center flex-1 deprecated-space-x-1 justify-end font-semibold">
             <IconBug className={iconClassNames} />
             <span>{errorCount}</span>
-        </div>
-    )
-}
-
-interface GatheredProperty {
-    property: string
-    value: string | undefined
-    label: string | undefined
-}
-
-const browserIconPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
-const mobileIconPropertyKeys = ['$geoip_country_code', '$device_type', '$os_name']
-
-export function gatherIconProperties(
-    recordingProperties: Record<string, any> | undefined,
-    recording?: SessionRecordingType
-): GatheredProperty[] {
-    const iconProperties =
-        recordingProperties && Object.keys(recordingProperties).length > 0
-            ? recordingProperties
-            : recording?.person?.properties || {}
-
-    const deviceType = iconProperties['$device_type'] || iconProperties['$initial_device_type']
-    const iconPropertyKeys = deviceType === 'Mobile' ? mobileIconPropertyKeys : browserIconPropertyKeys
-
-    return iconPropertyKeys
-        .flatMap((property) => {
-            const value = property === '$device_type' ? deviceType : iconProperties[property]
-            const label = property === '$geoip_country_code' ? countryTitleFrom(iconProperties) : value
-
-            return { property, value, label }
-        })
-        .filter((property) => !!property.value)
-}
-
-export interface PropertyIconsProps {
-    recordingProperties: GatheredProperty[]
-    loading?: boolean
-    iconClassNames?: string
-    showTooltip?: boolean
-    showLabel?: (key: string) => boolean
-}
-
-export function PropertyIcons({ recordingProperties, loading, iconClassNames }: PropertyIconsProps): JSX.Element {
-    return (
-        <div className="flex deprecated-space-x-1 ph-no-capture">
-            {loading ? (
-                <LemonSkeleton className="w-16 h-3" />
-            ) : (
-                recordingProperties.map(({ property, value, label }) => (
-                    <Tooltip key={property} title={label}>
-                        <PropertyIcon className={iconClassNames} property={property} value={value} />
-                    </Tooltip>
-                ))
-            )}
         </div>
     )
 }
@@ -193,7 +137,11 @@ export function SessionRecordingPreview({
 
     const recordingProperties = recordingPropertiesById[recording.id]
     const loading = !recordingProperties && recordingPropertiesLoading
-    const iconProperties = gatherIconProperties(recordingProperties, recording)
+
+    const properties =
+        recordingProperties && Object.keys(recordingProperties).length > 0
+            ? recordingProperties
+            : recording?.person?.properties || {}
 
     const iconClassNames = 'text-secondary shrink-0'
 
@@ -229,11 +177,7 @@ export function SessionRecordingPreview({
 
                     <div className="flex justify-between items-center gap-x-0.5">
                         <div className="flex deprecated-space-x-2 text-secondary text-sm">
-                            <PropertyIcons
-                                recordingProperties={iconProperties}
-                                iconClassNames={iconClassNames}
-                                loading={loading}
-                            />
+                            <PropertyIcons properties={properties} iconClassNames={iconClassNames} loading={loading} />
 
                             <div className="flex gap-1">
                                 <Tooltip className="flex items-center" title="Clicks">

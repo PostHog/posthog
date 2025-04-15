@@ -7,6 +7,7 @@ import PanelLayout, { SettingsToggle } from 'lib/components/PanelLayout/PanelLay
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
 import { useEffect, useRef } from 'react'
+import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SettingsBar } from 'scenes/session-recordings/components/PanelSettings'
 
@@ -42,8 +43,8 @@ export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueLoading, activeTab } = useValues(errorTrackingIssueSceneLogic)
-    const { loadIssue, updateStatus, updateAssignee, setActiveTab } = useActions(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading, activeException } = useValues(errorTrackingIssueSceneLogic)
+    const { loadIssue, updateStatus, updateAssignee } = useActions(errorTrackingIssueSceneLogic)
 
     const ref = useRef<HTMLDivElement>(null)
 
@@ -90,7 +91,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             />
             <div className="ErrorTrackingIssue flex">
                 <div
-                    className="relative bg-surface-primary flex min-w-[450px]"
+                    className="relative bg-surface-primary flex min-w-[350px]"
                     ref={ref}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
@@ -104,8 +105,14 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     </div>
                     <Resizer {...resizerLogicProps} offset={1} />
                 </div>
-                <div className="flex flex-col flex-1">
-                    <ExceptionContent />
+                <div className="flex flex-col flex-1 overflow-x-auto">
+                    {activeException ? (
+                        <div className="flex-1">
+                            <EventDetails event={activeException} />
+                        </div>
+                    ) : (
+                        <ExceptionContent />
+                    )}
                     <WorkspaceSettings />
                 </div>
             </div>
@@ -117,7 +124,7 @@ const Filters = (): JSX.Element => {
     return (
         <div className="px-2 flex items-center flex-col gap-1">
             <FilterGroup />
-            <div className="flex flex-wrap justify-between w-full gap-1">
+            <div className="flex flex-wrap-reverse justify-between w-full gap-1">
                 <DateRangeFilter />
                 <InternalAccountsFilter />
             </div>

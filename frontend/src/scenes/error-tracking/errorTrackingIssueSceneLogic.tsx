@@ -69,6 +69,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateStatus: (status: ErrorTrackingIssueStatus) => ({ status }),
         updateAssignee: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
         setLastSeen: (lastSeen: Dayjs) => ({ lastSeen }),
+        setActiveException: (activeException: Record<string, any>) => ({ activeException }),
     }),
 
     defaults({
@@ -102,6 +103,12 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 return prevLastSeen
             },
         },
+        activeException: [
+            null as Record<string, any>,
+            {
+                setActiveException: (_, { activeException }) => activeException,
+            },
+        ],
     }),
 
     selectors({
