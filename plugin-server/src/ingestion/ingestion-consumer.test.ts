@@ -173,6 +173,52 @@ describe('IngestionConsumer', () => {
             })
         })
 
+        it('should merge existing kafka_consumer_breadcrumbs with new ones', async () => {
+            // Create an event with existing breadcrumbs
+            const existingBreadcrumb = {
+                topic: 'previous-topic',
+                offset: 123,
+                partition: 0,
+                processed_at: '2024-01-01T00:00:00.000Z',
+                consumer_id: 'previous-consumer',
+            }
+
+            const event = createEvent({
+                kafka_consumer_breadcrumbs: [existingBreadcrumb],
+            })
+
+            const messages = createKafkaMessages([event])
+            console.log(messages)
+            await ingester.handleKafkaBatch(messages)
+
+            // Get the produced messages for clickhouse
+            const producedMessages = getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+            expect(producedMessages.length).toBe(1)
+
+            // Get the processed event
+            const processedEvent = producedMessages[0].value as any
+
+            // Verify the breadcrumbs were preserved and new ones added
+            expect(processedEvent).toHaveProperty('kafka_consumer_breadcrumbs')
+
+            // Verify the breadcrumb structure
+            const breadcrumbs = processedEvent.kafka_consumer_breadcrumbs
+            expect(Array.isArray(breadcrumbs)).toBe(true)
+            expect(breadcrumbs.length).toBe(2)
+
+            // Check that the first breadcrumb is the existing one
+            expect(breadcrumbs[0]).toMatchObject(existingBreadcrumb)
+
+            // Check that the second breadcrumb is the new one
+            expect(breadcrumbs[1]).toMatchObject({
+                topic: 'test',
+                offset: expect.any(Number),
+                partition: expect.any(Number),
+                processed_at: fixedTime.toISO()!,
+                consumer_id: ingester['groupId'],
+            })
+        })
+
         describe('overflow', () => {
             const now = () => DateTime.now().toMillis()
             beforeEach(() => {
