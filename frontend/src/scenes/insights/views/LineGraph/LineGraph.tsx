@@ -356,11 +356,17 @@ export function LineGraph_({
         }
 
         // Scroll events happen on the main element due to overflow-y: scroll
+        // but we need to make sure it exists before adding the event listener,
+        // e.g: it does not exist in the shared pages
         const main = document.getElementsByTagName('main')[0]
-        main.addEventListener('scrollend', hideTooltip)
+        if (main) {
+            main.addEventListener('scrollend', hideTooltip)
+        }
 
         return () => {
-            main.removeEventListener('scrollend', hideTooltip)
+            if (main) {
+                main.removeEventListener('scrollend', hideTooltip)
+            }
         }
     }, [hideTooltipOnScroll])
 
