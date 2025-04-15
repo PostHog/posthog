@@ -243,17 +243,15 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                     },
                                 ],
                             },
-                            properties: pageUrl
-                                ? [
-                                      createUrlPropertyFilter(pageUrl, stripQueryParams),
-                                      {
-                                          key: 'event',
-                                          value: ['$pageview', '$pageleave'],
-                                          operator: PropertyOperator.IsNot,
-                                          type: PropertyFilterType.EventMetadata,
-                                      },
-                                  ].filter(Boolean)
-                                : [],
+                            properties: [
+                                ...(pageUrl ? [createUrlPropertyFilter(pageUrl, stripQueryParams)] : []),
+                                {
+                                    key: 'event',
+                                    value: ['$pageview', '$pageleave'],
+                                    operator: PropertyOperator.IsNot,
+                                    type: PropertyFilterType.EventMetadata,
+                                },
+                            ],
                             filterTestAccounts: shouldFilterTestAccounts,
                             dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                         },
