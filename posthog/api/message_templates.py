@@ -1,4 +1,4 @@
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, viewsets, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -58,4 +58,6 @@ class MessageTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
         return Response(serializer.data)
 
     def retrieve(self, request: Request, *args, **kwargs):
+        if self.get_object().kind != "messaging_template":
+            return Response(status=status.HTTP_404_NOT_FOUND)
         return Response(self.get_serializer(self.get_object()).data)
