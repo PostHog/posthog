@@ -276,7 +276,14 @@ export function renderColumn(
         const columnName = trimQuotes(key.substring(16)) // 16 = "context.columns.".length
         const Component = context?.columns?.[columnName]?.render
         return Component ? (
-            <Component record={record} columnName={columnName} value={value} query={query} recordIndex={recordIndex} />
+            <Component
+                record={record}
+                columnName={columnName}
+                value={value}
+                query={query}
+                recordIndex={recordIndex}
+                rowCount={rowCount}
+            />
         ) : (
             String(value)
         )
