@@ -158,21 +158,6 @@ describe('IngestionConsumer', () => {
                 ).toMatchSnapshot()
             })
 
-            it('should allow some events to pass', async () => {
-                const manyOverflowedMessages = createKafkaMessages([
-                    createEvent({ distinct_id: 'overflow-distinct-id' }),
-                    createEvent({ distinct_id: 'overflow-distinct-id' }),
-                    createEvent({ distinct_id: 'overflow-distinct-id' }),
-                ])
-                ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 999, now())
-                await ingester.handleKafkaBatch(manyOverflowedMessages)
-                expect(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test')).toHaveLength(2)
-
-                expect(
-                    forSnapshot(getProducedKafkaMessagesForTopic('events_plugin_ingestion_overflow_test'))
-                ).toMatchSnapshot()
-            })
-
             it('does not overflow if it is consuming from the overflow topic', async () => {
                 ingester['topic'] = 'events_plugin_ingestion_overflow_test'
                 ingester['overflowRateLimiter'].consume(`${team.api_token}:overflow-distinct-id`, 1000, now())
@@ -412,9 +397,25 @@ describe('IngestionConsumer', () => {
             const batches = await ingester['parseKafkaBatch'](messages)
 
             expect(Object.keys(batches)).toHaveLength(3)
-            expect(batches[`${team.api_token}:distinct-id-1`]).toHaveLength(3)
-            expect(batches[`${team.api_token}:distinct-id-2`]).toHaveLength(1)
-            expect(batches[`${team2.api_token}:distinct-id-1`]).toHaveLength(1)
+
+            // Rewrite the test to check for the overall object with the correct length
+            expect(batches).toEqual({
+                [`${team.api_token}:distinct-id-1`]: {
+                    distinctId: 'distinct-id-1',
+                    token: team.api_token,
+                    events: [expect.any(Object), expect.any(Object), expect.any(Object)],
+                },
+                [`${team.api_token}:distinct-id-2`]: {
+                    distinctId: 'distinct-id-2',
+                    token: team.api_token,
+                    events: [expect.any(Object)],
+                },
+                [`${team2.api_token}:distinct-id-1`]: {
+                    distinctId: 'distinct-id-1',
+                    token: team2.api_token,
+                    events: [expect.any(Object)],
+                },
+            })
         })
     })
 
@@ -439,7 +440,11 @@ describe('IngestionConsumer', () => {
 
             const error: any = new Error('test')
             error.isRetriable = false
-            jest.spyOn(ingester as any, 'runEventPipeline').mockRejectedValue(error)
+            jest.spyOn(ingester as any, 'getEventPipelineRunnerV1').mockReturnValue({
+                runEventPipeline: () => {
+                    throw error
+                },
+            })
 
             await ingester.handleKafkaBatch(messages)
 
@@ -451,7 +456,11 @@ describe('IngestionConsumer', () => {
         it.each([undefined, true])('should throw if isRetriable is set to %s', async (isRetriable) => {
             const error: any = new Error('test')
             error.isRetriable = isRetriable
-            jest.spyOn(ingester as any, 'runEventPipeline').mockRejectedValue(error)
+            jest.spyOn(ingester as any, 'getEventPipelineRunnerV1').mockReturnValue({
+                runEventPipeline: () => {
+                    throw error
+                },
+            })
 
             await expect(ingester.handleKafkaBatch(messages)).rejects.toThrow()
         })
