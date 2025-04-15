@@ -121,7 +121,7 @@ def mssql_connection(mssql_config: dict[str, Any]) -> Generator[pymssql.Connecti
 def _insert_test_data(cursor: pymssql.Cursor, table_name: str, data: list[tuple[Any, ...]]) -> None:
     for row in data:
         cursor.execute(
-            f"INSERT INTO {table_name} (id, name, email, created_at, big_int, json_data, active, decimal_data, price, float_data) VALUES (%d, %s, %s, %s, %d, %s, %d, %s, %s, %s)",
+            f"INSERT INTO {table_name} (uid, name, email, created_at, big_int, json_data, active, decimal_data, price, float_data) VALUES (%d, %s, %s, %s, %d, %s, %d, %s, %s, %s)",
             row,
         )
     cursor.connection.commit()
@@ -146,7 +146,7 @@ def mssql_source_table(
             )
             BEGIN
                 CREATE TABLE {full_table_name} (
-                    id INTEGER,
+                    uid INTEGER PRIMARY KEY,
                     name NVARCHAR(255),
                     email NVARCHAR(255),
                     created_at DATETIME2 DEFAULT GETUTCDATE(),
@@ -197,22 +197,6 @@ def external_data_schema_full_refresh(external_data_source: ExternalDataSource, 
     return schema
 
 
-@pytest.fixture
-def external_data_schema_incremental(external_data_source: ExternalDataSource, team) -> ExternalDataSchema:
-    schema = ExternalDataSchema.objects.create(
-        name=MSSQL_TABLE_NAME,
-        team_id=team.pk,
-        source_id=external_data_source.pk,
-        sync_type="incremental",
-        sync_type_config={
-            "incremental_field": "id",
-            "incremental_field_type": "integer",
-            "incremental_field_last_value": None,
-        },
-    )
-    return schema
-
-
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @SKIP_IF_MISSING_MSSQL_CREDENTIALS
@@ -234,7 +218,7 @@ async def test_mssql_source_full_refresh(
         expected_rows_synced=expected_num_rows,
         expected_total_rows=expected_num_rows,
         expected_columns=[
-            "id",
+            "uid",
             "name",
             "email",
             "created_at",
@@ -248,6 +232,22 @@ async def test_mssql_source_full_refresh(
     )
 
     assert list(res.results) == TEST_DATA
+
+
+@pytest.fixture
+def external_data_schema_incremental(external_data_source: ExternalDataSource, team) -> ExternalDataSchema:
+    schema = ExternalDataSchema.objects.create(
+        name=MSSQL_TABLE_NAME,
+        team_id=team.pk,
+        source_id=external_data_source.pk,
+        sync_type="incremental",
+        sync_type_config={
+            "incremental_field": "uid",
+            "incremental_field_type": "integer",
+            "incremental_field_last_value": None,
+        },
+    )
+    return schema
 
 
 @pytest.mark.django_db(transaction=True)
@@ -271,7 +271,7 @@ async def test_mssql_source_incremental(
         expected_rows_synced=expected_num_rows,
         expected_total_rows=expected_num_rows,
         expected_columns=[
-            "id",
+            "uid",
             "name",
             "email",
             "created_at",
@@ -313,7 +313,108 @@ async def test_mssql_source_incremental(
         expected_rows_synced=len(NEW_TEST_DATA),
         expected_total_rows=expected_total_num_rows,
         expected_columns=[
-            "id",
+            "uid",
+            "name",
+            "email",
+            "created_at",
+            "big_int",
+            "json_data",
+            "active",
+            "decimal_data",
+            "price",
+            "float_data",
+        ],
+    )
+
+    # Compare sorted results as rows may have been shuffled around, but we only care the data is there,
+    # not in which order.
+    assert sorted(res.results, key=operator.itemgetter(0)) == sorted(
+        TEST_DATA + NEW_TEST_DATA, key=operator.itemgetter(0)
+    )
+
+
+@pytest.fixture
+def external_data_schema_incremental_using_created_at_column(
+    external_data_source: ExternalDataSource, team
+) -> ExternalDataSchema:
+    schema = ExternalDataSchema.objects.create(
+        name=MSSQL_TABLE_NAME,
+        team_id=team.pk,
+        source_id=external_data_source.pk,
+        sync_type="incremental",
+        sync_type_config={
+            "incremental_field": "created_at",
+            "incremental_field_type": "datetime",
+            "incremental_field_last_value": None,
+        },
+    )
+    return schema
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@SKIP_IF_MISSING_MSSQL_CREDENTIALS
+async def test_mssql_source_incremental_using_created_at_column(
+    team,
+    mssql_source_table: pymssql.Cursor,
+    external_data_source: ExternalDataSource,
+    external_data_schema_incremental_using_created_at_column: ExternalDataSchema,
+):
+    """Test that a full refresh sync works as expected."""
+    table_name = f"mssql_{MSSQL_TABLE_NAME}"
+    expected_num_rows = len(TEST_DATA)
+
+    res = await run_external_data_job_workflow(
+        team=team,
+        external_data_source=external_data_source,
+        external_data_schema=external_data_schema_incremental_using_created_at_column,
+        table_name=table_name,
+        expected_rows_synced=expected_num_rows,
+        expected_total_rows=expected_num_rows,
+        expected_columns=[
+            "uid",
+            "name",
+            "email",
+            "created_at",
+            "big_int",
+            "json_data",
+            "active",
+            "decimal_data",
+            "price",
+            "float_data",
+        ],
+    )
+
+    assert list(res.results) == TEST_DATA
+
+    # insert new data to be synced on next incremental run
+    NEW_TEST_DATA = [
+        (
+            4,
+            "Mo Doe",
+            "mo@example.com",
+            dt.datetime(2025, 1, 4, tzinfo=pytz.UTC),
+            999999999,
+            '{"key":null}',
+            True,
+            Decimal("1300.33"),
+            Decimal("199.99"),
+            17678785.0,
+        ),
+    ]
+
+    _insert_test_data(cursor=mssql_source_table, table_name=MSSQL_TABLE_NAME, data=NEW_TEST_DATA)
+    expected_total_num_rows = expected_num_rows + len(NEW_TEST_DATA)
+
+    res = await run_external_data_job_workflow(
+        team=team,
+        external_data_source=external_data_source,
+        external_data_schema=external_data_schema_incremental_using_created_at_column,
+        table_name=table_name,
+        expected_rows_synced=len(NEW_TEST_DATA),
+        expected_total_rows=expected_total_num_rows,
+        expected_columns=[
+            "uid",
             "name",
             "email",
             "created_at",
