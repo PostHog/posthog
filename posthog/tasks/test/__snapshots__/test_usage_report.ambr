@@ -80,8 +80,7 @@
      HAVING (ifNull(argMinMerge(snapshot_source), '') == 'mobile'
              AND ifNull(argMinMerge(snapshot_library), '') IN ('posthog-ios',
                                                                'posthog-android',
-                                                               'posthog-react-native',
-                                                               'posthog-flutter')))
+                                                               'posthog-react-native')))
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id
        FROM session_replay_events
