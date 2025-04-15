@@ -407,7 +407,7 @@ export function StartupProgram(): JSX.Element {
                                             name="yc_merch_count"
                                             label="How many merch packs do you need for you and your co-founder(s)?"
                                         >
-                                            <LemonInput type="number" min={0} max={5} />
+                                            <LemonInput type="number" min={1} max={5} />
                                         </LemonField>
                                     </>
                                 )}
