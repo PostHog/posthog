@@ -38,7 +38,6 @@ def get_session_replay_events(
             sum(console_log_count) as console_log_count,
             sum(console_warn_count) as console_warn_count,
             sum(console_error_count) as console_error_count,
-            sum(message_count) as message_count,
             sum(event_count) as event_count,
             argMinMerge(snapshot_source) as snapshot_source,
             argMinMerge(snapshot_library) as snapshot_library
@@ -90,7 +89,6 @@ FIELD_NAMES = [
     "console_log_count",
     "console_warn_count",
     "console_error_count",
-    "message_count",
     "event_count",
     "snapshot_source",
     "snapshot_library",
