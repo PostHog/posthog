@@ -2,7 +2,7 @@ import { actions, BuiltLogic, connect, kea, listeners, path, props, reducers, se
 import { router, urlToAction } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -453,7 +453,7 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
     })),
-    urlToAction(({ actions }) => {
+    urlToAction(({ actions, values }) => {
         const mapping: Record<
             string,
             (
@@ -475,8 +475,17 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         }
         for (const [path, [scene, sceneKey]] of Object.entries(routes)) {
-            mapping[path] = (params, searchParams, hashParams, { method }) =>
-                actions.openScene(scene, sceneKey, { params, searchParams, hashParams }, method)
+            if (
+                values.featureFlags[FEATURE_FLAGS.B2B_ANALYTICS] &&
+                scene === Scene.PersonsManagement &&
+                path === urls.groups(':groupTypeIndex')
+            ) {
+                mapping[path] = (params, searchParams, hashParams, { method }) =>
+                    actions.openScene(Scene.Groups, 'groups', { params, searchParams, hashParams }, method)
+            } else {
+                mapping[path] = (params, searchParams, hashParams, { method }) =>
+                    actions.openScene(scene, sceneKey, { params, searchParams, hashParams }, method)
+            }
         }
 
         mapping['/*'] = (_, __, { method }) => {

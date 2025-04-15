@@ -14,6 +14,7 @@ import {
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { notebooksModel, openNotebook, SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 import {
     AccessControlLevel,
@@ -297,7 +298,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         if (notebook.content === values.localContent) {
                             actions.clearLocalContent()
                         }
-
+                        refreshTreeItem('notebook', String(values.notebook.short_id))
                         return response
                     } catch (error: any) {
                         if (error.code === 'conflict') {
@@ -312,6 +313,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         return values.notebook
                     }
                     const response = await api.notebooks.update(values.notebook.short_id, { title })
+                    refreshTreeItem('notebook', String(values.notebook.short_id))
                     return response
                 },
             },

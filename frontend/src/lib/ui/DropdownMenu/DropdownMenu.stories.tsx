@@ -1,7 +1,6 @@
 import { IconChevronRight, IconSearch } from '@posthog/icons'
 import { DropdownMenuCheckboxItemProps } from '@radix-ui/react-dropdown-menu'
 import type { Meta } from '@storybook/react'
-import { Button } from 'lib/ui/Button/Button'
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -18,6 +17,8 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { useState } from 'react'
+
+import { ButtonPrimitive } from '../Button/ButtonPrimitives'
 
 const meta = {
     title: 'UI/DropdownMenu',
@@ -39,55 +40,49 @@ export function Default(): JSX.Element {
         <div className="flex gap-4">
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                    <Button.Root>
-                        <Button.Icon>
-                            <IconSearch />
-                        </Button.Icon>
-                        <Button.Label>Dropdown</Button.Label>
-                        <Button.Icon className="rotate-90 group-data-[state=open]/button-root:rotate-270">
-                            <IconChevronRight />
-                        </Button.Icon>
-                    </Button.Root>
+                    <ButtonPrimitive>
+                        <IconSearch />
+                        Dropdown
+                        <IconChevronRight className="rotate-90 group-data-[state=open]/button-root:rotate-270" />
+                    </ButtonPrimitive>
                 </DropdownMenuTrigger>
 
                 <DropdownMenuContent loop align="start">
                     <DropdownMenuLabel>Projects</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem asChild disabled>
-                        <Button.Root menuItem to="/" disabled>
-                            <Button.Label menuItem>Link 1 (disabled)</Button.Label>
-                        </Button.Root>
+                        <ButtonPrimitive menuItem href="/" disabled>
+                            Link 1 (disabled)
+                        </ButtonPrimitive>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                        <Button.Root menuItem to="/">
-                            <Button.Label menuItem>Link 2</Button.Label>
-                        </Button.Root>
+                        <ButtonPrimitive menuItem href="/">
+                            Link 2
+                        </ButtonPrimitive>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuSub>
                         <DropdownMenuSubTrigger asChild>
-                            <Button.Root menuItem to="/">
-                                <Button.Label menuItem>More options</Button.Label>
-                                <Button.Icon className="group-data-[state=open]/button-root:rotate-180">
-                                    <IconChevronRight />
-                                </Button.Icon>
-                            </Button.Root>
+                            <ButtonPrimitive menuItem href="/">
+                                More options
+                                <IconChevronRight className="group-data-[state=open]/button-root:rotate-180" />
+                            </ButtonPrimitive>
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent>
                             <DropdownMenuItem asChild>
-                                <Button.Root menuItem to="/">
-                                    <Button.Label menuItem>Sub link 1</Button.Label>
-                                </Button.Root>
+                                <ButtonPrimitive menuItem href="/">
+                                    Sub link 1
+                                </ButtonPrimitive>
                             </DropdownMenuItem>
                             <DropdownMenuItem asChild>
-                                <Button.Root menuItem to="/">
-                                    <Button.Label menuItem>Sub link 2</Button.Label>
-                                </Button.Root>
+                                <ButtonPrimitive menuItem href="/">
+                                    Sub link 2
+                                </ButtonPrimitive>
                             </DropdownMenuItem>
                             <DropdownMenuItem asChild>
-                                <Button.Root menuItem to="/">
-                                    <Button.Label menuItem>Sub link 3</Button.Label>
-                                </Button.Root>
+                                <ButtonPrimitive menuItem href="/">
+                                    Sub link 3
+                                </ButtonPrimitive>
                             </DropdownMenuItem>
                         </DropdownMenuSubContent>
                     </DropdownMenuSub>
@@ -96,12 +91,10 @@ export function Default(): JSX.Element {
 
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                    <Button.Root>
-                        <Button.Icon>
-                            <IconSearch />
-                        </Button.Icon>
-                        <Button.Label>Checkboxes</Button.Label>
-                    </Button.Root>
+                    <ButtonPrimitive>
+                        <IconSearch />
+                        Checkboxes
+                    </ButtonPrimitive>
                 </DropdownMenuTrigger>
 
                 {/* The Dropdown content menu */}
@@ -109,12 +102,10 @@ export function Default(): JSX.Element {
                     <DropdownMenuLabel inset>Projects</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     <DropdownMenuCheckboxItem checked={showStatusBar} onCheckedChange={setShowStatusBar} asChild>
-                        <Button.Root menuItem>
-                            <Button.Icon>
-                                <DropdownMenuItemIndicator intent="checkbox" />
-                            </Button.Icon>
-                            <Button.Label menuItem>Status bar</Button.Label>
-                        </Button.Root>
+                        <ButtonPrimitive menuItem>
+                            <DropdownMenuItemIndicator intent="checkbox" />
+                            Status bar
+                        </ButtonPrimitive>
                     </DropdownMenuCheckboxItem>
                     <DropdownMenuCheckboxItem
                         checked={showActivityBar}
@@ -122,32 +113,26 @@ export function Default(): JSX.Element {
                         disabled
                         asChild
                     >
-                        <Button.Root menuItem>
-                            <Button.Icon>
-                                <DropdownMenuItemIndicator intent="checkbox" />
-                            </Button.Icon>
-                            <Button.Label menuItem>Activity bar</Button.Label>
-                        </Button.Root>
+                        <ButtonPrimitive menuItem>
+                            <DropdownMenuItemIndicator intent="checkbox" />
+                            Activity bar
+                        </ButtonPrimitive>
                     </DropdownMenuCheckboxItem>
                     <DropdownMenuCheckboxItem checked={showPanel} onCheckedChange={setShowPanel} asChild>
-                        <Button.Root menuItem>
-                            <Button.Icon>
-                                <DropdownMenuItemIndicator intent="checkbox" />
-                            </Button.Icon>
-                            <Button.Label menuItem>Panel</Button.Label>
-                        </Button.Root>
+                        <ButtonPrimitive menuItem>
+                            <DropdownMenuItemIndicator intent="checkbox" />
+                            Panel
+                        </ButtonPrimitive>
                     </DropdownMenuCheckboxItem>
                 </DropdownMenuContent>
             </DropdownMenu>
 
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                    <Button.Root>
-                        <Button.Icon>
-                            <IconSearch />
-                        </Button.Icon>
-                        <Button.Label>Radio group</Button.Label>
-                    </Button.Root>
+                    <ButtonPrimitive>
+                        <IconSearch />
+                        Radio group
+                    </ButtonPrimitive>
                 </DropdownMenuTrigger>
 
                 {/* The Dropdown content menu */}
@@ -158,29 +143,23 @@ export function Default(): JSX.Element {
                         value={radioChoice}
                         onValueChange={(value) => setRadioChoice(value as 'beers' | 'wines' | 'spirits')}
                     >
-                        <DropdownMenuRadioItem value="beers">
-                            <Button.Root menuItem>
-                                <Button.Icon>
-                                    <DropdownMenuItemIndicator intent="radio" />
-                                </Button.Icon>
-                                <Button.Label menuItem>Beers</Button.Label>
-                            </Button.Root>
+                        <DropdownMenuRadioItem value="beers" asChild>
+                            <ButtonPrimitive menuItem>
+                                <DropdownMenuItemIndicator intent="radio" />
+                                Beers
+                            </ButtonPrimitive>
                         </DropdownMenuRadioItem>
-                        <DropdownMenuRadioItem value="wines" disabled>
-                            <Button.Root menuItem>
-                                <Button.Icon>
-                                    <DropdownMenuItemIndicator intent="radio" />
-                                </Button.Icon>
-                                <Button.Label menuItem>Wines</Button.Label>
-                            </Button.Root>
+                        <DropdownMenuRadioItem value="wines" disabled asChild>
+                            <ButtonPrimitive menuItem>
+                                <DropdownMenuItemIndicator intent="radio" />
+                                Wines
+                            </ButtonPrimitive>
                         </DropdownMenuRadioItem>
-                        <DropdownMenuRadioItem value="spirits">
-                            <Button.Root menuItem>
-                                <Button.Icon>
-                                    <DropdownMenuItemIndicator intent="radio" />
-                                </Button.Icon>
-                                <Button.Label menuItem>Spirits</Button.Label>
-                            </Button.Root>
+                        <DropdownMenuRadioItem value="spirits" asChild>
+                            <ButtonPrimitive menuItem>
+                                <DropdownMenuItemIndicator intent="radio" />
+                                Spirits
+                            </ButtonPrimitive>
                         </DropdownMenuRadioItem>
                     </DropdownMenuRadioGroup>
                 </DropdownMenuContent>

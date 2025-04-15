@@ -8,34 +8,45 @@ import (
 )
 
 const (
-	COUNTER_TTL = time.Second * 60
+	COUNTER_TTL = time.Minute
 )
 
+type CountEvent struct {
+	Token      string
+	DistinctID string
+}
+
+type noSpaceType struct{}
+
+// Stats keeps stats for each (team) token
 type Stats struct {
-	Store       map[string]*expirable.LRU[string, string]
-	GlobalStore *expirable.LRU[string, string]
+	Store       map[string]*expirable.LRU[string, noSpaceType]
+	GlobalStore *expirable.LRU[string, noSpaceType]
 	Counter     *SlidingWindowCounter
 }
 
 func newStatsKeeper() *Stats {
 	return &Stats{
-		Store:       make(map[string]*expirable.LRU[string, string]),
-		GlobalStore: expirable.NewLRU[string, string](0, nil, COUNTER_TTL),
+		Store:       make(map[string]*expirable.LRU[string, noSpaceType]),
+		GlobalStore: expirable.NewLRU[string, noSpaceType](0, nil, COUNTER_TTL),
 		Counter:     NewSlidingWindowCounter(COUNTER_TTL),
 	}
 }
 
-func (ts *Stats) keepStats(statsChan chan PostHogEvent) {
+func (ts *Stats) keepStats(statsChan chan CountEvent) {
 	log.Println("starting stats keeper...")
 
 	for event := range statsChan {
 		ts.Counter.Increment()
 		token := event.Token
-		if _, ok := ts.Store[token]; !ok {
-			ts.Store[token] = expirable.NewLRU[string, string](0, nil, COUNTER_TTL)
+		store, ok := ts.Store[token]
+		if !ok {
+			store = expirable.NewLRU[string, noSpaceType](0, nil, COUNTER_TTL)
+			ts.Store[token] = store
 		}
-		ts.Store[token].Add(event.DistinctId, "1")
-		ts.GlobalStore.Add(event.DistinctId, "1")
+		store.Add(event.DistinctID, noSpaceType{})
+
+		ts.GlobalStore.Add(event.DistinctID, noSpaceType{})
 		handledEvents.Inc()
 	}
 }

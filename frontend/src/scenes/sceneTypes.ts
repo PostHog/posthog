@@ -20,6 +20,7 @@ export enum Scene {
     WebAnalytics = 'WebAnalytics',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
+    RevenueAnalytics = 'RevenueAnalytics',
     Cohort = 'Cohort',
     Activity = 'Activity',
     DataManagement = 'DataManagement',
@@ -38,8 +39,10 @@ export enum Scene {
     PipelineNodeNew = 'PipelineNodeNew',
     Pipeline = 'Pipeline',
     PipelineNode = 'PipelineNode',
+    Groups = 'Groups',
     Group = 'Group',
     Action = 'Action',
+    EarlyAccessFeatures = 'EarlyAccessFeatures',
     Experiments = 'Experiments',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
@@ -87,11 +90,12 @@ export enum Scene {
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     Heatmaps = 'Heatmaps',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
-    MessagingAutomations = 'MessagingAutomations',
+    MessagingCampaigns = 'MessagingCampaigns',
     MessagingProviders = 'MessagingProviders',
     MessagingBroadcasts = 'MessagingBroadcasts',
     MessagingLibrary = 'MessagingLibrary',
     Wizard = 'Wizard',
+    StartupProgram = 'StartupProgram',
 }
 
 export type SceneProps = Record<string, any>

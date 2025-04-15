@@ -1,5 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconBolt, IconDownload, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
@@ -16,6 +16,7 @@ import { multitabEditorLogic } from './multitabEditorLogic'
 import { OutputPane } from './OutputPane'
 import { QueryPane } from './QueryPane'
 import { QueryTabs } from './QueryTabs'
+import { editorSidebarLogic, EditorSidebarTab } from './sidebar/editorSidebarLogic'
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -24,7 +25,7 @@ interface QueryWindowProps {
 export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Element {
     const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
 
-    const { allTabs, activeModelUri, queryInput, editingView, sourceQuery, isValidView } =
+    const { allTabs, activeModelUri, queryInput, editingView, editingInsight, sourceQuery, suggestedQueryInput } =
         useValues(multitabEditorLogic)
     const {
         renameTab,
@@ -34,7 +35,6 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         setQueryInput,
         runQuery,
         setError,
-        setIsValidView,
         setMetadata,
         setMetadataLoading,
         saveAsView,
@@ -45,6 +45,9 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { updateDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
+    const { setActiveTab } = useActions(editorSidebarLogic)
+
+    const isMaterializedView = !!editingView?.status
 
     return (
         <div className="flex flex-1 flex-col h-full overflow-hidden">
@@ -52,7 +55,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 {sidebarWidth === 0 && (
                     <LemonButton
                         onClick={() => resetDefaultSidebarWidth()}
-                        className="mt-1 mr-1"
+                        className="rounded-none"
                         icon={<IconSidebarClose />}
                         type="tertiary"
                         size="small"
@@ -67,10 +70,15 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                     activeModelUri={activeModelUri}
                 />
             </div>
-            {editingView && (
+            {(editingView || editingInsight) && (
                 <div className="h-5 bg-warning-highlight">
-                    <span className="text-xs">
-                        Editing {editingView.last_run_at ? 'materialized view' : 'view'} "{editingView.name}"
+                    <span className="pl-2 text-xs">
+                        {editingView && (
+                            <>
+                                Editing {isMaterializedView ? 'materialized view' : 'view'} "{editingView.name}"
+                            </>
+                        )}
+                        {editingInsight && <>Editing insight "{editingInsight.name}"</>}
                     </span>
                 </div>
             )}
@@ -87,37 +95,46 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                     query: queryInput,
                                 },
                                 types: response?.types ?? [],
+                                shouldRematerialize: isMaterializedView,
                             })
                         }
-                        disabledReason={
-                            !isValidView
-                                ? 'Some fields may need an alias'
-                                : updatingDataWarehouseSavedQuery
-                                ? 'Saving...'
-                                : ''
-                        }
+                        disabledReason={updatingDataWarehouseSavedQuery ? 'Saving...' : ''}
                         icon={<IconDownload />}
                         type="tertiary"
                         size="xsmall"
+                        id={`sql-editor-query-window-update-${isMaterializedView ? 'materialize' : 'view'}`}
                     >
-                        Update view
+                        {isMaterializedView ? 'Update and re-materialize view' : 'Update view'}
                     </LemonButton>
                 ) : (
-                    <LemonButton
-                        onClick={() => saveAsView()}
-                        disabledReason={isValidView ? '' : 'Some fields may need an alias'}
-                        icon={<IconDownload />}
-                        type="tertiary"
-                        size="xsmall"
-                    >
-                        Save as view
-                    </LemonButton>
+                    <>
+                        <LemonButton
+                            onClick={() => saveAsView()}
+                            icon={<IconDownload />}
+                            type="tertiary"
+                            size="xsmall"
+                            id="sql-editor-query-window-save-as-view"
+                        >
+                            Save as view
+                        </LemonButton>
+                        <LemonButton
+                            onClick={() => setActiveTab(EditorSidebarTab.QueryInfo)}
+                            icon={<IconBolt />}
+                            type="tertiary"
+                            size="xsmall"
+                            id="sql-editor-query-window-materialize"
+                        >
+                            Materialize
+                        </LemonButton>
+                    </>
                 )}
             </div>
             <QueryPane
-                queryInput={queryInput}
+                originalValue={suggestedQueryInput && suggestedQueryInput != queryInput ? queryInput ?? ' ' : undefined}
+                queryInput={suggestedQueryInput && suggestedQueryInput != queryInput ? suggestedQueryInput : queryInput}
                 sourceQuery={sourceQuery.source}
                 promptError={null}
+                onRun={runQuery}
                 codeEditorProps={{
                     queryKey: codeEditorKey,
                     onChange: (v) => {
@@ -133,9 +150,8 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                             runQuery()
                         }
                     },
-                    onError: (error, isValidView) => {
+                    onError: (error) => {
                         setError(error)
-                        setIsValidView(isValidView)
                     },
                     onMetadata: (metadata) => {
                         setMetadata(metadata)

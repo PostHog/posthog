@@ -46,17 +46,21 @@ class HogFunctionType(models.TextChoices):
     INTERNAL_DESTINATION = "internal_destination"
     SITE_APP = "site_app"
     TRANSFORMATION = "transformation"
+    EMAIL = "email"
+    BROADCAST = "broadcast"
 
 
 TYPES_THAT_RELOAD_PLUGIN_SERVER = (
     HogFunctionType.DESTINATION,
     HogFunctionType.TRANSFORMATION,
     HogFunctionType.INTERNAL_DESTINATION,
+    HogFunctionType.BROADCAST,
 )
 TYPES_WITH_COMPILED_FILTERS = (
     HogFunctionType.DESTINATION,
     HogFunctionType.INTERNAL_DESTINATION,
     HogFunctionType.TRANSFORMATION,
+    HogFunctionType.BROADCAST,
 )
 TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
@@ -77,6 +81,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     enabled = models.BooleanField(default=False)
     type = models.CharField(max_length=24, null=True, blank=True)
+    kind = models.CharField(max_length=24, null=True, blank=True)
 
     icon_url = models.TextField(null=True, blank=True)
 
@@ -100,24 +105,28 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
     @classmethod
     def get_file_system_unfiled(cls, team: "Team") -> QuerySet["HogFunction"]:
         base_qs = HogFunction.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, type__startswith="hog/", ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type__startswith="hog_function/", ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
+        folder = "Unfiled/Destinations"
+        href = f"/pipeline/destinations/hog-{self.pk}/configuration"
+
         if self.type == HogFunctionType.SITE_APP:
             folder = "Unfiled/Site apps"
-            url_type = "site-apps"
+            href = f"/pipeline/site-apps/hog-{self.pk}/configuration"
         elif self.type == HogFunctionType.TRANSFORMATION:
             folder = "Unfiled/Transformations"
-            url_type = "transformations"
-        else:
-            folder = "Unfiled/Destinations"
-            url_type = f"destinations"
+            href = f"/pipeline/transformations/hog-{self.pk}/configuration"
+        elif self.type == HogFunctionType.BROADCAST:
+            folder = "Unfiled/Broadcasts"
+            href = f"/messaging/broadcasts/{self.pk}"
+
         return FileSystemRepresentation(
             base_folder=folder,
-            type=f"hog/{self.type}",
+            type=f"hog_function/{self.type}",  # sync with APIScopeObject in scopes.py
             ref=str(self.pk),
             name=self.name or "Untitled",
-            href=f"/pipeline/{url_type}/hog-{self.pk}/configuration",
+            href=href,
             meta={
                 "created_at": str(self.created_at),
                 "created_by": self.created_by_id,

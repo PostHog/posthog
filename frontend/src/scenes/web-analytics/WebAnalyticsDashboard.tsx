@@ -41,14 +41,19 @@ import { ProductKey } from '~/types'
 
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 
-export const Tiles = (props: { tiles?: WebAnalyticsTile[] }): JSX.Element => {
-    const { tiles: tilesFromProps } = props
+export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
+    const { tiles: tilesFromProps, compact = false } = props
     const { tiles: tilesFromLogic } = useValues(webAnalyticsLogic)
 
     const tiles = tilesFromProps ?? tilesFromLogic
 
     return (
-        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3 gap-x-4 gap-y-12">
+        <div
+            className={clsx(
+                'mt-4 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3',
+                compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-12'
+            )}
+        >
             {tiles.map((tile, i) => {
                 if (tile.kind === 'query') {
                     return <QueryTileItem key={i} tile={tile} />
@@ -116,7 +121,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
             )}
         >
             {title && (
-                <div className="flex flex-row items-center">
+                <div className="flex flex-row items-center mb-3">
                     <h2>{title}</h2>
                     {docs && <LearnMorePopover url={docs.url} title={docs.title} description={docs.description} />}
                 </div>
@@ -180,11 +185,11 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
     )
 }
 
-export const SectionTileItem = ({ tile }: { tile: SectionTile }): JSX.Element => {
+export const SectionTileItem = ({ tile, separator }: { tile: SectionTile; separator?: boolean }): JSX.Element => {
     return (
         <div className="col-span-full">
-            {tile.title && <h2 className="text-lg font-semibold mb-2">{tile.title}</h2>}
-            <div className={tile.layout.className ? `grid ${tile.layout.className}` : ''}>
+            {tile.title && <h2 className="text-lg font-semibold mb-4">{tile.title}</h2>}
+            <div className={tile.layout.className ? `grid ${tile.layout.className} mb-4` : 'mb-4'}>
                 {tile.tiles.map((subTile, i) => {
                     if (subTile.kind === 'query') {
                         return (
@@ -196,7 +201,7 @@ export const SectionTileItem = ({ tile }: { tile: SectionTile }): JSX.Element =>
                     return null
                 })}
             </div>
-            <LemonDivider className="my-3" />
+            {separator && <LemonDivider className="my-3" />}
         </div>
     )
 }
@@ -230,15 +235,11 @@ export const WebTabs = ({
     const activeTab = tabs.find((t) => t.id === activeTabId)
     const newInsightUrl = getNewInsightUrl(tileId, activeTabId)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-
     const { setTileVisualization } = useActions(webAnalyticsLogic)
     const { tileVisualizations } = useValues(webAnalyticsLogic)
     const visualization = tileVisualizations[tileId]
 
-    const isVisualizationToggleEnabled =
-        featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TREND_VIZ_TOGGLE] &&
-        [TileId.SOURCES, TileId.DEVICES, TileId.PATHS].includes(tileId)
+    const isVisualizationToggleEnabled = [TileId.SOURCES, TileId.DEVICES, TileId.PATHS].includes(tileId)
 
     const buttonsRow = [
         activeTab?.canOpenInsight && newInsightUrl ? (

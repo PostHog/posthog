@@ -25,10 +25,10 @@ export interface KeySelectOption {
 
 export const viewLinkLogic = kea<viewLinkLogicType>([
     path(['scenes', 'data-warehouse', 'viewLinkLogic']),
-    connect({
+    connect(() => ({
         values: [databaseTableListLogic, ['allTables']],
         actions: [databaseTableListLogic, ['loadDatabase'], dataWarehouseJoinsLogic, ['loadJoins']],
-    }),
+    })),
     actions(({ values }) => ({
         selectJoiningTable: (selectedTableName: string) => ({ selectedTableName }),
         selectSourceTable: (selectedTableName: string) => ({ selectedTableName }),
@@ -98,7 +98,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             '' as string,
             {
                 setFieldName: (_, { fieldName }) => fieldName,
-                selectJoiningTable: (_, { selectedTableName }) => selectedTableName,
+                selectJoiningTable: (_, { selectedTableName }) => selectedTableName.replaceAll('.', '_'),
                 toggleEditJoinModal: (_, { join }) => join.field_name ?? '',
                 clearModalFields: () => '',
             },

@@ -446,7 +446,12 @@ export function DataTable({
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />
         ) : null,
         showSearch && sourceFeatures.has(QueryFeature.groupsSearch) ? (
-            <GroupsSearch key="groups-search" query={query.source as GroupsQuery} setQuery={setQuerySource} />
+            <GroupsSearch
+                key="groups-search"
+                query={query.source as GroupsQuery}
+                setQuery={setQuerySource}
+                groupTypeLabel={context?.groupTypeLabel}
+            />
         ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.eventPropertyFilters) ? (
             <EventPropertyFilters

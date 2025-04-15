@@ -25,7 +25,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128
+                       max_bytes_before_external_group_by=23622320128,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.1
@@ -66,7 +68,9 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.2
@@ -95,7 +99,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128
+                       max_bytes_before_external_group_by=23622320128,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events
@@ -124,7 +130,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128
+                       max_bytes_before_external_group_by=23622320128,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events.1
@@ -165,7 +173,9 @@
                     format_csv_allow_double_quotes=0,
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events.2
@@ -194,7 +204,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128
+                       max_bytes_before_external_group_by=23622320128,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestRetention.test_day_interval_sampled
@@ -230,7 +242,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128
+                       max_bytes_before_external_group_by=23622320128,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestRetention.test_month_interval_with_person_on_events_v2
@@ -275,7 +289,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128
+                       max_bytes_before_external_group_by=23622320128,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestRetention.test_retention_event_action
@@ -311,7 +327,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128
+                       max_bytes_before_external_group_by=23622320128,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestRetention.test_retention_with_user_properties_via_action
@@ -338,12 +356,12 @@
        (SELECT person.id AS id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
         FROM person
-        WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                             (SELECT person.id AS id, max(person.version) AS version
-                                                              FROM person
-                                                              WHERE equals(person.team_id, 99999)
-                                                              GROUP BY person.id
-                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+        WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                      (SELECT person.id AS id, max(person.version) AS version
+                                                       FROM person
+                                                       WHERE equals(person.team_id, 99999)
+                                                       GROUP BY person.id
+                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
      WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toStartOfDay(assumeNotNull(toDateTime('2020-06-10 00:00:00', 'UTC')))), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(events.event, tuple('$pageview', '$pageview', 'non_matching_event')), or(or(and(equals(events.event, '$pageview'), ifNull(equals(events__person.properties___email, 'person1@test.com'), 0)), equals(events.event, 'non_matching_event')), equals(events.event, '$pageview')))
      GROUP BY actor_id
      HAVING and(1, 1)) AS actor_activity
@@ -357,7 +375,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128
+                       max_bytes_before_external_group_by=23622320128,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestRetention.test_timezones
@@ -393,7 +413,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128
+                       max_bytes_before_external_group_by=23622320128,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestRetention.test_timezones.1
@@ -429,7 +451,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128
+                       max_bytes_before_external_group_by=23622320128,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestRetention.test_week_interval
@@ -465,7 +489,9 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128
+                       max_bytes_before_external_group_by=23622320128,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestRetention.test_week_interval.1
@@ -501,6 +527,8 @@
                        format_csv_allow_double_quotes=0,
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128
+                       max_bytes_before_external_group_by=23622320128,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---

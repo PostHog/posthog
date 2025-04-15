@@ -56,7 +56,7 @@ export function InsightEmptyState({
     detail = 'Try changing the date range, or pick another action, event or breakdown.',
 }: {
     heading?: string
-    detail?: string
+    detail?: string | JSX.Element
 }): JSX.Element {
     return (
         <div

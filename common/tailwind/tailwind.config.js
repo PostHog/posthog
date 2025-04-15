@@ -653,6 +653,7 @@ const config = {
                 'fill-success-secondary': 'var(--bg-fill-success-secondary)',
                 'fill-success-tertiary': 'var(--bg-fill-success-tertiary)',
                 'fill-success-highlight': 'var(--bg-fill-success-highlight)',
+                'fill-button-group-tertiary-hover': 'var(--bg-fill-button-group-tertiary-hover)',
                 'fill-button-tertiary-hover': 'var(--bg-fill-button-tertiary-hover)',
                 'fill-button-tertiary-hover-inverse': 'var(--bg-fill-button-tertiary-hover-inverse)',
                 'fill-button-tertiary-active': 'var(--bg-fill-button-tertiary-active)',
@@ -661,6 +662,8 @@ const config = {
                 'fill-switch': 'var(--bg-fill-switch)',
                 'fill-slider-rail': 'var(--bg-fill-slider-rail)',
                 'fill-scroll-thumb': 'var(--bg-fill-scroll-thumb)',
+                'border-primary': 'var(--bg-border-primary)',
+                'border-secondary': 'var(--bg-border-secondary)',
             },
             textColor: {
                 ...commonColors,
@@ -690,9 +693,17 @@ const config = {
             },
             ringColor: {
                 ...commonColors,
+
+                'primary': 'var(--border-primary)',
+                'secondary': 'var(--border-secondary)',
+                'info': 'var(--border-info)',
+                'warning': 'var(--border-warning)',
+                'error': 'var(--border-error)',
+                'success': 'var(--border-success)',
             },
             fontFamily: {
                 sans: [
+                    'Emoji Flags Polyfill',
                     '-apple-system',
                     'BlinkMacSystemFont',
                     'Inter',
@@ -707,6 +718,7 @@ const config = {
                     'Segoe UI Symbol',
                 ],
                 title: [
+                    'Emoji Flags Polyfill',
                     'MatterSQ',
                     '-apple-system',
                     'BlinkMacSystemFont',
@@ -721,7 +733,16 @@ const config = {
                     'Segoe UI Emoji',
                     'Segoe UI Symbol',
                 ],
-                mono: ['ui-monospace', 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', 'monospace'],
+                mono: [
+                    'Emoji Flags Polyfill',
+                    'ui-monospace',
+                    'SFMono-Regular',
+                    'SF Mono',
+                    'Menlo',
+                    'Consolas',
+                    'Liberation Mono',
+                    'monospace',
+                ],
             },
             screens: {
                 // Sync with vars.scss
@@ -787,7 +808,6 @@ const config = {
         plugin(({ addUtilities, theme }) => {
             const spacing = theme("spacing");
             const newUtilities = {};
-            
 
             // Standard spacing utilities for backwards compatibility
             for (const [key, value] of Object.entries(spacing)) {

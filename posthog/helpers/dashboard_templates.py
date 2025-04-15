@@ -694,30 +694,31 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
 
 
 def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dashboard:
-    label = group_type_mapping.name_singular or group_type_mapping.group_type
+    singular = group_type_mapping.name_singular or group_type_mapping.group_type
+    plural = group_type_mapping.name_plural or group_type_mapping.group_type + "s"
 
     dashboard = Dashboard.objects.create(
-        name=f"Generated Dashboard: {label} Overview",
-        description=f"This dashboard was generated automatically for the {group_type_mapping.group_type} group type",
+        name=f"Template dashboard for {singular} overview",
+        description=f"This dashboard template powers the Overview page for all {plural}. Any insights will automatically filter to the selected {singular}.",
         team=group_type_mapping.team,
         created_by=user,
         creation_mode="template",
     )
 
-    # 1 row
-    _create_tile_for_insight(
-        dashboard,
-        name="Weekly Active Users",
-        description=f"Shows the number of unique users from this {label} in the last 30 days",
+    insight = Insight.objects.create(
+        team=dashboard.team,
+        name="Weekly active users",
+        description=f"Shows the number of unique users from this {singular} in the last 90 days",
+        is_sample=True,
         query={
             "kind": "InsightVizNode",
             "source": {
-                "dateRange": {"date_from": "-30d", "explicitDate": False},
+                "dateRange": {"date_from": "-90d", "explicitDate": False},
                 "filterTestAccounts": False,
                 "interval": "week",
                 "kind": "TrendsQuery",
                 "properties": [],
-                "series": [{"event": "$pageview", "kind": "EventsNode", "name": "$pageview", "math": "dau"}],
+                "series": [{"event": None, "kind": "EventsNode", "math": "dau"}],
                 "trendsFilter": {
                     "aggregationAxisFormat": "numeric",
                     "display": "ActionsLineGraph",
@@ -730,20 +731,33 @@ def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dash
                 },
             },
         },
-        layouts={
-            "sm": {"i": "21", "x": 0, "y": 0, "w": 6, "h": 5, "minW": 3, "minH": 5},
-            "xs": {
-                "w": 1,
-                "h": 5,
-                "x": 0,
-                "y": 0,
-                "i": "21",
-                "minW": 1,
-                "minH": 5,
-            },
-        },
-        color="blue",
     )
+    tile = DashboardTile.objects.create(
+        insight=insight,
+        dashboard=dashboard,
+        layouts={
+            "sm": {"h": 5, "w": 12, "x": 0, "y": 0, "minH": 1, "minW": 1, "moved": False, "static": False},
+            "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 1, "minW": 1},
+        },
+        color=None,
+    )
+    tile.layouts = {
+        "sm": {
+            "h": 5,
+            "i": str(tile.id),
+            "w": 12,
+            "x": 0,
+            "y": 0,
+            "minH": 1,
+            "minW": 1,
+            "moved": False,
+            "static": False,
+        },
+        "xs": {"h": 5, "i": str(tile.id), "w": 1, "x": 0, "y": 0, "minH": 1, "minW": 1},
+    }
+    tile.last_refresh = None
+    tile.save()
+
     return dashboard
 
 

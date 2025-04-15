@@ -51,26 +51,16 @@ export function parseUrl(lastUrl: unknown): { urlToUse: string | undefined; isVa
     return { urlToUse, isValidUrl }
 }
 
-function URLOrScreen({ lastUrl }: { lastUrl: unknown }): JSX.Element | null {
-    const { urlToUse, isValidUrl } = parseUrl(lastUrl)
+function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
+    const { urlToUse, isValidUrl } = parseUrl(url)
 
     if (!urlToUse) {
         return null
     }
 
     return (
-        <span className="flex flex-row items-center deprecated-space-x-1 truncate">
-            <span>·</span>
-            <span className="flex flex-row items-center deprecated-space-x-1 truncate">
-                {isValidUrl ? (
-                    <Tooltip title="Click to open url">
-                        <Link to={urlToUse} target="_blank" className="truncate">
-                            {urlToUse}
-                        </Link>
-                    </Tooltip>
-                ) : (
-                    urlToUse
-                )}
+        <span className="flex flex-row items-center gap-x-1 truncate">
+            <span className="flex flex-row items-center gap-x-1 truncate">
                 <span className="flex items-center">
                     <CopyToClipboardInline
                         description={urlToUse}
@@ -79,6 +69,15 @@ function URLOrScreen({ lastUrl }: { lastUrl: unknown }): JSX.Element | null {
                         selectable={true}
                     />
                 </span>
+                {isValidUrl ? (
+                    <Tooltip title={`Click to open url: ${urlToUse}`}>
+                        <Link to={urlToUse} target="_blank" className="truncate">
+                            {urlToUse}
+                        </Link>
+                    </Tooltip>
+                ) : (
+                    urlToUse
+                )}
             </span>
         </span>
     )
@@ -102,7 +101,7 @@ export function ResolutionView({ size }: { size?: PlayerMetaBreakpoints }): JSX.
                 </>
             }
         >
-            <span className="text-secondary text-xs flex flex-row items-center deprecated-space-x-1">
+            <span className="text-secondary text-xs flex flex-row items-center gap-x-1">
                 {size === 'normal' && <span>{resolutionDisplay}</span>}
                 <span>({scaleDisplay})</span>
             </span>
@@ -115,7 +114,7 @@ export type PlayerMetaBreakpoints = 'small' | 'normal'
 export function PlayerMeta(): JSX.Element {
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
-    const { windowIds, trackedWindow, lastPageviewEvent, lastUrl, currentWindowIndex, loading } = useValues(
+    const { windowIds, trackedWindow, lastPageviewEvent, currentURL, currentWindowIndex, loading } = useValues(
         playerMetaLogic(logicProps)
     )
 
@@ -160,7 +159,7 @@ export function PlayerMeta(): JSX.Element {
         windowOptions.push({
             label: <IconWindow value={index + 1} className="text-secondary" />,
             labelInMenu: (
-                <div className="flex flex-row deprecated-space-x-1 space-between items-center">
+                <div className="flex flex-row gap-x-1 space-between items-center">
                     Follow window:&nbsp;
                     <IconWindow value={index + 1} className="text-secondary" />
                 </div>
@@ -177,7 +176,7 @@ export function PlayerMeta(): JSX.Element {
                     'PlayerMeta--fullscreen': isFullScreen,
                 })}
             >
-                <div className="flex flex-row items-center justify-between deprecated-space-x-1 whitespace-nowrap overflow-hidden px-1 py-0.5 text-xs">
+                <div className="flex flex-row items-center justify-between gap-x-1 whitespace-nowrap overflow-hidden px-1 py-0.5 text-xs">
                     {loading ? (
                         <LemonSkeleton className="w-1/3 h-4 my-1" />
                     ) : (
@@ -190,11 +189,11 @@ export function PlayerMeta(): JSX.Element {
                                 onSelect={(value) => setTrackedWindow(value)}
                             />
 
-                            <URLOrScreen lastUrl={lastUrl} />
+                            <URLOrScreen url={currentURL} />
                             {lastPageviewEvent?.properties?.['$screen_name'] && (
-                                <span className="flex flex-row items-center deprecated-space-x-1 truncate">
+                                <span className="flex flex-row items-center gap-x-1 truncate">
                                     <span>·</span>
-                                    <span className="flex flex-row items-center deprecated-space-x-1 truncate">
+                                    <span className="flex flex-row items-center gap-x-1 truncate">
                                         {lastPageviewEvent?.properties['$screen_name']}
                                     </span>
                                 </span>

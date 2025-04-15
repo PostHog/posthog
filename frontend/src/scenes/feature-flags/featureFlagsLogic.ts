@@ -57,9 +57,9 @@ export interface FlagLogicProps {
 export const featureFlagsLogic = kea<featureFlagsLogicType>([
     props({} as FlagLogicProps),
     path(['scenes', 'feature-flags', 'featureFlagsLogic']),
-    connect({
+    connect(() => ({
         values: [projectLogic, ['currentProjectId']],
-    }),
+    })),
     actions({
         updateFlag: (flag: FeatureFlagType) => ({ flag }),
         deleteFlag: (id: number) => ({ id }),

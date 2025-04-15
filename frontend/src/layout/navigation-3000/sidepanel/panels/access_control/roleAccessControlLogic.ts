@@ -15,8 +15,6 @@ import {
     RoleType,
 } from '~/types'
 
-import type { roleAccessControlLogicType } from './roleAccessControlLogicType'
-
 export type DefaultResourceAccessControls = {
     accessControlByResource: Record<APIScopeObject, AccessControlTypeRole>
 }
@@ -27,12 +25,12 @@ export type RoleResourceAccessControls = DefaultResourceAccessControls & {
     role?: RoleType
 }
 
-export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
-    path(['scenes', 'accessControl', 'roleAccessControlLogic']),
-    connect({
-        values: [teamLogic, ['currentTeam'], membersLogic, ['sortedMembers']],
+export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>([
+    path(['scenes', 'accessControl', 'roleBasedAccessControlLogic']),
+    connect(() => ({
+        values: [membersLogic, ['sortedMembers'], teamLogic, ['currentTeam'], userLogic, ['hasAvailableFeature']],
         actions: [membersLogic, ['ensureAllMembersLoaded']],
-    }),
+    })),
     actions({
         selectRoleId: (roleId: RoleType['id'] | null) => ({ roleId }),
         deleteRole: (roleId: RoleType['id']) => ({ roleId }),

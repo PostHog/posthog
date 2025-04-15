@@ -453,16 +453,26 @@ def property_to_expr(
             elif len(value) == 1:
                 value = value[0]
             else:
-                # Using an AND here instead of `in()` or `notIn()`, due to Clickhouses poor handling of `null` values
-                replacement_operator = property.operator
-                if replacement_operator in (PropertyOperator.IN_, PropertyOperator.NOT_IN):
-                    replacement_operator = PropertyOperator.EXACT.value
+                if operator in (
+                    PropertyOperator.EXACT,
+                    PropertyOperator.IS_NOT,
+                    PropertyOperator.IN_,
+                    PropertyOperator.NOT_IN,
+                ):
+                    op = (
+                        ast.CompareOperationOp.In
+                        if operator in (PropertyOperator.EXACT, PropertyOperator.IN_)
+                        else ast.CompareOperationOp.NotIn
+                    )
+                    return ast.CompareOperation(
+                        op=op, left=field, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
+                    )
                 exprs = [
                     property_to_expr(
                         Property(
                             type=property.type,
                             key=property.key,
-                            operator=replacement_operator,
+                            operator=property.operator,
                             group_type_index=property.group_type_index,
                             value=v,
                         ),

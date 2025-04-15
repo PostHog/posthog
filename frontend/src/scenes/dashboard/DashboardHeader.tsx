@@ -10,6 +10,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { privilegeLevelToName } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -39,6 +40,8 @@ import {
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
+import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
+import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
@@ -64,6 +67,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
+    const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
 
     const { user } = useValues(userLogic)
 
@@ -73,6 +77,8 @@ export function DashboardHeader(): JSX.Element | null {
     const { tags } = useValues(tagsModel)
 
     const { push } = useActions(router)
+
+    const hasDashboardColors = useFeatureFlag('DASHBOARD_COLORS')
 
     const exportOptions: ExportButtonItem[] = [
         {
@@ -123,6 +129,7 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
                     {canEditDashboard && <DeleteDashboardModal />}
                     {canEditDashboard && <DuplicateDashboardModal />}
+                    {canEditDashboard && <DashboardInsightColorsModal />}
                 </>
             )}
 
@@ -185,6 +192,14 @@ export function DashboardHeader(): JSX.Element | null {
                                                     </div>
                                                     <LemonDivider />
                                                 </>
+                                            )}
+                                            {canEditDashboard && hasDashboardColors && (
+                                                <LemonButton
+                                                    onClick={() => showInsightColorsModal(dashboard.id)}
+                                                    fullWidth
+                                                >
+                                                    Customize colors
+                                                </LemonButton>
                                             )}
                                             {canEditDashboard && (
                                                 <LemonButton

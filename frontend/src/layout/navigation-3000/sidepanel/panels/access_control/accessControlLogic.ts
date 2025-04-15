@@ -36,7 +36,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
     props({} as AccessControlLogicProps),
     key((props) => `${props.resource}-${props.resource_id}`),
     path((key) => ['scenes', 'accessControl', 'accessControlLogic', key]),
-    connect({
+    connect(() => ({
         values: [
             membersLogic,
             ['sortedMembers'],
@@ -48,7 +48,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
             ['guardAvailableFeature'],
         ],
         actions: [membersLogic, ['ensureAllMembersLoaded']],
-    }),
+    })),
     actions({
         updateAccessControl: (
             accessControl: Pick<AccessControlType, 'access_level' | 'organization_member' | 'role'>
