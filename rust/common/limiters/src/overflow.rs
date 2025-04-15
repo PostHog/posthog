@@ -50,7 +50,7 @@ impl OverflowLimiter {
         // should rate limiting be triggered for this event?
         let limiter_by_key = self.limiter.check_key(event_key).is_err();
 
-        forced_key_match && forced_token_match && limiter_by_key
+        forced_key_match || forced_token_match || limiter_by_key
     }
 
     /// Reports the number of tracked keys to prometheus every 10 seconds,
