@@ -6,6 +6,7 @@ import { actionToUrl, router } from 'kea-router'
 import api from 'lib/api'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import {
     AccessControlResponseType,
@@ -14,6 +15,8 @@ import {
     OrganizationMemberType,
     RoleType,
 } from '~/types'
+
+import type { roleAccessControlLogicType } from './roleAccessControlLogicType'
 
 export type DefaultResourceAccessControls = {
     accessControlByResource: Record<APIScopeObject, AccessControlTypeRole>
@@ -25,8 +28,8 @@ export type RoleResourceAccessControls = DefaultResourceAccessControls & {
     role?: RoleType
 }
 
-export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>([
-    path(['scenes', 'accessControl', 'roleBasedAccessControlLogic']),
+export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
+    path(['scenes', 'accessControl', 'roleAccessControlLogic']),
     connect(() => ({
         values: [membersLogic, ['sortedMembers'], teamLogic, ['currentTeam'], userLogic, ['hasAvailableFeature']],
         actions: [membersLogic, ['ensureAllMembersLoaded']],
@@ -141,7 +144,7 @@ export const roleBasedAccessControlLogic = kea<roleBasedAccessControlLogicType>(
     selectors({
         canEditRoles: [
             (s) => [s.resourceAccessControls],
-            (resourceAccessControls): boolean | null => {
+            (resourceAccessControls: AccessControlResponseType | null): boolean | null => {
                 return resourceAccessControls?.user_can_edit_access_levels ?? null
             },
         ],
