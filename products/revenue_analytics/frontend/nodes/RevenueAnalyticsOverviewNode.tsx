@@ -20,6 +20,8 @@ import { QueryContext } from '~/queries/types'
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 
 const NUM_SKELETONS = 3
+const HEIGHT_CLASS = 'h-30'
+const REVENUE_CONTAINER_CLASS = 'col-span-3'
 
 let uniqueNode = 0
 export function RevenueAnalyticsOverviewNode(props: {
@@ -28,7 +30,7 @@ export function RevenueAnalyticsOverviewNode(props: {
     context: QueryContext
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
-    const [key] = useState(() => `WebOverview.${uniqueNode++}`)
+    const [key] = useState(() => `RevenueAnalyticsOverview.${uniqueNode++}`)
     const logic = dataNodeLogic({
         query: props.query,
         key,
@@ -44,11 +46,14 @@ export function RevenueAnalyticsOverviewNode(props: {
     return (
         <div className="grid auto-cols-fr grid-flow-col w-full gap-2">
             {responseLoading
-                ? range(NUM_SKELETONS).map((i) => (
-                      <LemonSkeleton key={i} className={cn('h-30', { 'col-span-3': i === 0 })} />
+                ? range(NUM_SKELETONS).map((index) => (
+                      <LemonSkeleton
+                          key={index}
+                          className={cn(HEIGHT_CLASS, { [REVENUE_CONTAINER_CLASS]: index === 0 })}
+                      />
                   ))
                 : queryResponse?.results?.map((item, index) => (
-                      <div key={item.key} className={cn('h-30', { 'col-span-2': index === 0 })}>
+                      <div key={item.key} className={cn(HEIGHT_CLASS, { [REVENUE_CONTAINER_CLASS]: index === 0 })}>
                           <ItemCell item={item} />
                       </div>
                   ))}

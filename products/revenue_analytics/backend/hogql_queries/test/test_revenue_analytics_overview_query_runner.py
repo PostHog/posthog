@@ -65,7 +65,7 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.cleanUpFilesystem()
         super().tearDown()
 
-    def _run_revenue_example_external_tables_query(self):
+    def _run_revenue_analytics_overview_query(self):
         with freeze_time(self.QUERY_TIMESTAMP):
             query = RevenueAnalyticsOverviewQuery(dateRange=DateRange(date_from="-30d"))
             runner = RevenueAnalyticsOverviewQueryRunner(
@@ -80,7 +80,7 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_no_crash_when_no_data(self):
         self.table.delete()
-        results = self._run_revenue_example_external_tables_query().results
+        results = self._run_revenue_analytics_overview_query().results
 
         self.assertEqual(
             results,
@@ -92,7 +92,7 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_with_data(self):
-        results = self._run_revenue_example_external_tables_query().results
+        results = self._run_revenue_analytics_overview_query().results
 
         self.assertEqual(
             results,

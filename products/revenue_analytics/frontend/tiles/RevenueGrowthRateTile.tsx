@@ -76,7 +76,7 @@ const MRRGrowthRateCell = ({ value, isLast }: { value: number; isLast: boolean }
         <span className={cn('text-sm', isPositive ? 'text-green-500' : 'text-red-500')}>
             {percentage}%
             {isLast && (
-                <Tooltip title="Given that the month hasnt finished yet, growth rate is not final">
+                <Tooltip title="Given that the month hasn't finished yet, growth rate is not final">
                     <IconInfo className="ml-1" />
                 </Tooltip>
             )}

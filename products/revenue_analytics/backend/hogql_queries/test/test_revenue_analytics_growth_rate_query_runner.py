@@ -64,7 +64,7 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
         self.cleanUpFilesystem()
         super().tearDown()
 
-    def _run_revenue_example_external_tables_query(self):
+    def _run_revenue_analytics_growth_rate_query(self):
         with freeze_time(self.QUERY_TIMESTAMP):
             query = RevenueAnalyticsGrowthRateQuery(dateRange=DateRange(date_from="-30d"))
             runner = RevenueAnalyticsGrowthRateQueryRunner(
@@ -79,12 +79,12 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
 
     def test_no_crash_when_no_data(self):
         self.table.delete()
-        results = self._run_revenue_example_external_tables_query().results
+        results = self._run_revenue_analytics_growth_rate_query().results
 
         self.assertEqual(results, [])
 
     def test_with_data(self):
-        results = self._run_revenue_example_external_tables_query().results
+        results = self._run_revenue_analytics_growth_rate_query().results
 
         # Month, MRR, Previous MRR, Growth Rate
         self.assertEqual(
