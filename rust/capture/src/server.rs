@@ -177,6 +177,8 @@ where
         config.capture_mode,
         config.concurrency_limit,
         event_max_bytes,
+        config.enable_historical_rerouting,
+        config.historical_rerouting_threshold_days,
     );
 
     // run our app with hyper

@@ -10,7 +10,7 @@ use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
 use capture::v0_request::{DataType, ProcessedEvent};
-use chrono::Utc;
+//use chrono::Utc;
 use common_redis::MockRedisClient;
 use health::HealthRegistry;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, QUOTA_LIMITER_CACHE_KEY};
@@ -96,10 +96,10 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
 
         // kludge to ensure test fixtures have up-to-date "now" timestamps
         // so that stamp-based historical rerouting works as expected
-        let event_now = Utc::now().to_rfc3339();
+        //let event_now = Utc::now().to_rfc3339();
 
-        let mut case: RequestDump = serde_json::from_str(&line_contents)?;
-        case.now = event_now.clone();
+        let case: RequestDump = serde_json::from_str(&line_contents)?;
+        //case.now = event_now.clone();
 
         let raw_body = general_purpose::STANDARD.decode(&case.body)?;
         assert_eq!(
@@ -122,6 +122,10 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         )
         .expect("failed to create billing limiter");
 
+        // for this test, shut it off entirely
+        let enable_historical_rerouting = false;
+        let historical_rerouting_threshold_days = 1_i64;
+
         let app = router(
             timesource,
             liveness.clone(),
@@ -133,6 +137,8 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             CaptureMode::Events,
             None,
             25 * 1024 * 1024,
+            enable_historical_rerouting,
+            historical_rerouting_threshold_days,
         );
 
         let client = TestClient::new(app);
@@ -181,11 +187,12 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
 
             // Normalizing the expected event to align with known django->rust inconsistencies
             let mut expected = expected.clone();
+
             // kludge to ensure fixtures and expected "now" values match and
             // are too new to trigger "now" based historical rerouting
-            if let Some(timestamp) = expected.get_mut("now") {
-                *timestamp = Value::from(event_now.clone());
-            }
+            //if let Some(timestamp) = expected.get_mut("now") {
+            //    *timestamp = Value::from(event_now.clone());
+            //}
 
             if let Some(value) = expected.get_mut("sent_at") {
                 // Default ISO format is different between python and rust, both are valid

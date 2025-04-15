@@ -178,6 +178,7 @@ pub async fn event(
             if let Err(err) = process_events(
                 state.sink.clone(),
                 state.token_dropper.clone(),
+                state.historical_cfg.clone(),
                 &events,
                 &context,
             )
@@ -269,6 +270,7 @@ pub async fn options() -> Result<Json<CaptureResponse>, CaptureError> {
 #[instrument(skip_all)]
 pub fn process_single_event(
     event: &RawEvent,
+    historical_cfg: router::HistoricalConfig,
     context: &ProcessingContext,
 ) -> Result<ProcessedEvent, CaptureError> {
     if event.event.is_empty() {
@@ -311,13 +313,16 @@ pub fn process_single_event(
     // if this event was historical but not assigned to the right topic
     // by the submitting user (i.e. no historical prop flag in event)
     // we should route it there using event#now if older than 1 day
-    let dayold_event = {
+    let dayold_event = if historical_cfg.enable_historical_rerouting {
         if let Ok(event_dt) = DateTime::parse_from_rfc3339(&event.now) {
-            let threshold = Utc::now() - Duration::days(1);
+            let days_stale = Duration::days(historical_cfg.historical_rerouting_threshold_days);
+            let threshold = Utc::now() - days_stale;
             event_dt.to_utc() <= threshold
         } else {
             false
         }
+    } else {
+        false
     };
 
     if metadata.data_type == DataType::AnalyticsMain && dayold_event {
@@ -332,12 +337,13 @@ pub fn process_single_event(
 pub async fn process_events<'a>(
     sink: Arc<dyn sinks::Event + Send + Sync>,
     dropper: Arc<TokenDropper>,
+    historical_cfg: router::HistoricalConfig,
     events: &'a [RawEvent],
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
     let mut events: Vec<ProcessedEvent> = events
         .iter()
-        .map(|e| process_single_event(e, context))
+        .map(|e| process_single_event(e, historical_cfg.clone(), context))
         .collect::<Result<Vec<ProcessedEvent>, CaptureError>>()?;
 
     events.retain(|e| {

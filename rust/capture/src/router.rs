@@ -33,6 +33,13 @@ pub struct State {
     pub billing_limiter: RedisLimiter,
     pub token_dropper: Arc<TokenDropper>,
     pub event_size_limit: usize,
+    pub historical_cfg: HistoricalConfig,
+}
+
+#[derive(Clone)]
+pub struct HistoricalConfig {
+    pub enable_historical_rerouting: bool,
+    pub historical_rerouting_threshold_days: i64,
 }
 
 async fn index() -> &'static str {
@@ -55,6 +62,8 @@ pub fn router<
     capture_mode: CaptureMode,
     concurrency_limit: Option<usize>,
     event_size_limit: usize,
+    enable_historical_rerouting: bool,
+    historical_rerouting_threshold_days: i64,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
@@ -63,6 +72,10 @@ pub fn router<
         billing_limiter,
         event_size_limit,
         token_dropper: Arc::new(token_dropper),
+        historical_cfg: HistoricalConfig {
+            enable_historical_rerouting,
+            historical_rerouting_threshold_days,
+        },
     };
 
     // Very permissive CORS policy, as old SDK versions

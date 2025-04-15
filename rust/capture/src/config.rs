@@ -44,6 +44,12 @@ pub struct Config {
     pub ingestion_force_overflow_by_token_distinct_id: Option<String>, // Comma-delimited keys
     pub drop_events_by_token_distinct_id: Option<String>, // "<token>:<distinct_id or *>,<distinct_id or *>;<token>..."
 
+    #[envconfig(default = "false")]
+    pub enable_historical_rerouting: bool,
+
+    #[envconfig(default = "1")]
+    pub historical_rerouting_threshold_days: i64,
+
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
