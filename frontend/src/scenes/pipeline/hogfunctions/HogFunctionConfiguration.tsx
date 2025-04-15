@@ -2,6 +2,7 @@ import { IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonDialog,
     LemonDivider,
     LemonDropdown,
     LemonInput,
@@ -233,8 +234,7 @@ export function HogFunctionConfiguration({
                 (type === 'transformation' && canEditTransformationHogCode)))
     const showPersonsCount = displayOptions.showPersonsCount ?? ['broadcast'].includes(type)
     const showTesting =
-        displayOptions.showTesting ??
-        ['destination', 'internal_destination', 'transformation', 'broadcast', 'email'].includes(type)
+        displayOptions.showTesting ?? ['destination', 'internal_destination', 'transformation', 'email'].includes(type)
 
     const showLeftPanel = showOverview || showExpectedVolume || showPersonsCount || showFilters
 
@@ -389,6 +389,7 @@ export function HogFunctionConfiguration({
                                                         // TODO: swap for a link to the persons page
                                                         combineUrl(urls.activity(), {}, { q: personsListQuery }).url
                                                     }
+                                                    target="_blank"
                                                 >
                                                     <strong>
                                                         {personsCount ?? 0} {personsCount !== 1 ? 'people' : 'person'}
@@ -562,10 +563,51 @@ export function HogFunctionConfiguration({
                                             <div className="mt-2 space-y-2">
                                                 <LemonButton
                                                     type="primary"
-                                                    onClick={sendBroadcast}
+                                                    onClick={() => {
+                                                        LemonDialog.open({
+                                                            title: 'Confirm Broadcast',
+                                                            description: (
+                                                                <>
+                                                                    <p>
+                                                                        Emails will be sent to{' '}
+                                                                        <Link
+                                                                            to={
+                                                                                combineUrl(
+                                                                                    urls.activity(),
+                                                                                    {},
+                                                                                    { q: personsListQuery }
+                                                                                ).url
+                                                                            }
+                                                                            target="_blank"
+                                                                        >
+                                                                            {personsCount} person
+                                                                            <span>
+                                                                                {personsCount === 1 ? '' : 's'}
+                                                                            </span>{' '}
+                                                                            matching the filters.
+                                                                        </Link>
+                                                                    </p>
+                                                                    <p>Are you sure you want to send this broadcast?</p>
+                                                                </>
+                                                            ),
+                                                            primaryButton: {
+                                                                children: 'Send',
+                                                                onClick: sendBroadcast,
+                                                            },
+                                                            secondaryButton: {
+                                                                children: 'Cancel',
+                                                            },
+                                                        })
+                                                    }}
                                                     loading={personsCountLoading || broadcastLoading}
+                                                    disabledReason={
+                                                        configurationChanged
+                                                            ? 'Save or clear changes to send broadcast'
+                                                            : undefined
+                                                    }
                                                 >
-                                                    Send to {personsCount} emails
+                                                    Send to {personsCount} email
+                                                    <span>{personsCount === 1 ? '' : 's'}</span>
                                                 </LemonButton>
                                                 <div>
                                                     <strong>Please note:</strong> Clicking the button above will
@@ -580,9 +622,13 @@ export function HogFunctionConfiguration({
                                                     type="primary"
                                                     disabledReason="Must save to send broadcast"
                                                 >
-                                                    Send to {personsCount} emails
+                                                    Send to {personsCount} email
+                                                    <span>{personsCount === 1 ? '' : 's'}</span>
                                                 </LemonButton>
-                                                <div>Save your configuration to send a broadcast</div>
+                                                <div>
+                                                    Save your configuration to send a broadcast. Nothing will be sent
+                                                    until you manually send the broadcast above.
+                                                </div>
                                             </div>
                                         )
                                     }
