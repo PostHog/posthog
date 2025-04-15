@@ -105,12 +105,11 @@ class ErrorTrackingSymbolSet(UUIDModel):
 
 
 class ErrorTrackingAssignmentRule(UUIDModel):
+    created_at = models.DateTimeField(auto_now_add=True)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
     user_group = models.ForeignKey(UserGroup, null=True, on_delete=models.CASCADE)
-    # TODO: make rules orderable
-    order = models.IntegerField()
-    created_at = models.DateTimeField(auto_now_add=True)
+    order = models.IntegerField(null=False, blank=False)
     bytecode = models.JSONField(null=False, blank=False)
     filters = models.JSONField(null=False, blank=False)
 
