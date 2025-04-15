@@ -108,7 +108,7 @@ After identifying objectives, determine which events are key actions for each ob
    - Include 1-5 key actions per objective based on objective's complexity and duration
    - Each key action should represent a significant step in the user's journey toward the objective
    - Consolidate repeated similar actions (e.g., "Clicked search button 3 times")
-   - Each key action could be a user action (`"error": false`) or an error (`"error": true`) based on the guidelines below.
+   - Each key action could be a user action (`"error": false`) or an error (`"error": true`) based on the guidelines below
    - Create separate key actions for repeated behaviors ONLY if they represent distinct phases
 
 2.2. Error Identification Guidelines (CRITICAL):
@@ -139,6 +139,7 @@ After identifying objectives, determine which events are key actions for each ob
    - For complex actions, briefly include the outcome
    - Prioritize actions showing progress or completion of the objective
 
+
 # Step 3: Determine Initial Goal
    - Analyze the `start_url` from the `session_medata_input` to identify the entry point context
    - Review the user's objectives/actions during the session
@@ -149,6 +150,7 @@ After identifying objectives, determine which events are key actions for each ob
    - Identify the exit URL, final actions and their context
    - Determine if the user achieved their initial goal based on completed objectives
    - If the user abandoned the session after encountering errors, briefly describe their nature and impact
+   - If mentioning errors - ONLY mention errors that interrupted the user's workflow and were included in the key actions.
 
 # Step 5: Self-Consistency Check
 Before finalizing your analysis, verify:
