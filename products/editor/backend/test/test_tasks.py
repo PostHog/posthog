@@ -7,13 +7,13 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.test.base import BaseTest
 from products.editor.backend.chunking.parser import ProgrammingLanguage
 from products.editor.backend.chunking.types import Chunk
+from products.editor.backend.tasks import EmbeddingResult, chunk_and_embed, insert_embeddings
 
-from ..tasks import EmbeddingResult, insert_embeddings
 from .base import EditorTestQueryHelpersMixin
 
 
 class TestTasks(EditorTestQueryHelpersMixin, BaseTest):
-    @patch("openai.OpenAI")
+    @patch("products.editor.backend.tasks.OpenAI")
     def test_create_embeddings(self, openai_mock):
         # Set up the mock OpenAI client
         mock_client = MagicMock()
@@ -30,15 +30,13 @@ class TestTasks(EditorTestQueryHelpersMixin, BaseTest):
         # Configure the mock's embeddings.create method
         mock_client.embeddings.create.return_value = mock_response
 
-        from ..tasks import chunk_and_embed
-
         res = chunk_and_embed("test = 1", ProgrammingLanguage.PYTHON)
         self.assertEqual(mock_client.embeddings.create.call_count, 1)
         self.assertEqual(
             res, [(Chunk(text="test", line_start=0, line_end=0, context="", content="test = 1"), embedding)]
         )
 
-    @patch("openai.OpenAI")
+    @patch("products.editor.backend.tasks.OpenAI")
     def test_create_embeddings_batches(self, openai_mock):
         # Set up the mock OpenAI client
         mock_client = MagicMock()
@@ -94,8 +92,6 @@ class TestTasks(EditorTestQueryHelpersMixin, BaseTest):
             )
         """
 
-        from ..tasks import chunk_and_embed
-
         res = chunk_and_embed(snippet, ProgrammingLanguage.PYTHON, batch_size=1)
         self.assertEqual(len(res), 2)
         self.assertEqual(mock_client.embeddings.create.call_count, 2)
@@ -106,7 +102,8 @@ class TestTasks(EditorTestQueryHelpersMixin, BaseTest):
         ]
         insert_embeddings(self.team.id, self.user.id, "codebase", "artifact", "obfuscated_path", res)
         rows = sync_execute(
-            "select team_id, user_id, codebase_id, artifact_id, chunk_id, vector, properties, is_deleted from codebase_embeddings",
+            "select team_id, user_id, codebase_id, artifact_id, chunk_id, vector, properties, is_deleted from codebase_embeddings where team_id = %(team_id)s",
+            {"team_id": self.team.id},
             team_id=self.team.id,
         )
         self.assertEqual(len(rows), 1)

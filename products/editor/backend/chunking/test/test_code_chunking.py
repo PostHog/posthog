@@ -7,21 +7,21 @@ from .util import load_fixture
 class TestCodeChunking(BaseTest):
     def test_jsx(self):
         with load_fixture("jsx.txt") as content:
-            chunks = chunk_text(ProgrammingLanguage.JAVASCRIPT, content)
+            chunks = chunk_text(content, language=ProgrammingLanguage.JAVASCRIPT)
             self.assertEqual(len(chunks), 5)
             for chunk in chunks[1:4]:
                 self.assertIn("function", chunk.context)
 
     def test_go(self):
         with load_fixture("go.txt") as content:
-            chunks = chunk_text(ProgrammingLanguage.GO, content)
+            chunks = chunk_text(content, language=ProgrammingLanguage.GO)
             self.assertEqual(len(chunks), 5)
             for chunk in chunks[1:4]:
                 self.assertIn("func main", chunk.context)
 
     def test_rust(self):
         with load_fixture("rust.txt") as content:
-            chunks = chunk_text(ProgrammingLanguage.RUST, content)
+            chunks = chunk_text(content, language=ProgrammingLanguage.RUST)
             self.assertEqual(len(chunks), 7)
             for chunk in chunks[2:]:
                 self.assertIn("impl RawJSFrame", chunk.context)
@@ -31,7 +31,7 @@ class TestCodeChunking(BaseTest):
 
     def test_typescript(self):
         with load_fixture("ts.txt") as content:
-            chunks = chunk_text(ProgrammingLanguage.TYPESCRIPT, content)
+            chunks = chunk_text(content, language=ProgrammingLanguage.TYPESCRIPT)
             self.assertEqual(len(chunks), 5)
             self.assertFalse(chunks[0].context)
             self.assertFalse(chunks[1].context)
@@ -41,18 +41,17 @@ class TestCodeChunking(BaseTest):
 
     def test_typescript_jsx(self):
         with load_fixture("jsx.txt") as content:
-            chunks = chunk_text(ProgrammingLanguage.TSX, content)
+            chunks = chunk_text(content, language=ProgrammingLanguage.TSX)
             self.assertEqual(len(chunks), 5)
             for chunk in chunks[1:4]:
                 self.assertIn("function", chunk.context)
 
     def test_python(self):
         with load_fixture("python.txt") as content:
-            chunks = chunk_text(ProgrammingLanguage.PYTHON, content)
-            self.assertEqual(len(chunks), 8)
+            chunks = chunk_text(content, language=ProgrammingLanguage.PYTHON)
+            self.assertEqual(len(chunks), 7)
             self.assertFalse(chunks[0].context)
             self.assertFalse(chunks[1].context)
-            self.assertFalse(chunks[2].context)
-            for chunk in chunks[3:7]:
+            for chunk in chunks[2:5]:
                 self.assertIn("class Action", chunk.context)
-            self.assertFalse(chunks[7].context)
+            self.assertFalse(chunks[6].context)

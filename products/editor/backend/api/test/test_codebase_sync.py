@@ -118,7 +118,8 @@ class TestCodebaseSync(APIBaseTest):
         self.assertEqual(chunk_and_embed_mock.call_count, 2)
 
         res = sync_execute(
-            "SELECT * FROM codebase_embeddings",
+            "SELECT * FROM codebase_embeddings WHERE team_id = %(team_id)s",
+            {"team_id": self.team.id},
             team_id=self.team.id,
         )
         self.assertEqual(len(res), 2)

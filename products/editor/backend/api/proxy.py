@@ -20,10 +20,9 @@ from ee.hogai.utils.asgi import SyncIterableToAsync
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.rate_limit import EditorProxyBurstRateThrottle, EditorProxySustainedRateThrottle
 from posthog.settings import SERVER_GATEWAY_INTERFACE
-
-from ..providers.anthropic import AnthropicConfig, AnthropicProvider
-from ..providers.codestral import CodestralProvider
-from ..providers.inkeep import InkeepProvider
+from products.editor.backend.providers.anthropic import AnthropicConfig, AnthropicProvider
+from products.editor.backend.providers.codestral import CodestralProvider
+from products.editor.backend.providers.inkeep import InkeepProvider
 
 logger = logging.getLogger(__name__)
 
