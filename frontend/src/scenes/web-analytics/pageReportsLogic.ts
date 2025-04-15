@@ -65,9 +65,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
     actions: () => ({
         setPageUrl: (url: string | string[] | null) => ({ url }),
         setPageUrlSearchTerm: (searchTerm: string) => ({ searchTerm }),
-        loadPages: (searchTerm: string = '') => {
-            return { searchTerm }
-        },
+        loadPages: (searchTerm: string = '') => ({ searchTerm }),
         toggleStripQueryParams: () => ({}),
         setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({
             tileId,
