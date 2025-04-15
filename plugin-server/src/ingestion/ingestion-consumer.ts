@@ -278,12 +278,7 @@ export class IngestionConsumer {
             // of random partitioning.
             const preserveLocality = shouldForceOverflow && !this.shouldSkipPerson(token, distinctId) ? true : undefined
 
-            void this.scheduleWork(
-                this.emitToOverflow(
-                    eventsForDistinctId.events.map((x) => x.message),
-                    preserveLocality
-                )
-            )
+            void this.scheduleWork(this.emitToOverflow(eventsForDistinctId.events, preserveLocality))
 
             return {
                 ...eventsForDistinctId,
