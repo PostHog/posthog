@@ -51,7 +51,7 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress> {
     }
     for (const { address } of addrinfo) {
         const parsed = ipaddr.parse(address)
-        // We don't support IPv6 for now, just like the Rust version
+        // We don't support IPv6 for now
         if (parsed.kind() === 'ipv6') {
             continue
         }

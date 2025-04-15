@@ -8,7 +8,6 @@ jest.unmock('node-fetch')
 const realDnsLookup = jest.requireActual('dns/promises').lookup
 jest.mock('dns/promises', () => ({
     lookup: jest.fn((hostname: string, options?: any) => {
-        console.log('lookup', hostname, options)
         return realDnsLookup(hostname, options)
     }),
 }))
