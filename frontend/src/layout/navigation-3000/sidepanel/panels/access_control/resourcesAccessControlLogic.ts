@@ -128,9 +128,9 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                             )
 
                         // Only include members that have at least one access control
-                        // if (Object.keys(accessControlByResource).length === 0) {
-                        //     return null
-                        // }
+                        if (Object.keys(accessControlByResource).length === 0) {
+                            return null
+                        }
 
                         return { organization_member: member, accessControlByResource }
                     })
@@ -163,9 +163,9 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                             )
 
                         // Only include roles that have at least one access control
-                        // if (Object.keys(accessControlByResource).length === 0) {
-                        //     return null
-                        // }
+                        if (Object.keys(accessControlByResource).length === 0) {
+                            return null
+                        }
 
                         return { role, accessControlByResource }
                     })
