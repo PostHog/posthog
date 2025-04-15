@@ -1,5 +1,4 @@
-.button-root,
-.button-primitive {
+:root {
     --button-padding-x-sm: 4px;
     --button-padding-x-base: 6px;
     --button-padding-x-lg: 8px;
@@ -11,17 +10,35 @@
     --button-height-lg: 40px;
 }
 
-.button-primitive.button-primitive-size-sm svg {
-    width: 12px;
-    height: 12px;
+.button-primitive-height-sm {
+    height: var(--button-height-sm);
 }
 
-.button-primitive.button-primitive-size-base svg {
-    width: 16px;
-    height: 16px;
+.button-primitive-height-base {
+    height: var(--button-height-base);
 }
 
-.button-primitive.button-primitive-size-lg svg {
-    width: 20px;
-    height: 20px;
+.button-primitive-height-lg {
+    height: var(--button-height-lg);
+}
+
+.button-primitive-size-sm {
+    svg {
+        width: 12px;
+        height: 12px;
+    }
+}
+
+.button-primitive-size-base {
+    svg {
+        width: 16px;
+        height: 16px;
+    }
+}
+
+.button-primitive-size-lg {
+    svg {
+        width: 20px;
+        height: 20px;
+    }
 }

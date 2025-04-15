@@ -37,7 +37,7 @@ export function SearchHighlightMultiple({ string, substring, className }: Props)
 
     // If there's nothing to search for, just render the string as-is.
     if (!searchTerms.length) {
-        return <div className={`truncate ${className}`}>{string}</div>
+        return <>{string}</>
     }
 
     // Lowercase version of the original string for case-insensitive matching
@@ -113,12 +113,12 @@ export function SearchHighlightMultiple({ string, substring, className }: Props)
     }
 
     return (
-        <div className={`truncate ${className}`}>
+        <span className={`truncate ${className ? className : ''}`}>
             {highlightedParts.map((part, index) => (
                 <span key={index} className={part.highlight ? 'bg-accent-highlight-primary' : ''}>
                     {part.text}
                 </span>
             ))}
-        </div>
+        </span>
     )
 }

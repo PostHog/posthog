@@ -6,7 +6,7 @@ import { CSSProperties } from 'react'
 import { LemonCheckbox } from '../LemonCheckbox'
 import { TreeDataItem } from './LemonTree'
 
-const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center'
+export const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center'
 
 type TreeNodeDisplayIconWrapperProps = {
     item: TreeDataItem
