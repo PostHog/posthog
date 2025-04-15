@@ -394,6 +394,7 @@ async def materialize_model(
         pipeline_name=f"materialize_model_{model_label}",
         destination=destination,
         dataset_name=f"team_{team.pk}_model_{model_label}",
+        refresh="drop_sources",
     )
 
     try:
