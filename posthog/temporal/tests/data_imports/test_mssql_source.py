@@ -360,7 +360,7 @@ async def test_mssql_source_incremental_using_created_at_column(
     external_data_source: ExternalDataSource,
     external_data_schema_incremental_using_created_at_column: ExternalDataSchema,
 ):
-    """Test that a full refresh sync works as expected."""
+    """Test that an incremental sync works as expected when using the `created_at` column as the incremental field."""
     table_name = f"mssql_{MSSQL_TABLE_NAME}"
     expected_num_rows = len(TEST_DATA)
 

@@ -286,7 +286,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     ):
                         source = mssql_source(
                             host=tunnel.local_bind_host,
-                            port=tunnel.local_bind_port,
+                            port=int(tunnel.local_bind_port),
                             user=user,
                             password=password,
                             database=database,
