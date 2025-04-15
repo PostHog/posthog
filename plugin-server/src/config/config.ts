@@ -207,6 +207,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_HOG_WATCHER_SAMPLE_RATE: 0, // default is off
+        CDP_FETCH_TIMEOUT_MS: 10 * 1000, // 10 seconds
 
         // Destination Migration Diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,

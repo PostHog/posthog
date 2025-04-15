@@ -38,7 +38,7 @@ export class FetchExecutorService {
                 method: params.method,
                 body: params.body,
                 headers: params.headers,
-                timeout: this.serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS,
+                timeout: this.serverConfig.CDP_FETCH_TIMEOUT_MS,
             })
 
             responseBody = await fetchResponse.text()

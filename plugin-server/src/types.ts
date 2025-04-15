@@ -118,6 +118,7 @@ export type CdpConfig = {
     CDP_REDIS_PASSWORD: string
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
+    CDP_FETCH_TIMEOUT_MS: number
 }
 
 export type IngestionConsumerConfig = {
