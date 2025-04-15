@@ -1830,10 +1830,10 @@ export interface RevenueAnalyticsOverviewQuery
     kind: NodeKind.RevenueAnalyticsOverviewQuery
 }
 
-export type RevenueAnalyticsOverviewItemKey = 'MRR' | 'ARR' | 'Customer Count' | 'New customers' | 'Churned customers'
+export type RevenueAnalyticsOverviewItemKey = 'revenue' | 'paying_customer_count' | 'avg_revenue_per_customer'
 export interface RevenueAnalyticsOverviewItem {
     key: RevenueAnalyticsOverviewItemKey
-    value?: number
+    value: number
 }
 
 export interface RevenueAnalyticsOverviewQueryResponse
@@ -1845,7 +1845,9 @@ export interface RevenueAnalyticsGrowthRateQuery
     kind: NodeKind.RevenueAnalyticsGrowthRateQuery
 }
 
-export interface RevenueAnalyticsGrowthRateQueryResponse extends AnalyticsQueryResponseBase<unknown> {}
+export interface RevenueAnalyticsGrowthRateQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    columns?: string[]
+}
 export type CachedRevenueAnalyticsGrowthRateQueryResponse = CachedQueryResponse<RevenueAnalyticsGrowthRateQueryResponse>
 
 export interface RevenueAnalyticsChurnRateQuery
@@ -1853,7 +1855,9 @@ export interface RevenueAnalyticsChurnRateQuery
     kind: NodeKind.RevenueAnalyticsChurnRateQuery
 }
 
-export interface RevenueAnalyticsChurnRateQueryResponse extends AnalyticsQueryResponseBase<unknown> {}
+export interface RevenueAnalyticsChurnRateQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    columns?: string[]
+}
 export type CachedRevenueAnalyticsChurnRateQueryResponse = CachedQueryResponse<RevenueAnalyticsChurnRateQueryResponse>
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {

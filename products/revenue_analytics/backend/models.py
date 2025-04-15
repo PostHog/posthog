@@ -51,6 +51,7 @@ ZERO_DECIMAL_CURRENCIES_IN_STRIPE: list[str] = [
 FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
     "timestamp": DateTimeDatabaseField(name="timestamp"),
+    "customer_id": StringDatabaseField(name="customer_id"),
     "original_amount": DecimalDatabaseField(name="original_amount"),
     "original_currency": StringDatabaseField(name="original_currency"),
     "currency_is_zero_decimal": BooleanDatabaseField(name="currency_is_zero_decimal"),
@@ -100,6 +101,8 @@ class RevenueAnalyticsRevenueView(SavedQuery):
                 # Base fields to allow insights to work (need `distinct_id` AND `timestamp` fields)
                 ast.Alias(alias="id", expr=ast.Field(chain=["id"])),
                 ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
+                # Useful for cross joins
+                ast.Alias(alias="customer_id", expr=ast.Field(chain=["customer_id"])),
                 # Compute the original amount in the original currency
                 # by looking at the captured amount, effectively ignoring refunded value
                 ast.Alias(

@@ -1702,11 +1702,9 @@ class RetentionType(StrEnum):
 
 
 class RevenueAnalyticsOverviewItemKey(StrEnum):
-    MRR = "MRR"
-    ARR = "ARR"
-    CUSTOMER_COUNT = "Customer Count"
-    NEW_CUSTOMERS = "New customers"
-    CHURNED_CUSTOMERS = "Churned customers"
+    REVENUE = "revenue"
+    PAYING_CUSTOMER_COUNT = "paying_customer_count"
+    AVG_REVENUE_PER_CUSTOMER = "avg_revenue_per_customer"
 
 
 class RevenueCurrencyPropertyConfig(BaseModel):
@@ -3048,6 +3046,7 @@ class RevenueAnalyticsChurnRateQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -3069,6 +3068,7 @@ class RevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -3091,7 +3091,7 @@ class RevenueAnalyticsOverviewItem(BaseModel):
         extra="forbid",
     )
     key: RevenueAnalyticsOverviewItemKey
-    value: Optional[float] = None
+    value: float
 
 
 class RevenueAnalyticsOverviewQueryResponse(BaseModel):
@@ -4530,6 +4530,7 @@ class CachedRevenueAnalyticsChurnRateQueryResponse(BaseModel):
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -4560,6 +4561,7 @@ class CachedRevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -5356,6 +5358,7 @@ class Response11(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -6640,6 +6643,7 @@ class QueryResponseAlternative25(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -6890,6 +6894,7 @@ class QueryResponseAlternative38(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",

@@ -28,6 +28,11 @@ export const buildDashboardItemId = (queryType: RevenueAnalyticsQuery): InsightL
 const INITIAL_DATE_FROM = '-30d' as string | null
 const INITIAL_DATE_TO = null as string | null
 const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
+const INITIAL_DATE_FILTER = {
+    dateFrom: INITIAL_DATE_FROM,
+    dateTo: INITIAL_DATE_TO,
+    interval: INITIAL_INTERVAL,
+}
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 const persistConfig = { persist: true, prefix: `${teamId}__` }
@@ -47,19 +52,11 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setInterval: (interval: IntervalType) => ({ interval }),
-        setDatesAndInterval: (dateFrom: string | null, dateTo: string | null, interval: IntervalType) => ({
-            dateFrom,
-            dateTo,
-            interval,
-        }),
+        resetDatesAndInterval: true,
     }),
     reducers({
         dateFilter: [
-            {
-                dateFrom: INITIAL_DATE_FROM,
-                dateTo: INITIAL_DATE_TO,
-                interval: INITIAL_INTERVAL,
-            },
+            INITIAL_DATE_FILTER,
             persistConfig,
             {
                 setDates: (_, { dateTo, dateFrom }) => ({
@@ -75,16 +72,8 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                         interval,
                     }
                 },
-                setDatesAndInterval: (_, { dateTo, dateFrom, interval }) => {
-                    if (!dateFrom && !dateTo) {
-                        dateFrom = INITIAL_DATE_FROM
-                        dateTo = INITIAL_DATE_TO
-                    }
-                    return {
-                        dateTo,
-                        dateFrom,
-                        interval: interval || getDefaultInterval(dateFrom, dateTo),
-                    }
+                resetDatesAndInterval: () => {
+                    return INITIAL_DATE_FILTER
                 },
             },
         ],
@@ -150,13 +139,24 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                         },
                     },
                     [RevenueAnalyticsQuery.REVENUE_GROWTH_RATE]: {
-                        kind: NodeKind.RevenueAnalyticsGrowthRateQuery,
-                        dateRange,
+                        kind: NodeKind.DataTableNode,
+                        source: {
+                            kind: NodeKind.RevenueAnalyticsGrowthRateQuery,
+                            dateRange,
+                        },
+                        full: true,
+                        embedded: false,
+                        showActions: true,
+                        columns: ['month', 'mrr', 'previous_mrr', 'mrr_growth_rate'],
                     },
                     [RevenueAnalyticsQuery.REVENUE_CHURN]: {
                         kind: NodeKind.RevenueAnalyticsChurnRateQuery,
                         dateRange,
                     },
+                    // TODO: Add these queries as follow-ups, they're useful
+                    // [RevenueAnalyticsQuery.TOP_CUSTOMERS]: {
+
+                    // }
                 }
             },
         ],
