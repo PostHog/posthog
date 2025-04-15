@@ -36,6 +36,7 @@ from posthog.warehouse.data_load.create_table import create_table_from_saved_que
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseTable
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.util import database_sync_to_async
+from posthog.clickhouse.client.connection import Workload
 
 logger = structlog.get_logger()
 
@@ -497,6 +498,7 @@ def hogql_table(query: str, team: Team, table_name: str, table_columns: dlt_typi
             team,
             settings=settings,
             limit_context=LimitContext.SAVED_QUERY,
+            workload=Workload.OFFLINE,
         )
 
         if not response.columns:
