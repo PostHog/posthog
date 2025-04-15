@@ -1,44 +1,61 @@
-import { LemonButton, LemonCard } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useState } from 'react'
+import { useEffect } from 'react'
 import { AssigneeSelect } from 'scenes/error-tracking/AssigneeSelect'
 
-import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter } from '~/types'
+import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
+
+import { errorTrackingAutoAssignmentLogic } from './errorTrackingAutoAssignmentLogic'
 
 export function ErrorTrackingAutoAssignment(): JSX.Element {
-    const [rules, setRules] = useState<
-        { assignee: ErrorTrackingIssueAssignee | null; properties: AnyPropertyFilter[] }[]
-    >([])
+    const { assignmentRulesWithNew, hasNewRule } = useValues(errorTrackingAutoAssignmentLogic)
+    const { loadRules, addRule, updateRule } = useActions(errorTrackingAutoAssignmentLogic)
+
+    useEffect(() => {
+        loadRules()
+    }, [loadRules])
 
     return (
         <div className="flex flex-col gap-y-2">
-            {rules.map((rule, index) => (
-                <LemonCard key={index} hoverEffect={false} className="flex flex-col p-3 gap-2p-3 gap-y-2">
-                    <div className="flex gap-1 items-center">
+            {assignmentRulesWithNew.map((rule) => (
+                <LemonCard key={rule.id} hoverEffect={false} className="flex flex-col p-0">
+                    <div className="flex gap-2 items-center px-2 py-3">
                         <div>Assign to</div>
                         <AssigneeSelect
                             showName
                             type="secondary"
                             size="small"
-                            unassignedLabel="Choose an assignee"
+                            unassignedLabel="Choose"
                             assignee={rule.assignee}
-                            onChange={(assignee) => {
-                                setRules([{ ...rule, assignee }])
+                            onChange={(assignee) => updateRule({ ...rule, assignee })}
+                        />
+                        <div>when</div>
+                        <LemonSelect
+                            size="small"
+                            value={rule.filters.type}
+                            onChange={(type) => updateRule({ ...rule, filters: { ...rule, type } })}
+                            options={[
+                                { label: 'All', value: FilterLogicalOperator.And },
+                                { label: 'Any', value: FilterLogicalOperator.Or },
+                            ]}
+                        />
+                        <div>filters match</div>
+                    </div>
+                    <LemonDivider className="my-0" />
+                    <div className="py-2">
+                        <PropertyFilters
+                            propertyFilters={(rule.filters.values as AnyPropertyFilter[]) ?? []}
+                            taxonomicGroupTypes={[TaxonomicFilterGroupType.ErrorTrackingIssues]}
+                            onChange={(properties: AnyPropertyFilter[]) => {
+                                updateRule({ ...rule, filters: { ...rule, values: properties } })
                             }}
+                            pageKey={`error-tracking-auto-assignment-properties-${rule.id}`}
+                            buttonSize="small"
+                            disablePopover
                         />
                     </div>
-                    <PropertyFilters
-                        propertyFilters={rule.properties ?? []}
-                        taxonomicGroupTypes={[TaxonomicFilterGroupType.ErrorTrackingIssues]}
-                        onChange={(properties: AnyPropertyFilter[]) => {
-                            setRules([{ ...rule, properties }])
-                        }}
-                        pageKey={`error-tracking-auto-assignment-properties-${index}`}
-                        buttonSize="small"
-                        disablePopover
-                    />
                 </LemonCard>
             ))}
 
@@ -46,7 +63,8 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
                 <LemonButton
                     type="secondary"
                     size="small"
-                    onClick={() => setRules([...rules, { assignee: null, properties: [] }])}
+                    onClick={addRule}
+                    disabledReason={hasNewRule ? 'Finish creating your new rule first' : undefined}
                 >
                     Add rule
                 </LemonButton>
