@@ -417,8 +417,12 @@ export function ResourcesAccessControls(): JSX.Element {
             <h2>Resource permissions</h2>
             <p>
                 Use resource permissions to assign project-wide access to specific resources for individuals and roles.
-                Resource access levels will overwrite any object level access controls. Access controls are considered
-                additive so the highest level will be applied. See more in our docs.
+                Resource access levels will overwrite any object level access controls.
+            </p>
+            <p>
+                Access controls are considered additive so the highest level will be applied. See more in our docs.
+                Organization owners and admins permissions overwrite resource permissions so they cannot have
+                resource-level permissions.
             </p>
 
             <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>

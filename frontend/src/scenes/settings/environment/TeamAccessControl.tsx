@@ -233,6 +233,18 @@ export function TeamAccessControl(): JSX.Element {
     if (newAccessControl && currentTeam?.access_control_version === 'v2') {
         return (
             <div className="space-y-6">
+                <div>
+                    <p>
+                        Use project permissions to assign project-wide access for individuals and roles. Project access
+                        levels will overwrite any object level access controls.
+                    </p>
+                    <p>
+                        Access controls are considered additive so the highest level will be applied. See more in our
+                        docs. Organization owners and admins permissions overwrite project permissions so they cannot
+                        have project-level permissions.
+                    </p>
+                </div>
+
                 <AccessControlObject resource="project" resource_id={`${currentTeam?.id}`} />
                 <ResourcesAccessControls />
             </div>

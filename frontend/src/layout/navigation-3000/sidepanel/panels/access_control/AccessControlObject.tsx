@@ -120,17 +120,23 @@ function AccessControlObjectUsers(): JSX.Element | null {
         {
             key: 'user',
             title: 'User',
-            render: (_, ac) => (
+            render: (_, ac) =>
                 ac.resource === 'organization' ? (
                     <div className="flex gap-1 py-1">
                         <ProfileBubbles
                             limit={3}
-                            people={(ac as AccessControlTypeOrganizationAdmins)?.organization_admin_members?.map((member) => ({
-                                email: membersById[member]?.user.email,
-                                name: membersById[member]?.user.first_name,
-                            }))}
+                            people={(ac as AccessControlTypeOrganizationAdmins)?.organization_admin_members?.map(
+                                (member) => ({
+                                    email: membersById[member]?.user.email,
+                                    name: membersById[member]?.user.first_name,
+                                })
+                            )}
                         />
-                        <p className="text-secondary mb-0">have access as organization admins</p>
+                        <p className="text-secondary mb-0">
+                            {(ac as AccessControlTypeOrganizationAdmins)?.organization_admin_members.length > 1
+                                ? 'have access as organization admins'
+                                : 'has access as an organization admin'}
+                        </p>
                     </div>
                 ) : (
                     <div className="flex items-center gap-2">
@@ -144,9 +150,11 @@ function AccessControlObjectUsers(): JSX.Element | null {
                             <p className="text-secondary mb-0">{member(ac as AccessControlTypeMember)?.user.email}</p>
                         </div>
                     </div>
-                )
-            ),
-            sorter: (a, b) => member(a as AccessControlTypeMember)?.user.first_name.localeCompare(member(b as AccessControlTypeMember)?.user.first_name),
+                ),
+            sorter: (a, b) =>
+                member(a as AccessControlTypeMember)?.user.first_name.localeCompare(
+                    member(b as AccessControlTypeMember)?.user.first_name
+                ),
         },
         {
             key: 'level',
@@ -161,7 +169,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                             level={resource === 'project' ? AccessControlLevel.Admin : AccessControlLevel.Editor}
                             disabled={true}
                             levels={availableLevels}
-                            onChange={(_level) => {}}
+                            onChange={() => {}}
                         />
                     </div>
                 ) : (
@@ -358,7 +366,7 @@ function SimplLevelComponent(props: {
             placeholder="Select level..."
             value={props.level}
             onChange={(newValue) => props.onChange(newValue as AccessControlLevel)}
-            disabledReason={(!canEditAccessControls || props.disabled) ? 'You cannot edit this' : undefined}
+            disabledReason={!canEditAccessControls || props.disabled ? 'You cannot edit this' : undefined}
             options={props.levels.map((level) => ({
                 value: level,
                 label: capitalizeFirstLetter(level ?? ''),
