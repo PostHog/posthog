@@ -1,17 +1,20 @@
 objectives:
     - name: 'Example Objective'
       summary: 'Brief description of what the user was trying to accomplish'
-      key_actions:
+    - name: 'Another Example Objective'
+      summary: 'Description of another goal the user was working toward during the session'
+    # Note: The actual number of objectives and actions should be based on your analysis of the session data. This is just an example of the format.
+key_actions:
+    - objective: 'Example Objective'
+      events:
           - description: 'First significant action toward this objective'
             event_id: 'abc123'
             error: false
           - description: 'Second action for this objective'
             event_id: 'def456'
             error: false
-
-    - name: 'Another Example Objective'
-      summary: 'Description of another goal the user was working toward during the session'
-      key_actions:
+    - objective: 'Another Example Objective'
+      events:
           - description: 'First significant action toward this objective'
             event_id: 'ghi789'
             error: false
@@ -21,6 +24,5 @@ objectives:
           - description: 'Final action completing this objective'
             event_id: 'stu901'
             error: false
-    # Note: The actual number of objectives and actions should be based on your analysis of the session data. This is just an example of the format.
 initial_goal: 'Concise initial goal description'
 session_outcome: 'Concise session outcome description'

@@ -7,13 +7,13 @@ import yaml
 from ee.session_recordings.session_summary.utils import get_column_index
 
 
-class BaseKeyActionSerializer(serializers.Serializer):
+class RawKeyActionSerializer(serializers.Serializer):
     description = serializers.CharField(min_length=1, max_length=1024)
     error = serializers.BooleanField()
     event_id = serializers.CharField(min_length=1, max_length=128)
 
 
-class EnrichedKeyActionSerializer(BaseKeyActionSerializer):
+class EnrichedKeyActionSerializer(RawKeyActionSerializer):
     """
     LLM actions enriched with metadata.
     """
@@ -27,22 +27,31 @@ class EnrichedKeyActionSerializer(BaseKeyActionSerializer):
     event_index = serializers.IntegerField(min_value=0)
 
 
-class RawObjectiveSerializer(serializers.Serializer):
+class RawObjectiveKeyActionsSerializer(serializers.Serializer):
+    """
+    Key actions grouped by objective.
+    """
+
+    objective = serializers.CharField(min_length=1, max_length=256)
+    events = serializers.ListField(child=RawKeyActionSerializer(), allow_empty=False)
+
+
+class EnrichedObjectiveKeyActionsSerializer(serializers.Serializer):
+    """
+    Key actions grouped by objective, enriched with metadata.
+    """
+
+    objective = serializers.CharField(min_length=1, max_length=256)
+    events = serializers.ListField(child=EnrichedKeyActionSerializer(), allow_empty=False)
+
+
+class ObjectiveSerializer(serializers.Serializer):
     """
     Objectives coming from LLM.
     """
 
     name = serializers.CharField(min_length=1, max_length=256)
     summary = serializers.CharField(min_length=1, max_length=1024)
-    key_actions = serializers.ListField(child=BaseKeyActionSerializer(), allow_empty=False)
-
-
-class EnrichedObjectiveSerializer(RawObjectiveSerializer):
-    """
-    Objectives enriched with metadata.
-    """
-
-    key_actions = serializers.ListField(child=EnrichedKeyActionSerializer(), allow_empty=False)
 
 
 class RawSessionSummarySerializer(serializers.Serializer):
@@ -50,7 +59,8 @@ class RawSessionSummarySerializer(serializers.Serializer):
     Raw session summary coming from LLM.
     """
 
-    objectives = serializers.ListField(child=RawObjectiveSerializer(), allow_empty=False)
+    objectives = serializers.ListField(child=ObjectiveSerializer(), allow_empty=False)
+    key_actions = serializers.ListField(child=RawObjectiveKeyActionsSerializer(), allow_empty=False)
     initial_goal = serializers.CharField(min_length=1, max_length=1024)
     session_outcome = serializers.CharField(min_length=1, max_length=1024)
 
@@ -60,7 +70,8 @@ class SessionSummarySerializer(serializers.Serializer):
     Session summary enriched with metadata.
     """
 
-    objectives = serializers.ListField(child=EnrichedObjectiveSerializer(), allow_empty=False)
+    objectives = serializers.ListField(child=ObjectiveSerializer(), allow_empty=False)
+    key_actions = serializers.ListField(child=EnrichedObjectiveKeyActionsSerializer(), allow_empty=False)
     initial_goal = serializers.CharField(min_length=1, max_length=1024)
     session_outcome = serializers.CharField(min_length=1, max_length=1024)
 
@@ -83,16 +94,22 @@ def load_raw_session_summary_from_llm_content(
         raise ValueError(
             f"Error validating LLM output against the schema when summarizing session_id {session_id}: {raw_session_summary.errors}"
         )
-    # Ensure that LLM didn't hallucinate events
-    for objective in raw_session_summary.data["objectives"]:
-        for key_action in objective["key_actions"]:
-            event_id = key_action["event_id"]
+    objectives_names = [objective.get("name") for objective in raw_session_summary.data["objectives"]]
+    for key_action_group in raw_session_summary.data["key_actions"]:
+        # Ensure that LLM didn't hallucinate objectives
+        if key_action_group["objective"] not in objectives_names:
+            raise ValueError(
+                f"LLM hallucinated objective {key_action_group['objective']} when summarizing session_id {session_id}: {raw_session_summary.data}"
+            )
+        for event in key_action_group["events"]:
+            # Ensure that LLM didn't hallucinate events
+            event_id = event.get("event_id")
             if not event_id:
                 raise ValueError(
                     f"LLM returned event without event_id when summarizing session_id {session_id}: {raw_session_summary.data}"
                 )
             # TODO: Allow skipping some events (even if not too many to speed up the process
-            if key_action["event_id"] not in allowed_event_ids:
+            if event_id not in allowed_event_ids:
                 raise ValueError(
                     f"LLM hallucinated event_id {event_id} when summarizing session_id "
                     f"{session_id}: {raw_session_summary.data}"
@@ -124,30 +141,30 @@ def enrich_raw_session_summary_with_events_meta(
     event_index = get_column_index(simplified_events_columns, "event")
     event_type_index = get_column_index(simplified_events_columns, "$event_type")
     event_index_index = get_column_index(simplified_events_columns, "event_index")
-    enriched_objectives = []
+
     # Enrich LLM events with metadata
-    for objective in raw_session_summary.data["objectives"]:
-        enriched_objective = dict(objective)
-        enriched_key_actions = []
-        for key_action in objective["key_actions"]:
-            event_id: str | None = key_action.get("event_id")
+    enriched_key_actions = []
+    for key_action_group in raw_session_summary.data["key_actions"]:
+        enriched_events = []
+        for event in key_action_group["events"]:
+            enriched_event = dict(event)
+            event_id: str | None = event.get("event_id")
             if not event_id:
                 raise ValueError(
                     f"LLM returned event without event_id when summarizing session_id {session_id}: {raw_session_summary}"
                 )
-            enriched_key_action = dict(key_action)
             event_mapping_data = simplified_events_mapping.get(event_id)
             if not event_mapping_data:
                 raise ValueError(
                     f"Mapping data for event_id {event_id} not found when summarizing session_id {session_id}: {raw_session_summary}"
                 )
-            enriched_key_action["event"] = event_mapping_data[event_index]
+            enriched_event["event"] = event_mapping_data[event_index]
             # Calculate time to jump to the right place in the player
             timestamp = event_mapping_data[timestamp_index]
-            enriched_key_action["timestamp"] = timestamp
+            enriched_event["timestamp"] = timestamp
             ms_since_start = calculate_time_since_start(timestamp, session_start_time)
             if ms_since_start is not None:
-                enriched_key_action["milliseconds_since_start"] = ms_since_start
+                enriched_event["milliseconds_since_start"] = ms_since_start
             # Add full URL of the event page
             current_url = event_mapping_data[current_url_index]
             if not current_url:
@@ -156,26 +173,26 @@ def enrich_raw_session_summary_with_events_meta(
                 )
             full_current_url = current_url and url_mapping_reversed.get(current_url)
             if full_current_url:
-                enriched_key_action["current_url"] = full_current_url
+                enriched_event["current_url"] = full_current_url
             # Add window ID of the event
             window_id = event_mapping_data[window_id_index]
             full_window_id = window_id and window_mapping_reversed.get(window_id)
             if full_window_id:
-                enriched_key_action["window_id"] = full_window_id
+                enriched_event["window_id"] = full_window_id
             # Add event type (if applicable)
             event_type = event_mapping_data[event_type_index]
             if event_type:
-                enriched_key_action["event_type"] = event_type
+                enriched_event["event_type"] = event_type
             # Add event index to better link summary event with an actual event
-            enriched_key_action["event_index"] = event_mapping_data[event_index_index]
-            enriched_key_actions.append(enriched_key_action)
+            enriched_event["event_index"] = event_mapping_data[event_index_index]
+            enriched_events.append(enriched_event)
         # Ensure chronological order of the events
-        enriched_key_actions.sort(key=lambda x: x["milliseconds_since_start"])
-        enriched_objective["key_actions"] = enriched_key_actions
-        enriched_objectives.append(enriched_objective)
+        enriched_events.sort(key=lambda x: x["milliseconds_since_start"])
+        enriched_key_actions.append({"objective": key_action_group["objective"], "events": enriched_events})
+
     # Validate the enriched content against the schema
     summary_to_enrich = dict(raw_session_summary.data)
-    summary_to_enrich["objectives"] = enriched_objectives
+    summary_to_enrich["key_actions"] = enriched_key_actions
     session_summary = SessionSummarySerializer(data=summary_to_enrich)
     if not session_summary.is_valid():
         raise ValueError(

@@ -75,78 +75,98 @@ Use these metrics to calibrate your analysis of user objectives and engagement q
 <identify_objectives_instructions>
 CRITICAL WARNING: DO NOT hallucinate errors. Only mark events as errors when there is EXPLICIT evidence in the event data that an error occurred.
 
-1. Identify the primary user objectives (goals) in the session. Scale appropriately based on session length and complexity (as described in the `session_metadata_input_format`).
+# Step 1: Identify User Objectives
+First, analyze the entire session to identify distinct user objectives. Follow these guidelines:
 
-2. Each objective must represent an intentional user goal:
+1.1. Identify the primary user objectives (goals) in the session. Scale appropriately based on session length and complexity (as described in the `session_metadata_input_format`).
+
+1.2. Each objective must represent an intentional user goal:
    ✓ GOOD OBJECTIVES: "Login to application," "Filter products," "Complete checkout"
    ✗ BAD OBJECTIVES: "Page loaded," "Error occurred," "Session started"
 
-3. For each objective, provide:
+1.3. For each objective, provide:
    - A concise, descriptive name that captures the user's goal
    - A brief summary incorporating both user actions AND any technical issues
-   - List key actions with their corresponding event_id and error status (see Key Actions guidance below)
 
-4. Key Actions Guidelines:
-
-   A. General Guidelines:
-      - Include 1-5 key actions per objective based on objective's complexity and duration
-      - Each key action should represent a significant step in the user's journey toward the objective
-      - Consolidate repeated similar actions (e.g., "Clicked search button 3 times")
-      - Create separate key actions for repeated behaviors ONLY if they represent distinct phases
-
-   B. Error Identification Guidelines (CRITICAL): 
-
-      - NEVER flag as errors:
-        ✗ Normal page navigation
-        ✗ Sequential UI interactions (changing filters, adjusting parameters)
-        ✗ Any other action without direct failure evidence
-   
-      - Flag event as an error (`error: true`) ONLY with EXPLICIT evidence:
-        ✓ Event name/type contains: 'exception', 'failed', 'error', etc.
-        ✓ `elements_chain_texts` contains error messages (e.g., "404 Not Found", "Failed to load", etc.)
-        ✓ Session abandonment shortly after exception events
-        ✓ Multiple rapid identical form submissions followed by a change in form data
-        ✓ And other similar patterns
-
-      - Error severity filter:
-        ✓ INCLUDE: Errors interrupting user progress (login failures, submission errors, API errors, etc.)
-        ✗ EXCLUDE: Background errors (tracking failures, minor rendering glitches, etc.)
-      
-      - Error description requirements:
-        * Specify error nature (API failure, validation error, timeout, etc.)
-        * Include potential causes when identifiable (e.g., "possibly caused by incorrect password format", etc.)
-        * Explain impact on user flow (e.g., "forcing user to retry" or "causing user to abandon task", etc.)
-        * Provide more detail than regular action descriptions
-
-   C. User Action Guidelines:
-      - Focus on actions that demonstrate clear user intent
-      - Keep descriptions concise but informative (e.g., "User applied filter parameters", etc.)
-      - For complex actions, briefly include the outcome (e.g., "User submitted form successfully", etc.)
-      - Prioritize actions showing progress or completion of the objective
-
-5. Objective Boundary Guidelines:
+1.4. Objective Boundary Guidelines:
    ✓ DO: 
       * create new objectives when user clearly switches tasks/goals
-      * incorporate errors into relevant user objective summaries
       * account for non-linear behavior (users may return to previous objectives)
    ✗ DO NOT:
       * create objectives for error states or technical issues
-      create overlapping objectives (each event belongs to one primary objective)
+      * create overlapping objectives (each event belongs to one primary objective)
 
-6. Pay special attention to:
-   - URL patterns and journey (use url_mapping to interpret actual pages visited)
+1.5. Pay special attention to:
+   - URL patterns and journey (use `url_mapping_input` to interpret actual pages visited)
    - Distinguishing meaningful goals from technical events
    - Signs of user confusion, repeated attempts, or workarounds
 
-7. Determine the initial user goal:
-   - Analyze the `start_url` from the `session_medata_input` to identify the entry point context
-   - Review the user's objectives/actions during the session to confirm the goal
-   - Distinguish between intentional visits and redirects/automated navigation
+# Step 2: Link Key Actions to Objectives
+After identifying objectives, determine which events are key actions for each objective.
 
-8. Assess the session outcome:
+2.1. Key Actions Guidelines:
+   - Include 1-5 key actions per objective based on objective's complexity and duration
+   - Each key action should represent a significant step in the user's journey toward the objective
+   - Consolidate repeated similar actions (e.g., "Clicked search button 3 times")
+   - Each key action could be a user action (`"error": false`) or an error (`"error": true`) based on the guidelines below.
+   - Create separate key actions for repeated behaviors ONLY if they represent distinct phases
+
+2.2. Error Identification Guidelines (CRITICAL):
+   - NEVER flag as errors:
+     ✗ Normal page navigation
+     ✗ Sequential UI interactions (changing filters, adjusting parameters)
+     ✗ Any other action without direct failure evidence
+
+   - Flag event as an error (`error: true`) ONLY with EXPLICIT evidence:
+     ✓ Event name/type contains: 'exception', 'failed', 'error', etc.
+     ✓ `elements_chain_texts` contains error messages (e.g., "404 Not Found", "Failed to load", etc.)
+     ✓ Session abandonment shortly after exception events
+     ✓ Multiple rapid identical form submissions followed by a change in form data
+     ✓ And other similar patterns
+     
+   - Error severity filter:
+      ✓ INCLUDE: Errors interrupting user progress (login failures, submission errors, API errors, etc.)
+      ✗ EXCLUDE: Background errors (tracking failures, minor rendering glitches, etc.)
+   - Error description requirements:
+     * Specify error nature (API failure, validation error, timeout, etc.)
+     * Include potential causes when identifiable
+     * Explain impact on user flow
+     * Provide more detail than regular action descriptions
+
+2.3. User Action Guidelines:
+   - Focus on actions that demonstrate clear user intent
+   - Keep descriptions concise but informative
+   - For complex actions, briefly include the outcome
+   - Prioritize actions showing progress or completion of the objective
+
+# Step 3: Determine Initial Goal
+   - Analyze the `start_url` from the `session_medata_input` to identify the entry point context
+   - Review the user's objectives/actions during the session
+   - Distinguish between intentional visits and redirects/automated navigation
+   - Predict what user was trying to accomplish when they started the session
+
+# Step 4: Assess the Session Outcome:
    - Identify the exit URL, final actions and their context
    - Determine if the user achieved their initial goal based on completed objectives
    - If the user abandoned the session after encountering errors, briefly describe their nature and impact
+
+# Step 5: Self-Consistency Check
+Before finalizing your analysis, verify:
+
+1. Objective Consistency:
+   - Do all identified objectives represent distinct user goals?
+
+2. Key Action Consistency:
+   - Does each key action properly belong to its assigned objective?
+   - Are the most significant user actions captured in the key actions?
+   - Are error flags supported by explicit evidence in the event data?
+
+3. Logical Flow Verification:
+   - Does the sequence of objectives and actions tell a coherent story of the user's session?
+   - Is the initial goal consistent with the start URL and first objective?
+   - Is the session outcome assessment supported by the final actions in the data?
+
+Revise your analysis if any inconsistencies are found.
 </identify_objectives_instructions>
 
 <output_format>
