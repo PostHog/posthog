@@ -11,7 +11,7 @@ const fn stl_test_extensions() -> &'static [(&'static str, NativeFunction)] {
         }),
         ("assert_eq", |vm, args| {
             // Used in test programs
-            let lhs = args.get(0).unwrap();
+            let lhs = args.first().unwrap();
             let rhs = args.get(1).unwrap();
             if lhs
                 .equals(rhs, &vm.heap)
@@ -26,7 +26,7 @@ const fn stl_test_extensions() -> &'static [(&'static str, NativeFunction)] {
         }),
         ("assert", |vm, args| {
             // Used in test programs
-            let condition = args.get(0).unwrap().deref(&vm.heap).unwrap();
+            let condition = args.first().unwrap().deref(&vm.heap).unwrap();
             if *condition.try_as().expect("Could convert") {
                 Ok(HogLiteral::Null.into())
             } else {
