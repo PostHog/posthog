@@ -1,7 +1,8 @@
 // eslint-disable-next-line simple-import-sort/imports
 import { getProducedKafkaMessages, getProducedKafkaMessagesForTopic } from '~/tests/helpers/mocks/producer.mock'
 
-import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
+import { CdpCyclotronWorker } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
+import { CdpCyclotronWorkerFetch } from '../../src/cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
 import { CdpProcessedEventsConsumer } from '../../src/cdp/consumers/cdp-processed-events.consumer'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
