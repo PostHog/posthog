@@ -63,6 +63,7 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
+import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 export interface WebTileLayout {
@@ -224,17 +225,6 @@ export interface SectionTile extends BaseTile {
 
 export type WebAnalyticsTile = QueryTile | TabsTile | ReplayTile | ErrorTrackingTile | SectionTile
 
-export interface WebAnalyticsModalQuery {
-    tileId: TileId
-    tabId?: string
-    title?: string | JSX.Element
-    query: QuerySchema
-    insightProps: InsightLogicProps
-    showIntervalSelect?: boolean
-    control?: JSX.Element
-    canOpenInsight?: boolean
-}
-
 export enum GraphsTab {
     UNIQUE_USERS = 'UNIQUE_USERS',
     PAGE_VIEWS = 'PAGE_VIEWS',
@@ -372,11 +362,6 @@ const INITIAL_DATE_FROM = '-7d' as string | null
 const INITIAL_DATE_TO = null as string | null
 const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
 
-const getDashboardItemId = (section: TileId, tab: string | undefined, isModal?: boolean): `new-${string}` => {
-    // pretend to be a new-AdHoc to get the correct behaviour elsewhere
-    return `new-AdHoc.web-analytics.${section}.${tab || 'default'}.${isModal ? 'modal' : 'default'}`
-}
-
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 const persistConfig = { persist: true, prefix: `${teamId}__` }
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
@@ -432,8 +417,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
-        openModal: (tileId: TileId, tabId?: string) => ({ tileId, tabId }),
-        closeModal: () => true,
         openAsNewInsight: (tileId: TileId, tabId?: string) => ({ tileId, tabId }),
         setConversionGoalWarning: (warning: ConversionGoalWarning | null) => ({ warning }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
@@ -604,16 +587,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             persistConfig,
             {
                 setIsPathCleaningEnabled: (_, { isPathCleaningEnabled }) => isPathCleaningEnabled,
-            },
-        ],
-        _modalTileAndTab: [
-            null as { tileId: TileId; tabId?: string } | null,
-            {
-                openModal: (_, { tileId, tabId }) => ({
-                    tileId,
-                    tabId,
-                }),
-                closeModal: () => null,
             },
         ],
         tablesOrderBy: [
@@ -1937,73 +1910,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return allTiles.filter(isNotNil)
             },
         ],
-        modal: [
-            (s) => [s.tiles, s._modalTileAndTab],
-            (tiles, modalTileAndTab): WebAnalyticsModalQuery | null => {
-                if (!modalTileAndTab) {
-                    return null
-                }
-                const { tileId, tabId } = modalTileAndTab
-                const tile: WebAnalyticsTile | undefined = tiles.find((tile) => tile.tileId === tileId)
-                if (!tile) {
-                    return null
-                }
 
-                const extendQuery = (query: QuerySchema): QuerySchema => {
-                    if (
-                        query.kind === NodeKind.DataTableNode &&
-                        (query.source.kind === NodeKind.WebStatsTableQuery ||
-                            query.source.kind === NodeKind.WebExternalClicksTableQuery ||
-                            query.source.kind === NodeKind.WebGoalsQuery)
-                    ) {
-                        return {
-                            ...query,
-                            source: {
-                                ...query.source,
-                                limit: 50,
-                            },
-                        }
-                    }
-                    return query
-                }
-
-                if (tile.kind === 'tabs') {
-                    const tab = tile.tabs.find((tab) => tab.id === tabId)
-                    if (!tab) {
-                        return null
-                    }
-                    return {
-                        tileId,
-                        tabId,
-                        title: tab.title,
-                        showIntervalSelect: tab.showIntervalSelect,
-                        control: tab.control,
-                        insightProps: {
-                            dashboardItemId: getDashboardItemId(tileId, tabId, true),
-                            loadPriority: 0,
-                            doNotLoad: false,
-                            dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-                        },
-                        query: extendQuery(tab.query),
-                        canOpenInsight: tab.canOpenInsight,
-                    }
-                } else if (tile.kind === 'query') {
-                    return {
-                        tileId,
-                        title: tile.title,
-                        showIntervalSelect: tile.showIntervalSelect,
-                        control: tile.control,
-                        insightProps: {
-                            dashboardItemId: getDashboardItemId(tileId, undefined, true),
-                            loadPriority: 0,
-                            dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-                        },
-                        query: extendQuery(tile.query),
-                    }
-                }
-                return null
-            },
-        ],
         hasCountryFilter: [
             (s) => [s.webAnalyticsFilters],
             (webAnalyticsFilters: WebAnalyticsPropertyFilters) => {
@@ -2117,40 +2024,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 embedded: false,
             }),
         ],
-        getNewInsightUrl: [
-            (s) => [s.tiles],
-            (tiles) => {
-                return function getNewInsightUrl(tileId: TileId, tabId?: string): string | undefined {
-                    const formatQueryForNewInsight = (query: QuerySchema): QuerySchema => {
-                        if (query.kind === NodeKind.InsightVizNode) {
-                            return {
-                                ...query,
-                                embedded: undefined,
-                                hidePersonsModal: undefined,
-                            }
-                        }
-                        return query
-                    }
-
-                    const tile: WebAnalyticsTile | undefined = tiles.find((tile) => tile.tileId === tileId)
-                    if (!tile) {
-                        return undefined
-                    }
-
-                    if (tile.kind === 'tabs') {
-                        const tab = tile.tabs.find((tab) => tab.id === tabId)
-                        if (!tab) {
-                            return undefined
-                        }
-                        return urls.insightNew({ query: formatQueryForNewInsight(tab.query) })
-                    } else if (tile.kind === 'query') {
-                        return urls.insightNew({ query: formatQueryForNewInsight(tile.query) })
-                    } else if (tile.kind === 'replay') {
-                        return urls.replay()
-                    }
-                }
-            },
-        ],
+        getNewInsightUrl: [(s) => [s.tiles], (tiles: WebAnalyticsTile[]) => getNewInsightUrlFactory(tiles)],
         authorizedDomains: [
             (s) => [s.authorizedUrls],
             (authorizedUrls) => {
