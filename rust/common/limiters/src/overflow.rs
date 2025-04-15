@@ -38,16 +38,16 @@ impl OverflowLimiter {
         }
     }
 
-    // event_key is the target Kafka topic for the outbound event. This is either
+    // event_key is the candidate partition key for the outbound event. It is either
     // "<token>:<distinct_id>" for std events or "<token>:<ip_addr>" for cookieless.
-    // The token is provided for convenience to match against If true, this method signals the outbound event should be
-    // published to the overflow topic without a localizing partition key
+    // If this method returns true, the event should be rerouted to the overflow topic
+    // without a partition key, to avoid hot partitions in that pipeline.
     pub fn is_limited(&self, event_key: &String, token: &str) -> bool {
-        // is the token or event key in the forced_keys list?
+        // is the token or full event key in the forced_keys list?
         let forced_key_match = self.forced_keys.contains(event_key);
         let forced_token_match = self.forced_keys.contains(token);
 
-        // has the limiter been triggered
+        // should rate limiting be triggered for this event?
         let limiter_by_key = self.limiter.check_key(event_key).is_err();
 
         forced_key_match && forced_token_match && limiter_by_key
