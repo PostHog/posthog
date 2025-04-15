@@ -1,5 +1,6 @@
 import { actions, connect, kea, listeners, LogicWrapper, path, props, reducers } from 'kea'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { MessageTemplate, templatesLogic } from 'products/messaging/frontend/library/templatesLogic'
 import { EditorRef as _EditorRef } from 'react-email-editor'
 
 import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
@@ -23,13 +24,12 @@ export interface EmailTemplaterLogicProps {
     formFieldsPrefix?: string
     globals?: Record<string, any>
     emailMetaFields?: ('from' | 'to' | 'subject')[]
-    allowEmailTemplates?: boolean
 }
 
 export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     props({} as EmailTemplaterLogicProps),
     connect(() => ({
-        // values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes'], userLogic, ['hasAvailableFeature']],
+        values: [templatesLogic, ['templates', 'templatesLoading']],
     })),
     path(() => ['scenes', 'pipeline', 'hogfunctions', 'emailTemplaterLogic']),
     actions({
@@ -37,6 +37,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         setEmailEditorRef: (emailEditorRef: EditorRef | null) => ({ emailEditorRef }),
         emailEditorReady: true,
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
+        applyTemplate: (template: MessageTemplate) => ({ template }),
+        setAppliedTemplate: (template: MessageTemplate) => ({ template }),
     }),
     reducers({
         emailEditorRef: [
@@ -49,6 +51,12 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             false,
             {
                 setIsModalOpen: (_, { isModalOpen }) => isModalOpen,
+            },
+        ],
+        appliedTemplate: [
+            null as MessageTemplate | null,
+            {
+                setAppliedTemplate: (_, { template }) => template,
             },
         ],
     }),
@@ -88,6 +96,35 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             if (value) {
                 values.emailEditorRef?.editor?.loadDesign(value)
             }
+        },
+        applyTemplate: ({ template }) => {
+            const setFormValue = props.formLogic.findMounted(props.formLogicProps)?.actions?.[
+                `set${capitalizeFirstLetter(props.formKey)}Value`
+            ]
+
+            const pathParts = props.formFieldsPrefix ? props.formFieldsPrefix.split('.') : []
+
+            const emailTemplateContent = template.content.value
+
+            if (emailTemplateContent) {
+                if (emailTemplateContent.html) {
+                    setFormValue(pathParts.concat('html'), escapeHTMLStringCurlies(emailTemplateContent.html))
+                }
+
+                if (emailTemplateContent.design) {
+                    setFormValue(pathParts.concat('design'), emailTemplateContent.design)
+                }
+
+                if (emailTemplateContent.from) {
+                    setFormValue(pathParts.concat('from'), emailTemplateContent.from)
+                }
+
+                if (emailTemplateContent.subject) {
+                    setFormValue(pathParts.concat('subject'), emailTemplateContent.subject)
+                }
+            }
+
+            actions.setAppliedTemplate(template)
         },
     })),
 ])

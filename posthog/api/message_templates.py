@@ -1,17 +1,41 @@
-from rest_framework import viewsets
+from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from posthog.models import HogFunction
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from .messages import MessageSerializer
+from typing import Any
+from posthog.api.shared import UserBasicSerializer
+
+
+class MessageTemplateSerializer(serializers.ModelSerializer):
+    content = serializers.SerializerMethodField()
+    created_by = UserBasicSerializer(read_only=True)
+
+    def get_content(self, obj: HogFunction) -> dict[str, Any]:
+        return obj.inputs.get("email_template", {})
+
+    class Meta:
+        model = HogFunction
+        fields = [
+            "id",
+            "name",
+            "description",
+            "created_at",
+            "content",
+            "template_id",
+            "created_by",
+            "type",
+            "kind",
+        ]
+        read_only_fields = fields
 
 
 class MessageTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "hog_function"
     permission_classes = [IsAuthenticated]
 
-    serializer_class = MessageSerializer
+    serializer_class = MessageTemplateSerializer
     queryset = HogFunction.objects.all()
 
     def safely_get_queryset(self, queryset):
