@@ -259,7 +259,7 @@ async def test_mssql_source_incremental(
     external_data_source: ExternalDataSource,
     external_data_schema_incremental: ExternalDataSchema,
 ):
-    """Test that a full refresh sync works as expected."""
+    """Test that an incremental sync works as expected."""
     table_name = f"mssql_{MSSQL_TABLE_NAME}"
     expected_num_rows = len(TEST_DATA)
 

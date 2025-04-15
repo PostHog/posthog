@@ -199,7 +199,7 @@ def mssql_source(
             primary_keys = _get_primary_keys(cursor, schema, table_name)
             table_structure = _get_table_structure(cursor, schema, table_name)
 
-            # Falback on checking for an `id` field on the table
+            # Fallback on checking for an `id` field on the table
             if primary_keys is None:
                 if any(ts.column_name == "id" for ts in table_structure):
                     primary_keys = ["id"]
