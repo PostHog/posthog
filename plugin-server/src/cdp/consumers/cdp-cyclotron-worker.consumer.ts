@@ -85,6 +85,11 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
                     const updates = invocationToCyclotronJobUpdate(item.invocation)
 
+                    if (this.queue === 'fetch') {
+                        // When updating fetch jobs, we don't want to include the vm state
+                        updates.vmState = undefined
+                    }
+
                     this.cyclotronWorker?.updateJob(id, 'available', updates)
                 }
                 return this.cyclotronWorker?.releaseJob(id)
@@ -147,7 +152,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                 dbUrl: this.hub.CYCLOTRON_DATABASE_URL,
             },
             queueName: this.queue,
-            includeVmState: true,
+            includeVmState: this.queue === 'fetch' ? false : true,
             batchMaxSize: this.hub.CDP_CYCLOTRON_BATCH_SIZE,
             pollDelayMs: this.hub.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
