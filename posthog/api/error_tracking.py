@@ -17,6 +17,7 @@ from posthog.api.utils import action
 from posthog.models.error_tracking import (
     ErrorTrackingIssue,
     ErrorTrackingSymbolSet,
+    ErrorTrackingAssignmentRule,
     ErrorTrackingStackFrame,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
@@ -379,6 +380,67 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
 
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
+
+
+class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ErrorTrackingAssignmentRule
+        fields = ["id", "filters"]
+        read_only_fields = ["team_id"]
+
+
+class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
+    id = serializers.SerializerMethodField()
+    type = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ErrorTrackingIssueAssignment
+        fields = ["id", "type"]
+
+    def get_id(self, obj):
+        return obj.user_id or obj.user_group_id
+
+    def get_type(self, obj):
+        return "user_group" if obj.user_group else "user"
+
+
+class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "error_tracking"
+    queryset = ErrorTrackingAssignmentRule.objects.all()
+    serializer_class = ErrorTrackingAssignmentRuleSerializer
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team_id=self.team.id)
+
+    def update(self, request, *args, **kwargs) -> Response:
+        assignment_rule = self.get_object()
+        assignee = request.data.get("assignee", None)
+        filters = request.GET.get("filters")
+
+        assignment_rule.filters = filters
+        assignment_rule.byte_code = self.generate_byte_code(filters)
+        assignment_rule.user_id = None if assignee["type"] == "user_group" else assignee["id"]
+        assignment_rule.user_group_id = None if assignee["type"] == "user" else assignee["id"]
+
+        assignment_rule.save()
+        return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+
+    def create(self, request, *args, **kwargs) -> Response:
+        filters = request.GET.get("filters")
+        assignee = request.data.get("assignee", None)
+        byte_code = self.generate_byte_code(filters)
+
+        assignment_rule = self.queryset.objects.create(
+            filters=filters,
+            byte_code=byte_code,
+            user_id=None if assignee["type"] == "user_group" else assignee["id"],
+            user_group_id=None if assignee["type"] == "user" else assignee["id"],
+        )
+
+        return Response(assignment_rule, status=status.HTTP_201_CREATED)
+
+    def generate_byte_code(self):
+        return []
 
 
 def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple[str, str]:
