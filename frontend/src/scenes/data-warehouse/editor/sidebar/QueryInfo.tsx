@@ -1,3 +1,4 @@
+import { IconX } from '@posthog/icons'
 import { LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { useValues } from 'kea'
@@ -106,37 +107,21 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     </div>
                                 )}
                                 <div className="flex gap-4 mt-2">
-                                    {savedQuery?.status === 'Running' ? (
-                                        <>
-                                            <LemonButton
-                                                onClick={() =>
-                                                    editingView && cancelDataWarehouseSavedQuery(editingView.id)
-                                                }
-                                                type="secondary"
-                                                status="danger"
-                                            >
-                                                Cancel
-                                            </LemonButton>
-                                            <LemonButton
-                                                loading={false}
-                                                disabledReason="Query is currently running"
-                                                type="secondary"
-                                            >
-                                                Sync now
-                                            </LemonButton>
-                                        </>
-                                    ) : (
-                                        <LemonButton
-                                            loading={savedQuery?.status === 'Running'}
-                                            disabledReason={
-                                                savedQuery?.status === 'Running' ? 'Query is already running' : false
-                                            }
-                                            onClick={() => editingView && runDataWarehouseSavedQuery(editingView.id)}
-                                            type="secondary"
-                                        >
-                                            Sync now
-                                        </LemonButton>
-                                    )}
+                                    <LemonButton
+                                        className="whitespace-nowrap"
+                                        loading={savedQuery?.status === 'Running'}
+                                        disabledReason={savedQuery?.status === 'Running' && 'Query is already running'}
+                                        onClick={() => editingView && runDataWarehouseSavedQuery(editingView.id)}
+                                        type="secondary"
+                                        sideAction={{
+                                            icon: <IconX fontSize={16} />,
+                                            tooltip: 'Cancel materialization',
+                                            onClick: () => editingView && cancelDataWarehouseSavedQuery(editingView.id),
+                                            disabledReason: savedQuery?.status !== 'Running' && 'Query is not running',
+                                        }}
+                                    >
+                                        Sync now
+                                    </LemonButton>
                                     <LemonSelect
                                         className="h-9"
                                         disabledReason={
@@ -233,7 +218,9 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     title: 'Rows',
                                     dataIndex: 'rows_materialized',
                                     render: (_, { rows_materialized, status }: DataModelingJob) =>
-                                        status === 'Running' && rows_materialized === 0 ? '~' : rows_materialized,
+                                        (status === 'Running' || status === 'Cancelled') && rows_materialized === 0
+                                            ? '~'
+                                            : rows_materialized,
                                 },
                                 {
                                     title: 'Updated',
