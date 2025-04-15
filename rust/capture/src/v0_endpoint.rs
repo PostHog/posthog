@@ -8,6 +8,7 @@ use axum::extract::{MatchedPath, Query, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use base64::Engine;
+use chrono::{DateTime, Duration, Utc};
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
 use metrics::counter;
@@ -287,7 +288,7 @@ pub fn process_single_event(
         CaptureError::NonRetryableSinkError
     })?;
 
-    let metadata = ProcessedEventMetadata {
+    let mut metadata = ProcessedEventMetadata {
         data_type,
         session_id: None,
     };
@@ -306,6 +307,24 @@ pub fn process_single_event(
             .extract_is_cookieless_mode()
             .ok_or(CaptureError::InvalidCookielessMode)?,
     };
+
+    // if this event was historical but not assigned to the right topic
+    // by the submitting user (i.e. no historical prop flag in event)
+    // we should route it there using event#now if older than 1 day
+    let dayold_event = {
+        if let Ok(event_dt) = DateTime::parse_from_rfc3339(&event.now) {
+            let threshold = Utc::now() - Duration::days(1);
+            event_dt.to_utc() <= threshold
+        } else {
+            false
+        }
+    };
+
+    if metadata.data_type == DataType::AnalyticsMain && dayold_event {
+        metadata.data_type = DataType::AnalyticsHistorical;
+        counter!("capture_events_rerouted_historical").increment(1);
+    }
+
     Ok(ProcessedEvent { metadata, event })
 }
 
