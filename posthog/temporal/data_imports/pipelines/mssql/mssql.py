@@ -43,7 +43,7 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    query = f"SELECT * FROM [{schema}].[{table_name}] WHERE [{incremental_field}] >= %(incremental_value)s ORDER BY [{incremental_field}] ASC"
+    query = f"SELECT * FROM [{schema}].[{table_name}] WHERE [{incremental_field}] > %(incremental_value)s ORDER BY [{incremental_field}] ASC"
 
     return query, {
         "incremental_value": db_incremental_field_last_value,
