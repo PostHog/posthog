@@ -25,6 +25,7 @@ def get_session_replay_events(
     query = """
         SELECT
             session_id,
+            team_id,
             any(distinct_id) as distinct_id,
             min(min_first_timestamp) as min_first_timestamp_agg,
             max(max_last_timestamp) as max_last_timestamp_agg,
@@ -46,7 +47,8 @@ def get_session_replay_events(
         WHERE min_first_timestamp >= toDateTime(%(started_after)s)
         AND max_last_timestamp <= toDateTime(%(started_before)s) + INTERVAL {session_length_limit_seconds} SECOND
         GROUP BY
-            session_id
+            session_id,
+            team_id
         HAVING
             min_first_timestamp_agg >= toDateTime(%(started_after)s)
             AND min_first_timestamp_agg <= toDateTime(%(started_before)s)
@@ -151,8 +153,8 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
         )
 
         # Create lookup tables for easier comparison
-        v1_sessions = {r[0]: r for r in results_v1}  # session_id -> full record
-        v2_sessions = {r[0]: r for r in results_v2}
+        v1_sessions = {(r[0], r[1]): r for r in results_v1}  # (session_id, team_id) -> full record
+        v2_sessions = {(r[0], r[1]): r for r in results_v2}
 
         # Find sessions in v1 but not in v2
         only_in_v1 = list(set(v1_sessions.keys()) - set(v2_sessions.keys()))
@@ -161,18 +163,21 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
         only_in_v2 = list(set(v2_sessions.keys()) - set(v1_sessions.keys()))
 
         # Compare data for sessions in both
-        all_differing_sessions: list[str] = []
-        all_differing_sessions_excluding_active_ms: list[str] = []
+        all_differing_sessions: list[tuple[str, int]] = []  # (session_id, team_id)
+        all_differing_sessions_excluding_active_ms: list[tuple[str, int]] = []  # (session_id, team_id)
         differing_sessions_count = 0
         active_ms_diffs_percentage: list[float] = []
 
-        for session_id in set(v1_sessions.keys()) & set(v2_sessions.keys()):
-            v1_data = v1_sessions[session_id]
-            v2_data = v2_sessions[session_id]
+        for session_key in set(v1_sessions.keys()) & set(v2_sessions.keys()):
+            session_id, team_id = session_key
+            v1_data = v1_sessions[session_key]
+            v2_data = v2_sessions[session_key]
 
             # Calculate active_ms percentage difference
-            v1_active_ms = v1_data[FIELD_NAMES.index("active_milliseconds") + 1]  # +1 because session_id is at index 0
-            v2_active_ms = v2_data[FIELD_NAMES.index("active_milliseconds") + 1]
+            v1_active_ms = v1_data[
+                FIELD_NAMES.index("active_milliseconds") + 2
+            ]  # +2 because session_id and team_id are at index 0,1
+            v2_active_ms = v2_data[FIELD_NAMES.index("active_milliseconds") + 2]
             if v1_active_ms > 0:  # Avoid division by zero
                 diff_percentage = ((v2_active_ms - v1_active_ms) / v1_active_ms) * 100
                 active_ms_diffs_percentage.append(diff_percentage)
@@ -180,7 +185,9 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
             # Compare each field and collect differences
             differences = []
             differences_excluding_active_ms = []
-            for i, field_name in enumerate(FIELD_NAMES, start=1):  # start=1 because session_id is at index 0
+            for i, field_name in enumerate(
+                FIELD_NAMES, start=2
+            ):  # start=2 because session_id and team_id are at index 0,1
                 if v1_data[i] != v2_data[i]:
                     diff = {"field": field_name, "v1_value": v1_data[i], "v2_value": v2_data[i]}
                     differences.append(diff)
@@ -188,16 +195,18 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
                         differences_excluding_active_ms.append(diff)
 
             if differences:
-                all_differing_sessions.append(session_id)
+                all_differing_sessions.append(session_key)
                 differing_sessions_count += 1
                 # Only log detailed differences if within limit and there are differences beyond active_milliseconds
                 if (
                     not inputs.window_result_limit or differing_sessions_count <= inputs.window_result_limit
                 ) and differences_excluding_active_ms:
-                    await logger.ainfo("Found differences in session", session_id=session_id, differences=differences)
+                    await logger.ainfo(
+                        "Found differences in session", session_id=session_id, team_id=team_id, differences=differences
+                    )
 
             if differences_excluding_active_ms:
-                all_differing_sessions_excluding_active_ms.append(session_id)
+                all_differing_sessions_excluding_active_ms.append(session_key)
 
         end_time = dt.datetime.now()
         duration = (end_time - start_time).total_seconds()
@@ -232,9 +241,15 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
 
         # Log sessions only in v1/v2 if any exist
         if only_in_v1:
-            await logger.ainfo("Sessions only in v1", session_ids=only_in_v1)
+            await logger.ainfo(
+                "Sessions only in v1",
+                session_ids=only_in_v1,  # Already (session_id, team_id) tuples
+            )
         if only_in_v2:
-            await logger.ainfo("Sessions only in v2", session_ids=only_in_v2)
+            await logger.ainfo(
+                "Sessions only in v2",
+                session_ids=only_in_v2,  # Already (session_id, team_id) tuples
+            )
 
 
 @dataclasses.dataclass(frozen=True)
