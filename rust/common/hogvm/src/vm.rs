@@ -697,7 +697,8 @@ impl<'a> VmState<'a> {
                 }
                 .into();
                 self.push_stack(HogLiteral::Callable(callable))?;
-                self.ip
+                self.ip = self
+                    .ip
                     .checked_add(body_length)
                     .ok_or(VmError::IntegerOverflow)?;
             }
