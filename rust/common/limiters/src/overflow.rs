@@ -42,15 +42,20 @@ impl OverflowLimiter {
     // "<token>:<distinct_id>" for std events or "<token>:<ip_addr>" for cookieless.
     // If this method returns true, the event should be rerouted to the overflow topic
     // without a partition key, to avoid hot partitions in that pipeline.
-    pub fn is_limited(&self, event_key: &String, token: &str) -> bool {
-        // is the token or full event key in the forced_keys list?
+    pub fn is_limited(&self, event_key: &String) -> bool {
+        // is the event key in the forced_keys list?
         let forced_key_match = self.forced_keys.contains(event_key);
-        let forced_token_match = self.forced_keys.contains(token);
+
+        // is the token (first component of the event key) in the forced_keys list?
+        let forced_token_match = match event_key.split(':').next() {
+            Some(token) => self.forced_keys.contains(token),
+            None => false,
+        };
 
         // should rate limiting be triggered for this event?
-        let limiter_by_key = self.limiter.check_key(event_key).is_err();
+        let rate_limited_key = self.limiter.check_key(event_key).is_err();
 
-        forced_key_match || forced_token_match || limiter_by_key
+        forced_key_match || forced_token_match || rate_limited_key
     }
 
     /// Reports the number of tracked keys to prometheus every 10 seconds,
@@ -93,12 +98,10 @@ mod tests {
             NonZeroU32::new(1).unwrap(),
             None,
         );
-        let token = "test";
-        let distinct_id = "user1";
-        let key = format!("{}:{}", token, distinct_id);
 
-        assert!(!limiter.is_limited(&key, token));
-        assert!(limiter.is_limited(&key, token));
+        let key = String::from("test:user");
+        assert!(!limiter.is_limited(&key));
+        assert!(limiter.is_limited(&key));
     }
 
     #[tokio::test]
@@ -108,24 +111,18 @@ mod tests {
             NonZeroU32::new(3).unwrap(),
             None,
         );
-        let token = "test";
-        let distinct_id = "user1";
-        let key = format!("{}:{}", token, distinct_id);
 
-        assert!(!limiter.is_limited(&key, token));
-        assert!(!limiter.is_limited(&key, token));
-        assert!(!limiter.is_limited(&key, token));
-        assert!(limiter.is_limited(&key, token));
+        let key = String::from("test:user");
+        assert!(!limiter.is_limited(&key));
+        assert!(!limiter.is_limited(&key));
+        assert!(!limiter.is_limited(&key));
+        assert!(limiter.is_limited(&key));
     }
 
     #[tokio::test]
     async fn forced_key() {
-        let token1 = "token1";
-        let dist_id1 = "user1";
-        let key1 = format!("{}:{}", token1, dist_id1);
-        let token2 = "token2";
-        let dist_id2 = "user2";
-        let key2 = format!("{}:{}", token2, dist_id2);
+        let key1 = String::from("token1:user1");
+        let key2 = String::from("token2:user2");
 
         // replicate the above in forced_keys list
         let forced_keys = Some(format!("{},{}", key1, key2));
@@ -136,12 +133,12 @@ mod tests {
         );
 
         // token1:user1 and token2:user2 are limited from the start, token3:user3 is not
-        assert!(limiter.is_limited(&key1, token1));
-        assert!(!limiter.is_limited(&String::from("token3:user3"), "token3"));
-        assert!(limiter.is_limited(&key2, token2));
+        assert!(limiter.is_limited(&key1));
+        assert!(!limiter.is_limited(&String::from("token3:user3")));
+        assert!(limiter.is_limited(&key2));
 
         // token3:user3 is limited on the second event
-        assert!(limiter.is_limited(&String::from("token3:user3"), "token3"));
+        assert!(limiter.is_limited(&String::from("token3:user3")));
     }
 
     #[tokio::test]
@@ -163,16 +160,16 @@ mod tests {
         );
 
         // token1 is limited for all distinct_ids
-        assert!(limiter.is_limited(&key1, token1));
-        assert!(limiter.is_limited(&format!("{}:{}", token1, "other_user"), token1));
-        assert!(limiter.is_limited(&token1.to_string(), token1));
+        assert!(limiter.is_limited(&key1));
+        assert!(limiter.is_limited(&format!("{}:{}", token1, "other_user")));
+        assert!(limiter.is_limited(&token1.to_string()));
 
         // token2:user2 is limited only for that specific user
-        assert!(limiter.is_limited(&key2, token2));
-        assert!(!limiter.is_limited(&format!("{}:{}", token2, "other_user"), token2));
+        assert!(limiter.is_limited(&key2));
+        assert!(!limiter.is_limited(&format!("{}:{}", token2, "other_user")));
 
         // token3 gets rate limited normally
-        assert!(!limiter.is_limited(&key3, token3));
-        assert!(limiter.is_limited(&key3, token3)); // Second hit is limited
+        assert!(!limiter.is_limited(&key3));
+        assert!(limiter.is_limited(&key3)); // Second hit is limited
     }
 }
