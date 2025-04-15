@@ -129,7 +129,7 @@ class RateLimit:
                 result=result,
             ).inc()
 
-            if (not self.bypass_all or in_beta) and not bypass:
+            if (not self.bypass_all or in_beta) and not bypass:  # team in beta cannot skip limits
                 raise ConcurrencyLimitExceeded(
                     f"Exceeded maximum concurrency limit: {max_concurrency} for key: {task_name} and task: {task_id}"
                 )

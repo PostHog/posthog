@@ -178,7 +178,7 @@ except Exception:
     CLICKHOUSE_PER_TEAM_SETTINGS = {}
 
 try:
-    as_json = json.loads(os.getenv("API_QUERIES_PER_TEAM", {}))
+    as_json = json.loads(os.getenv("API_QUERIES_PER_TEAM", "{}"))
     API_QUERIES_PER_TEAM: dict[int, int] = {int(k): int(v) for k, v in as_json.items()}
 except Exception:
     API_QUERIES_PER_TEAM: dict[int, int] = {}
