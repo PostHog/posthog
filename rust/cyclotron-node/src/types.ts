@@ -45,5 +45,5 @@ export type CyclotronJobInit = Pick<CyclotronJob, 'teamId' | 'functionId' | 'que
 
 export type CyclotronJobUpdate = Pick<
     Partial<CyclotronJob>,
-    'queueName' | 'priority' | 'vmState' | 'parameters' | 'metadata' | 'blob'
+    'queueName' | 'priority' | 'vmState' | 'parameters' | 'metadata' | 'blob' | 'scheduled'
 >
