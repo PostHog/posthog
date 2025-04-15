@@ -113,7 +113,7 @@ function EmailTemplateField({ schema }: { schema: HogFunctionInputSchemaType }):
     const { globalsWithInputs, logicProps } = useValues(hogFunctionConfigurationLogic)
 
     const emailMetaFields: ('from' | 'to' | 'subject')[] =
-        schema.type === 'email' ? ['from', 'to', 'subject'] : ['from', 'subject']
+        schema.type === 'email_template' ? ['from', 'subject'] : ['from', 'to', 'subject']
 
     return (
         <>
