@@ -838,6 +838,7 @@ class RunWorkflow(PostHogWorkflow):
             build_dag_activity,
             build_dag_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
+            heartbeat_timeout=dt.timedelta(minutes=1),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
@@ -852,6 +853,7 @@ class RunWorkflow(PostHogWorkflow):
             start_run_activity,
             start_run_activity_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
+            heartbeat_timeout=dt.timedelta(minutes=1),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
@@ -864,6 +866,7 @@ class RunWorkflow(PostHogWorkflow):
             run_dag_activity,
             run_model_activity_inputs,
             start_to_close_timeout=dt.timedelta(hours=1),
+            heartbeat_timeout=dt.timedelta(minutes=1),
             retry_policy=temporalio.common.RetryPolicy(
                 maximum_attempts=1,
             ),
@@ -884,6 +887,7 @@ class RunWorkflow(PostHogWorkflow):
             create_table_activity,
             create_table_activity_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
+            heartbeat_timeout=dt.timedelta(minutes=1),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
@@ -901,6 +905,7 @@ class RunWorkflow(PostHogWorkflow):
             finish_run_activity,
             finish_run_activity_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
+            heartbeat_timeout=dt.timedelta(minutes=1),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
