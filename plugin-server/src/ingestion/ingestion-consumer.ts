@@ -25,10 +25,9 @@ import { MemoryRateLimiter } from './utils/overflow-detector'
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
 
-const ingestionPartitionKeyOverflowed = new Counter({
-    name: 'ingestion_partition_key_overflowed',
-    help: 'Indicates that a given key has overflowed capacity and been redirected to a different topic. Value incremented once a minute.',
-    labelNames: ['partition_key'],
+const ingestionEventOverflowed = new Counter({
+    name: 'ingestion_event_overflowed',
+    help: 'Indicates that a given event has overflowed capacity and been redirected to a different topic.',
 })
 
 const histogramKafkaBatchSize = new Histogram({
@@ -256,7 +255,7 @@ export class IngestionConsumer {
         )
 
         if (this.overflowEnabled() && (shouldForceOverflow || !isBelowRateLimit)) {
-            ingestionPartitionKeyOverflowed.inc(eventsForDistinctId.events.length)
+            ingestionEventOverflowed.inc(eventsForDistinctId.events.length)
 
             if (shouldForceOverflow) {
                 forcedOverflowEventsCounter.inc()
