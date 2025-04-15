@@ -304,6 +304,7 @@ class TestCapture(BaseTest):
         timestamp=1658516991883,
         content_type: str | None = None,
         query_params: str = "",
+        api_key: str | None = None,
     ) -> HttpResponse:
         if event_data is None:
             # event_data is an array of RRWeb events
@@ -331,9 +332,9 @@ class TestCapture(BaseTest):
         post_data: list[dict[str, Any]] | dict[str, Any]
 
         if content_type == "application/json":
-            post_data = [{**event, "api_key": self.team.api_token} for _ in range(number_of_events)]
+            post_data = [{**event, "api_key": api_key or self.team.api_token} for _ in range(number_of_events)]
         else:
-            post_data = {"api_key": self.team.api_token, "data": json.dumps([event for _ in range(number_of_events)])}
+            post_data = {"api_key": api_key or self.team.api_token, "data": json.dumps([event for _ in range(number_of_events)])}
 
         return self.client.post(
             "/s/" + "?" + query_params if query_params else "/s/",
@@ -1982,7 +1983,6 @@ class TestCapture(BaseTest):
             )
 
     @patch("posthog.api.capture.session_recording_kafka_producer")
-    @patch("posthog.api.capture.KafkaProducer")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_can_redirect_session_recordings_to_alternative_kafka(
         self,
@@ -2366,3 +2366,191 @@ class TestCapture(BaseTest):
 
             with pytest.raises(ObjectStorageError):
                 object_storage.read("token-another-team-token-session_id-abcdefgh.json", bucket=TEST_SAMPLES_BUCKET)
+
+    @patch("posthog.api.capture.settings")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_tag_events_with_quota_overage_regular_events(
+        self, kafka_produce: MagicMock, mock_settings: MagicMock
+    ) -> None:
+        """Test that regular events are tagged with $is_quota_overage when the token is in the limited list."""
+        # Setup
+        mock_settings.EE_AVAILABLE = True
+        
+        from ee.billing.quota_limiting import QuotaResource, replace_limited_team_tokens
+        
+        replace_limited_team_tokens(
+            QuotaResource.EVENTS,
+            {"token_events": int(timezone.now().timestamp() + 10000)},
+            QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY,
+        )
+
+        # Test with a regular event when the token is in the limited list
+        response = self.client.post(
+            "/e/",
+            data={
+                "api_key": "token_events",
+                "type": "capture",
+                "event": "test_event",
+                "distinct_id": "distinct_id",
+                "properties": {"prop1": "value1"},
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(kafka_produce.call_count, 1)
+        
+        # Check that the event was tagged with $is_quota_overage
+        event_data = kafka_produce.call_args[1]["data"]
+        json_event_data = json.loads(event_data["data"])
+        self.assertTrue(json_event_data["properties"]["$is_quota_overage"])
+
+        # Test with a regular event when the token is not in the limited list
+        kafka_produce.reset_mock()
+        response = self.client.post(
+            "/e/",
+            data={
+                "api_key": "token_events2",
+                "type": "capture",
+                "event": "test_event",
+                "distinct_id": "distinct_id",
+                "properties": {"prop1": "value1"},
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(kafka_produce.call_count, 1)
+        
+        # Check that the event was not tagged with $is_quota_overage
+        event_data = kafka_produce.call_args[1]["data"]
+        json_event_data = json.loads(event_data["data"])
+        self.assertFalse("$is_quota_overage" in json_event_data["properties"])
+
+    @patch("posthog.api.capture.settings")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_tag_events_with_quota_overage_exceptions(
+        self, kafka_produce: MagicMock, mock_settings
+    ) -> None:
+        """Test that exception events are tagged with $is_quota_overage when the token is in the limited list."""
+        # Setup
+        mock_settings.EE_AVAILABLE = True
+
+        from ee.billing.quota_limiting import QuotaResource, replace_limited_team_tokens
+        
+        replace_limited_team_tokens(
+            QuotaResource.EXCEPTIONS,
+            {"token_exceptions": int(timezone.now().timestamp() + 10000)},
+            QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY,
+        )
+
+        # Test with an exception event when the token is in the limited list
+        response = self.client.post(
+            "/e/",
+            data={
+                "api_key": "token_exceptions",
+                "type": "capture",
+                "event": "$exception",
+                "distinct_id": "distinct_id",
+                "properties": {"prop1": "value1"},
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(kafka_produce.call_count, 1)
+        
+        # Check that the event was tagged with $is_quota_overage
+        event_data = kafka_produce.call_args[1]["data"]
+        json_event_data = json.loads(event_data["data"])
+        self.assertTrue(json_event_data["properties"]["$is_quota_overage"])
+
+        # Test with an exception event when the token is not in the limited list
+        kafka_produce.reset_mock()
+        response = self.client.post(
+            "/e/",
+            data={
+                "api_key": "token_exceptions2",
+                "type": "capture",
+                "event": "$exception",
+                "distinct_id": "distinct_id",
+                "properties": {"prop1": "value1"},
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(kafka_produce.call_count, 1)
+        
+        # Check that the event was not tagged with $is_quota_overage
+        event_data = kafka_produce.call_args[1]["data"]
+        json_event_data = json.loads(event_data["data"])
+        self.assertFalse("$is_quota_overage" in json_event_data["properties"])
+
+    @patch("posthog.api.capture.settings")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_tag_events_with_quota_overage_recordings(
+        self, kafka_produce: MagicMock, mock_settings: MagicMock
+    ) -> None:
+        """Test that recording events are tagged with $is_quota_overage when the token is in the limited list."""
+        # Setup
+        mock_settings.EE_AVAILABLE = True
+
+        from ee.billing.quota_limiting import QuotaResource, replace_limited_team_tokens
+        
+        replace_limited_team_tokens(
+            QuotaResource.RECORDINGS,
+            {"token_recordings": int(timezone.now().timestamp() + 10000)},
+            QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY,
+        )
+
+        # Test with a recording event when the token is in the limited list
+        self._send_august_2023_version_session_recording_event(
+            session_id="test_quota_overage_session",
+            distinct_id="test_quota_overage_user",
+            api_key="token_recordings"
+        )
+
+        self.assertEqual(kafka_produce.call_count, 1)
+        
+        # Check that the event was tagged with $is_quota_overage
+        event_data = kafka_produce.call_args[1]["data"]
+        json_event_data = json.loads(event_data["data"])
+        print('\njson_event_data["properties"]', json_event_data["properties"])
+        self.assertTrue(json_event_data["properties"]["$is_quota_overage"])
+
+        # Test with a recording event when the token is not in the limited list
+        kafka_produce.reset_mock()
+        
+        self._send_august_2023_version_session_recording_event(
+            session_id="test_quota_overage_session2",
+            distinct_id="test_quota_overage_user2",
+            api_key="token_recordings2"
+        )
+
+        self.assertEqual(kafka_produce.call_count, 1)
+        
+        # Check that the event was not tagged with $is_quota_overage
+        event_data = kafka_produce.call_args[1]["data"]
+        json_event_data = json.loads(event_data["data"])
+        self.assertFalse("$is_quota_overage" in json_event_data["properties"])
+
+    @patch("ee.billing.quota_limiting.list_limited_team_attributes")
+    @patch("posthog.api.capture.settings")
+    def test_tag_events_with_quota_overage_ee_not_available(
+        self, mock_settings: MagicMock, mock_list_limited_team_attributes: MagicMock
+    ) -> None:
+        """Test that the function returns early when EE is not available."""
+        # Setup
+        mock_settings.EE_AVAILABLE = False
+        
+        # Test that the function returns early when EE is not available
+        from posthog.api.capture import tag_events_with_quota_overage, EventsQuotaOverageResult
+        
+        events = [{"event": "test", "properties": {}}]
+        result = tag_events_with_quota_overage("token1", events)
+        
+        # Verify the function returned early without modifying the events
+        self.assertIsInstance(result, EventsQuotaOverageResult)
+        self.assertEqual(result.events, events)
+        self.assertFalse(mock_list_limited_team_attributes.called)
