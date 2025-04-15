@@ -397,9 +397,25 @@ describe('IngestionConsumer', () => {
             const batches = await ingester['parseKafkaBatch'](messages)
 
             expect(Object.keys(batches)).toHaveLength(3)
-            expect(batches[`${team.api_token}:distinct-id-1`]).toHaveLength(3)
-            expect(batches[`${team.api_token}:distinct-id-2`]).toHaveLength(1)
-            expect(batches[`${team2.api_token}:distinct-id-1`]).toHaveLength(1)
+
+            // Rewrite the test to check for the overall object with the correct length
+            expect(batches).toEqual({
+                [`${team.api_token}:distinct-id-1`]: {
+                    distinctId: 'distinct-id-1',
+                    token: team.api_token,
+                    events: [expect.any(Object), expect.any(Object), expect.any(Object)],
+                },
+                [`${team.api_token}:distinct-id-2`]: {
+                    distinctId: 'distinct-id-2',
+                    token: team.api_token,
+                    events: [expect.any(Object)],
+                },
+                [`${team2.api_token}:distinct-id-1`]: {
+                    distinctId: 'distinct-id-1',
+                    token: team2.api_token,
+                    events: [expect.any(Object)],
+                },
+            })
         })
     })
 

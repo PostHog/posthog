@@ -242,7 +242,10 @@ export class IngestionConsumer {
 
         if (this.testingTopic) {
             void this.scheduleWork(this.emitToTestingTopic(eventsForDistinctId.events.map((x) => x.message)))
-            return eventsForDistinctId
+            return {
+                ...eventsForDistinctId,
+                events: [],
+            }
         }
 
         // NOTE: We know at this point that all these events are the same token distinct_id
