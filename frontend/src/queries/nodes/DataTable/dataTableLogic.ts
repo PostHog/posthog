@@ -205,6 +205,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showPropertyFilter: query.showPropertyFilter ?? showIfFull,
                         showEventFilter: query.showEventFilter ?? showIfFull,
                         showSearch: query.showSearch ?? showIfFull,
+                        showHeader: query.showHeader ?? true,
                         showActions: query.showActions ?? true,
                         showDateRange: query.showDateRange ?? showIfFull,
                         showTestAccountFilters: query.showTestAccountFilters ?? showIfFull,

@@ -50,7 +50,7 @@ export const Metadata = (): JSX.Element => {
     )
 
     return (
-        <>
+        <div>
             <div className="flex justify-between items-center p-2 flex-wrap h-[36px]">
                 {match(hoveredDatum)
                     .when(
@@ -94,7 +94,7 @@ export const Metadata = (): JSX.Element => {
                 </div>
             </div>
             <SparklineChart data={sparklineData} events={sparklineEvents} options={sparklineOptions} className="h-48" />
-        </>
+        </div>
     )
 }
 

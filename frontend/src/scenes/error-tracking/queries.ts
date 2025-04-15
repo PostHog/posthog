@@ -106,9 +106,8 @@ export const errorTrackingIssueEventsQuery = ({
         throw new Error('date_from is required')
     }
 
-    // const select = ['person', 'timestamp', 'recording_button(properties.$session_id)']
     // row expansion only works when you fetch the entire event with '*'
-    const columns = ['*', 'person', 'timestamp', 'recording_button(properties.$session_id)']
+    const columns = ['*', 'person']
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = [...group.values] as AnyPropertyFilter[]
 
@@ -143,9 +142,9 @@ export const errorTrackingIssueEventsQuery = ({
         source: eventsQuery,
         showActions: false,
         showTimings: false,
-        columns: columns,
-        expandable: true,
+        expandable: false,
         embedded: true,
+        showHeader: false,
     }
 }
 

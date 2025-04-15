@@ -3,11 +3,12 @@ import './ErrorTracking.scss'
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import PanelLayout, { PanelSettings, SettingsToggle } from 'lib/components/PanelLayout/PanelLayout'
+import PanelLayout, { SettingsToggle } from 'lib/components/PanelLayout/PanelLayout'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
 import { useEffect, useRef } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
+import { SettingsBar } from 'scenes/session-recordings/components/PanelSettings'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
@@ -41,8 +42,8 @@ export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
-    const { loadIssue, updateStatus, updateAssignee } = useActions(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading, activeTab } = useValues(errorTrackingIssueSceneLogic)
+    const { loadIssue, updateStatus, updateAssignee, setActiveTab } = useActions(errorTrackingIssueSceneLogic)
 
     const ref = useRef<HTMLDivElement>(null)
 
@@ -96,54 +97,63 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                         width: desiredSize || 100,
                     }}
                 >
-                    <div className="space-y-6 overflow-y-auto w-full pt-2">
-                        <div className="space-y-2">
-                            <div className="text-tertiary leading-6 px-2">{issue?.description || 'Unknown'}</div>
-                            <Metadata />
-                        </div>
-                        <div className="px-2 flex items-center flex-col gap-1">
-                            <FilterGroup />
-                            <div className="flex flex-wrap justify-between w-full gap-1">
-                                <DateRangeFilter />
-                                <InternalAccountsFilter />
-                            </div>
-                        </div>
-                        <div>
-                            <EventsTab />
-                        </div>
+                    <div className="overflow-y-auto w-full pt-2 space-y-4">
+                        <Filters />
+                        <Metadata />
+                        <EventsTab />
                     </div>
                     <Resizer {...resizerLogicProps} offset={1} />
                 </div>
-                <ExceptionContent />
+                <div className="flex flex-col flex-1">
+                    <ExceptionContent />
+                    <WorkspaceSettings />
+                </div>
             </div>
         </ErrorTrackingSetupPrompt>
     )
 }
 
-const ExceptionContent = (): JSX.Element => {
-    const { showAllFrames } = useValues(errorTrackingIssueSceneLogic)
-    const { setShowAllFrames } = useActions(errorTrackingIssueSceneLogic)
+const Filters = (): JSX.Element => {
+    return (
+        <div className="px-2 flex items-center flex-col gap-1">
+            <FilterGroup />
+            <div className="flex flex-wrap justify-between w-full gap-1">
+                <DateRangeFilter />
+                <InternalAccountsFilter />
+            </div>
+        </div>
+    )
+}
 
+const ExceptionContent = (): JSX.Element => {
     return (
         <PanelLayout column className="flex-1 overflow-y-auto p-2">
             <PanelLayout.Panel primary={false}>
                 <ContextDisplay />
             </PanelLayout.Panel>
             <PanelLayout.Panel primary={false}>
-                <PanelSettings title="Stack" border="bottom">
-                    <SettingsToggle
-                        label="Show all frames"
-                        active={true}
-                        icon={showAllFrames ? <IconCollapse /> : <IconExpand />}
-                        size="xsmall"
-                        onClick={() => setShowAllFrames(!showAllFrames)}
-                    />
-                </PanelSettings>
                 <StacktraceDisplay />
             </PanelLayout.Panel>
             <PanelLayout.Panel primary={false}>
                 <RecordingPlayer />
             </PanelLayout.Panel>
         </PanelLayout>
+    )
+}
+
+const WorkspaceSettings = (): JSX.Element => {
+    const { showAllFrames } = useValues(errorTrackingIssueSceneLogic)
+    const { setShowAllFrames } = useActions(errorTrackingIssueSceneLogic)
+
+    return (
+        <SettingsBar border="top" className="bg-surface-primary justify-end">
+            <SettingsToggle
+                label={showAllFrames ? 'Hide extra frames' : 'Show all frames'}
+                active={true}
+                icon={showAllFrames ? <IconCollapse /> : <IconExpand />}
+                size="xsmall"
+                onClick={() => setShowAllFrames(!showAllFrames)}
+            />
+        </SettingsBar>
     )
 }

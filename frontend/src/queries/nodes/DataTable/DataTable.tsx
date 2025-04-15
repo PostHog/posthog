@@ -158,6 +158,7 @@ export function DataTable({
         showReload,
         showExport,
         showElapsedTime,
+        showHeader,
         showColumnConfigurator,
         showPersistentColumnConfigurator,
         showSavedQueries,
@@ -545,6 +546,7 @@ export function DataTable({
                     {showResultsTable && (
                         <LemonTable
                             data-attr={dataAttr}
+                            showHeader={showHeader}
                             className="DataTable"
                             loading={responseLoading && !nextDataLoading && !newDataLoading}
                             columns={lemonColumns}
