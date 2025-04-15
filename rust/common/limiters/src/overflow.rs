@@ -142,6 +142,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn forced_key_token_only() {
+        let key1 = String::from("token1");
+        let key2 = String::from("token2:user2");
+
+        // replicate the above in forced_keys list
+        let forced_keys = Some(format!("{},{}", key1, key2));
+        let limiter = OverflowLimiter::new(
+            NonZeroU32::new(10).unwrap(),
+            NonZeroU32::new(10).unwrap(),
+            forced_keys,
+        );
+
+        // rerouting for token in candidate list should kick in right away
+        assert!(limiter.is_limited(&key1));
+        assert!(limiter.is_limited(&key1));
+
+        // no key-based limiting for tokens not in the overflow list
+        assert!(!limiter.is_limited(&String::from("token3:user3")));
+        assert!(!limiter.is_limited(&String::from("token3:user3")));
+        assert!(!limiter.is_limited(&String::from("token3:user3")));
+        assert!(!limiter.is_limited(&String::from("token3:user3")));
+
+        // token:distinct_id from candidate list should also be rerouted/limited right away
+        assert!(limiter.is_limited(&key2));
+        assert!(limiter.is_limited(&key2));
+    }
+
+    #[tokio::test]
     async fn test_optional_distinct_id() {
         let token1 = "token1";
         let dist_id1 = "user1";
