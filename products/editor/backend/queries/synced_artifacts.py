@@ -1,3 +1,5 @@
+from typing import cast
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
@@ -18,18 +20,21 @@ class DistinctSyncedArtifactsQuery:
         self.artifact_ids = artifact_ids
 
     def to_query(self) -> ast.SelectQuery:
-        query: ast.SelectQuery = parse_select(
-            """
-            SELECT
-                argMax(DISTINCT artifact_id, timestamp) AS synced_artifact_id,
-                argMax(is_deleted, timestamp) AS deleted
-            FROM
-                codebase_embeddings
-            GROUP BY
-                artifact_id
-            HAVING
-                deleted = 0
-            """
+        query = cast(
+            ast.SelectQuery,
+            parse_select(
+                """
+                SELECT
+                    argMax(DISTINCT artifact_id, timestamp) AS synced_artifact_id,
+                    argMax(is_deleted, timestamp) AS deleted
+                FROM
+                    codebase_embeddings
+                GROUP BY
+                    artifact_id
+                HAVING
+                    deleted = 0
+                """
+            ),
         )
         query.where = self._get_where_clause()
         return query

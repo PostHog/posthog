@@ -147,8 +147,8 @@ def chunk_code(lang: ProgrammingLanguage, content: str, chunk_size: int, chunk_o
 
     chunk_context = TreeWalker(lang, content, capture_context_for).traverse()
 
-    for chunk in chunks_with_positions:
-        if chunk.line_start in chunk_context:
-            chunk.context = chunk_context[chunk.line_start]
+    for prepared_chunk in chunks_with_positions:
+        if prepared_chunk.line_start in chunk_context:
+            prepared_chunk.context = chunk_context[prepared_chunk.line_start]
 
     return chunks_with_positions

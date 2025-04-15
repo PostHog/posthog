@@ -1,5 +1,5 @@
 from collections.abc import Generator, Sequence
-from typing import Literal, NotRequired, TypedDict
+from typing import Literal, NotRequired, TypedDict, cast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql.constants import LimitContext
@@ -126,7 +126,7 @@ class CodebaseSyncService:
         # Empty string as the schema for this field is non-nullable.
         self.branch = branch or ""
 
-    def sync(self, client_tree: list[ArtifactNode]) -> list[str]:
+    def sync(self, client_tree: list[SerializedArtifact]) -> list[str]:
         """
         Sync the server tree with the client tree.
 
@@ -162,11 +162,11 @@ class CodebaseSyncService:
     def _sync_existing_tree(
         self, client_tree_nodes: list[SerializedArtifact], server_nodes: list[CodebaseTreeResponseItem]
     ) -> list[str]:
-        server_tree_nodes = [
+        server_tree_nodes: list[SerializedArtifact] = [
             {
                 "id": server_node.id,
                 "parent_id": server_node.parentId,
-                "type": server_node.type,
+                "type": cast(CodebaseCatalogType, server_node.type),
                 "synced": server_node.synced,
             }
             for server_node in server_nodes
@@ -177,8 +177,8 @@ class CodebaseSyncService:
 
         added, deleted = ArtifactNode.compare(server_tree, client_tree)
 
-        client_nodes_mapping: dict[str, SerializedArtifact] = {node["id"]: node for node in client_tree_nodes}
-        server_nodes_mapping: dict[str, SerializedArtifact] = {node["id"]: node for node in server_tree_nodes}
+        client_nodes_mapping = {node["id"]: node for node in client_tree_nodes}
+        server_nodes_mapping = {node["id"]: node for node in server_tree_nodes}
 
         self._insert_catalog_nodes(
             [client_nodes_mapping[client_node_id] for client_node_id in added],
