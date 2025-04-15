@@ -88,10 +88,31 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
         # Not all rows in the CSV have a status of "succeeded", let's filter them out here
         assert len(results) == len(self.csv_df[self.csv_df["status"] == "succeeded"])
 
-        # Proper conversions for some of the rows
-        assert results[0][2:] == (Decimal("220"), "EUR", Decimal("182.247167654"), "GBP")
-        assert results[1][2:] == (Decimal("180"), "GBP", Decimal("180"), "GBP")
+        # Sort results by the original amount just to guarantee order
+        results.sort(key=lambda x: x[2])
 
-        # Test JPY where there are no decimals, and an input of 500 implies 500 Yen
-        # rather than the above where we had 22000 for 220 EUR (and etc.)
-        assert results[3][2:] == (Decimal("500"), "JPY", Decimal("2.5438762801"), "GBP")
+        # We only care about the last 4 columns (amount, currency, converted_amount, converted_currency)
+        results = [row[2:] for row in results]
+
+        assert results == [
+            (Decimal("50"), "GBP", Decimal("50"), "GBP"),
+            (Decimal("100"), "USD", Decimal("79.7"), "GBP"),
+            (Decimal("100"), "USD", Decimal("79.7"), "GBP"),
+            (Decimal("120"), "USD", Decimal("95.64"), "GBP"),
+            (Decimal("120"), "USD", Decimal("95.64"), "GBP"),
+            (Decimal("125"), "GBP", Decimal("125"), "GBP"),
+            (Decimal("150"), "EUR", Decimal("124.2594324913"), "GBP"),
+            (Decimal("150"), "EUR", Decimal("124.2594324913"), "GBP"),
+            (Decimal("150"), "EUR", Decimal("124.2594324913"), "GBP"),
+            (Decimal("180"), "GBP", Decimal("180"), "GBP"),
+            (Decimal("180"), "GBP", Decimal("180"), "GBP"),
+            (Decimal("180"), "GBP", Decimal("180"), "GBP"),
+            (Decimal("200"), "USD", Decimal("159.4"), "GBP"),
+            (Decimal("220"), "EUR", Decimal("182.247167654"), "GBP"),
+            (Decimal("245"), "USD", Decimal("195.265"), "GBP"),
+            (Decimal("250"), "EUR", Decimal("207.0990541523"), "GBP"),
+            (Decimal("300"), "USD", Decimal("239.1"), "GBP"),
+            # Important here how we treated the 500 in the CSV as 500 Yen rather than 5 Yen
+            # like we do with other currencies (20000 -> 200 EUR)
+            (Decimal("500"), "JPY", Decimal("2.5438762801"), "GBP"),
+        ]
