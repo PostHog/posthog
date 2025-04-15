@@ -13,6 +13,8 @@ from django.db import transaction
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.filters.mixins.property import PropertyMixin
+
 from posthog.api.utils import action
 from posthog.models.error_tracking import (
     ErrorTrackingIssue,
@@ -27,6 +29,8 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
 from loginas.utils import is_impersonated_session
+from posthog.hogql.compiler.bytecode import to_bytecode
+from posthog.hogql.property import property_to_expr
 
 from posthog.tasks.email import send_error_tracking_issue_assigned
 
@@ -404,7 +408,7 @@ class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
         return "user_group" if obj.user_group else "user"
 
 
-class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, PropertyMixin, viewsets.ModelViewSet):
     scope_object = "error_tracking"
     queryset = ErrorTrackingAssignmentRule.objects.all()
     serializer_class = ErrorTrackingAssignmentRuleSerializer
@@ -426,13 +430,12 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
     def create(self, request, *args, **kwargs) -> Response:
-        filters = request.GET.get("filters")
+        properties = request.GET.get("properties")
         assignee = request.data.get("assignee", None)
-        byte_code = self.generate_byte_code(filters)
 
         assignment_rule = self.queryset.objects.create(
-            filters=filters,
-            byte_code=byte_code,
+            properties=properties,
+            byte_code=self.generate_byte_code(),
             user_id=None if assignee["type"] == "user_group" else assignee["id"],
             user_group_id=None if assignee["type"] == "user" else assignee["id"],
         )
@@ -440,7 +443,7 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
         return Response(assignment_rule, status=status.HTTP_201_CREATED)
 
     def generate_byte_code(self):
-        return []
+        return to_bytecode(property_to_expr(self.property_groups))
 
 
 def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple[str, str]:
