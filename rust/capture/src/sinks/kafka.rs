@@ -235,7 +235,7 @@ impl KafkaSink {
                 // TODO: deprecate capture-led overflow or move logic in handler
                 let is_limited = match &self.partition {
                     None => false,
-                    Some(partition) => partition.is_limited(&token, &distinct_id),
+                    Some(partition) => partition.is_limited(&event_key, &token),
                 };
                 // a cookieless capture event is partitioned by "<token>:<ip_addr>"
                 // the rest are partitioned by "<token>:<distinct_id>" and overflow

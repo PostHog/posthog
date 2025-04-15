@@ -246,21 +246,22 @@ async fn it_overflows_events_on_burst() -> Result<()> {
 
     let server = ServerHandle::for_config(config).await;
 
-    let event = json!([{
+    let events = json!([{
         "token": token,
         "event": "event1",
-        "distinct_id": distinct_id
+        "distinct_id": distinct_id,
     },{
         "token": token,
         "event": "event2",
-        "distinct_id": distinct_id
-    },{
+        "distinct_id": distinct_id,
+    },
+    {
         "token": token,
         "event": "event3",
-        "distinct_id": distinct_id
+        "distinct_id": distinct_id,
     }]);
 
-    let res = server.capture_events(event.to_string()).await;
+    let res = server.capture_events(events.to_string()).await;
     assert_eq!(StatusCode::OK, res.status());
 
     // First two events should go to main topic
@@ -274,17 +275,15 @@ async fn it_overflows_events_on_burst() -> Result<()> {
         format!("{}:{}", token, distinct_id)
     );
 
-    // Main topic should be empty now
-    assert_eq!(topic.next_message_key()?, None);
+    topic.assert_empty();
 
     // Third event should be in overflow topic
     assert_eq!(
         overflow_topic.next_message_key()?.unwrap(),
-        format!("{}:{}", token, distinct_id)
+        format!("{}:{}", token, distinct_id),
     );
 
-    // Overflow topic should be empty after
-    assert_eq!(overflow_topic.next_message_key()?, None);
+    overflow_topic.assert_empty();
 
     Ok(())
 }
