@@ -179,24 +179,25 @@ class Database(BaseModel):
         return self._week_start_day or WeekStartDay.SUNDAY
 
     def has_table(self, table_name: str | list[str]) -> bool:
-        if isinstance(table_name, list) or "." in table_name:
-            if isinstance(table_name, list):
-                # Handling trends data warehouse nodes
-                if len(table_name) == 1 and "." in table_name[0]:
-                    table_chain = table_name[0].split(".")
-                else:
-                    table_chain = table_name
+        if not isinstance(table_name, list) and "." not in table_name:
+            return hasattr(self, table_name)
+
+        if isinstance(table_name, list):
+            # Handling trends data warehouse nodes
+            if len(table_name) == 1 and "." in table_name[0]:
+                table_chain = table_name[0].split(".")
             else:
-                table_chain = table_name.split(".")
-            if not hasattr(self, table_chain[0]):
-                return False
+                table_chain = table_name
+        else:
+            table_chain = table_name.split(".")
 
-            try:
-                return self.get_table_by_chain(table_chain) is not None
-            except QueryError:
-                return False
+        if not hasattr(self, table_chain[0]):
+            return False
 
-        return hasattr(self, table_name)
+        try:
+            return self.get_table_by_chain(table_chain) is not None
+        except QueryError:
+            return False
 
     def get_table(self, table_name: str) -> Table:
         if "." in table_name:
@@ -312,6 +313,9 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
     )
 
 
+TableStore = dict[str, Table | TableGroup]
+
+
 def create_hogql_database(
     team_id: Optional[int] = None,
     *,
@@ -416,10 +420,10 @@ def create_hogql_database(
             if database.events.fields.get(mapping.group_type) is None:
                 database.events.fields[mapping.group_type] = FieldTraverser(chain=[f"group_{mapping.group_type_index}"])
 
-    warehouse_tables: dict[str, Table | TableGroup] = {}
+    warehouse_tables: TableStore = {}
     warehouse_tables_dot_notation_mapping: dict[str, str] = {}
-    self_managed_warehouse_tables: dict[str, Table | TableGroup] = {}
-    views: dict[str, Table | TableGroup] = {}
+    self_managed_warehouse_tables: TableStore = {}
+    views: TableStore = {}
 
     with timings.measure("data_warehouse_saved_query"):
         with timings.measure("select"):
@@ -427,6 +431,29 @@ def create_hogql_database(
         for saved_query in saved_queries:
             with timings.measure(f"saved_query_{saved_query.name}"):
                 views[saved_query.name] = saved_query.hogql_definition(modifiers)
+
+    # For every Stripe source, let's generate its own revenue view
+    # Prefetch related schemas and tables to avoid N+1
+    with timings.measure("revenue_analytics_views"):
+        with timings.measure("select"):
+            stripe_sources = list(
+                ExternalDataSource.objects.filter(team_id=team.pk, source_type=ExternalDataSource.Type.STRIPE)
+                .exclude(deleted=True)
+                .prefetch_related(Prefetch("schemas", queryset=ExternalDataSchema.objects.prefetch_related("table")))
+            )
+
+        with timings.measure("for_schema_source"):
+            for stripe_source in stripe_sources:
+                view = RevenueAnalyticsRevenueView.for_schema_source(stripe_source)
+
+                # View will have a name similar to stripe.prefix.table_name
+                # We want to create a nested table group where stripe is the parent,
+                # prefix is the child of stripe, and table_name is the child of prefix
+                # allowing you to access the table as stripe[prefix][table_name] in a dict fashion
+                # but still allowing the bare stripe.prefix.table_name string access
+                if view is not None:
+                    views[view.name] = view
+                    create_nested_table_group(view.name.split("."), views, view)
 
     with timings.measure("data_warehouse_tables"):
         with timings.measure("select"):
@@ -437,7 +464,8 @@ def create_hogql_database(
             )
 
         for table in tables:
-            # Skip adding data warehouse tables that are materialized from views (in this case they have the same names)
+            # Skip adding data warehouse tables that are materialized from views
+            # We can detect that because they have the exact same name as the view
             if views.get(table.name, None) is not None:
                 continue
 
@@ -477,49 +505,16 @@ def create_hogql_database(
                         table_name_stripped = table.name.replace(f"{source_type}_".lower(), "")
                         table_chain.append(table_name_stripped)
 
-                    last_group: TableGroup | None = None
-                    for index, ele in enumerate(table_chain):
-                        is_last_element = index == len(table_chain) - 1
-                        if last_group:
-                            if is_last_element:
-                                last_group.tables[ele] = s3_table
-                            elif last_group.has_table(ele):
-                                last_group_table = last_group.get_table(ele)
-                                assert isinstance(last_group_table, TableGroup)
-                                last_group = last_group_table
-                            else:
-                                new_group = TableGroup()
-                                last_group.tables[ele] = new_group
-                                last_group = new_group
-                        elif warehouse_tables.get(ele) is not None:
-                            parent_wh_table = warehouse_tables[ele]
-                            if isinstance(parent_wh_table, TableGroup):
-                                last_group = parent_wh_table
-                        else:
-                            new_group = TableGroup()
-                            warehouse_tables[ele] = new_group
-                            last_group = new_group
+                    # For a chain of type a.b.c, we want to create a nested table group
+                    # where a is the parent, b is the child of a, and c is the child of b
+                    # where a.b.c will contain the s3_table
+                    create_nested_table_group(table_chain, warehouse_tables, s3_table)
 
                     joined_table_chain = ".".join(table_chain)
+                    s3_table.name = joined_table_chain
                     warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
 
-    # For every Stripe source, let's generate its own revenue view
-    # Prefetch related schemas and tables to avoid N+1
-    with timings.measure("revenue_analytics_views"):
-        with timings.measure("select"):
-            stripe_sources = list(
-                ExternalDataSource.objects.filter(team_id=team.pk, source_type=ExternalDataSource.Type.STRIPE)
-                .exclude(deleted=True)
-                .prefetch_related(Prefetch("schemas", queryset=ExternalDataSchema.objects.prefetch_related("table")))
-            )
-
-        with timings.measure("for_schema_source"):
-            for stripe_source in stripe_sources:
-                view = RevenueAnalyticsRevenueView.for_schema_source(stripe_source)
-                if view is not None:
-                    views[view.name] = view
-
-    def define_mappings(store: dict[str, Table | TableGroup], get_table: Callable):
+    def define_mappings(store: TableStore, get_table: Callable):
         table: Table | None = None
 
         if warehouse_modifier.table_name in store:
@@ -648,6 +643,12 @@ def create_hogql_database(
                 field = parse_expr(join.source_table_key)
                 if isinstance(field, ast.Field):
                     from_field = field.chain
+                elif (
+                    isinstance(field, ast.Alias)
+                    and isinstance(field.expr, ast.Call)
+                    and isinstance(field.expr.args[0], ast.Field)
+                ):
+                    from_field = field.expr.args[0].chain
                 elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
                     from_field = field.args[0].chain
                 else:
@@ -656,6 +657,12 @@ def create_hogql_database(
                 field = parse_expr(join.joining_table_key)
                 if isinstance(field, ast.Field):
                     to_field = field.chain
+                elif (
+                    isinstance(field, ast.Alias)
+                    and isinstance(field.expr, ast.Call)
+                    and isinstance(field.expr.args[0], ast.Field)
+                ):
+                    to_field = field.expr.args[0].chain
                 elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
                     to_field = field.args[0].chain
                 else:
@@ -722,6 +729,37 @@ def create_hogql_database(
                 capture_exception(e)
 
     return database
+
+
+def create_nested_table_group(
+    table_chain: list[str],
+    store: TableStore,
+    table: Table,
+) -> TableGroup | None:
+    last_table_group: TableGroup | None = None
+    for index, ele in enumerate(table_chain):
+        is_last_element = index == len(table_chain) - 1
+        if last_table_group:
+            if is_last_element:
+                last_table_group.tables[ele] = table
+            elif last_table_group.has_table(ele):
+                last_table_group_table_group = last_table_group.get_table(ele)
+                assert isinstance(last_table_group_table_group, TableGroup)
+                last_table_group = last_table_group_table_group
+            else:
+                new_group = TableGroup()
+                last_table_group.tables[ele] = new_group
+                last_table_group = new_group
+        elif store.get(ele) is not None:
+            parent_table_group = store[ele]
+            if isinstance(parent_table_group, TableGroup):
+                last_table_group = parent_table_group
+        else:
+            new_group = TableGroup()
+            store[ele] = new_group
+            last_table_group = new_group
+
+    return last_table_group
 
 
 @dataclasses.dataclass
