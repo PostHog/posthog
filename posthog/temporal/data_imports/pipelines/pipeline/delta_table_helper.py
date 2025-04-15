@@ -265,7 +265,7 @@ class DeltaTableHelper:
                     logger.exception("Failed to merge partition %s: %s", partition, exc)
                     raise
                 else:
-                    logger.debug("Successfully merged partition %s: %s", partition)
+                    logger.debug("Successfully merged partition %s", partition)
 
     def merge_delta_table(
         self, delta_table: deltalake.DeltaTable, data: pa.Table, predicate_ops: list[str], streamed_exc: bool = False
