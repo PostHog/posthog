@@ -26,7 +26,6 @@ export function TemplatesTable(): JSX.Element {
                 )
             },
         },
-
         createdByColumn<Message>() as LemonTableColumn<Message, keyof Message | undefined>,
         createdAtColumn<Message>() as LemonTableColumn<Message, keyof Message | undefined>,
         {
