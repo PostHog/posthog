@@ -486,9 +486,8 @@ export function InsightIcon({
 }
 
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
-    const { insights } = useValues(savedInsightsLogic)
     return (
-        <AccessControlledLemonButton
+        <LemonButton
             type="primary"
             to={urls.insightNew()}
             sideAction={{
@@ -503,12 +502,9 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
             data-attr="saved-insights-new-insight-button"
             size="small"
             icon={<IconPlusSmall />}
-            resourceType={AccessControlResourceType.Insight}
-            minAccessLevel={AccessControlLevel.Editor}
-            userAccessLevel={insights?.user_access_level}
         >
             New insight
-        </AccessControlledLemonButton>
+        </LemonButton>
     )
 }
 

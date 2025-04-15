@@ -460,23 +460,16 @@ export function OverViewTab({
 }
 
 export function FeatureFlags(): JSX.Element {
-    const { activeTab, featureFlags } = useValues(featureFlagsLogic)
+    const { activeTab } = useValues(featureFlagsLogic)
     const { setActiveTab } = useActions(featureFlagsLogic)
 
     return (
         <div className="feature_flags">
             <PageHeader
                 buttons={
-                    <AccessControlledLemonButton
-                        type="primary"
-                        to={urls.featureFlag('new')}
-                        data-attr="new-feature-flag"
-                        minAccessLevel={AccessControlLevel.Editor}
-                        resourceType={AccessControlResourceType.FeatureFlag}
-                        userAccessLevel={featureFlags?.user_access_level}
-                    >
+                    <LemonButton type="primary" to={urls.featureFlag('new')} data-attr="new-feature-flag">
                         New feature flag
-                    </AccessControlledLemonButton>
+                    </LemonButton>
                 }
             />
             <LemonTabs

@@ -186,7 +186,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             canEditInsight && (
                                 <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
-                                    minAccessLevel="editor"
+                                    minAccessLevel={AccessControlLevel.Editor}
                                     resourceType={AccessControlResourceType.Insight}
                                     type="primary"
                                     onClick={() => {
