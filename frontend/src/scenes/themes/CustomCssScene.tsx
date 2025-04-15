@@ -295,6 +295,7 @@ body::after {
     outline: none;  /* Remove default focus outline */
     box-shadow: 0 0 10px rgba(0, 229, 255, 0.6) !important;  /* Glowing border on focus */
 }
+`
 
 export function CustomCssScene(): JSX.Element {
     const { persistedCustomCss, previewingCustomCss } = useValues(themeLogic)
