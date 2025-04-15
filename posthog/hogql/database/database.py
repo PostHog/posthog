@@ -649,6 +649,12 @@ def create_hogql_database(
                 field = parse_expr(join.source_table_key)
                 if isinstance(field, ast.Field):
                     from_field = field.chain
+                elif (
+                    isinstance(field, ast.Alias)
+                    and isinstance(field.expr, ast.Call)
+                    and isinstance(field.expr.args[0], ast.Field)
+                ):
+                    from_field = field.expr.args[0].chain
                 elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
                     from_field = field.args[0].chain
                 else:
@@ -657,6 +663,12 @@ def create_hogql_database(
                 field = parse_expr(join.joining_table_key)
                 if isinstance(field, ast.Field):
                     to_field = field.chain
+                elif (
+                    isinstance(field, ast.Alias)
+                    and isinstance(field.expr, ast.Call)
+                    and isinstance(field.expr.args[0], ast.Field)
+                ):
+                    to_field = field.expr.args[0].chain
                 elif isinstance(field, ast.Call) and isinstance(field.args[0], ast.Field):
                     to_field = field.args[0].chain
                 else:
