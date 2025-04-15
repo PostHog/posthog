@@ -48,7 +48,7 @@ impl OverflowLimiter {
 
         // is the token (first component of the event key) in the forced_keys list?
         let forced_token_match = match event_key.split(':').next() {
-            Some(token) => self.forced_keys.contains(token),
+            Some(token) => !token.is_empty() && self.forced_keys.contains(token),
             None => false,
         };
 
