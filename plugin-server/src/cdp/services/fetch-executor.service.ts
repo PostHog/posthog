@@ -15,15 +15,7 @@ import {
 export class FetchExecutorService {
     constructor(private serverConfig: PluginsServerConfig) {}
 
-    async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult | undefined> {
-        if (invocation.queue !== 'fetch' || !invocation.queueParameters) {
-            logger.error('🦔', `[HogExecutor] Bad invocation`, { invocation })
-            return
-        }
-        return await this.executeLocally(invocation)
-    }
-
-    async executeLocally(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
+    async execute(invocation: HogFunctionInvocation): Promise<HogFunctionInvocationResult> {
         if (invocation.queue !== 'fetch' || !invocation.queueParameters) {
             throw new Error('Bad invocation')
         }

@@ -1,6 +1,8 @@
 import { CyclotronJob, CyclotronWorker } from '@posthog/cyclotron'
 import { Counter, Gauge } from 'prom-client'
 
+import { Hub } from '~/src/types'
+
 import { logger } from '../../utils/logger'
 import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
 import { cyclotronJobToInvocation, invocationToCyclotronJobUpdate } from '../utils'
@@ -27,6 +29,13 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     private runningWorker: Promise<void> | undefined
     protected queue: 'hog' | 'fetch' | 'plugin' = 'hog'
     protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal_destination']
+
+    constructor(hub: Hub) {
+        super(hub)
+        if (!hub.CYCLOTRON_DATABASE_URL) {
+            throw new Error('Cyclotron database URL not set! This is required for the CDP services to work.')
+        }
+    }
 
     public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
         return await this.runManyWithHeartbeat(invocations, (item) => this.hogExecutor.execute(item))
@@ -155,18 +164,5 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
     public isHealthy() {
         return this.cyclotronWorker?.isHealthy() ?? false
-    }
-}
-
-// Mostly used for testing the fetch executor
-export class CdpCyclotronWorkerFetch extends CdpCyclotronWorker {
-    protected name = 'CdpCyclotronWorkerFetch'
-    protected queue = 'fetch' as const
-
-    public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
-        // NOTE: this service will never do fetching (unless we decide we want to do it in node at some point, its only used for e2e testing)
-        return (await this.runManyWithHeartbeat(invocations, (item) => this.fetchExecutor.execute(item))).filter(
-            Boolean
-        ) as HogFunctionInvocationResult[]
     }
 }
