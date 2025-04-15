@@ -104,6 +104,15 @@ class ErrorTrackingSymbolSet(UUIDModel):
         ]
 
 
+class ErrorTrackingAssignmentRule(UUIDModel):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
+    user_group = models.ForeignKey(UserGroup, null=True, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    bytecode = models.JSONField(null=False, blank=False)
+    filters = models.JSONField(null=False, blank=False)
+
+
 class ErrorTrackingStackFrame(UUIDModel):
     # Produced by a raw frame
     raw_id = models.TextField(null=False, blank=False)
