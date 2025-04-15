@@ -20,7 +20,6 @@ import { logger } from '../../../utils/logger'
 import { ObjectStorage } from '../../../utils/object_storage'
 import { captureException } from '../../../utils/posthog'
 import { runInstrumentedFunction } from '../../utils'
-import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { eventDroppedCounter } from '../metrics'
 import { fetchTeamTokensWithRecordings } from '../session-recording-v2/teams/team-service'
 import { ConsoleLogsIngester } from './services/console-logs-ingester'
@@ -38,9 +37,6 @@ import {
     parseKafkaBatch,
     queryWatermarkOffsets,
 } from './utils'
-
-// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
-require('@sentry/tracing')
 
 // WARNING: Do not change this - it will essentially reset the consumer
 const KAFKA_CONSUMER_GROUP_ID = 'session-recordings-blob'
@@ -362,7 +358,7 @@ export class SessionRecordingIngester {
 
         await runInstrumentedFunction({
             statsKey: `recordingingester.handleEachBatch`,
-            sendTimeoutGuardToSentry: false,
+            sendException: false,
             func: async () => {
                 histogramKafkaBatchSize.observe(messages.length)
                 histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
@@ -534,8 +530,6 @@ export class SessionRecordingIngester {
         })
 
         this.totalNumPartitions = (await getPartitionsForTopic(this.connectedBatchConsumer, this.topic)).length
-
-        addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('rebalance', async (err, topicPartitions) => {
             logger.info('🔁', 'blob_ingester_consumer - rebalancing', { err, topicPartitions })
