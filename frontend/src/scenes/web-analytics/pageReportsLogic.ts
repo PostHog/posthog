@@ -355,6 +355,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             title,
                             description,
                         },
+                        canOpenModal: true,
                     }
                 }
 
