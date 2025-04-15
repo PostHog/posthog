@@ -88,11 +88,7 @@ const httpStaticLookup: net.LookupFunction = async (hostname, options, cb) => {
 }
 
 export class SecureFetch {
-    allowUnsafe: boolean
-
-    constructor(options?: { allowUnsafe?: boolean }) {
-        this.allowUnsafe = options?.allowUnsafe ?? (process.env.NODE_ENV === 'functional-tests' || !isProdEnv())
-    }
+    constructor(private options?: { allowUnsafe?: boolean }) {}
 
     fetch(url: RequestInfo, init?: RequestInit): Promise<Response> {
         return runInstrumentedFunction({
@@ -100,7 +96,9 @@ export class SecureFetch {
             func: async () => {
                 const request = new Request(url, init)
 
-                if (this.allowUnsafe) {
+                const allowUnsafe =
+                    this.options?.allowUnsafe ?? (process.env.NODE_ENV === 'functional-tests' || !isProdEnv())
+                if (allowUnsafe) {
                     return await fetch(url, init)
                 }
 
