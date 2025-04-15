@@ -639,8 +639,8 @@
       parent_artifact_id String,
       type LowCardinality(String),
       timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
-      is_deleted UInt8,
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.codebase_catalog', '{replica}-{shard}', timestamp, is_deleted)
+      sign Int8,
+  ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.codebase_catalog', '{replica}-{shard}', sign)
   
       -- artifact_id for uniqueness
       ORDER BY (team_id, user_id, codebase_id, branch, artifact_id)
@@ -659,9 +659,9 @@
       chunk_id String,
       vector Array(Float32),
       properties VARCHAR CODEC(ZSTD(3)),
-      version UInt32,
+      timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
       is_deleted UInt8,
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.codebase_embeddings', '{replica}-{shard}', version, is_deleted)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.codebase_embeddings', '{replica}-{shard}', timestamp, is_deleted)
   
       -- artifact_id for uniqueness
       ORDER BY (team_id, user_id, codebase_id, artifact_id, chunk_id)
@@ -3491,8 +3491,8 @@
       parent_artifact_id String,
       type LowCardinality(String),
       timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
-      is_deleted UInt8,
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.codebase_catalog', '{replica}-{shard}', timestamp, is_deleted)
+      sign Int8,
+  ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.codebase_catalog', '{replica}-{shard}', sign)
   
       -- artifact_id for uniqueness
       ORDER BY (team_id, user_id, codebase_id, branch, artifact_id)
@@ -3511,9 +3511,9 @@
       chunk_id String,
       vector Array(Float32),
       properties VARCHAR CODEC(ZSTD(3)),
-      version UInt32,
+      timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
       is_deleted UInt8,
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.codebase_embeddings', '{replica}-{shard}', version, is_deleted)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.codebase_embeddings', '{replica}-{shard}', timestamp, is_deleted)
   
       -- artifact_id for uniqueness
       ORDER BY (team_id, user_id, codebase_id, artifact_id, chunk_id)
