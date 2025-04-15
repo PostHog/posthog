@@ -9,7 +9,6 @@ import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { useEffect } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -29,13 +28,7 @@ export function StartupProgram(): JSX.Element {
     const isYC = pathname.endsWith('/yc')
 
     const logic = startupProgramLogic({ isYC })
-    const {
-        startupProgram,
-        formSubmitted,
-        isAlreadyOnStartupPlan,
-        isUserOrganizationOwnerOrAdmin,
-        startupProgramErrors,
-    } = useValues(logic)
+    const { startupProgram, formSubmitted, isAlreadyOnStartupPlan, isUserOrganizationOwnerOrAdmin } = useValues(logic)
     const { billing, billingLoading } = useValues(billingLogic)
     const { setStartupProgramValue, showPaymentEntryModal } = useActions(logic)
     const programName = isYC ? 'YC Program' : 'Startup Program'
@@ -49,16 +42,6 @@ export function StartupProgram(): JSX.Element {
             setStartupProgramValue('yc_proof_screenshot_url', undefined)
         },
     })
-
-    useEffect(() => {
-        // eslint-disable-next-line no-console
-        console.log('📝 Form values:', startupProgram)
-    }, [startupProgram])
-
-    useEffect(() => {
-        // eslint-disable-next-line no-console
-        console.log('❌ Form errors:', startupProgramErrors)
-    }, [startupProgramErrors])
 
     if (isAlreadyOnStartupPlan) {
         return (

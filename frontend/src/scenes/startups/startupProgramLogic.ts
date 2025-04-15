@@ -187,8 +187,6 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 }
             },
             submit: async (formValues: StartupProgramFormValues) => {
-                // eslint-disable-next-line no-console
-                console.log('📝 Form values before submission:', formValues)
                 const valuesToSubmit: Record<string, any> = {
                     program: props.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
                     organization_id: formValues.organization_id,
@@ -207,18 +205,11 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                         : undefined
                 }
 
-                // eslint-disable-next-line no-console
-                console.log('📤 Submitting form with values:', valuesToSubmit)
-
                 try {
-                    const response = await api.create('api/billing/startups/apply', valuesToSubmit)
+                    await api.create('api/billing/startups/apply', valuesToSubmit)
                     actions.setFormSubmitted(true)
-                    // eslint-disable-next-line no-console
-                    console.log('✅ Application submitted successfully with response:', response)
                     posthog.capture('startup program application submitted', valuesToSubmit)
                 } catch (error: any) {
-                    // eslint-disable-next-line no-console
-                    console.log('🚨 Error submitting application:', JSON.stringify(error, null, 2))
                     lemonToast.error(error.detail || 'Failed to submit application')
                     throw error
                 }
