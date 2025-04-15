@@ -2,6 +2,7 @@ from collections.abc import Generator, Sequence
 from typing import Literal, NotRequired, TypedDict, cast
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
@@ -266,4 +267,6 @@ class CodebaseSyncService:
             insert_node(len(deleted_nodes) + i, node, False)
 
         prepared_query = query + ", ".join(rows)
+
+        tag_queries(team_id=self.team.id, user_id=self.user.id, query_type="codebase-sync", product="vsc-editor")
         sync_execute(prepared_query, args, team_id=self.team.id)

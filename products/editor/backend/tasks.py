@@ -5,6 +5,7 @@ from openai import OpenAI
 from structlog import get_logger
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tag_queries
 from products.editor.backend.chunking import chunk_text
 from products.editor.backend.chunking.parser import ProgrammingLanguage
 from products.editor.backend.chunking.types import Chunk
@@ -66,6 +67,8 @@ def insert_embeddings(
         rows.append(
             f"(%(team_id)s, %(user_id)s, %(codebase_id)s, %(artifact_id)s, %(chunk_id_{idx})s, %(vector_{idx})s, %(properties_{idx})s)"
         )
+
+    tag_queries(team_id=team_id, user_id=user_id, query_type="insert_embeddings", product="vsc-editor")
     sync_execute(query + ", ".join(rows), args, team_id=team_id)
 
 
