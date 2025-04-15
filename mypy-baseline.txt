@@ -135,7 +135,7 @@ posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression
 posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression has type "LazyTableType", variable has type "TableAliasType")  [assignment]
 posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression has type "TableType", variable has type "LazyTableType")  [assignment]
 posthog/hogql/resolver.py:0: error: Incompatible types in assignment (expression has type "Type | Any | None", variable has type "BaseTableType | SelectSetQueryType | SelectQueryType | SelectQueryAliasType | SelectViewType | None")  [assignment]
-posthog/hogql/resolver.py:0: error: Item "None" of "Database | None" has no attribute "get_table"  [union-attr]
+posthog/hogql/resolver.py:0: error: Item "None" of "Database | None" has no attribute "get_table_by_chain"  [union-attr]
 posthog/hogql/resolver.py:0: error: Item "None" of "JoinExpr | None" has no attribute "join_type"  [union-attr]
 posthog/hogql/resolver.py:0: error: Item "None" of "SelectQuery | SelectSetQuery | Placeholder | HogQLXTag | Field | None" has no attribute "type"  [union-attr]
 posthog/hogql/resolver.py:0: error: Item "None" of "SelectQuery | SelectSetQuery | Placeholder | HogQLXTag | Field | None" has no attribute "type"  [union-attr]
