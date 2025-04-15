@@ -15,7 +15,7 @@ APIScopeObject = Literal[
     "dashboard",
     "dashboard_template",
     "early_access_feature",
-    "editor_artifacts",
+    "editor_codebase",
     "error_tracking",
     "event_definition",
     "experiment",

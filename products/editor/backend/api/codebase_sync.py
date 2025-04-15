@@ -62,7 +62,7 @@ class CodebaseArtifactSerializer(serializers.Serializer):
 
 
 class CodebaseSyncViewset(TeamAndOrgViewSetMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
-    scope_object = "editor_artifacts"
+    scope_object = "editor_codebase"
     scope_object_read_actions: list[str] = []
     scope_object_write_actions: list[str] = ["sync", "upload_artifact"]
 
