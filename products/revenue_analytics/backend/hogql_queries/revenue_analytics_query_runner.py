@@ -72,7 +72,7 @@ class RevenueAnalyticsQueryRunner(QueryRunner):
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
-            date_range=self.query.dateRange,
+            date_range=getattr(self.query, "dateRange", None),
             team=self.team,
             interval=None,
             now=datetime.now(),
