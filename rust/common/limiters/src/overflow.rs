@@ -19,22 +19,22 @@ use rand::Rng;
 #[derive(Clone)]
 pub struct OverflowLimiter {
     limiter: Arc<RateLimiter<String, DefaultKeyedStateStore<String>, clock::DefaultClock>>,
-    forced_keys: HashSet<String>,
+    keys_to_reroute: HashSet<String>,
 }
 
 impl OverflowLimiter {
-    pub fn new(per_second: NonZeroU32, burst: NonZeroU32, forced_keys: Option<String>) -> Self {
+    pub fn new(per_second: NonZeroU32, burst: NonZeroU32, keys_to_reroute: Option<String>) -> Self {
         let quota = Quota::per_second(per_second).allow_burst(burst);
         let limiter = Arc::new(governor::RateLimiter::dashmap(quota));
 
-        let forced_keys: HashSet<String> = match forced_keys {
+        let keys_to_reroute: HashSet<String> = match keys_to_reroute {
             None => HashSet::new(),
             Some(values) => values.split(',').map(String::from).collect(),
         };
 
         OverflowLimiter {
             limiter,
-            forced_keys,
+            keys_to_reroute,
         }
     }
 
@@ -44,11 +44,11 @@ impl OverflowLimiter {
     // without a partition key, to avoid hot partitions in that pipeline.
     pub fn is_limited(&self, event_key: &String) -> bool {
         // is the event key in the forced_keys list?
-        let forced_key_match = self.forced_keys.contains(event_key);
+        let forced_key_match = self.keys_to_reroute.contains(event_key);
 
         // is the token (first component of the event key) in the forced_keys list?
         let forced_token_match = match event_key.split(':').next() {
-            Some(token) => !token.is_empty() && self.forced_keys.contains(token),
+            Some(token) => !token.is_empty() && self.keys_to_reroute.contains(token),
             None => false,
         };
 
