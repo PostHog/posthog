@@ -8,6 +8,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import {
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaField,
+    DatabaseSchemaManagedViewTable,
     DatabaseSchemaTable,
 } from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQuery, DataWarehouseViewLink } from '~/types'
@@ -35,6 +36,12 @@ const isViewTable = (
     return 'query' in table
 }
 
+const isManagedViewTable = (
+    table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery
+): table is DatabaseSchemaManagedViewTable => {
+    return 'type' in table && table.type === 'managed_view'
+}
+
 const isJoined = (field: DatabaseSchemaField): boolean => {
     return field.type === 'view' || field.type === 'lazy_table'
 }
@@ -51,7 +58,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             dataWarehouseJoinsLogic,
             ['joins', 'joinsLoading'],
             databaseTableListLogic,
-            ['posthogTablesMap', 'dataWarehouseTablesMap'],
+            ['posthogTablesMap', 'dataWarehouseTablesMap', 'viewsMapById'],
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueryMapById'],
         ],
@@ -80,13 +87,15 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.posthogTablesMap,
                 s.dataWarehouseTablesMap,
                 s.dataWarehouseSavedQueryMapById,
+                s.viewsMapById,
             ],
             (
                 selectedSchema,
                 joins,
                 posthogTablesMap,
                 dataWarehouseTablesMap,
-                dataWarehouseSavedQueryMapById
+                dataWarehouseSavedQueryMapById,
+                viewsMapById
             ): TreeItem[] => {
                 if (selectedSchema === null) {
                     return []
@@ -97,6 +106,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     table = posthogTablesMap[selectedSchema.name]
                 } else if (isDataWarehouseTable(selectedSchema)) {
                     table = dataWarehouseTablesMap[selectedSchema.name]
+                } else if (isManagedViewTable(selectedSchema)) {
+                    table = viewsMapById[selectedSchema.id]
                 } else if (isViewTable(selectedSchema)) {
                     table = dataWarehouseSavedQueryMapById[selectedSchema.id]
                 }
