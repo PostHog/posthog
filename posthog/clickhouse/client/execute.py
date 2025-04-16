@@ -161,7 +161,7 @@ def sync_execute(
         "query_id": query_id,
     }
 
-    if workload == workload.DEFAULT:
+    if workload == Workload.DEFAULT:
         workload = get_default_clickhouse_workload_type()
 
     if workload == Workload.OFFLINE:
