@@ -1437,7 +1437,9 @@ class TestTeamAPI(APIBaseTest):
         response = self.client.post("/api/projects", {"name": "New environment", "parent_team": self.team.id})
         assert response.status_code == 201, response.json()
         assert Team.objects.count() == 2
-        assert Team.objects.last().parent_team == self.team
+        team = Team.objects.last()
+        assert team
+        assert team.parent_team == self.team
 
     def test_child_team_derived_names(self):
         self._setup_projects_feature()
