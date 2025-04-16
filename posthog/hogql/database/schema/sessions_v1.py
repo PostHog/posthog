@@ -71,9 +71,6 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "initial_mc_cid": DatabaseField(name="initial_mc_cid", nullable=False),
     "initial_igshid": DatabaseField(name="initial_igshid", nullable=False),
     "initial_ttclid": DatabaseField(name="initial_ttclid", nullable=False),
-    "initial_epik": DatabaseField(name="initial_epik", nullable=False),
-    "initial_qclid": DatabaseField(name="initial_qclid", nullable=False),
-    "initial_sccid": DatabaseField(name="initial_sccid", nullable=False),
     # Counts (used in e.g. bounce rate)
     "event_count_map": DatabaseField(name="event_count_map", nullable=False),
     "pageview_count": IntegerDatabaseField(name="pageview_count", nullable=False),
@@ -118,9 +115,6 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$entry_mc_cid": StringDatabaseField(name="$entry_mc_cid"),
     "$entry_igshid": StringDatabaseField(name="$entry_igshid"),
     "$entry_ttclid": StringDatabaseField(name="$entry_ttclid"),
-    "$entry_epik": DatabaseField(name="$entry_epik"),
-    "$entry_qclid": DatabaseField(name="$entry_qclid"),
-    "$entry_sccid": DatabaseField(name="$entry_sccid"),
     # Counts (used in e.g. bounce rate)
     "$event_count_map": DatabaseField(name="$event_count_map"),
     "$pageview_count": IntegerDatabaseField(name="$pageview_count"),

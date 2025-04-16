@@ -120,9 +120,6 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$entry_mc_cid": StringDatabaseField(name="$entry_mc_cid"),
     "$entry_igshid": StringDatabaseField(name="$entry_igshid"),
     "$entry_ttclid": StringDatabaseField(name="$entry_ttclid"),
-    "$entry_epik": StringDatabaseField(name="$entry_epik"),
-    "$entry_qclid": StringDatabaseField(name="$entry_qclid"),
-    "$entry_sccid": StringDatabaseField(name="$entry_sccid"),
     "$entry__kx": StringDatabaseField(name="$entry__kx"),
     "$entry_irclid": StringDatabaseField(name="$entry_irclid"),
     # we expose "count" fields here, though they are actually the aggregates of the uniq columns in the raw tables
@@ -279,9 +276,6 @@ def select_from_sessions_table_v2(
         "$entry_mc_cid": null_if_empty(arg_min_merge_field("initial_mc_cid")),
         "$entry_igshid": null_if_empty(arg_min_merge_field("initial_igshid")),
         "$entry_ttclid": null_if_empty(arg_min_merge_field("initial_ttclid")),
-        "$entry_epik": null_if_empty(arg_min_merge_field("initial_epik")),
-        "$entry_qclid": null_if_empty(arg_min_merge_field("initial_qclid")),
-        "$entry_sccid": null_if_empty(arg_min_merge_field("initial_sccid")),
         "$entry__kx": null_if_empty(arg_min_merge_field("initial__kx")),
         "$entry_irclid": null_if_empty(arg_min_merge_field("initial_irclid")),
         # the count columns here do not come from the "count" columns in the raw table, instead aggregate the uniq columns
