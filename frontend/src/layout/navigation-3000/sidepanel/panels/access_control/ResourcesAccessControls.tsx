@@ -23,6 +23,348 @@ import {
     RoleResourceAccessControls,
 } from './resourcesAccessControlLogic'
 
+export function ResourcesAccessControls(): JSX.Element {
+    const {
+        defaultResourceAccessControls,
+        memberResourceAccessControls,
+        roleResourceAccessControls,
+        resources,
+        availableLevels,
+        canEditRoleBasedAccessControls,
+        addableMembers,
+        addableRoles,
+    } = useValues(resourcesAccessControlLogic)
+    const { updateResourceAccessControls } = useActions(resourcesAccessControlLogic)
+
+    // State for the modals
+    const [memberModalOpen, setMemberModalOpen] = useState(false)
+    const [roleModalOpen, setRoleModalOpen] = useState(false)
+
+    // Default table
+    const defaultColumns: LemonTableColumns<DefaultResourceAccessControls> = [
+        {
+            title: 'Global Defaults',
+            key: 'default',
+            width: 0,
+            render: () => 'All roles and members',
+        },
+        ...createDefaultResourceColumns(),
+    ]
+
+    // Members table
+    const memberColumns: LemonTableColumns<MemberResourceAccessControls> = [
+        {
+            title: 'User',
+            key: 'member',
+            width: 0,
+            render: (_, { organization_member }) => {
+                // organization_member is guaranteed to exist in MemberResourceAccessControls
+                return (
+                    <div className="flex items-center gap-2">
+                        <ProfilePicture user={organization_member!.user} />
+                        <div>
+                            <p className="font-medium mb-0">{organization_member!.user.first_name}</p>
+                            <p className="text-secondary mb-0">{organization_member!.user.email}</p>
+                        </div>
+                    </div>
+                )
+            },
+        },
+        ...createMemberResourceColumns(),
+    ]
+
+    // Roles table
+    const roleColumns: LemonTableColumns<RoleResourceAccessControls> = [
+        {
+            title: 'Role',
+            key: 'role',
+            width: 0,
+            render: (_, { role }) => {
+                // role is guaranteed to exist in RoleResourceAccessControls
+                return <span>{role!.name}</span>
+            },
+        },
+        {
+            title: 'Members',
+            key: 'members',
+            width: 0,
+            render: (_, { role }) => {
+                // role is guaranteed to exist in RoleResourceAccessControls
+                return (
+                    <div className="flex space-x-2">
+                        {role!.members.length ? (
+                            <ProfileBubbles
+                                people={role!.members.map((member) => ({
+                                    email: member.user.email,
+                                    name: member.user.first_name,
+                                    title: `${member.user.first_name} <${member.user.email}>`,
+                                }))}
+                            />
+                        ) : (
+                            'No members'
+                        )}
+                    </div>
+                )
+            },
+        },
+        ...createRoleResourceColumns(),
+    ]
+
+    return (
+        <div className="space-y-4">
+            <h2>Resource permissions</h2>
+            <p>
+                Use resource permissions to assign project-wide access to specific resources (e.g. insights, features
+                flags, etc.) for individuals and roles.
+            </p>
+
+            <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
+                <div className="space-y-6">
+                    {/* Default permissions table */}
+                    <div className="space-y-2">
+                        <h3>Global defaults</h3>
+                        <LemonTable columns={defaultColumns} dataSource={[defaultResourceAccessControls]} />
+                    </div>
+
+                    {/* Members permissions table */}
+                    <ResourcesAccessControlMembers
+                        memberResourceAccessControls={memberResourceAccessControls}
+                        memberColumns={memberColumns}
+                        canEditRoleBasedAccessControls={canEditRoleBasedAccessControls}
+                        setMemberModalOpen={setMemberModalOpen}
+                    />
+
+                    <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                        {/* Roles permissions table */}
+                        <ResourcesAccessControlRoles
+                            roleResourceAccessControls={roleResourceAccessControls}
+                            roleColumns={roleColumns}
+                            canEditRoleBasedAccessControls={canEditRoleBasedAccessControls}
+                            setRoleModalOpen={setRoleModalOpen}
+                        />
+                    </PayGateMini>
+                </div>
+            </PayGateMini>
+
+            {/* Modals for adding access controls */}
+            <AddResourceAccessControlModal
+                modelOpen={memberModalOpen}
+                setModelOpen={setMemberModalOpen}
+                placeholder="Search for team members to add…"
+                onAdd={handleAddMemberAccess}
+                options={addableMembers.map((member) => ({
+                    key: member.id,
+                    label: `${member.user.first_name} ${member.user.email}`,
+                    labelComponent: <UserSelectItem user={member.user} />,
+                }))}
+                type="member"
+            />
+
+            <AddResourceAccessControlModal
+                modelOpen={roleModalOpen}
+                setModelOpen={setRoleModalOpen}
+                placeholder="Search for roles to add…"
+                onAdd={handleAddRoleAccess}
+                options={addableRoles.map((role) => ({
+                    key: role.id,
+                    label: role.name,
+                }))}
+                type="role"
+            />
+        </div>
+    )
+
+    // Generic function to create resource columns for a specific type
+    function createResourceColumnsForType<T extends DefaultResourceAccessControls>(
+        getRole: (item: T) => RoleType | undefined,
+        getMember: (item: T) => OrganizationMemberType | undefined
+    ): LemonTableColumns<T> {
+        return resources.map((resource) => ({
+            title: resource.replace(/_/g, ' ') + 's',
+            key: resource,
+            width: 0,
+            render: (_: any, item: T) => {
+                const { accessControlByResource } = item
+                const role = getRole(item)
+                const organization_member = getMember(item)
+                const ac = accessControlByResource[resource]
+
+                const options: { value: string | null; label: string }[] = availableLevels.map((level) => ({
+                    value: level,
+                    label: capitalizeFirstLetter(level ?? ''),
+                }))
+                options.push({
+                    value: null,
+                    label: 'No override',
+                })
+
+                return (
+                    <LemonSelect
+                        size="small"
+                        placeholder="No override"
+                        className="my-1 whitespace-nowrap"
+                        value={ac?.access_level}
+                        onChange={(newValue) =>
+                            updateResourceAccessControls([
+                                {
+                                    resource,
+                                    role: role?.id ?? null,
+                                    organization_member: organization_member?.id ?? null,
+                                    access_level: newValue as AccessControlLevel | null,
+                                },
+                            ])
+                        }
+                        options={options}
+                        disabledReason={canEditRoleBasedAccessControls ? undefined : 'You cannot edit this'}
+                    />
+                )
+            },
+        }))
+    }
+
+    // Create specific column creators for each table type
+    function createDefaultResourceColumns(): LemonTableColumns<DefaultResourceAccessControls> {
+        return createResourceColumnsForType<DefaultResourceAccessControls>(
+            () => undefined,
+            () => undefined
+        )
+    }
+
+    function createMemberResourceColumns(): LemonTableColumns<MemberResourceAccessControls> {
+        return createResourceColumnsForType<MemberResourceAccessControls>(
+            () => undefined,
+            (item) => item.organization_member
+        )
+    }
+
+    function createRoleResourceColumns(): LemonTableColumns<RoleResourceAccessControls> {
+        return createResourceColumnsForType<RoleResourceAccessControls>(
+            (item) => item.role,
+            () => undefined
+        )
+    }
+
+    // Function to handle adding a member access control
+    function handleAddMemberAccess(
+        memberIds: string[],
+        resourceLevels: Partial<Record<APIScopeObject, AccessControlLevel | null>>
+    ): Promise<void> {
+        const accessControls = []
+
+        for (const memberId of memberIds) {
+            for (const [resource, level] of Object.entries(resourceLevels)) {
+                // Only add entries where a level is explicitly set (not null)
+                if (level !== null) {
+                    accessControls.push({
+                        resource: resource as APIScopeObject,
+                        organization_member: memberId,
+                        role: null,
+                        access_level: level,
+                    })
+                }
+            }
+        }
+
+        if (accessControls.length > 0) {
+            updateResourceAccessControls(accessControls)
+        }
+        setMemberModalOpen(false)
+        return Promise.resolve()
+    }
+
+    // Function to handle adding a role access control
+    function handleAddRoleAccess(
+        roleIds: string[],
+        resourceLevels: Partial<Record<APIScopeObject, AccessControlLevel | null>>
+    ): Promise<void> {
+        const accessControls = []
+
+        for (const roleId of roleIds) {
+            for (const [resource, level] of Object.entries(resourceLevels)) {
+                // Only add entries where a level is explicitly set (not null)
+                if (level !== null) {
+                    accessControls.push({
+                        resource: resource as APIScopeObject,
+                        role: roleId,
+                        organization_member: null,
+                        access_level: level,
+                    })
+                }
+            }
+        }
+
+        if (accessControls.length > 0) {
+            updateResourceAccessControls(accessControls)
+        }
+        setRoleModalOpen(false)
+        return Promise.resolve()
+    }
+}
+
+function ResourcesAccessControlMembers({
+    memberResourceAccessControls,
+    memberColumns,
+    canEditRoleBasedAccessControls,
+    setMemberModalOpen,
+}: {
+    memberResourceAccessControls: MemberResourceAccessControls[]
+    memberColumns: LemonTableColumns<MemberResourceAccessControls>
+    canEditRoleBasedAccessControls: boolean | null
+    setMemberModalOpen: (open: boolean) => void
+}): JSX.Element {
+    return (
+        <div className="space-y-2">
+            <div className="flex gap-2 items-center justify-between">
+                <h3 className="mb-0">Members</h3>
+                <LemonButton
+                    type="primary"
+                    onClick={() => setMemberModalOpen(true)}
+                    disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
+                >
+                    Add
+                </LemonButton>
+            </div>
+            {memberResourceAccessControls.length > 0 ? (
+                <LemonTable columns={memberColumns} dataSource={memberResourceAccessControls} />
+            ) : (
+                <LemonTable columns={memberColumns} dataSource={[]} emptyState="No entries" />
+            )}
+        </div>
+    )
+}
+
+function ResourcesAccessControlRoles({
+    roleResourceAccessControls,
+    roleColumns,
+    canEditRoleBasedAccessControls,
+    setRoleModalOpen,
+}: {
+    roleResourceAccessControls: RoleResourceAccessControls[]
+    roleColumns: LemonTableColumns<RoleResourceAccessControls>
+    canEditRoleBasedAccessControls: boolean | null
+    setRoleModalOpen: (open: boolean) => void
+}): JSX.Element {
+    return (
+        <div className="space-y-2">
+            <div className="flex gap-2 items-center justify-between">
+                <h3 className="mb-0">Roles</h3>
+                <LemonButton
+                    type="primary"
+                    onClick={() => setRoleModalOpen(true)}
+                    disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
+                >
+                    Add
+                </LemonButton>
+            </div>
+            {roleResourceAccessControls.length > 0 ? (
+                <LemonTable columns={roleColumns} dataSource={roleResourceAccessControls} />
+            ) : (
+                <LemonTable columns={roleColumns} dataSource={[]} emptyState="No entries" />
+            )}
+        </div>
+    )
+}
+
 function AddResourceAccessControlModal(props: {
     modelOpen: boolean
     setModelOpen: (open: boolean) => void
@@ -181,301 +523,5 @@ function AddResourceAccessControlModal(props: {
                 </div>
             </div>
         </LemonModal>
-    )
-}
-
-export function ResourcesAccessControls(): JSX.Element {
-    const {
-        defaultResourceAccessControls,
-        memberResourceAccessControls,
-        roleResourceAccessControls,
-        resources,
-        availableLevels,
-        canEditRoleBasedAccessControls,
-        addableMembers,
-        addableRoles,
-    } = useValues(resourcesAccessControlLogic)
-    const { updateResourceAccessControls } = useActions(resourcesAccessControlLogic)
-
-    // State for the modals
-    const [memberModalOpen, setMemberModalOpen] = useState(false)
-    const [roleModalOpen, setRoleModalOpen] = useState(false)
-
-    // Generic function to create resource columns for a specific type
-    const createResourceColumnsForType = <T extends DefaultResourceAccessControls>(
-        getRole: (item: T) => RoleType | undefined,
-        getMember: (item: T) => OrganizationMemberType | undefined
-    ): LemonTableColumns<T> =>
-        resources.map((resource) => ({
-            title: resource.replace(/_/g, ' ') + 's',
-            key: resource,
-            width: 0,
-            render: (_: any, item: T) => {
-                const { accessControlByResource } = item
-                const role = getRole(item)
-                const organization_member = getMember(item)
-                const ac = accessControlByResource[resource]
-
-                const options: { value: string | null; label: string }[] = availableLevels.map((level) => ({
-                    value: level,
-                    label: capitalizeFirstLetter(level ?? ''),
-                }))
-                options.push({
-                    value: null,
-                    label: 'No override',
-                })
-
-                return (
-                    <LemonSelect
-                        size="small"
-                        placeholder="No override"
-                        className="my-1 whitespace-nowrap"
-                        value={ac?.access_level}
-                        onChange={(newValue) =>
-                            updateResourceAccessControls([
-                                {
-                                    resource,
-                                    role: role?.id ?? null,
-                                    organization_member: organization_member?.id ?? null,
-                                    access_level: newValue as AccessControlLevel | null,
-                                },
-                            ])
-                        }
-                        options={options}
-                        disabledReason={canEditRoleBasedAccessControls ? undefined : 'You cannot edit this'}
-                    />
-                )
-            },
-        }))
-
-    // Create specific column creators for each table type
-    const createDefaultResourceColumns = (): LemonTableColumns<DefaultResourceAccessControls> =>
-        createResourceColumnsForType<DefaultResourceAccessControls>(
-            () => undefined,
-            () => undefined
-        )
-
-    const createMemberResourceColumns = (): LemonTableColumns<MemberResourceAccessControls> =>
-        createResourceColumnsForType<MemberResourceAccessControls>(
-            () => undefined,
-            (item) => item.organization_member
-        )
-
-    const createRoleResourceColumns = (): LemonTableColumns<RoleResourceAccessControls> =>
-        createResourceColumnsForType<RoleResourceAccessControls>(
-            (item) => item.role,
-            () => undefined
-        )
-
-    // Default table
-    const defaultColumns: LemonTableColumns<DefaultResourceAccessControls> = [
-        {
-            title: 'Global Defaults',
-            key: 'default',
-            width: 0,
-            render: () => 'All roles and members',
-        },
-        ...createDefaultResourceColumns(),
-    ]
-
-    // Members table
-    const memberColumns: LemonTableColumns<MemberResourceAccessControls> = [
-        {
-            title: 'User',
-            key: 'member',
-            width: 0,
-            render: (_, { organization_member }) => {
-                // organization_member is guaranteed to exist in MemberResourceAccessControls
-                return (
-                    <div className="flex items-center gap-2">
-                        <ProfilePicture user={organization_member!.user} />
-                        <div>
-                            <p className="font-medium mb-0">{organization_member!.user.first_name}</p>
-                            <p className="text-secondary mb-0">{organization_member!.user.email}</p>
-                        </div>
-                    </div>
-                )
-            },
-        },
-        ...createMemberResourceColumns(),
-    ]
-
-    // Roles table
-    const roleColumns: LemonTableColumns<RoleResourceAccessControls> = [
-        {
-            title: 'Role',
-            key: 'role',
-            width: 0,
-            render: (_, { role }) => {
-                // role is guaranteed to exist in RoleResourceAccessControls
-                return <span>{role!.name}</span>
-            },
-        },
-        {
-            title: 'Members',
-            key: 'members',
-            width: 0,
-            render: (_, { role }) => {
-                // role is guaranteed to exist in RoleResourceAccessControls
-                return (
-                    <div className="flex space-x-2">
-                        {role!.members.length ? (
-                            <ProfileBubbles
-                                people={role!.members.map((member) => ({
-                                    email: member.user.email,
-                                    name: member.user.first_name,
-                                    title: `${member.user.first_name} <${member.user.email}>`,
-                                }))}
-                            />
-                        ) : (
-                            'No members'
-                        )}
-                    </div>
-                )
-            },
-        },
-        ...createRoleResourceColumns(),
-    ]
-
-    // Function to handle adding a member access control
-    const handleAddMemberAccess = async (
-        memberIds: string[],
-        resourceLevels: Partial<Record<APIScopeObject, AccessControlLevel | null>>
-    ): Promise<void> => {
-        const accessControls = []
-
-        for (const memberId of memberIds) {
-            for (const [resource, level] of Object.entries(resourceLevels)) {
-                // Only add entries where a level is explicitly set (not null)
-                if (level !== null) {
-                    accessControls.push({
-                        resource: resource as APIScopeObject,
-                        organization_member: memberId,
-                        role: null,
-                        access_level: level,
-                    })
-                }
-            }
-        }
-
-        if (accessControls.length > 0) {
-            updateResourceAccessControls(accessControls)
-        }
-        setMemberModalOpen(false)
-    }
-
-    // Function to handle adding a role access control
-    const handleAddRoleAccess = async (
-        roleIds: string[],
-        resourceLevels: Partial<Record<APIScopeObject, AccessControlLevel | null>>
-    ): Promise<void> => {
-        const accessControls = []
-
-        for (const roleId of roleIds) {
-            for (const [resource, level] of Object.entries(resourceLevels)) {
-                // Only add entries where a level is explicitly set (not null)
-                if (level !== null) {
-                    accessControls.push({
-                        resource: resource as APIScopeObject,
-                        role: roleId,
-                        organization_member: null,
-                        access_level: level,
-                    })
-                }
-            }
-        }
-
-        if (accessControls.length > 0) {
-            updateResourceAccessControls(accessControls)
-        }
-        setRoleModalOpen(false)
-    }
-
-    return (
-        <div className="space-y-4">
-            <h2>Resource permissions</h2>
-            <p>
-                Use resource permissions to assign project-wide access to specific resources (e.g. insights, features
-                flags, etc.) for individuals and roles.
-            </p>
-
-            <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
-                <div className="space-y-6">
-                    {/* Default permissions table */}
-                    <div className="space-y-2">
-                        <h3>Global defaults</h3>
-                        <LemonTable columns={defaultColumns} dataSource={[defaultResourceAccessControls]} />
-                    </div>
-
-                    {/* Members permissions table */}
-                    <div className="space-y-2">
-                        <div className="flex gap-2 items-center justify-between">
-                            <h3 className="mb-0">Members</h3>
-                            <LemonButton
-                                type="primary"
-                                onClick={() => setMemberModalOpen(true)}
-                                disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
-                            >
-                                Add
-                            </LemonButton>
-                        </div>
-                        {memberResourceAccessControls.length > 0 ? (
-                            <LemonTable columns={memberColumns} dataSource={memberResourceAccessControls} />
-                        ) : (
-                            <LemonTable columns={memberColumns} dataSource={[]} emptyState="No entries" />
-                        )}
-                    </div>
-
-                    <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                        {/* Roles permissions table */}
-                        <div className="space-y-2">
-                            <div className="flex gap-2 items-center justify-between">
-                                <h3 className="mb-0">Roles</h3>
-                                <LemonButton
-                                    type="primary"
-                                    onClick={() => setRoleModalOpen(true)}
-                                    disabledReason={
-                                        !canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined
-                                    }
-                                >
-                                    Add
-                                </LemonButton>
-                            </div>
-                            {roleResourceAccessControls.length > 0 ? (
-                                <LemonTable columns={roleColumns} dataSource={roleResourceAccessControls} />
-                            ) : (
-                                <LemonTable columns={roleColumns} dataSource={[]} emptyState="No entries" />
-                            )}
-                        </div>
-                    </PayGateMini>
-                </div>
-            </PayGateMini>
-
-            {/* Modals for adding access controls */}
-            <AddResourceAccessControlModal
-                modelOpen={memberModalOpen}
-                setModelOpen={setMemberModalOpen}
-                placeholder="Search for team members to add…"
-                onAdd={handleAddMemberAccess}
-                options={addableMembers.map((member) => ({
-                    key: member.id,
-                    label: `${member.user.first_name} ${member.user.email}`,
-                    labelComponent: <UserSelectItem user={member.user} />,
-                }))}
-                type="member"
-            />
-
-            <AddResourceAccessControlModal
-                modelOpen={roleModalOpen}
-                setModelOpen={setRoleModalOpen}
-                placeholder="Search for roles to add…"
-                onAdd={handleAddRoleAccess}
-                options={addableRoles.map((role) => ({
-                    key: role.id,
-                    label: role.name,
-                }))}
-                type="role"
-            />
-        </div>
     )
 }
