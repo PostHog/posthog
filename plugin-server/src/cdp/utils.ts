@@ -357,32 +357,24 @@ export function serializeHogFunctionInvocation(invocation: HogFunctionInvocation
     return serializedInvocation
 }
 
-function prepareQueueParams(
-    _params?: HogFunctionInvocation['queueParameters']
-): Pick<CyclotronJobUpdate, 'parameters' | 'blob'> {
-    let parameters: HogFunctionInvocation['queueParameters'] = _params
+export function invocationToCyclotronJobUpdate(invocation: HogFunctionInvocation): CyclotronJobUpdate {
+    const queueParameters: HogFunctionInvocation['queueParameters'] = invocation.queueParameters
     let blob: CyclotronJobUpdate['blob'] = undefined
+    let parameters: CyclotronJobUpdate['parameters'] = undefined
 
-    if (!parameters) {
-        return { parameters, blob }
+    if (queueParameters) {
+        const { body, ...rest } = queueParameters
+        parameters = rest
+        blob = body ? Buffer.from(body) : undefined
     }
 
-    const { body, ...rest } = parameters
-    parameters = rest
-    blob = body ? Buffer.from(body) : undefined
-
-    return {
+    const updates = {
+        vmState: serializeHogFunctionInvocation(invocation),
+        priority: invocation.priority,
+        queueName: invocation.queue,
         parameters,
         blob,
-    }
-}
-
-export function invocationToCyclotronJobUpdate(invocation: HogFunctionInvocation): CyclotronJobUpdate {
-    const updates = {
-        priority: invocation.priority,
-        vmState: serializeHogFunctionInvocation(invocation),
-        queueName: invocation.queue,
-        ...prepareQueueParams(invocation.queueParameters),
+        scheduled: invocation.scheduled,
     }
     return updates
 }

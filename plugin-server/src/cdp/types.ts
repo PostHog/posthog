@@ -214,6 +214,7 @@ export type HogFunctionInvocation = {
     priority: number
     queue: 'hog' | 'fetch' | 'plugins'
     queueParameters?: HogFunctionInvocationQueueParameters
+    scheduled?: DateTime
     // The current vmstate (set if the invocation is paused)
     vmState?: VMState
     timings: HogFunctionTiming[]
