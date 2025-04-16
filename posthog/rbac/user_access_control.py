@@ -404,6 +404,10 @@ class UserAccessControl:
         ).access_level
 
     def has_access_levels_for_resource(self, resource: APIScopeObject) -> bool:
+        if not self._team:
+            # If there is no team, then there can't be any access controls on this resource
+            return False
+
         filters = self._access_controls_filters_for_resource(resource)
         access_controls = self._get_access_controls(filters)
         return bool(access_controls)
