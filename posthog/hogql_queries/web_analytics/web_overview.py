@@ -39,25 +39,46 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
 
         row = response.results[0]
 
+        # Only include previous period data if comparison is enabled
+        include_previous = bool(self.query.compareFilter and self.query.compareFilter.compare)
+
         if self.query.conversionGoal:
             results = [
-                to_data("visitors", "unit", self._unsample(row[0]), self._unsample(row[1])),
-                to_data("total conversions", "unit", self._unsample(row[2]), self._unsample(row[3])),
-                to_data("unique conversions", "unit", self._unsample(row[4]), self._unsample(row[5])),
-                to_data("conversion rate", "percentage", row[6], row[7]),
+                to_data(
+                    "visitors", "unit", self._unsample(row[0]), self._unsample(row[1]) if include_previous else None
+                ),
+                to_data(
+                    "total conversions",
+                    "unit",
+                    self._unsample(row[2]),
+                    self._unsample(row[3]) if include_previous else None,
+                ),
+                to_data(
+                    "unique conversions",
+                    "unit",
+                    self._unsample(row[4]),
+                    self._unsample(row[5]) if include_previous else None,
+                ),
+                to_data("conversion rate", "percentage", row[6], row[7] if include_previous else None),
             ]
             if self.query.includeRevenue:
-                results.append(to_data("conversion revenue", "currency", row[8], row[9]))
+                results.append(to_data("conversion revenue", "currency", row[8], row[9] if include_previous else None))
         else:
             results = [
-                to_data("visitors", "unit", self._unsample(row[0]), self._unsample(row[1])),
-                to_data("views", "unit", self._unsample(row[2]), self._unsample(row[3])),
-                to_data("sessions", "unit", self._unsample(row[4]), self._unsample(row[5])),
-                to_data("session duration", "duration_s", row[6], row[7]),
-                to_data("bounce rate", "percentage", row[8], row[9], is_increase_bad=True),
+                to_data(
+                    "visitors", "unit", self._unsample(row[0]), self._unsample(row[1]) if include_previous else None
+                ),
+                to_data("views", "unit", self._unsample(row[2]), self._unsample(row[3]) if include_previous else None),
+                to_data(
+                    "sessions", "unit", self._unsample(row[4]), self._unsample(row[5]) if include_previous else None
+                ),
+                to_data("session duration", "duration_s", row[6], row[7] if include_previous else None),
+                to_data(
+                    "bounce rate", "percentage", row[8], row[9] if include_previous else None, is_increase_bad=True
+                ),
             ]
             if self.query.includeRevenue:
-                results.append(to_data("revenue", "currency", row[10], row[11]))
+                results.append(to_data("revenue", "currency", row[10], row[11] if include_previous else None))
 
         return WebOverviewQueryResponse(
             results=results,
@@ -154,14 +175,18 @@ HAVING {inside_start_timestamp_period}
 
     @cached_property
     def outer_select(self) -> ast.SelectQuery:
+        has_comparison = bool(self.query_compare_to_date_range)
+
         def current_period_aggregate(
             function_name: str,
             column_name: str,
             alias: str,
             params: Optional[list[ast.Expr]] = None,
         ):
-            if not self.query_compare_to_date_range:
-                return ast.Call(name=function_name, params=params, args=[ast.Field(chain=[column_name])])
+            if not has_comparison:
+                return ast.Alias(
+                    alias=alias, expr=ast.Call(name=function_name, params=params, args=[ast.Field(chain=[column_name])])
+                )
 
             return self.period_aggregate(
                 function_name,
@@ -178,7 +203,7 @@ HAVING {inside_start_timestamp_period}
             alias: str,
             params: Optional[list[ast.Expr]] = None,
         ):
-            if not self.query_compare_to_date_range:
+            if not has_comparison:
                 return ast.Alias(alias=alias, expr=ast.Constant(value=None))
 
             return self.period_aggregate(
@@ -191,29 +216,52 @@ HAVING {inside_start_timestamp_period}
             )
 
         if self.query.conversionGoal:
+            # For conversion goals, we need to handle the case where comparison is disabled
+            unique_users = current_period_aggregate("uniq", "session_person_id", "unique_users")
+            previous_unique_users = previous_period_aggregate("uniq", "session_person_id", "previous_unique_users")
+            total_conversion_count = current_period_aggregate("sum", "conversion_count", "total_conversion_count")
+            previous_total_conversion_count = previous_period_aggregate(
+                "sum", "conversion_count", "previous_total_conversion_count"
+            )
+            unique_conversions = current_period_aggregate("uniq", "conversion_person_id", "unique_conversions")
+            previous_unique_conversions = previous_period_aggregate(
+                "uniq", "conversion_person_id", "previous_unique_conversions"
+            )
+
+            # Create appropriate conversion rate calculations
+            conversion_rate = ast.Alias(
+                alias="conversion_rate",
+                expr=ast.Call(
+                    name="divide",
+                    args=[
+                        ast.Field(chain=["unique_conversions"]) if has_comparison else unique_users.expr,
+                        ast.Field(chain=["unique_users"]) if has_comparison else ast.Field(chain=["unique_users"]),
+                    ],
+                ),
+            )
+
+            previous_conversion_rate = ast.Alias(
+                alias="previous_conversion_rate",
+                expr=ast.Constant(value=None)
+                if not has_comparison
+                else ast.Call(
+                    name="divide",
+                    args=[
+                        ast.Field(chain=["previous_unique_conversions"]),
+                        ast.Field(chain=["previous_unique_users"]),
+                    ],
+                ),
+            )
+
             select = [
-                current_period_aggregate("uniq", "session_person_id", "unique_users"),
-                previous_period_aggregate("uniq", "session_person_id", "previous_unique_users"),
-                current_period_aggregate("sum", "conversion_count", "total_conversion_count"),
-                previous_period_aggregate("sum", "conversion_count", "previous_total_conversion_count"),
-                current_period_aggregate("uniq", "conversion_person_id", "unique_conversions"),
-                previous_period_aggregate("uniq", "conversion_person_id", "previous_unique_conversions"),
-                ast.Alias(
-                    alias="conversion_rate",
-                    expr=ast.Call(
-                        name="divide", args=[ast.Field(chain=["unique_conversions"]), ast.Field(chain=["unique_users"])]
-                    ),
-                ),
-                ast.Alias(
-                    alias="previous_conversion_rate",
-                    expr=ast.Call(
-                        name="divide",
-                        args=[
-                            ast.Field(chain=["previous_unique_conversions"]),
-                            ast.Field(chain=["previous_unique_users"]),
-                        ],
-                    ),
-                ),
+                unique_users,
+                previous_unique_users,
+                total_conversion_count,
+                previous_total_conversion_count,
+                unique_conversions,
+                previous_unique_conversions,
+                conversion_rate,
+                previous_conversion_rate,
             ]
 
             if self.query.includeRevenue:
@@ -275,19 +323,19 @@ def to_data(
         if previous is not None:
             previous = previous / 1000
 
-    try:
-        if value is not None and previous:
+    # Only calculate change if both value and previous exist and previous is not zero
+    change_from_previous_pct = None
+    if value is not None and previous is not None and previous != 0:
+        try:
             change_from_previous_pct = round(100 * (value - previous) / previous)
-        else:
-            change_from_previous_pct = None
-    except ValueError:
-        change_from_previous_pct = None
+        except (ValueError, ZeroDivisionError):
+            pass
 
     return {
         "key": key,
         "kind": kind,
         "isIncreaseBad": is_increase_bad,
         "value": value,
-        "previous": previous,
+        "previous": previous if previous is not None else None,  # Explicitly handle None case
         "changeFromPreviousPct": change_from_previous_pct,
     }
