@@ -12,19 +12,12 @@ export const SidePanelAccessControl = (): JSX.Element => {
             <SidePanelPaneHeader title="Access control" />
             <div className="flex-1 p-4 overflow-y-auto">
                 {sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id ? (
-                    <>
-                        <div>
-                            <p>Use object permissions to assign access for individuals and roles.</p>
-                            <p>
-                                Access controls are considered additive so the highest level will be applied. See more
-                                in our docs.
-                            </p>
-                        </div>
-                        <AccessControlObject
-                            resource={sceneSidePanelContext.access_control_resource}
-                            resource_id={sceneSidePanelContext.access_control_resource_id}
-                        />
-                    </>
+                    <AccessControlObject
+                        resource={sceneSidePanelContext.access_control_resource}
+                        resource_id={sceneSidePanelContext.access_control_resource_id}
+                        title="Object permissions"
+                        description="Use object permissions to assign access for individuals and roles."
+                    />
                 ) : (
                     <p>Not supported</p>
                 )}

@@ -72,7 +72,10 @@ export function RolesAccessControls(): JSX.Element {
 
     return (
         <div className="deprecated-space-y-2">
-            <p>Use roles to group your organization members and assign them permissions.</p>
+            <p>
+                Use roles to group your organization members and assign them permissions. Roles are currently used for
+                access control but we will be expanding their uses in the future.
+            </p>
 
             <div className="deprecated-space-y-2">
                 <LemonTable

@@ -39,28 +39,32 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
 
     return (
         <BindLogic logic={accessControlLogic} props={props}>
-            <div className="deprecated-space-y-6">
-                {canEditAccessControls === false ? (
-                    <LemonBanner type="warning">
-                        <b>Permission required</b>
-                        <br />
-                        You don't have permission to edit access controls for {suffix}. You must be the{' '}
-                        <i>creator of it</i>, a <i>Project admin</i>, or an <i>Organization admin</i>.
-                    </LemonBanner>
-                ) : null}
+            <div>
+                <h2>{props.title}</h2>
+                <p>{props.description}</p>
+                <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS}>
+                    <div className="deprecated-space-y-6">
+                        {canEditAccessControls === false ? (
+                            <LemonBanner type="warning">
+                                <b>Permission required</b>
+                                <br />
+                                You don't have permission to edit access controls for {suffix}. You must be the{' '}
+                                <i>creator of it</i>, a <i>Project admin</i>, or an <i>Organization admin</i>.
+                            </LemonBanner>
+                        ) : null}
 
-                <div className="deprecated-space-y-2">
-                    <h3>Default access to {suffix}</h3>
-                    <AccessControlObjectDefaults />
-                </div>
+                        <div className="deprecated-space-y-2">
+                            <h3>Default access to {suffix}</h3>
+                            <AccessControlObjectDefaults />
+                        </div>
 
-                <PayGateMini feature={AvailableFeature.ADVANCED_PERMISSIONS} className="deprecated-space-y-6">
-                    <AccessControlObjectUsers />
+                        <AccessControlObjectUsers />
 
-                    {/* Put this inside of Advanced Permissions so two aren't shown at once */}
-                    <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                        <AccessControlObjectRoles />
-                    </PayGateMini>
+                        {/* Put this inside of Advanced Permissions so two aren't shown at once */}
+                        <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                            <AccessControlObjectRoles />
+                        </PayGateMini>
+                    </div>
                 </PayGateMini>
             </div>
         </BindLogic>

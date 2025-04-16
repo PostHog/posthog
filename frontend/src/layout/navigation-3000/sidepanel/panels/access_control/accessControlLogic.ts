@@ -30,6 +30,8 @@ import { roleAccessControlLogic } from './roleAccessControlLogic'
 export type AccessControlLogicProps = {
     resource: APIScopeObject
     resource_id: string
+    title: string
+    description: string
 }
 
 export const accessControlLogic = kea<accessControlLogicType>([
