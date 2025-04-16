@@ -13,7 +13,6 @@ import { capitalizeFirstLetter } from 'kea-forms'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { UserSelectItem } from 'lib/components/UserSelectItem'
 import { useEffect, useMemo, useState } from 'react'
-import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { AccessControlLevel, APIScopeObject, AvailableFeature, OrganizationMemberType, RoleType } from '~/types'
 
@@ -23,7 +22,6 @@ import {
     resourcesAccessControlLogic,
     RoleResourceAccessControls,
 } from './resourcesAccessControlLogic'
-import { roleAccessControlLogic } from './roleAccessControlLogic'
 
 function AddResourceAccessControlModal(props: {
     modelOpen: boolean
@@ -194,9 +192,9 @@ export function ResourcesAccessControls(): JSX.Element {
         resources,
         availableLevels,
         canEditRoleBasedAccessControls,
+        addableMembers,
+        addableRoles,
     } = useValues(resourcesAccessControlLogic)
-    const { sortedMembers } = useValues(membersLogic)
-    const { roles } = useValues(roleAccessControlLogic)
     const { updateResourceAccessControls } = useActions(resourcesAccessControlLogic)
 
     // State for the modals
@@ -402,15 +400,6 @@ export function ResourcesAccessControls(): JSX.Element {
         }
         setRoleModalOpen(false)
     }
-
-    // Get addable members (members that don't already have access controls)
-    const addableMembers =
-        sortedMembers?.filter(
-            (member) => !memberResourceAccessControls.some((m) => m.organization_member?.id === member.id)
-        ) || []
-
-    // Get addable roles (roles that don't already have access controls)
-    const addableRoles = roles?.filter((role) => !roleResourceAccessControls.some((r) => r.role?.id === role.id)) || []
 
     return (
         <div className="space-y-4">

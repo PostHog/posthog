@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -83,6 +84,13 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
             },
         ],
 
+        organizationAdmins: [
+            (s) => [s.sortedMembers],
+            (members): OrganizationMemberType[] => {
+                return members?.filter((member) => member.level >= OrganizationMembershipLevel.Admin) ?? []
+            },
+        ],
+
         defaultResourceAccessControls: [
             (s) => [s.resourceAccessControls],
             (resourceAccessControls): DefaultResourceAccessControls => {
@@ -100,6 +108,30 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     )
 
                 return { accessControlByResource }
+            },
+        ],
+
+        addableMembers: [
+            (s) => [s.sortedMembers, s.memberResourceAccessControls, s.organizationAdmins],
+            (
+                sortedMembers: OrganizationMemberType[] | null,
+                memberResourceAccessControls: MemberResourceAccessControls[],
+                organizationAdmins: OrganizationMemberType[]
+            ): OrganizationMemberType[] => {
+                return (
+                    sortedMembers?.filter(
+                        (member) =>
+                            !memberResourceAccessControls.some((m) => m.organization_member?.id === member.id) &&
+                            !organizationAdmins.find((admin) => admin.id === member.id)
+                    ) || []
+                )
+            },
+        ],
+
+        addableRoles: [
+            (s) => [s.roles, s.roleResourceAccessControls],
+            (roles: RoleType[] | null, roleResourceAccessControls: RoleResourceAccessControls[]): RoleType[] => {
+                return roles?.filter((role) => !roleResourceAccessControls.some((r) => r.role?.id === role.id)) || []
             },
         ],
 
