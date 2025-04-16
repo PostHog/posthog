@@ -460,3 +460,7 @@ export function buildExportedFunctionInvoker(
 export function isLegacyPluginHogFunction(hogFunction: HogFunctionType): boolean {
     return hogFunction.template_id?.startsWith('plugin-') ?? false
 }
+
+export function filterExists<T>(value: T): value is NonNullable<T> {
+    return Boolean(value)
+}
