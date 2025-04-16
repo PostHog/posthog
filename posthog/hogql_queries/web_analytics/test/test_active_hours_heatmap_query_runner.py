@@ -17,9 +17,10 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    snapshot_clickhouse_queries,
 )
 
-
+@snapshot_clickhouse_queries
 class TestActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_events(self, data, event="$autocapture"):
         person_result = []

@@ -756,7 +756,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         sourceTab: [(s) => [s._sourceTab], (sourceTab: string | null) => sourceTab || SourceTab.CHANNEL],
         deviceTab: [(s) => [s._deviceTab], (deviceTab: string | null) => deviceTab || DeviceTab.DEVICE_TYPE],
         pathTab: [(s) => [s._pathTab], (pathTab: string | null) => pathTab || PathTab.PATH],
-        geographyTab: [(s) => [s._geographyTab], (geographyTab: string | null) => geographyTab || GeographyTab.MAP || GeographyTab.HEATMAP],
+        geographyTab: [(s) => [s._geographyTab], (geographyTab: string | null) => geographyTab || GeographyTab.MAP],
         isPathCleaningEnabled: [
             (s) => [s._isPathCleaningEnabled, s.hasAvailableFeature],
             (isPathCleaningEnabled: boolean, hasAvailableFeature) => {
@@ -1696,7 +1696,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               layout: {
                                   colSpanClassName: 'md:col-span-full',
                               },
-                              activeTabId: geographyTab || GeographyTab.MAP || GeographyTab.HEATMAP,
+                              activeTabId: geographyTab || GeographyTab.MAP,
                               setTabId: actions.setGeographyTab,
                               tabs: ([
                                   {
