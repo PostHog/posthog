@@ -1,5 +1,6 @@
 import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
+import { z } from 'zod'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
@@ -13,7 +14,14 @@ import {
     setUsageInNonPersonEventsCounter,
 } from '../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../main/utils'
-import { Hub, KafkaConsumerBreadcrumb, PipelineEvent, PluginServerService, PluginsServerConfig } from '../types'
+import {
+    Hub,
+    KafkaConsumerBreadcrumb,
+    KafkaConsumerBreadcrumbSchema,
+    PipelineEvent,
+    PluginServerService,
+    PluginsServerConfig,
+} from '../types'
 import { normalizeEvent } from '../utils/event'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
@@ -205,7 +213,7 @@ export class IngestionConsumer {
         }
     }
 
-    private getExistingBreadcrumbsFromHeaders(message: Message): KafkaConsumerBreadcrumb[] {
+    private getExistingBreadcrumbsFromHeaders(message: Message): unknown[] {
         const existingBreadcrumbs: KafkaConsumerBreadcrumb[] = []
         if (message.headers) {
             for (const header of message.headers) {
@@ -213,9 +221,24 @@ export class IngestionConsumer {
                     try {
                         const parsedValue = parseJSON(header.value.toString())
                         if (Array.isArray(parsedValue)) {
-                            existingBreadcrumbs.push(...parsedValue)
+                            const validatedBreadcrumbs = z.array(KafkaConsumerBreadcrumbSchema).safeParse(parsedValue)
+                            if (validatedBreadcrumbs.success) {
+                                existingBreadcrumbs.push(...validatedBreadcrumbs.data)
+                            } else {
+                                console.log('yes')
+                                logger.warn('Failed to validated breadcrumbs array from header', {
+                                    error: validatedBreadcrumbs.error.format(),
+                                })
+                            }
                         } else {
-                            existingBreadcrumbs.push(parsedValue)
+                            const validatedBreadcrumb = KafkaConsumerBreadcrumbSchema.safeParse(parsedValue)
+                            if (validatedBreadcrumb.success) {
+                                existingBreadcrumbs.push(validatedBreadcrumb.data)
+                            } else {
+                                logger.warn('Failed to validate breadcrumb from header', {
+                                    error: validatedBreadcrumb.error.format(),
+                                })
+                            }
                         }
                     } catch (e) {
                         logger.warn('Failed to parse breadcrumb from header', { error: e })
@@ -377,7 +400,7 @@ export class IngestionConsumer {
 
         const existingBreadcrumbs = this.getExistingBreadcrumbsFromHeaders(message)
         const currentBreadcrumb = this.createBreadcrumb(message)
-        const allBreadcrumbs = [...existingBreadcrumbs, currentBreadcrumb]
+        const allBreadcrumbs = existingBreadcrumbs.concat(currentBreadcrumb)
 
         try {
             const result = await this.runInstrumented('runEventPipeline', () =>

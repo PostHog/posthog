@@ -16,6 +16,7 @@ import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { VM } from 'vm2'
+import { z } from 'zod'
 
 import { EncryptedFields } from './cdp/encryption-utils'
 import { LegacyOneventCompareService } from './cdp/services/legacy-onevent-compare.service'
@@ -748,6 +749,14 @@ export type KafkaConsumerBreadcrumb = {
     processed_at: string
     consumer_id: string
 }
+
+export const KafkaConsumerBreadcrumbSchema = z.object({
+    topic: z.string(),
+    offset: z.union([z.string(), z.number()]),
+    partition: z.number(),
+    processed_at: z.string(),
+    consumer_id: z.string(),
+})
 
 export interface RawKafkaEvent extends RawClickHouseEvent {
     /**
