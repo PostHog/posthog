@@ -259,8 +259,8 @@ HAVING {inside_start_timestamp_period}
             add_metric_pair(select, "uniq", "session_person_id", "unique_users")
             add_metric_pair(select, "sum", "filtered_pageview_count", "total_filtered_pageview_count")
             add_metric_pair(select, "uniq", "session_id", "unique_sessions")
-            add_metric_pair(select, "avg", "session_duration", "avg_duration_s", previous_alias="prev_avg_duration_s")
-            add_metric_pair(select, "avg", "is_bounce", "bounce_rate", previous_alias="prev_bounce_rate")
+            add_metric_pair(select, "avg", "session_duration", "avg_duration_s")
+            add_metric_pair(select, "avg", "is_bounce", "bounce_rate")
 
             if self.query.includeRevenue:
                 add_metric_pair(select, "sum", "session_revenue", "revenue")
