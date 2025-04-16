@@ -1,5 +1,6 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+import { MessageHeader } from 'node-rdkafka'
 import { Counter, Summary } from 'prom-client'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
@@ -197,12 +198,7 @@ export class EventsProcessor {
         return res
     }
 
-    createEvent(
-        preIngestionEvent: PreIngestionEvent,
-        person: Person,
-        processPerson: boolean,
-        kafkaConsumerBreadcrumbs: KafkaConsumerBreadcrumb[]
-    ): RawKafkaEvent {
+    createEvent(preIngestionEvent: PreIngestionEvent, person: Person, processPerson: boolean): RawKafkaEvent {
         const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
 
         let elementsChain = ''
@@ -256,18 +252,23 @@ export class EventsProcessor {
             person_properties: eventPersonProperties,
             person_created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
             person_mode: personMode,
-            kafka_consumer_breadcrumbs: kafkaConsumerBreadcrumbs,
         }
 
         return rawEvent
     }
 
-    emitEvent(rawEvent: RawKafkaEvent): Promise<void> {
+    emitEvent(rawEvent: RawKafkaEvent, breadcrumbs: KafkaConsumerBreadcrumb[]): Promise<void> {
+        const headers: MessageHeader[] = []
+        headers.push({
+            key: 'kafka-consumer-breadcrumbs',
+            value: Buffer.from(JSON.stringify(breadcrumbs)),
+        })
         return this.kafkaProducer
             .produce({
                 topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 key: rawEvent.uuid,
                 value: Buffer.from(JSON.stringify(rawEvent)),
+                headers: headers,
             })
             .catch(async (error) => {
                 // Some messages end up significantly larger than the original

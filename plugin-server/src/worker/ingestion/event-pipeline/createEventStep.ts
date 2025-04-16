@@ -1,12 +1,11 @@
-import { KafkaConsumerBreadcrumb, Person, PreIngestionEvent, RawKafkaEvent } from '../../../types'
+import { Person, PreIngestionEvent, RawKafkaEvent } from '../../../types'
 import { EventPipelineRunner } from './runner'
 
 export function createEventStep(
     runner: EventPipelineRunner,
     event: PreIngestionEvent,
     person: Person,
-    processPerson: boolean,
-    kafkaConsumerBreadcrumbs: KafkaConsumerBreadcrumb[]
+    processPerson: boolean
 ): RawKafkaEvent {
-    return runner.eventsProcessor.createEvent(event, person, processPerson, kafkaConsumerBreadcrumbs)
+    return runner.eventsProcessor.createEvent(event, person, processPerson)
 }

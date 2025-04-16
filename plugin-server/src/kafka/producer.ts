@@ -35,6 +35,7 @@ export type TopicMessage = {
     messages: {
         value: string | Buffer | null
         key?: MessageKey
+        headers?: MessageHeader[]
     }[]
 }
 

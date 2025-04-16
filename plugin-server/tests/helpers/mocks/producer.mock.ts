@@ -1,11 +1,13 @@
+import { MessageHeader } from 'node-rdkafka'
+
 import { KafkaProducerWrapper, TopicMessage } from '../../../src/kafka/producer'
 import { parseJSON } from '../../../src/utils/json-parse'
-
 export type ParsedTopicMessage = {
     topic: string
     messages: {
         key: string | null
         value: Record<string, any> | null
+        headers?: MessageHeader[]
     }[]
 }
 
@@ -13,6 +15,7 @@ export type DecodedKafkaMessage = {
     topic: string
     key?: any
     value: Record<string, unknown>
+    headers?: MessageHeader[]
 }
 
 jest.mock('../../../src/kafka/producer', () => {
@@ -52,6 +55,7 @@ export const getProducedMessages = (): TopicMessage[] => {
                     {
                         key: call[0].key,
                         value: call[0].value,
+                        headers: call[0].headers,
                     },
                 ],
             },
@@ -66,6 +70,7 @@ export const getParsedQueuedMessages = (): ParsedTopicMessage[] => {
         messages: topicMessage.messages.map((message) => ({
             key: typeof message.key === 'string' ? message.key : null,
             value: message.value ? parseJSON(message.value.toString()) : null,
+            headers: message.headers,
         })),
     }))
 }
@@ -81,6 +86,7 @@ export const getProducedKafkaMessages = (): DecodedKafkaMessage[] => {
                 topic: topicMessage.topic,
                 key: message.key,
                 value: message.value ?? {},
+                headers: message.headers,
             })
         }
     }

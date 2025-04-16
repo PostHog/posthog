@@ -755,10 +755,6 @@ export interface RawKafkaEvent extends RawClickHouseEvent {
      * That's because we need it in `property-defs-rs` and not elsewhere.
      */
     project_id: ProjectId
-    /**
-     * Tracks the flow of a message through Kafka consumers for debugging and event duplication investigation
-     */
-    kafka_consumer_breadcrumbs?: KafkaConsumerBreadcrumb[]
 }
 
 /** Parsed event row from ClickHouse. */
@@ -1220,7 +1216,7 @@ export enum OrganizationMembershipLevel {
 export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     team_id?: number | null
     token?: string
-    kafka_consumer_breadcrumbs?: KafkaConsumerBreadcrumb[]
+    // kafka_consumer_breadcrumbs?: KafkaConsumerBreadcrumb[]
 }
 
 export type RedisPool = GenericPool<Redis>
