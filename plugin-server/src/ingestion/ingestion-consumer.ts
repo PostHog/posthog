@@ -94,7 +94,6 @@ export class IngestionConsumer {
     public hogTransformer: HogTransformerService
     private overflowRateLimiter: MemoryRateLimiter
     private ingestionWarningLimiter: MemoryRateLimiter
-    private tokensToDrop: string[] = []
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
@@ -116,7 +115,6 @@ export class IngestionConsumer {
         this.topic = overrides.INGESTION_CONSUMER_CONSUME_TOPIC ?? hub.INGESTION_CONSUMER_CONSUME_TOPIC
         this.overflowTopic = overrides.INGESTION_CONSUMER_OVERFLOW_TOPIC ?? hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
         this.dlqTopic = overrides.INGESTION_CONSUMER_DLQ_TOPIC ?? hub.INGESTION_CONSUMER_DLQ_TOPIC
-        this.tokensToDrop = hub.DROP_EVENTS_BY_TOKEN.split(',').filter((x) => !!x)
         this.tokenDistinctIdsToDrop = hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
         this.tokenDistinctIdsToSkipPersons = hub.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
@@ -547,7 +545,7 @@ export class IngestionConsumer {
 
     private shouldDropEvent(token?: string, distinctId?: string) {
         return (
-            (token && this.tokensToDrop.includes(token)) ||
+            (token && this.tokenDistinctIdsToDrop.includes(token)) ||
             (token && distinctId && this.tokenDistinctIdsToDrop.includes(`${token}:${distinctId}`))
         )
     }
