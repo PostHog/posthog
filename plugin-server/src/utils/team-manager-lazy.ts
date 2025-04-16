@@ -105,7 +105,9 @@ export class TeamManagerLazy {
                 // that shouldn't overflow 32-bit integer in DB column.
                 if (/^\d{,10}$/.test(idOrToken)) {
                     const parsed = parseInt(idOrToken)
-                    teamIds.push(parsed)
+                    if (parsed > 0 && parsed <= 2147483647) {
+                        teamIds.push(parsed)
+                    }
                 } else {
                     tokens.push(idOrToken)
                 }
