@@ -343,14 +343,14 @@ export function ProjectTree(): JSX.Element {
                             onValueChange={(value) => setSortMethod(value as ProjectTreeSortMethod)}
                         >
                             <DropdownMenuRadioItem value="created_at" asChild>
-                                <ButtonPrimitive menuItem onClick={() => setSortMethod('created_at')}>
+                                <ButtonPrimitive menuItem>
                                     <DropdownMenuItemIndicator intent="radio" />
                                     Creation date
                                 </ButtonPrimitive>
                             </DropdownMenuRadioItem>
 
                             <DropdownMenuRadioItem value="alphabetical" asChild>
-                                <ButtonPrimitive menuItem onClick={() => setSortMethod('created_at')}>
+                                <ButtonPrimitive menuItem>
                                     <DropdownMenuItemIndicator intent="radio" />
                                     Alphabetical
                                 </ButtonPrimitive>
