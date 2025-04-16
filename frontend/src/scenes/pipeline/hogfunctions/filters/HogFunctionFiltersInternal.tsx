@@ -40,7 +40,7 @@ const getTaxonomicGroupTypes = (
     logicKey?: HogFunctionConfigurationLogicProps['logicKey']
 ): TaxonomicFilterGroupType[] => {
     if (logicKey && logicKey === ERROR_TRACKING_LOGIC_KEY) {
-        return [TaxonomicFilterGroupType.ErrorTrackingIssue]
+        return [TaxonomicFilterGroupType.ErrorTrackingIssues]
     }
     return []
 }

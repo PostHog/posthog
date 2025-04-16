@@ -36,6 +36,7 @@ import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 import type {
     DashboardFilter,
     DatabaseSchemaField,
+    ErrorTrackingIssueAssignee,
     ExperimentExposureCriteria,
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -715,7 +716,13 @@ export interface ToolbarProps extends ToolbarParams {
 
 export type PathCleaningFilter = { alias?: string; regex?: string }
 
-export type PropertyFilterValue = string | number | bigint | (string | number | bigint)[] | null
+export type PropertyFilterValue =
+    | string
+    | number
+    | bigint
+    | (string | number | bigint)[]
+    | ErrorTrackingIssueAssignee
+    | null
 
 /** Sync with plugin-server/src/types.ts */
 export enum PropertyOperator {
