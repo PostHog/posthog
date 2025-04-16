@@ -14,6 +14,7 @@ from posthog.hogql.database.models import (
     DatabaseField,
     DateDatabaseField,
     DateTimeDatabaseField,
+    DecimalDatabaseField,
     ExpressionField,
     FieldOrTable,
     FieldTraverser,
@@ -992,6 +993,16 @@ def serialize_fields(
                         schema_valid=schema_valid,
                     )
                 )
+            elif isinstance(field, DecimalDatabaseField):
+                field_output.append(
+                    DatabaseSchemaField(
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.DECIMAL,
+                        schema_valid=schema_valid,
+                    )
+                )
+
             elif isinstance(field, StringDatabaseField):
                 field_output.append(
                     DatabaseSchemaField(
