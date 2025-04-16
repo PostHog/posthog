@@ -444,14 +444,14 @@ def create_hogql_database(
 
         with timings.measure("for_schema_source"):
             for stripe_source in stripe_sources:
-                view = RevenueAnalyticsRevenueView.for_schema_source(stripe_source)
+                revenue_views = RevenueAnalyticsRevenueView.for_schema_source(stripe_source)
 
                 # View will have a name similar to stripe.prefix.table_name
                 # We want to create a nested table group where stripe is the parent,
                 # prefix is the child of stripe, and table_name is the child of prefix
                 # allowing you to access the table as stripe[prefix][table_name] in a dict fashion
                 # but still allowing the bare stripe.prefix.table_name string access
-                if view is not None:
+                for view in revenue_views:
                     views[view.name] = view
                     create_nested_table_group(view.name.split("."), views, view)
 
