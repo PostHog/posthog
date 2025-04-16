@@ -2971,7 +2971,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             self.assertNumQueries(10),
             snapshot_postgres_queries_context(self),
         ):  # 1 to fill group cache, 2 to match feature flags with group properties (of each type), 1 to match feature flags with person properties
-            matches, reasons, payloads, _ = FeatureFlagMatcher(
+            matches, reasons, payloads, _, _ = FeatureFlagMatcher(
                 [
                     feature_flag_one,
                     feature_flag_always_match,
@@ -3047,7 +3047,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             self.assertNumQueries(9),
             snapshot_postgres_queries_context(self),
         ):  # 1 to fill group cache, 1 to match feature flags with group properties (only 1 group provided), 1 to match feature flags with person properties
-            matches, reasons, payloads, _ = FeatureFlagMatcher(
+            matches, reasons, payloads, _, _ = FeatureFlagMatcher(
                 [
                     feature_flag_one,
                     feature_flag_always_match,
