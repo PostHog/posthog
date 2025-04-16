@@ -165,9 +165,6 @@ class RawSessionsTableV1(Table):
             "initial_mc_cid",
             "initial_igshid",
             "initial_ttclid",
-            "initial_epik",
-            "initial_qclid",
-            "initial_sccid",
         ]
 
 
@@ -234,9 +231,6 @@ def select_from_sessions_table_v1(
         "$entry_mc_cid": null_if_empty(arg_min_merge_field("initial_mc_cid")),
         "$entry_igshid": null_if_empty(arg_min_merge_field("initial_igshid")),
         "$entry_ttclid": null_if_empty(arg_min_merge_field("initial_ttclid")),
-        "$entry_epik": null_if_empty(arg_min_merge_field("initial_epik")),
-        "$entry_qclid": null_if_empty(arg_min_merge_field("initial_qclid")),
-        "$entry_sccid": null_if_empty(arg_min_merge_field("initial_sccid")),
         "$event_count_map": ast.Call(
             name="sumMap",
             args=[ast.Field(chain=[table_name, "event_count_map"])],
@@ -492,9 +486,6 @@ SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
     "$entry_mc_cid": "finalizeAggregation(initial_mc_cid)",
     "$entry_igshid": "finalizeAggregation(initial_igshid)",
     "$entry_ttclid": "finalizeAggregation(initial_ttclid)",
-    "$entry_epik": "finalizeAggregation(initial_epik)",
-    "$entry_qclid": "finalizeAggregation(initial_qclid)",
-    "$entry_sccid": "finalizeAggregation(initial_sccid)",
     "$entry_current_url": "finalizeAggregation(entry_url)",
     "$exit_current_url": "finalizeAggregation(exit_url)",
 }
