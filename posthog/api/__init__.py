@@ -2,7 +2,7 @@ from rest_framework import decorators, exceptions, viewsets
 from rest_framework_extensions.routers import NestedRegistryItem
 
 import products.early_access_features.backend.api as early_access_feature
-import products.editor.backend.api as editorApi
+from products.editor.backend.api import LLMProxyViewSet, MaxToolsViewSet
 from posthog.api import data_color_theme, metalytics, project, wizard
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
@@ -89,7 +89,7 @@ router.register(
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plugin_configs")
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
-router.register(r"llm_proxy", editorApi.LLMProxyViewSet, "llm_proxy")
+router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
 
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
@@ -609,10 +609,10 @@ register_grandfathered_environment_nested_viewset(
     ["team_id"],
 )
 
-projects_router.register(
+register_grandfathered_environment_nested_viewset(
     r"insight_variables",
     insight_variable.InsightVariableViewSet,
-    "insight_variables",
+    "environment_insight_variables",
     ["team_id"],
 )
 
@@ -644,3 +644,5 @@ register_grandfathered_environment_nested_viewset(
     "environment_data_modeling_jobs",
     ["team_id"],
 )
+
+environments_router.register(r"max_tools", MaxToolsViewSet, "environment_max_tools", ["team_id"])

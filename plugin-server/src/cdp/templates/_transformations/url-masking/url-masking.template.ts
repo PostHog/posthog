@@ -2,7 +2,7 @@ import { HogFunctionTemplate } from '../../types'
 
 export const template: HogFunctionTemplate = {
     free: true,
-    status: 'alpha',
+    status: 'beta',
     type: 'transformation',
     id: 'template-url-masking',
     name: 'URL Parameter Masking',

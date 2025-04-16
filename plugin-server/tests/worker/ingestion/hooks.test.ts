@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import fetch, { FetchError } from 'node-fetch'
+import fetch from 'node-fetch'
 
 import { Action, ISOTimestamp, PostIngestionEvent, Team } from '../../../src/types'
 import { AppMetrics } from '../../../src/worker/ingestion/app-metrics'
@@ -139,12 +139,19 @@ describe('hooks', () => {
         test('private IP hook forbidden in prod', async () => {
             process.env.NODE_ENV = 'production'
 
+            // Unmock the node-fetch module
+
+            const realFetch = jest.requireActual('node-fetch')
+            jest.mocked(fetch).mockImplementation(realFetch.default)
+
             await expect(
                 hookCommander.postWebhook({ event: 'foo', properties: {} } as PostIngestionEvent, action, team, {
                     ...hook,
-                    target: 'http://127.0.0.1',
+                    target: 'http://localhost:8000',
                 })
-            ).rejects.toThrow(new FetchError('Internal hostname', 'posthog-host-guard'))
+            ).rejects.toThrowErrorMatchingInlineSnapshot(
+                `"request to http://localhost:8000/ failed, reason: Internal hostname"`
+            )
         })
     })
 })

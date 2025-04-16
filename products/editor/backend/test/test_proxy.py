@@ -2,8 +2,9 @@ from unittest.mock import patch
 
 from rest_framework import status
 
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.test.base import APIBaseTest
-from products.editor.backend.api import SUPPORTED_MODELS_WITH_THINKING, LLMProxyViewSet, PersonalAPIKeyAuthentication
+from products.editor.backend.api import SUPPORTED_MODELS_WITH_THINKING, LLMProxyViewSet
 
 
 @patch("django.conf.settings.MISTRAL_API_KEY", "test_key")
