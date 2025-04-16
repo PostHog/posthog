@@ -329,8 +329,7 @@ export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogF
 
 export function createInvocation(
     globals: HogFunctionInvocationGlobalsWithInputs,
-    hogFunction: HogFunctionType,
-    functionToExecute?: [string, any[]]
+    hogFunction: HogFunctionType
 ): HogFunctionInvocation {
     return {
         id: new UUIDT().toString(),
@@ -338,9 +337,8 @@ export function createInvocation(
         teamId: hogFunction.team_id,
         hogFunction,
         queue: 'hog',
-        priority: 1,
+        queuePriority: 1,
         timings: [],
-        functionToExecute,
     }
 }
 
@@ -370,11 +368,11 @@ export function invocationToCyclotronJobUpdate(invocation: HogFunctionInvocation
 
     const updates = {
         vmState: serializeHogFunctionInvocation(invocation),
-        priority: invocation.priority,
+        priority: invocation.queuePriority,
         queueName: invocation.queue,
         parameters,
         blob,
-        scheduled: invocation.scheduled,
+        scheduled: invocation.queueScheduledAt,
     }
     return updates
 }
@@ -398,54 +396,11 @@ export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunc
         globals: parsedState.globals,
         teamId: hogFunction.team_id,
         hogFunction,
-        priority: job.priority,
+        queuePriority: job.priority,
         queue: (job.queueName as any) ?? 'hog',
         queueParameters: params,
         vmState: parsedState.vmState,
         timings: parsedState.timings,
-    }
-}
-
-/** Build bytecode that calls a function in another imported bytecode */
-export function buildExportedFunctionInvoker(
-    exportBytecode: any[],
-    exportGlobals: any,
-    functionName: string,
-    args: any[]
-): Bytecodes {
-    let argBytecodes: any[] = []
-    for (let i = 0; i < args.length; i++) {
-        argBytecodes = [
-            ...argBytecodes,
-            33, // integer
-            i + 1, // (index in args array)
-            32, // string
-            '__args',
-            1, // get global
-            2, // (chain length)
-        ]
-    }
-    const bytecode = [
-        '_H',
-        1,
-        ...argBytecodes,
-        32, // string
-        'x',
-        2, // call global
-        'import',
-        1, // (arg count)
-        32, // string
-        functionName,
-        45, // get property
-        54, // call local
-        args.length,
-        35, // pop
-    ]
-    return {
-        bytecodes: {
-            x: { bytecode: exportBytecode, globals: exportGlobals },
-            root: { bytecode, globals: { __args: args } },
-        },
     }
 }
 

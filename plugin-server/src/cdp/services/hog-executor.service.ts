@@ -22,7 +22,7 @@ import {
     HogFunctionQueueParametersFetchResponse,
     HogFunctionType,
 } from '../types'
-import { buildExportedFunctionInvoker, convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
+import { convertToHogFunctionFilterGlobal, createInvocation } from '../utils'
 import { checkHogFunctionFilters } from '../utils/hog-function-filtering'
 import { createMailjetRequest } from '../utils/hog-mailjet-request'
 
@@ -383,16 +383,7 @@ export class HogExecutorService {
             }
 
             const sensitiveValues = this.getSensitiveValues(invocation.hogFunction, globals.inputs)
-            const invocationInput =
-                invocation.vmState ??
-                (invocation.functionToExecute
-                    ? buildExportedFunctionInvoker(
-                          invocation.hogFunction.bytecode,
-                          globals,
-                          invocation.functionToExecute[0], // name
-                          invocation.functionToExecute[1] // args
-                      )
-                    : invocation.hogFunction.bytecode)
+            const invocationInput = invocation.vmState ?? invocation.hogFunction.bytecode
 
             const eventId = invocation?.globals?.event?.uuid || 'Unknown event'
 
