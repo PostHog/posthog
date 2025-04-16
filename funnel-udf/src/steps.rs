@@ -185,7 +185,7 @@ impl AggregateFunnelRow {
             // Always put the actual event uuids first, we use it to extract timestamps
             // This might create duplicates, but that's fine (we can remove it in clickhouse)
 
-            // TODO: Here, this errors with an index out of bound with the optional steps - figure it otut
+            // TODO: Here, this errors with an index out of bound with the optional steps - figure it out
             vars.event_uuids[i].insert(0, final_value.uuids[i].clone());
         }
         self.results.push(Result(
@@ -218,9 +218,11 @@ impl AggregateFunnelRow {
                 *step
             }) as usize;
 
+            let (left, right) = vars.entered_timestamp.split_at_mut(step);
+
             // Find the closest previous step that has a timestamp (either the direct previous or an earlier optional step)
             let mut previous_step_index = step - 1;
-            let mut previous_step = &vars.entered_timestamp[previous_step_index];
+            let mut previous_step = &left[previous_step_index];
 
             let mut in_match_window = previous_step.timestamp != 0.0
                 && event.timestamp - previous_step.timestamp <= args.conversion_window_limit as f64;
@@ -231,20 +233,19 @@ impl AggregateFunnelRow {
                 && args.optional_steps.contains(&(previous_step_index as i8))
             {
                 previous_step_index -= 1;
-                previous_step = &vars.entered_timestamp[previous_step_index];
+                previous_step = &left[previous_step_index];
                 in_match_window = previous_step.timestamp != 0.0
                     && event.timestamp - previous_step.timestamp
                         <= args.conversion_window_limit as f64;
             }
 
-            let already_reached_this_step = vars.entered_timestamp[step].timestamp
-                == previous_step.timestamp
-                && vars.entered_timestamp[step].timestamp != 0.0;
+            let already_reached_this_step =
+                right[step].timestamp == previous_step.timestamp && right[step].timestamp != 0.0;
 
             if in_match_window && !already_reached_this_step {
                 if exclusion {
                     if !previous_step.excluded {
-                        vars.entered_timestamp[previous_step_index].excluded = true;
+                        left[previous_step_index].excluded = true;
                         if vars.max_step.0 == previous_step_index {
                             let max_timestamp_in_match_window = (event.timestamp
                                 - vars.max_step.1.timestamp)
@@ -261,9 +262,7 @@ impl AggregateFunnelRow {
                         .unwrap_or(false)
                         && *prop_val != event.breakdown;
                     let already_used_event = processing_multiple_events
-                        && vars.entered_timestamp[previous_step_index]
-                            .uuids
-                            .contains(&event.uuid);
+                        && left[previous_step_index].uuids.contains(&event.uuid);
                     if !is_unmatched_step_attribution && !already_used_event {
                         let new_entered_timestamp =
                             |timings: Vec<f64>, uuids: Vec<Uuid>| -> EnteredTimestamp {
@@ -272,18 +271,26 @@ impl AggregateFunnelRow {
                                     excluded: previous_step.excluded,
                                     timings: {
                                         let mut t = timings;
+                                        t.extend(
+                                            std::iter::repeat(event.timestamp)
+                                                .take(step - previous_step_index - 1),
+                                        );
                                         t.push(event.timestamp);
                                         t
                                     },
                                     uuids: {
                                         let mut u = uuids;
+                                        u.extend(
+                                            std::iter::repeat(event.uuid)
+                                                .take(step - previous_step_index - 1),
+                                        );
                                         u.push(event.uuid);
                                         u
                                     },
                                 }
                             };
                         if !previous_step.excluded {
-                            vars.entered_timestamp[step] = new_entered_timestamp(
+                            right[step] = new_entered_timestamp(
                                 previous_step.timings.clone(),
                                 previous_step.uuids.clone(),
                             );
