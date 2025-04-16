@@ -47,3 +47,19 @@ def get_parser_language(lang: ProgrammingLanguage) -> Language:
             return Language(language())
         case _:
             raise UnsupportedLanguage(lang)
+
+
+def guess_language(file_extension: str) -> ProgrammingLanguage:
+    mapping = {
+        ProgrammingLanguage.PYTHON: ("py",),
+        ProgrammingLanguage.TYPESCRIPT: ("ts", "mts", "cts"),
+        ProgrammingLanguage.JAVASCRIPT: ("js", "jsx", "mjs", "cjs"),
+        ProgrammingLanguage.TSX: ("tsx",),
+        ProgrammingLanguage.RUST: ("rs",),
+        ProgrammingLanguage.GO: ("go",),
+        ProgrammingLanguage.BASH: ("sh",),
+    }
+    for lang, extensions in mapping.items():
+        if file_extension in extensions:
+            return lang
+    raise UnsupportedLanguage(file_extension)

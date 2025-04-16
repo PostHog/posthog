@@ -89,6 +89,7 @@ from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
 from .web_experiment import WebExperiment
 from products.early_access_features.backend.models import EarlyAccessFeature
+from products.editor.backend.models import Codebase
 
 __all__ = [
     "AlertConfiguration",
@@ -104,6 +105,7 @@ __all__ = [
     "BatchExportDestination",
     "BatchExportRun",
     "BatchImport",
+    "Codebase",
     "Cohort",
     "CohortPeople",
     "Dashboard",

@@ -7,6 +7,7 @@ from django.core.cache import cache
 from freezegun import freeze_time
 from pydantic import BaseModel
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
 from posthog.models.team.team import Team
 from posthog.schema import (
@@ -276,3 +277,19 @@ class TestQueryRunner(BaseTest):
         response = runner.calculate()
         assert response.clickhouse is not None
         assert "events.`mat_$browser" not in response.clickhouse
+
+    def test_editor_limit_context_does_not_cache(self):
+        """Editor query payloads might be overwhelming for the cache, so we don't want to cache them."""
+        TestQueryRunner = self.setup_test_query_runner_class()
+
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team, limit_context=LimitContext.EDITOR)
+
+        with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
+            response = runner.run()
+            self.assertIsInstance(response, TestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, False)
+
+            # returns cached response afterwards
+            response = runner.run()
+            self.assertIsInstance(response, TestCachedBasicQueryResponse)
+            self.assertEqual(response.is_cached, False)

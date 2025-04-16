@@ -1,5 +1,5 @@
-from datetime import date, datetime
 import sys
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Literal, Optional, TypeAlias
 from uuid import UUID
@@ -40,6 +40,8 @@ MAX_SELECT_HEATMAPS_LIMIT = 1000000  # 1m datapoints
 MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
 # Max amount of memory usage when doing group by before swapping to disk. Only used in certain queries
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 22 * 1024 * 1024 * 1024
+# Max limit for editor queries
+MAX_SELECT_EDITOR_LIMIT = 1000000  # 1m datapoints
 
 CSV_EXPORT_LIMIT = MAX_SELECT_RETURNED_ROWS
 CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL = 512
@@ -56,6 +58,7 @@ class LimitContext(StrEnum):
     COHORT_CALCULATION = "cohort_calculation"
     HEATMAPS = "heatmaps"
     SAVED_QUERY = "saved_query"
+    EDITOR = "editor"
 
 
 def get_max_limit_for_context(limit_context: LimitContext) -> int:
@@ -67,6 +70,8 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
     elif limit_context == LimitContext.SAVED_QUERY:
         return sys.maxsize  # Max python int
+    elif limit_context == LimitContext.EDITOR:
+        return MAX_SELECT_EDITOR_LIMIT  # 1m
     else:
         raise ValueError(f"Unexpected LimitContext value: {limit_context}")
 
@@ -83,6 +88,8 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
     elif limit_context == LimitContext.SAVED_QUERY:
         return sys.maxsize  # Max python int
+    elif limit_context == LimitContext.EDITOR:
+        return MAX_SELECT_EDITOR_LIMIT  # 1m
     else:
         raise ValueError(f"Unexpected LimitContext value: {limit_context}")
 
