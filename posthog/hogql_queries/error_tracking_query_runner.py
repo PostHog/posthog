@@ -481,11 +481,11 @@ class ErrorTrackingQueryRunner(QueryRunner):
             # If we have an issueId, we should just use that
             return [self.query.issueId]
 
-        queryset = ErrorTrackingIssue.objects
+        objects = ErrorTrackingIssue.objects
         if self.query.dateRange.date_from:
-            queryset = queryset.with_first_seen().filter(first_seen__gte=self.query.dateRange.date_from)
+            objects = objects.with_first_seen().filter(first_seen__gte=self.query.dateRange.date_from)
 
-        queryset = queryset.select_related("assignment").filter(team=self.team)
+        queryset = objects.select_related("assignment").filter(team=self.team)
 
         if self.query.status and not self.query.status not in ["all", "active"]:
             use_prefetched = True
