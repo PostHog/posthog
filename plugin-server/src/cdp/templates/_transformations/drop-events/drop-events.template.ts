@@ -6,13 +6,11 @@ export const template: HogFunctionTemplate = {
     type: 'transformation',
     id: 'template-drop-events',
     name: 'Drop Events',
-    description: 'Drop events based on defined filters',
+    description:
+        'Drop events based on defined filters.\n\nHow to set up this up: https://posthog.com/docs/cdp/transformations/drop-events',
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Custom'],
     hog: `
-    // This transformation drops events based on defined filters
-    // Information about setting up filters correctly can be found here: https://posthog.com/docs/cdp/transformations/drop-events
-    // Events matching the filters will be dropped (return null)
-    return null`,
+return null`,
     inputs_schema: [],
 }
