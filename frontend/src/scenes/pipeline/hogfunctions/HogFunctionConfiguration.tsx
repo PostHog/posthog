@@ -267,6 +267,15 @@ export function HogFunctionConfiguration({
                     </div>
                 ) : null}
 
+                {type === 'transformation' && mightDrop && (
+                    <div>
+                        <LemonBanner type="error">
+                            <b>Warning:</b> This transformation will drop events. If this is not intended, please adjust
+                            your transformation code to return events instead of dropping them.
+                        </LemonBanner>
+                    </div>
+                )}
+
                 <Form
                     logic={hogFunctionConfigurationLogic}
                     props={logicProps}
