@@ -10,8 +10,8 @@ import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 import { errorTrackingAutoAssignmentLogic } from './errorTrackingAutoAssignmentLogic'
 
 export function ErrorTrackingAutoAssignment(): JSX.Element {
-    const { assignmentRulesWithNew, hasNewRule } = useValues(errorTrackingAutoAssignmentLogic)
-    const { loadRules, addRule, updateRule } = useActions(errorTrackingAutoAssignmentLogic)
+    const { assignmentRules, hasNewRule } = useValues(errorTrackingAutoAssignmentLogic)
+    const { loadRules, addRule, updateRule, saveRule } = useActions(errorTrackingAutoAssignmentLogic)
 
     useEffect(() => {
         loadRules()
@@ -19,7 +19,7 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-y-2">
-            {assignmentRulesWithNew.map((rule) => (
+            {assignmentRules.map((rule) => (
                 <LemonCard key={rule.id} hoverEffect={false} className="flex flex-col p-0">
                     <div className="flex gap-2 items-center px-2 py-3">
                         <div>Assign to</div>
@@ -48,10 +48,9 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
                         <PropertyFilters
                             propertyFilters={(rule.filters.values as AnyPropertyFilter[]) ?? []}
                             taxonomicGroupTypes={[TaxonomicFilterGroupType.ErrorTrackingIssueProperties]}
-                            onChange={(properties: AnyPropertyFilter[]) => {
-                                debugger
-                                updateRule({ ...rule, filters: { ...rule, values: properties } })
-                            }}
+                            onChange={(properties: AnyPropertyFilter[]) =>
+                                updateRule({ ...rule, filters: { ...rule.filters, values: properties } })
+                            }
                             pageKey={`error-tracking-auto-assignment-properties-${rule.id}`}
                             buttonSize="small"
                             disablePopover
@@ -64,10 +63,10 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
                 <LemonButton
                     type="secondary"
                     size="small"
-                    onClick={addRule}
+                    onClick={hasNewRule ? saveRule : addRule}
                     disabledReason={hasNewRule ? 'Finish creating your new rule first' : undefined}
                 >
-                    Add rule
+                    {hasNewRule ? 'Save' : 'Add'} rule
                 </LemonButton>
             </div>
         </div>

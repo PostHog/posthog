@@ -2,7 +2,10 @@ import { LemonButtonProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
-import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
+import {
+    PropertyDatePickerValue,
+    PropertyFilterDatePicker,
+} from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -114,7 +117,12 @@ export function PropertyValue({
     if (isDateTimeProperty) {
         if (!addRelativeDateTimeOptions || operator === PropertyOperator.IsDateExact) {
             return (
-                <PropertyFilterDatePicker autoFocus={autoFocus} operator={operator} value={value} setValue={setValue} />
+                <PropertyFilterDatePicker
+                    autoFocus={autoFocus}
+                    operator={operator}
+                    value={value as PropertyDatePickerValue}
+                    setValue={setValue}
+                />
             )
         }
 
