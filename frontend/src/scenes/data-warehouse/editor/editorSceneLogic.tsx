@@ -129,9 +129,17 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                         }
                                       : null,
                                   onClick: () => {
-                                      actions.selectSchema(table)
+                                      multitabEditorLogic({
+                                          key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                      }).actions.createTab(`SELECT * FROM ${table.name}`)
                                   },
                                   menuItems: [
+                                      {
+                                          label: 'Open schema',
+                                          onClick: () => {
+                                              actions.selectSchema(table)
+                                          },
+                                      },
                                       {
                                           label: 'Add join',
                                           onClick: () => {
@@ -209,9 +217,17 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                               }
                             : null,
                         onClick: () => {
-                            actions.selectSchema(savedQuery)
+                            multitabEditorLogic({
+                                key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                            }).actions.editView(savedQuery.query.query, savedQuery)
                         },
                         menuItems: [
+                            {
+                                label: 'Open schema',
+                                onClick: () => {
+                                    actions.selectSchema(savedQuery)
+                                },
+                            },
                             {
                                 label: 'Edit view definition',
                                 onClick: () => {
@@ -302,9 +318,17 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                         icon: <IconDatabase />,
                         searchMatch: null,
                         onClick: () => {
-                            actions.selectSchema(table)
+                            multitabEditorLogic({
+                                key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                            }).actions.createTab(`SELECT * FROM ${table.name}`)
                         },
                         menuItems: [
+                            {
+                                label: 'Open schema',
+                                onClick: () => {
+                                    actions.selectSchema(table)
+                                },
+                            },
                             {
                                 label: 'Add join',
                                 onClick: () => {
@@ -343,9 +367,17 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                         icon: <IconDatabase />,
                         searchMatch: null,
                         onClick: () => {
-                            actions.selectSchema(table)
+                            multitabEditorLogic({
+                                key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                            }).actions.createTab(`SELECT * FROM ${table.name}`)
                         },
                         menuItems: [
+                            {
+                                label: 'Open schema',
+                                onClick: () => {
+                                    actions.selectSchema(table)
+                                },
+                            },
                             {
                                 label: 'Add join',
                                 onClick: () => {

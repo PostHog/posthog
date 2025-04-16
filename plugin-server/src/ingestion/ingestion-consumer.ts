@@ -27,10 +27,9 @@ import { MemoryRateLimiter } from './utils/overflow-detector'
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
 
-const ingestionPartitionKeyOverflowed = new Counter({
-    name: 'ingestion_partition_key_overflowed',
-    help: 'Indicates that a given key has overflowed capacity and been redirected to a different topic. Value incremented once a minute.',
-    labelNames: ['partition_key'],
+const ingestionEventOverflowed = new Counter({
+    name: 'ingestion_event_overflowed',
+    help: 'Indicates that a given event has overflowed capacity and been redirected to a different topic.',
 })
 
 const histogramKafkaBatchSize = new Histogram({
@@ -58,8 +57,14 @@ const eventProcessorComparison = new Counter({
 
 type IncomingEvent = { message: Message; event: PipelineEvent }
 
+type EventsForDistinctId = {
+    token: string
+    distinctId: string
+    events: IncomingEvent[]
+}
+
 type IncomingEventsByDistinctId = {
-    [key: string]: IncomingEvent[]
+    [key: string]: EventsForDistinctId
 }
 
 const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
@@ -209,6 +214,14 @@ export class IngestionConsumer {
     public async handleKafkaBatch(messages: Message[]) {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
 
+        // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
+        const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
+
+        // Get hog function IDs for all teams and cache function states only if hogwatcher is enabled
+        if (shouldRunHogWatcher) {
+            await this.fetchAndCacheHogFunctionStates(parsedMessages)
+        }
+
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
                 Object.values(parsedMessages).map(async (events) => {
@@ -238,34 +251,41 @@ export class IngestionConsumer {
      * Redirect events to overflow or testing topic based on their configuration
      * returning events that have not been redirected
      */
-    private redirectEvents(incomingEvents: IncomingEvent[]): IncomingEvent[] {
-        if (!incomingEvents.length) {
-            return []
+    private redirectEvents(eventsForDistinctId: EventsForDistinctId): EventsForDistinctId {
+        if (!eventsForDistinctId.events.length) {
+            return eventsForDistinctId
         }
 
         if (this.testingTopic) {
-            void this.scheduleWork(this.emitToTestingTopic(incomingEvents.map((x) => x.message)))
-            return []
+            void this.scheduleWork(this.emitToTestingTopic(eventsForDistinctId.events.map((x) => x.message)))
+            return {
+                ...eventsForDistinctId,
+                events: [],
+            }
         }
 
         // NOTE: We know at this point that all these events are the same token distinct_id
-        const token = incomingEvents[0].event.token
-        const distinctId = incomingEvents[0].event.distinct_id
-        const kafkaTimestamp = incomingEvents[0].message.timestamp
+        const token = eventsForDistinctId.token
+        const distinctId = eventsForDistinctId.distinctId
+        const kafkaTimestamp = eventsForDistinctId.events[0].message.timestamp
         const eventKey = `${token}:${distinctId}`
 
         // Check if this token is in the force overflow list
         const shouldForceOverflow = this.shouldForceOverflow(token, distinctId)
 
         // Check the rate limiter and emit to overflow if necessary
-        const isBelowRateLimit = this.overflowRateLimiter.consume(eventKey, incomingEvents.length, kafkaTimestamp)
+        const isBelowRateLimit = this.overflowRateLimiter.consume(
+            eventKey,
+            eventsForDistinctId.events.length,
+            kafkaTimestamp
+        )
 
         if (this.overflowEnabled() && (shouldForceOverflow || !isBelowRateLimit)) {
-            ingestionPartitionKeyOverflowed.inc(incomingEvents.length)
+            ingestionEventOverflowed.inc(eventsForDistinctId.events.length)
 
             if (shouldForceOverflow) {
                 forcedOverflowEventsCounter.inc()
-            } else if (this.ingestionWarningLimiter.consume(eventKey, incomingEvents.length)) {
+            } else if (this.ingestionWarningLimiter.consume(eventKey, eventsForDistinctId.events.length)) {
                 logger.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
             }
 
@@ -276,20 +296,60 @@ export class IngestionConsumer {
 
             void this.scheduleWork(
                 this.emitToOverflow(
-                    incomingEvents.map((x) => x.message),
+                    eventsForDistinctId.events.map((x) => x.message),
                     preserveLocality
                 )
             )
 
-            return []
+            return {
+                ...eventsForDistinctId,
+                events: [],
+            }
         }
 
-        return incomingEvents
+        return eventsForDistinctId
     }
 
-    private async processEventsForDistinctId(incomingEvents: IncomingEvent[]): Promise<void> {
+    /**
+     * Fetches and caches hog function states for all teams in the batch
+     */
+    private async fetchAndCacheHogFunctionStates(parsedMessages: IncomingEventsByDistinctId): Promise<void> {
+        await this.runInstrumented('fetchAndCacheHogFunctionStates', async () => {
+            // Clear cached hog function states before fetching new ones
+            this.hogTransformer.clearHogFunctionStates()
+
+            const tokensToFetch = new Set<string>()
+            Object.values(parsedMessages).forEach((eventsForDistinctId) => tokensToFetch.add(eventsForDistinctId.token))
+
+            if (tokensToFetch.size === 0) {
+                return // No teams to process
+            }
+
+            const teams = await this.hub.teamManagerLazy.getTeamsByTokens(Array.from(tokensToFetch))
+
+            const teamIdsArray = Object.values(teams)
+                .map((x) => x?.id)
+                .filter(Boolean) as number[]
+
+            // Get hog function IDs for transformations
+            const teamHogFunctionIds = await this.hogTransformer['hogFunctionManager'].getHogFunctionIdsForTeams(
+                teamIdsArray,
+                ['transformation']
+            )
+
+            // Flatten all hog function IDs into a single array
+            const allHogFunctionIds = Object.values(teamHogFunctionIds).flat()
+
+            if (allHogFunctionIds.length > 0) {
+                // Cache the hog function states
+                await this.hogTransformer.fetchAndCacheHogFunctionStates(allHogFunctionIds)
+            }
+        })
+    }
+
+    private async processEventsForDistinctId(eventsForDistinctId: EventsForDistinctId): Promise<void> {
         // Process every message sequentially, stash promises to await on later
-        for (const incomingEvent of incomingEvents) {
+        for (const incomingEvent of eventsForDistinctId.events) {
             // Track $set usage in events that aren't known to use it, before ingestion adds anything there
             trackIfNonPersonEventUpdatesPersons(incomingEvent.event)
 
@@ -422,7 +482,7 @@ export class IngestionConsumer {
         // Here we explicitly do _not_ add any additional metadata to the message. We might want to add
         // some metadata to the message e.g. in the header or reference e.g. the sentry event id.
         //
-        // TODO: property abstract out this `isRetriable` error logic. This is currently relying on the
+        // TODO: properly abstract out this `isRetriable` error logic. This is currently relying on the
         // fact that node-rdkafka adheres to the `isRetriable` interface.
 
         if (error?.isRetriable === false) {
@@ -578,10 +638,14 @@ export class IngestionConsumer {
             // We collect the events grouped by token and distinct_id so that we can process batches in parallel whilst keeping the order of events
             // for a given distinct_id
             if (!batches[eventKey]) {
-                batches[eventKey] = []
+                batches[eventKey] = {
+                    token: event.token ?? '',
+                    distinctId: event.distinct_id ?? '',
+                    events: [],
+                }
             }
 
-            batches[eventKey].push({ message, event })
+            batches[eventKey].events.push({ message, event })
         }
 
         return Promise.resolve(batches)

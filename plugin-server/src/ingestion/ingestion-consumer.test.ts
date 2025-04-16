@@ -404,9 +404,25 @@ describe('IngestionConsumer', () => {
             const batches = await ingester['parseKafkaBatch'](messages)
 
             expect(Object.keys(batches)).toHaveLength(3)
-            expect(batches[`${team.api_token}:distinct-id-1`]).toHaveLength(3)
-            expect(batches[`${team.api_token}:distinct-id-2`]).toHaveLength(1)
-            expect(batches[`${team2.api_token}:distinct-id-1`]).toHaveLength(1)
+
+            // Rewrite the test to check for the overall object with the correct length
+            expect(batches).toEqual({
+                [`${team.api_token}:distinct-id-1`]: {
+                    distinctId: 'distinct-id-1',
+                    token: team.api_token,
+                    events: [expect.any(Object), expect.any(Object), expect.any(Object)],
+                },
+                [`${team.api_token}:distinct-id-2`]: {
+                    distinctId: 'distinct-id-2',
+                    token: team.api_token,
+                    events: [expect.any(Object)],
+                },
+                [`${team2.api_token}:distinct-id-1`]: {
+                    distinctId: 'distinct-id-1',
+                    token: team2.api_token,
+                    events: [expect.any(Object)],
+                },
+            })
         })
     })
 
@@ -724,6 +740,73 @@ describe('IngestionConsumer', () => {
             ingester = new IngestionConsumer(hub)
             await ingester.start()
         })
+
+        it(
+            'should call hogwatcher state caching methods and observe results when hogwatcher is enabled (sample rate = 1)',
+            async () => {
+                // Set hogwatcher enabled (100% sample rate)
+                hub.CDP_HOG_WATCHER_SAMPLE_RATE = 1
+
+                // Create spies for methods after the service is configured
+                const fetchAndCacheSpy = jest.spyOn(ingester.hogTransformer, 'fetchAndCacheHogFunctionStates')
+                const clearStatesSpy = jest.spyOn(ingester.hogTransformer, 'clearHogFunctionStates')
+                const observeResultsSpy = jest.spyOn(ingester.hogTransformer['hogWatcher'], 'observeResults')
+
+                // Process batch with hogwatcher enabled
+                // in this stage we do not have the teamId on the event but the token is present
+                const event = createEvent({
+                    ip: '89.160.20.129',
+                    properties: { $ip: '89.160.20.129' },
+                })
+                const messages = createKafkaMessages([event])
+
+                await ingester.handleKafkaBatch(messages)
+
+                // Verify that fetchAndCacheHogFunctionStates and clearHogFunctionStates were called
+                expect(fetchAndCacheSpy).toHaveBeenCalled()
+                expect(clearStatesSpy).toHaveBeenCalled()
+
+                // Verify the full integration flow worked
+                expect(observeResultsSpy).toHaveBeenCalled()
+
+                // Verify that results were passed to observeResults with the correct structure
+                const results = observeResultsSpy.mock.calls[0][0]
+                expect(results).toBeInstanceOf(Array)
+                expect(results.length).toBeGreaterThan(0)
+
+                // Check that the results contain our transformation function
+                const functionResult = results.find((r) => r.invocation.hogFunction.id === transformationFunction.id)
+                expect(functionResult).toBeDefined()
+                expect(functionResult?.finished).toBe(true)
+            },
+            TRANSFORMATION_TEST_TIMEOUT
+        )
+
+        it(
+            'should not call hogwatcher state caching methods when hogwatcher is disabled (sample rate = 0)',
+            async () => {
+                // Set hogwatcher disabled (0% sample rate)
+                hub.CDP_HOG_WATCHER_SAMPLE_RATE = 0
+
+                // Create spies for methods after the service is configured
+                const fetchAndCacheSpy = jest.spyOn(ingester.hogTransformer, 'fetchAndCacheHogFunctionStates')
+                const clearStatesSpy = jest.spyOn(ingester.hogTransformer, 'clearHogFunctionStates')
+
+                // Process batch with hogwatcher disabled
+                const event = createEvent({
+                    ip: '89.160.20.129',
+                    properties: { $ip: '89.160.20.129' },
+                })
+                const messages = createKafkaMessages([event])
+
+                await ingester.handleKafkaBatch(messages)
+
+                // Verify that fetchAndCacheHogFunctionStates and clearHogFunctionStates were NOT called
+                expect(fetchAndCacheSpy).not.toHaveBeenCalled()
+                expect(clearStatesSpy).not.toHaveBeenCalled()
+            },
+            TRANSFORMATION_TEST_TIMEOUT
+        )
 
         it(
             'should invoke transformation for matching team with error case',

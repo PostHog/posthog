@@ -98,7 +98,6 @@ describe('eachBatchX', () => {
             isStale: jest.fn(() => false),
         }
     }
-
     beforeEach(() => {
         queue = {
             bufferSleep: jest.fn(),

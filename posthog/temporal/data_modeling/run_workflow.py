@@ -36,6 +36,7 @@ from posthog.warehouse.data_load.create_table import create_table_from_saved_que
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseTable
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.util import database_sync_to_async
+from posthog.clickhouse.client.connection import Workload
 
 logger = structlog.get_logger()
 
@@ -387,12 +388,12 @@ async def materialize_model(
         table_columns[column_name] = column_schema
 
     hogql_query = saved_query.query["query"]
-
     destination = get_dlt_destination()
     pipeline = dlt.pipeline(
         pipeline_name=f"materialize_model_{model_label}",
         destination=destination,
         dataset_name=f"team_{team.pk}_model_{model_label}",
+        refresh="drop_sources",
     )
 
     try:
@@ -497,6 +498,7 @@ def hogql_table(query: str, team: Team, table_name: str, table_columns: dlt_typi
             team,
             settings=settings,
             limit_context=LimitContext.SAVED_QUERY,
+            workload=Workload.OFFLINE,
         )
 
         if not response.columns:
