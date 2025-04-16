@@ -487,7 +487,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
         queryset = objects.select_related("assignment").filter(team=self.team)
 
-        if self.query.status and not self.query.status not in ["all", "active"]:
+        if self.query.status and self.query.status not in ["all", "active"]:
             use_prefetched = True
             queryset = queryset.filter(status=self.query.status)
 
