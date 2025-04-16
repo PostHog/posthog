@@ -116,6 +116,17 @@ describe('TeamManager()', () => {
             expect(fetchTeamsSpy).toHaveBeenCalledTimes(1)
             expect(results.map((r) => r?.id)).toEqual([teamId, teamId, teamId, teamId, undefined])
         })
+
+        it('caches null results for non-existing tokens', async () => {
+            const nonExistentToken = 'non-existent-token'
+            const result1 = await teamManager.getTeamByToken(nonExistentToken)
+            expect(result1).toBeNull()
+            expect(fetchTeamsSpy).toHaveBeenCalledTimes(1)
+
+            const result2 = await teamManager.getTeamByToken(nonExistentToken)
+            expect(result2).toBeNull()
+            expect(fetchTeamsSpy).toHaveBeenCalledTimes(1)
+        })
     })
 
     describe('hasAvailableFeature()', () => {
