@@ -10,16 +10,10 @@ import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 
 import { editorSceneLogic } from '../editorSceneLogic'
 import { editorSizingLogic } from '../editorSizingLogic'
-import { editorSidebarLogic } from './editorSidebarLogic'
+import { editorSidebarLogic, EditorSidebarTab } from './editorSidebarLogic'
 import { QueryDatabase } from './QueryDatabase'
 import { QueryInfo } from './QueryInfo'
 import { QueryVariables } from './QueryVariables'
-
-enum EditorSidebarTab {
-    QueryDatabase = 'query_database',
-    QueryVariables = 'query_variables',
-    QueryInfo = 'query_info',
-}
 
 export const EditorSidebar = ({
     sidebarRef,
