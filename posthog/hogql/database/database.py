@@ -179,25 +179,24 @@ class Database(BaseModel):
         return self._week_start_day or WeekStartDay.SUNDAY
 
     def has_table(self, table_name: str | list[str]) -> bool:
-        if not isinstance(table_name, list) and "." not in table_name:
-            return hasattr(self, table_name)
-
-        if isinstance(table_name, list):
-            # Handling trends data warehouse nodes
-            if len(table_name) == 1 and "." in table_name[0]:
-                table_chain = table_name[0].split(".")
+        if isinstance(table_name, list) or "." in table_name:
+            if isinstance(table_name, list):
+                # Handling trends data warehouse nodes
+                if len(table_name) == 1 and "." in table_name[0]:
+                    table_chain = table_name[0].split(".")
+                else:
+                    table_chain = table_name
             else:
-                table_chain = table_name
-        else:
-            table_chain = table_name.split(".")
+                table_chain = table_name.split(".")
+            if not hasattr(self, table_chain[0]):
+                return False
 
-        if not hasattr(self, table_chain[0]):
-            return False
+            try:
+                return self.get_table_by_chain(table_chain) is not None
+            except QueryError:
+                return False
 
-        try:
-            return self.get_table_by_chain(table_chain) is not None
-        except QueryError:
-            return False
+        return hasattr(self, table_name)
 
     def get_table(self, table_name: str) -> Table:
         if "." in table_name:
@@ -508,7 +507,28 @@ def create_hogql_database(
                     # For a chain of type a.b.c, we want to create a nested table group
                     # where a is the parent, b is the child of a, and c is the child of b
                     # where a.b.c will contain the s3_table
-                    create_nested_table_group(table_chain, warehouse_tables, s3_table)
+                    last_group: TableGroup | None = None
+                    for index, ele in enumerate(table_chain):
+                        is_last_element = index == len(table_chain) - 1
+                        if last_group:
+                            if is_last_element:
+                                last_group.tables[ele] = s3_table
+                            elif last_group.has_table(ele):
+                                last_group_table = last_group.get_table(ele)
+                                assert isinstance(last_group_table, TableGroup)
+                                last_group = last_group_table
+                            else:
+                                new_group = TableGroup()
+                                last_group.tables[ele] = new_group
+                                last_group = new_group
+                        elif warehouse_tables.get(ele) is not None:
+                            parent_wh_table = warehouse_tables[ele]
+                            if isinstance(parent_wh_table, TableGroup):
+                                last_group = parent_wh_table
+                        else:
+                            new_group = TableGroup()
+                            warehouse_tables[ele] = new_group
+                            last_group = new_group
 
                     joined_table_chain = ".".join(table_chain)
                     s3_table.name = joined_table_chain
