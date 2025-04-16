@@ -101,9 +101,11 @@ export class TeamManagerLazy {
         const [teamIds, tokens] = teamIdOrTokens.reduce(
             ([teamIds, tokens], idOrToken) => {
                 // TRICKY: We are caching ids and tokens so we need to determine which is which
-                // Fix this to be a prefix based lookup
-                if (/^\d+$/.test(idOrToken)) {
-                    teamIds.push(parseInt(idOrToken))
+                // Fix this to be a prefix based lookup. Added hack to limit to positive integer
+                // that shouldn't overflow 32-bit integer in DB column.
+                if (/^\d+{,10}$/.test(idOrToken)) {
+                    const parsed = parseInt(idOrToken)
+                    teamIds.push(parsed)
                 } else {
                     tokens.push(idOrToken)
                 }
@@ -114,7 +116,7 @@ export class TeamManagerLazy {
 
         const result = await this.postgres.query<RawTeam>(
             PostgresUse.COMMON_READ,
-            `SELECT 
+            `SELECT
                 t.id,
                 t.project_id,
                 t.uuid,

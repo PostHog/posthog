@@ -85,6 +85,11 @@ describe('TeamManager()', () => {
             expect(result).toBeNull()
         })
 
+        it('returns null if the team ID is larger than 32-bit integer and could overflow DB col type', async () => {
+            const result = await teamManager.getTeam(12345678901234)
+            expect(result).toBeNull()
+        })
+
         it('caches the team for second lookup whether on token or id', async () => {
             const result = await teamManager.getTeam(teamId)
             expect(result?.id).toEqual(teamId)
