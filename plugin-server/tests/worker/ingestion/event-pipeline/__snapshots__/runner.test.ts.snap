@@ -152,7 +152,6 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
         "personUpdateProperties": {},
       },
       true,
-      [],
     ],
   ],
   [
