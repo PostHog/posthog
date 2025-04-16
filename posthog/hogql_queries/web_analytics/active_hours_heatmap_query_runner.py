@@ -55,9 +55,10 @@ class ActiveHoursHeatMapQueryRunner(WebAnalyticsQueryRunner):
             timings=self.timings,
             modifiers=self.modifiers,
         )
-        results: list[ActiveHoursHeatMapResult] = []
-        for row in response.results:
-            results.append(ActiveHoursHeatMapResult(day=int(row[0]), hour=int(row[1]), total=int(row[2])))
+        results = [
+        	ActiveHoursHeatMapResult(day=int(row[0]), hour=int(row[1]), total=int(row[2]))
+        	for row in response.results
+        ]
 
         assert results is not None
 
