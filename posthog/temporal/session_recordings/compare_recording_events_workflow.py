@@ -172,7 +172,26 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
         v2_snapshots: list[dict[str, Any]] = []
         blocks = list_blocks(recording)
         if blocks:
+            # Check for unique blocks and log their ranges
+            unique_blocks = {}  # url -> block
             for block in blocks:
+                if block["url"] not in unique_blocks:
+                    unique_blocks[block["url"]] = block
+
+            await logger.ainfo(
+                "V2 blocks info",
+                total_blocks=len(blocks),
+                unique_blocks=len(unique_blocks),
+                time_ranges=[
+                    {
+                        "start": block["start_time"].isoformat() if block.get("start_time") else None,
+                        "end": block["end_time"].isoformat() if block.get("end_time") else None,
+                    }
+                    for block in unique_blocks.values()
+                ],
+            )
+
+            for block in unique_blocks.values():
                 try:
                     decompressed_block = v2_client().fetch_block(block["url"])
                     if decompressed_block:
