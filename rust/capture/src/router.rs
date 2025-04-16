@@ -64,7 +64,7 @@ impl HistoricalConfig {
         }
     }
 
-    // event_key is on of: "token" "token:ip_addr" or "token:distinct_id"
+    // event_key is one of: "token" "token:ip_addr" or "token:distinct_id"
     // and self.historical_tokens_keys is a set of the same. if the key
     // matches any entry in the set, the event should be rerouted
     pub fn should_reroute(&self, event_key: &str) -> bool {
