@@ -183,6 +183,7 @@ posthog/hogql_queries/test/test_query_runner.py:0: error: Invalid base class "Te
 posthog/hogql_queries/test/test_query_runner.py:0: error: Variable "TestQueryRunner" is not valid as a type  [valid-type]
 posthog/hogql_queries/utils/query_date_range.py:0: error: Incompatible default for argument "source" (default has type "None", argument has type "Expr")  [assignment]
 posthog/hogql_queries/utils/query_date_range.py:0: error: Item "None" of "IntervalType | None" has no attribute "name"  [union-attr]
+posthog/hogql_queries/web_analytics/active_hours_heatmap_query_runner.py:0: error: Incompatible types in assignment (expression has type "ActiveHoursHeatMapQuery", base class "WebAnalyticsQueryRunner" defined the type as "WebOverviewQuery | WebStatsTableQuery | WebGoalsQuery | WebExternalClicksTableQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery")  [assignment]
 posthog/management/commands/fix_future_person_created_at.py:0: error: Argument "version" to "create_person" has incompatible type "int | None"; expected "int"  [arg-type]
 posthog/management/commands/sync_persons_to_clickhouse.py:0: error: Argument "group_type_index" to "raw_create_group_ch" has incompatible type "int"; expected "Literal[0, 1, 2, 3, 4]"  [arg-type]
 posthog/management/commands/sync_persons_to_clickhouse.py:0: error: Argument 4 to "create_person_override" has incompatible type "int | None"; expected "int"  [arg-type]
