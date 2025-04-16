@@ -18,7 +18,10 @@ import {
     DropdownMenuContent,
     DropdownMenuGroup,
     DropdownMenuItem,
+    DropdownMenuItemIndicator,
     DropdownMenuLabel,
+    DropdownMenuRadioGroup,
+    DropdownMenuRadioItem,
     DropdownMenuSeparator,
     DropdownMenuSub,
     DropdownMenuSubContent,
@@ -32,7 +35,7 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
-import { projectTreeLogic } from './projectTreeLogic'
+import { projectTreeLogic, ProjectTreeSortMethod } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
 
 export function ProjectTree(): JSX.Element {
@@ -332,27 +335,27 @@ export function ProjectTree(): JSX.Element {
                             <IconSort className="text-tertiary" />
                         </ButtonPrimitive>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent loop align="end" className="w-[140px]">
-                        <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+                    <DropdownMenuContent loop align="end" className="w-[180px]">
+                        <DropdownMenuLabel inset>Sort by</DropdownMenuLabel>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem asChild>
-                            <ButtonPrimitive
-                                menuItem
-                                active={sortMethod === 'alphabetical'}
-                                onClick={() => setSortMethod('alphabetical')}
-                            >
-                                Alphabetical
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                            <ButtonPrimitive
-                                menuItem
-                                active={sortMethod === 'created_at'}
-                                onClick={() => setSortMethod('created_at')}
-                            >
-                                Creation date
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
+                        <DropdownMenuRadioGroup
+                            value={sortMethod}
+                            onValueChange={(value) => setSortMethod(value as ProjectTreeSortMethod)}
+                        >
+                            <DropdownMenuRadioItem value="created_at" asChild>
+                                <ButtonPrimitive menuItem onClick={() => setSortMethod('created_at')}>
+                                    <DropdownMenuItemIndicator intent="radio" />
+                                    Creation date
+                                </ButtonPrimitive>
+                            </DropdownMenuRadioItem>
+
+                            <DropdownMenuRadioItem value="alphabetical" asChild>
+                                <ButtonPrimitive menuItem onClick={() => setSortMethod('created_at')}>
+                                    <DropdownMenuItemIndicator intent="radio" />
+                                    Alphabetical
+                                </ButtonPrimitive>
+                            </DropdownMenuRadioItem>
+                        </DropdownMenuRadioGroup>
                     </DropdownMenuContent>
                 </DropdownMenu>
             }
