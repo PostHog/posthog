@@ -53,6 +53,9 @@ def remove_named_tuples(type):
 
 
 def clean_type(column_type: str) -> str:
+    # Replace newline characters followed by empty space
+    column_type = re.sub(r"\n\s+", "", column_type)
+
     if column_type.startswith("Nullable("):
         column_type = column_type.replace("Nullable(", "")[:-1]
 

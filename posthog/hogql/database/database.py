@@ -250,9 +250,26 @@ class Database(BaseModel):
     def get_views(self) -> list[str]:
         return self._view_table_names
 
+    # This guaranttes that we can have both tables and views (or anything)
+    # with the same namespace (like Stripe, for example) and they're merged
+    # together as an attribute when we try setting them
+    def merge_or_setattr(self, f_name: str, f_def: Any):
+        current = getattr(self, f_name, None)
+        if current is not None:
+            if isinstance(current, TableGroup) and isinstance(f_def, TableGroup):
+                current.merge_with(f_def)  # Inplace
+            else:
+                raise ValueError(
+                    f"Conflict trying to add table {f_name}: {current} and {f_def} have the same key but are not the same"
+                )
+        else:
+            setattr(self, f_name, f_def)
+
+        return self
+
     def add_warehouse_tables(self, **field_definitions: Any):
         for f_name, f_def in field_definitions.items():
-            setattr(self, f_name, f_def)
+            self.merge_or_setattr(f_name, f_def)
 
             if isinstance(f_def, Table):
                 self._warehouse_table_names.append(f_name)
@@ -261,12 +278,18 @@ class Database(BaseModel):
 
     def add_warehouse_self_managed_tables(self, **field_definitions: Any):
         for f_name, f_def in field_definitions.items():
-            setattr(self, f_name, f_def)
+            self.merge_or_setattr(f_name, f_def)
             self._warehouse_self_managed_table_names.append(f_name)
 
     def add_views(self, **field_definitions: Any):
         for f_name, f_def in field_definitions.items():
-            setattr(self, f_name, f_def)
+            self.merge_or_setattr(f_name, f_def)
+
+            # No need to add TableGroups to the view table names,
+            # they're already with their chained name
+            if isinstance(f_def, TableGroup):
+                continue
+
             self._view_table_names.append(f_name)
 
 
@@ -329,7 +352,6 @@ def create_hogql_database(
     from posthog.warehouse.models import (
         DataWarehouseJoin,
         DataWarehouseSavedQuery,
-        DataWarehouseTable,
     )
 
     if timings is None:
@@ -444,14 +466,14 @@ def create_hogql_database(
 
         with timings.measure("for_schema_source"):
             for stripe_source in stripe_sources:
-                view = RevenueAnalyticsRevenueView.for_schema_source(stripe_source)
+                revenue_views = RevenueAnalyticsRevenueView.for_schema_source(stripe_source)
 
                 # View will have a name similar to stripe.prefix.table_name
                 # We want to create a nested table group where stripe is the parent,
                 # prefix is the child of stripe, and table_name is the child of prefix
                 # allowing you to access the table as stripe[prefix][table_name] in a dict fashion
                 # but still allowing the bare stripe.prefix.table_name string access
-                if view is not None:
+                for view in revenue_views:
                     views[view.name] = view
                     create_nested_table_group(view.name.split("."), views, view)
 
@@ -908,8 +930,12 @@ def serialize_database(
     # Process views using prefetched data
     views_dict = {view.name: view for view in all_views}
     for view_name in views:
-        view: SavedQuery | None = getattr(context.database, view_name, None)
+        view: Table | TableGroup | None = getattr(context.database, view_name, None)
         if view is None:
+            continue
+
+        # Don't need to process TableGroups, they're already processed below
+        if isinstance(view, TableGroup):
             continue
 
         fields = serialize_fields(view.fields, context, view_name.split("."), table_type="external")
@@ -932,7 +958,7 @@ def serialize_database(
         tables[view_name] = DatabaseSchemaViewTable(
             fields=fields_dict,
             id=str(saved_query.pk),
-            name=view.name,
+            name=view_name,
             query=HogQLQuery(query=saved_query.query["query"]),
         )
 
@@ -971,7 +997,6 @@ def serialize_fields(
     db_columns: Optional[DataWarehouseTableColumns] = None,
     table_type: Literal["posthog"] | Literal["external"] = "posthog",
 ) -> list[DatabaseSchemaField]:
-    from posthog.hogql.database.models import SavedQuery
     from posthog.hogql.resolver import resolve_types_from_table
 
     field_output: list[DatabaseSchemaField] = []
