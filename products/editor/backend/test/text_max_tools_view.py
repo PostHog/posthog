@@ -18,7 +18,6 @@ class TestMaxToolsViewSet(APIBaseTest):
     def tearDown(self):
         super().tearDown()
         self.patcher.stop()
-        self.patcher.stop()
 
     @patch("products.editor.backend.api.max_tools.Assistant")
     def test_insights_tool_call_success(self, mock_assistant):
