@@ -185,6 +185,53 @@ describe('HogFunctionManager', () => {
         })
     })
 
+    describe('getHogFunctionIdsForTeams', () => {
+        it('returns function IDs filtered by type', async () => {
+            const result = await manager.getHogFunctionIdsForTeams(
+                [teamId1, teamId2],
+                ['destination', 'transformation']
+            )
+
+            expect(result[teamId1]).toHaveLength(2)
+            expect(result[teamId1]).toContain(hogFunctions[0].id) // destination function
+            expect(result[teamId1]).toContain(hogFunctions[1].id) // transformation function
+
+            expect(result[teamId2]).toHaveLength(1)
+            expect(result[teamId2]).toContain(hogFunctions[2].id) // destination function
+        })
+
+        it('returns empty arrays for teams with no matching functions', async () => {
+            const nonExistentTeamId = teamId2 + 1
+            const result = await manager.getHogFunctionIdsForTeams([nonExistentTeamId], ['transformation'])
+
+            expect(result[nonExistentTeamId]).toEqual([])
+        })
+
+        it('filters by specific type correctly', async () => {
+            const result = await manager.getHogFunctionIdsForTeams([teamId1], ['transformation'])
+
+            expect(result[teamId1]).toHaveLength(1)
+            expect(result[teamId1]).toContain(hogFunctions[1].id) // only the transformation function
+            expect(result[teamId1]).not.toContain(hogFunctions[0].id) // not the destination function
+        })
+
+        it('handles disabled functions', async () => {
+            // Disable a function
+            await hub.db.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogfunction SET enabled=false, updated_at = NOW() WHERE id = $1`,
+                [hogFunctions[0].id],
+                'testKey'
+            )
+
+            // This is normally dispatched by django
+            manager['onHogFunctionsReloaded'](teamId1, [hogFunctions[0].id])
+
+            const result = await manager.getHogFunctionIdsForTeams([teamId1], ['destination'])
+            expect(result[teamId1]).toHaveLength(0)
+        })
+    })
+
     it('removes disabled functions', async () => {
         let items = await manager.getHogFunctionsForTeam(teamId1, ['destination'])
 
