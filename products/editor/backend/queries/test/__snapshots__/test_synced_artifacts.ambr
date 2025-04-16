@@ -1,12 +1,6 @@
 # serializer version: 1
 # name: TestSyncedArtifacts.test_artifacts_from_the_list_are_returned
   '''
-  select *
-  from codebase_embeddings
-  '''
-# ---
-# name: TestSyncedArtifacts.test_artifacts_from_the_list_are_returned.1
-  '''
   SELECT codebase_embeddings.artifact_id AS synced_artifact_id,
          argMax(codebase_embeddings.is_deleted, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS deleted
   FROM codebase_embeddings
@@ -25,12 +19,6 @@
   '''
 # ---
 # name: TestSyncedArtifacts.test_synced_artifacts
-  '''
-  select *
-  from codebase_embeddings
-  '''
-# ---
-# name: TestSyncedArtifacts.test_synced_artifacts.1
   '''
   SELECT codebase_embeddings.artifact_id AS synced_artifact_id,
          argMax(codebase_embeddings.is_deleted, toTimeZone(codebase_embeddings.timestamp, 'UTC')) AS deleted
