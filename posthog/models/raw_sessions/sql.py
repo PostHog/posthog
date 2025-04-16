@@ -113,10 +113,10 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
 
     -- web vitals
-    vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
+    vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC')),
 
     -- this was accidentally added at the end in prod, it lives here now
-    initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC'))
 
 ) ENGINE = {engine}
 """
@@ -256,7 +256,7 @@ SELECT
     initializeAggregation('argMinState', {vitals_lcp}, timestamp) as vitals_lcp,
 
     -- end
-    initializeAggregation('argMinState', {kx}, timestamp) as initial__kx,
+    initializeAggregation('argMinState', {kx}, timestamp) as initial__kx
 
 FROM {database}.events
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
@@ -382,7 +382,7 @@ SELECT
     argMinState({vitals_lcp}, timestamp) as vitals_lcp,
 
     -- end
-    argMinState({kx}, timestamp) as initial__kx,
+    argMinState({kx}, timestamp) as initial__kx
 
 FROM {database}.sharded_events
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7)
@@ -568,7 +568,7 @@ SELECT
 
     argMinMerge(vitals_lcp) as vitals_lcp,
 
-    argMinMerge(initial__kx) as initial__kx,
+    argMinMerge(initial__kx) as initial__kx
 FROM {TABLE_BASE_NAME}
 GROUP BY session_id_v7, team_id
 """
