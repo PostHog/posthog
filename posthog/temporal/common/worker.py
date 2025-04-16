@@ -23,6 +23,51 @@ def _debug_pyarrows():
         pa.log_memory_allocations(enable=True)
 
 
+async def create_worker(
+    host: str,
+    port: int,
+    metrics_port: int,
+    namespace: str,
+    task_queue: str,
+    workflows: collections.abc.Sequence[type],
+    activities,
+    server_root_ca_cert: str | None = None,
+    client_cert: str | None = None,
+    client_key: str | None = None,
+    graceful_shutdown_timeout: dt.timedelta | None = None,
+    max_concurrent_workflow_tasks: int | None = None,
+    max_concurrent_activities: int | None = None,
+) -> Worker:
+    """Connect to Temporal server and return a Worker."""
+    runtime = Runtime(telemetry=TelemetryConfig(metrics=PrometheusConfig(bind_address=f"0.0.0.0:{metrics_port:d}")))
+    client = await connect(
+        host,
+        port,
+        namespace,
+        server_root_ca_cert,
+        client_cert,
+        client_key,
+        runtime=runtime,
+    )
+
+    worker = Worker(
+        client,
+        task_queue=task_queue,
+        workflows=workflows,
+        activities=activities,
+        workflow_runner=UnsandboxedWorkflowRunner(),
+        graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
+        interceptors=[SentryInterceptor(), PostHogClientInterceptor()],
+        activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
+        max_concurrent_activities=max_concurrent_activities or 50,
+        max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
+        # Worker will flush heartbeats every
+        # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
+        max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
+    )
+    return worker
+
+
 async def start_worker(
     host: str,
     port: int,
