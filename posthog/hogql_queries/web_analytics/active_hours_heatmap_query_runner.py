@@ -24,11 +24,11 @@ class ActiveHoursHeatMapQueryRunner(WebAnalyticsQueryRunner):
     def to_query(self) -> ast.SelectQuery:
         query = parse_select(
             """
-            SELECT 
-                toDayOfWeek(timestamp) as day, 
+            SELECT
+                toDayOfWeek(timestamp) as day,
                 toHour(timestamp) as hour,
                 uniq(events.person_id) as total
-            FROM events 
+            FROM events
             WHERE and(
                 event = '$pageview',
                 {all_properties},
@@ -56,8 +56,7 @@ class ActiveHoursHeatMapQueryRunner(WebAnalyticsQueryRunner):
             modifiers=self.modifiers,
         )
         results = [
-        	ActiveHoursHeatMapResult(day=int(row[0]), hour=int(row[1]), total=int(row[2]))
-        	for row in response.results
+            ActiveHoursHeatMapResult(day=int(row[0]), hour=int(row[1]), total=int(row[2])) for row in response.results
         ]
 
         assert results is not None
