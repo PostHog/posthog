@@ -119,7 +119,7 @@ class QueryContext:
     The raw query is used to both query and count these results
     """
 
-    project_id: int
+    team_id: int
     table: str
     property_definition_fields: str
     property_definition_table: str
@@ -250,7 +250,7 @@ class QueryContext:
         return dataclasses.replace(
             self,
             search_query=search_query,
-            params={**self.params, "project_id": self.project_id, **search_kwargs},
+            params={**self.params, "team_id": self.team_id, **search_kwargs},
         )
 
     def with_excluded_properties(self, excluded_properties: Optional[str]) -> Self:
@@ -316,7 +316,7 @@ class QueryContext:
             SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
             {self._join_on_event_property()}
-            WHERE coalesce({self.property_definition_table}.project_id, {self.property_definition_table}.team_id) = %(project_id)s
+            WHERE {self.property_definition_table}.team_id = %(team_id)s        
               AND type = %(type)s
               AND coalesce(group_type_index, -1) = %(group_type_index)s
               {self.excluded_properties_filter}
@@ -333,7 +333,7 @@ class QueryContext:
             SELECT count(*) as full_count
             FROM {self.table}
             {self._join_on_event_property()}
-            WHERE coalesce({self.property_definition_table}.project_id, {self.property_definition_table}.team_id) = %(project_id)s
+            WHERE {self.property_definition_table}.team_id = %(team_id)s
               AND type = %(type)s
               AND coalesce(group_type_index, -1) = %(group_type_index)s
              {self.excluded_properties_filter} {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
@@ -348,7 +348,7 @@ class QueryContext:
             {self.event_property_join_type} (
                 SELECT DISTINCT property
                 FROM posthog_eventproperty
-                WHERE coalesce(project_id, team_id) = %(project_id)s {self.event_name_join_filter}
+                WHERE team_id = %(team_id)s {self.event_name_join_filter}
             ) {self.posthog_eventproperty_table_join_alias}
             ON {self.posthog_eventproperty_table_join_alias}.property = name
             """
@@ -572,7 +572,7 @@ class PropertyDefinitionViewSet(
 
         query_context = (
             QueryContext(
-                project_id=self.project_id,
+                team_id=self.team.root_team_id,
                 table=(
                     "ee_enterprisepropertydefinition FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id"
                     if use_enterprise_taxonomy
@@ -633,11 +633,10 @@ class PropertyDefinitionViewSet(
     def safely_get_object(self, queryset):
         id = self.kwargs["id"]
         non_enterprise_property = get_object_or_404(
-            PropertyDefinition.objects.alias(
-                effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-            ),
-            id=id,
-            effective_project_id=self.project_id,
+            PropertyDefinition.objects.filter(
+                id=id,
+                team_id=self.team.root_team_id,
+            )
         )
         if (
             isinstance(self.request.user, User)
@@ -650,13 +649,9 @@ class PropertyDefinitionViewSet(
             except ImportError:
                 pass
             else:
-                enterprise_property = (
-                    EnterprisePropertyDefinition.objects.alias(
-                        effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-                    )
-                    .filter(id=id, effective_project_id=self.project_id)  # type: ignore
-                    .first()
-                )
+                enterprise_property = EnterprisePropertyDefinition.objects.filter(
+                    id=id, team_id=self.team.root_team_id
+                ).first()
                 if enterprise_property:
                     return enterprise_property
                 new_enterprise_property = EnterprisePropertyDefinition(
@@ -681,10 +676,8 @@ class PropertyDefinitionViewSet(
         serializer = SeenTogetherQuerySerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
 
-        matches = EventProperty.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(
-            effective_project_id=self.project_id,  # type: ignore
+        matches = EventProperty.objects.filter(
+            team_id=self.team.root_team_id,
             event__in=serializer.validated_data["event_names"],
             property=serializer.validated_data["property_name"],
         )
