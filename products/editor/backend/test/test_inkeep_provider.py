@@ -1,13 +1,16 @@
-from unittest.mock import patch, MagicMock
 import json
-from django.test import TestCase
+from unittest.mock import MagicMock, patch
+
 import openai
+from django.test import TestCase
+
 from products.editor.backend.providers.inkeep import InkeepProvider
 
 
+@patch("django.conf.settings.INKEEP_API_KEY", "test_key")
 class TestInkeepProvider(TestCase):
-    def setUp(self):
-        self.api_key = "test-key"
+    def setUp(self) -> None:
+        super().setUp()
         self.model_id = "inkeep-qa-expert"
 
     def test_validate_messages(self):

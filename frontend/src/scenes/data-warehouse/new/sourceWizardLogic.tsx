@@ -367,11 +367,11 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     },
     MSSQL: {
         name: 'MSSQL',
-        label: 'Azure SQL Server',
+        label: 'Microsoft SQL Server',
         caption: (
             <>
-                Enter your MS SQL Server/Azure SQL Server credentials to automatically pull your SQL data into the
-                PostHog Data warehouse.
+                Enter your Microsoft SQL Server/Azure SQL Server credentials to automatically pull your SQL data into
+                the PostHog Data warehouse.
             </>
         ),
         fields: [

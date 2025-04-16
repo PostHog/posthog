@@ -1,15 +1,16 @@
 from unittest.mock import patch
+
 from rest_framework import status
+
 from posthog.test.base import APIBaseTest
-from products.editor.backend.api.proxy import (
-    SUPPORTED_MODELS_WITH_THINKING,
-    PersonalAPIKeyAuthentication,
-    LLMProxyViewSet,
-)
+from products.editor.backend.api import SUPPORTED_MODELS_WITH_THINKING, LLMProxyViewSet, PersonalAPIKeyAuthentication
 
 
+@patch("django.conf.settings.MISTRAL_API_KEY", "test_key")
+@patch("django.conf.settings.INKEEP_API_KEY", "test_key")
+@patch("django.conf.settings.ANTHROPIC_API_KEY", "test_key")
 class TestLLMProxyViewSet(APIBaseTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
 
         # Mock the authenticate method
