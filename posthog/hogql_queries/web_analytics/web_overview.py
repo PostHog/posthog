@@ -45,34 +45,27 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                 return None
             return self._unsample(row[idx]) if use_unsample else row[idx]
 
-        def create_base_metrics():
-            if self.query.conversionGoal:
-                return [
-                    to_data("visitors", "unit", self._unsample(row[0]), get_prev_val(1)),
-                    to_data("total conversions", "unit", self._unsample(row[2]), get_prev_val(3)),
-                    to_data("unique conversions", "unit", self._unsample(row[4]), get_prev_val(5)),
-                    to_data("conversion rate", "percentage", row[6], get_prev_val(7, False)),
-                ]
-            else:
-                return [
-                    to_data("visitors", "unit", self._unsample(row[0]), get_prev_val(1)),
-                    to_data("views", "unit", self._unsample(row[2]), get_prev_val(3)),
-                    to_data("sessions", "unit", self._unsample(row[4]), get_prev_val(5)),
-                    to_data("session duration", "duration_s", row[6], get_prev_val(7, False)),
-                    to_data("bounce rate", "percentage", row[8], get_prev_val(9, False), is_increase_bad=True),
-                ]
+          if self.query.conversionGoal:
+              results = [
+                  to_data("visitors", "unit", self._unsample(row[0]), get_prev_val(1)),
+                  to_data("total conversions", "unit", self._unsample(row[2]), get_prev_val(3)),
+                  to_data("unique conversions", "unit", self._unsample(row[4]), get_prev_val(5)),
+                  to_data("conversion rate", "percentage", row[6], get_prev_val(7, False)),
+              ]
+          else:
+              results = [
+                  to_data("visitors", "unit", self._unsample(row[0]), get_prev_val(1)),
+                  to_data("views", "unit", self._unsample(row[2]), get_prev_val(3)),
+                  to_data("sessions", "unit", self._unsample(row[4]), get_prev_val(5)),
+                  to_data("session duration", "duration_s", row[6], get_prev_val(7, False)),
+                  to_data("bounce rate", "percentage", row[8], get_prev_val(9, False), is_increase_bad=True),
+              ]
 
-        def add_revenue_metrics(metrics):
-            if not self.query.includeRevenue:
-                return metrics
-
-            if self.query.conversionGoal:
-                metrics.append(to_data("conversion revenue", "currency", row[8], get_prev_val(9, False)))
-            else:
-                metrics.append(to_data("revenue", "currency", row[10], get_prev_val(11, False)))
-            return metrics
-
-        results = add_revenue_metrics(create_base_metrics())
+          if self.query.includeRevenue:
+	          if self.query.conversionGoal:
+	              results.append(to_data("conversion revenue", "currency", row[8], get_prev_val(9, False)))
+	          else:
+	              results.append(to_data("revenue", "currency", row[10], get_prev_val(11, False)))
 
         return WebOverviewQueryResponse(
             results=results,
