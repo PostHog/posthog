@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import fetch, { FetchError } from 'node-fetch'
+import fetch from 'node-fetch'
 
 import { Action, ISOTimestamp, PostIngestionEvent, Team } from '../../../src/types'
 import { AppMetrics } from '../../../src/worker/ingestion/app-metrics'
