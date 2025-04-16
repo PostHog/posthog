@@ -1416,7 +1416,7 @@ class NodeKind(StrEnum):
     ACTIVE_HOURS_HEAT_MAP_QUERY = "ActiveHoursHeatMapQuery"
     REVENUE_ANALYTICS_OVERVIEW_QUERY = "RevenueAnalyticsOverviewQuery"
     REVENUE_ANALYTICS_GROWTH_RATE_QUERY = "RevenueAnalyticsGrowthRateQuery"
-    REVENUE_ANALYTICS_CHURN_RATE_QUERY = "RevenueAnalyticsChurnRateQuery"
+    REVENUE_ANALYTICS_TOP_CUSTOMERS_QUERY = "RevenueAnalyticsTopCustomersQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
@@ -1703,11 +1703,9 @@ class RetentionType(StrEnum):
 
 
 class RevenueAnalyticsOverviewItemKey(StrEnum):
-    MRR = "MRR"
-    ARR = "ARR"
-    CUSTOMER_COUNT = "Customer Count"
-    NEW_CUSTOMERS = "New customers"
-    CHURNED_CUSTOMERS = "Churned customers"
+    REVENUE = "revenue"
+    PAYING_CUSTOMER_COUNT = "paying_customer_count"
+    AVG_REVENUE_PER_CUSTOMER = "avg_revenue_per_customer"
 
 
 class RevenueCurrencyPropertyConfig(BaseModel):
@@ -3054,31 +3052,11 @@ class RetentionValue(BaseModel):
     label: Optional[str] = None
 
 
-class RevenueAnalyticsChurnRateQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: Any
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-
-
 class RevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -3101,7 +3079,7 @@ class RevenueAnalyticsOverviewItem(BaseModel):
         extra="forbid",
     )
     key: RevenueAnalyticsOverviewItemKey
-    value: Optional[float] = None
+    value: float
 
 
 class RevenueAnalyticsOverviewQueryResponse(BaseModel):
@@ -3120,6 +3098,28 @@ class RevenueAnalyticsOverviewQueryResponse(BaseModel):
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[RevenueAnalyticsOverviewItem]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class RevenueAnalyticsTopCustomersQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: Any
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -4586,36 +4586,6 @@ class CachedPathsQueryResponse(BaseModel):
     )
 
 
-class CachedRevenueAnalyticsChurnRateQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: Optional[datetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    is_cached: bool
-    last_refresh: datetime
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    next_allowed_client_refresh: datetime
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: Any
-    timezone: str
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
-
-
 class CachedRevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4625,6 +4595,7 @@ class CachedRevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     calculation_trigger: Optional[str] = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -4670,6 +4641,37 @@ class CachedRevenueAnalyticsOverviewQueryResponse(BaseModel):
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[RevenueAnalyticsOverviewItem]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class CachedRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: Any
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -5444,6 +5446,7 @@ class Response12(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -6730,6 +6733,7 @@ class QueryResponseAlternative25(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -7024,6 +7028,7 @@ class QueryResponseAlternative40(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    columns: Optional[list[str]] = None
     error: Optional[str] = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -7429,18 +7434,6 @@ class RetentionResult(BaseModel):
     values: list[RetentionValue]
 
 
-class RevenueAnalyticsBaseQueryRevenueAnalyticsChurnRateQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    dateRange: Optional[DateRange] = None
-    kind: NodeKind
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    response: Optional[RevenueAnalyticsChurnRateQueryResponse] = None
-
-
 class RevenueAnalyticsBaseQueryRevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7465,16 +7458,16 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
     response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
 
 
-class RevenueAnalyticsChurnRateQuery(BaseModel):
+class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
-    kind: Literal["RevenueAnalyticsChurnRateQuery"] = "RevenueAnalyticsChurnRateQuery"
+    kind: NodeKind
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
-    response: Optional[RevenueAnalyticsChurnRateQueryResponse] = None
+    response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
 
 
 class RevenueAnalyticsGrowthRateQuery(BaseModel):
@@ -7499,6 +7492,18 @@ class RevenueAnalyticsOverviewQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
+
+
+class RevenueAnalyticsTopCustomersQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    kind: Literal["RevenueAnalyticsTopCustomersQuery"] = "RevenueAnalyticsTopCustomersQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
 
 
 class RevenueExampleDataWarehouseTablesQuery(BaseModel):
@@ -9983,7 +9988,7 @@ class DataTableNode(BaseModel):
         SessionAttributionExplorerQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsGrowthRateQuery,
-        RevenueAnalyticsChurnRateQuery,
+        RevenueAnalyticsTopCustomersQuery,
         RevenueExampleEventsQuery,
         RevenueExampleDataWarehouseTablesQuery,
         ErrorTrackingQuery,
@@ -10024,7 +10029,7 @@ class HogQLAutocomplete(BaseModel):
             HogQLAutocomplete,
             RevenueAnalyticsOverviewQuery,
             RevenueAnalyticsGrowthRateQuery,
-            RevenueAnalyticsChurnRateQuery,
+            RevenueAnalyticsTopCustomersQuery,
             WebOverviewQuery,
             WebStatsTableQuery,
             WebExternalClicksTableQuery,
@@ -10080,7 +10085,7 @@ class HogQLMetadata(BaseModel):
             HogQLAutocomplete,
             RevenueAnalyticsOverviewQuery,
             RevenueAnalyticsGrowthRateQuery,
-            RevenueAnalyticsChurnRateQuery,
+            RevenueAnalyticsTopCustomersQuery,
             WebOverviewQuery,
             WebStatsTableQuery,
             WebExternalClicksTableQuery,
@@ -10150,7 +10155,7 @@ class QueryRequest(BaseModel):
         ActiveHoursHeatMapQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsGrowthRateQuery,
-        RevenueAnalyticsChurnRateQuery,
+        RevenueAnalyticsTopCustomersQuery,
         DataVisualizationNode,
         DataTableNode,
         SavedInsightNode,
@@ -10231,7 +10236,7 @@ class QuerySchemaRoot(
             ActiveHoursHeatMapQuery,
             RevenueAnalyticsOverviewQuery,
             RevenueAnalyticsGrowthRateQuery,
-            RevenueAnalyticsChurnRateQuery,
+            RevenueAnalyticsTopCustomersQuery,
             DataVisualizationNode,
             DataTableNode,
             SavedInsightNode,
@@ -10286,7 +10291,7 @@ class QuerySchemaRoot(
         ActiveHoursHeatMapQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsGrowthRateQuery,
-        RevenueAnalyticsChurnRateQuery,
+        RevenueAnalyticsTopCustomersQuery,
         DataVisualizationNode,
         DataTableNode,
         SavedInsightNode,

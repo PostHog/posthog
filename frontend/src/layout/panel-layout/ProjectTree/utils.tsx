@@ -210,7 +210,7 @@ export function convertFileSystemEntryToTreeDataItem({
             folderNode.children.push({
                 id: `${root}-folder-empty/${folderNode.id}`,
                 name: 'Empty folder',
-                displayName: <span className="italic text-tertiary pl-2">Empty folder</span>,
+                displayName: <>Empty folder</>,
                 disableSelect: true,
                 type: 'empty-folder',
             })

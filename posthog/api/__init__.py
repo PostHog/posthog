@@ -609,10 +609,10 @@ register_grandfathered_environment_nested_viewset(
     ["team_id"],
 )
 
-projects_router.register(
+register_grandfathered_environment_nested_viewset(
     r"insight_variables",
     insight_variable.InsightVariableViewSet,
-    "insight_variables",
+    "environment_insight_variables",
     ["team_id"],
 )
 

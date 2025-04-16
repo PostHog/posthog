@@ -1,4 +1,5 @@
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { RevenueAnalyticsOverviewNode } from 'products/revenue_analytics/frontend/nodes'
 import { useEffect, useState } from 'react'
 import { HogDebug } from 'scenes/debug/HogDebug'
 import { EventsHeatMap } from 'scenes/web-analytics/EventsHeatMap/EventsHeatMap'
@@ -30,6 +31,7 @@ import {
     isActiveHoursHeatMapQuery,
     isHogQuery,
     isInsightVizNode,
+    isRevenueAnalyticsOverviewQuery,
     isSavedInsightNode,
     isWebOverviewQuery,
     isWebVitalsPathBreakdownQuery,
@@ -142,6 +144,10 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 filtersOverride={filtersOverride}
                 variablesOverride={variablesOverride}
             />
+        )
+    } else if (isRevenueAnalyticsOverviewQuery(query)) {
+        component = (
+            <RevenueAnalyticsOverviewNode query={query} cachedResults={props.cachedResults} context={queryContext} />
         )
     } else if (isWebOverviewQuery(query)) {
         component = <WebOverview query={query} cachedResults={props.cachedResults} context={queryContext} />
