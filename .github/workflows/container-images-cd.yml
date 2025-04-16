@@ -61,6 +61,14 @@ jobs:
                   username: ${{ secrets.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+            - name: Login to ghcr.io
+              uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+                  logout: false
+
             - name: Build and push container image
               id: build
               uses: depot/build-push-action@636daae76684e38c301daa0c5eca1c095b24e780 # v1
