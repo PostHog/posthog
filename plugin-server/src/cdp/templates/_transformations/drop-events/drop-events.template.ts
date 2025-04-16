@@ -13,4 +13,14 @@ export const template: HogFunctionTemplate = {
     hog: `
 return null`,
     inputs_schema: [],
+    filters: {
+        events: [
+            {
+                id: 'CHANGE-ME',
+                name: 'CHANGE-ME',
+                type: 'events',
+                order: 0,
+            },
+        ],
+    },
 }
