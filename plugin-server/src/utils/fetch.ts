@@ -30,16 +30,27 @@ function validateUrl(url: string): URL {
 }
 
 function isGlobalIPv4(ip: ipaddr.IPv4): boolean {
-    const octets = ip.octets
-    return !(
-        (
-            octets[0] === 0 || // "This network" (0.0.0.0/8)
-            ip.range() !== 'unicast' || // Non-unicast addresses
-            octets[0] === 127 || // Loopback (127.0.0.0/8)
-            (octets[0] === 169 && octets[1] === 254) || // Link-local (169.254.0.0/16)
-            (octets[0] === 255 && octets[1] === 255 && octets[2] === 255 && octets[3] === 255)
-        ) // Broadcast
-    )
+    const [a, b, c, d] = ip.octets
+    if (a === 0) {
+        return false // "This network" (0.0.0.0/8)
+    }
+    if (ip.range() !== 'unicast') {
+        return false // Non-unicast addresses
+    }
+    if (a === 127) {
+        return false // Loopback (127.0.0.0/8)
+    }
+    if (a === 169 && b === 254) {
+        return false // Link-local (169.254.0.0/16)
+    }
+    if (a === 255 && b === 255 && c === 255 && d === 255) {
+        return false // Broadcast
+    }
+    return true
+}
+
+function isIPv4(addr: ipaddr.IPv4 | ipaddr.IPv6): addr is ipaddr.IPv4 {
+    return addr.kind() === 'ipv4'
 }
 
 async function staticLookupAsync(hostname: string): Promise<LookupAddress> {
@@ -52,11 +63,11 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress> {
     for (const { address } of addrinfo) {
         const parsed = ipaddr.parse(address)
         // We don't support IPv6 for now
-        if (parsed.kind() === 'ipv6') {
+        if (!isIPv4(parsed)) {
             continue
         }
         // Check if the IPv4 address is global
-        if (!isGlobalIPv4(parsed as ipaddr.IPv4)) {
+        if (!isGlobalIPv4(parsed)) {
             throw new FetchError('Internal hostname', 'posthog-host-guard')
         }
     }
@@ -68,7 +79,6 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress> {
 }
 
 const httpStaticLookup: net.LookupFunction = async (hostname, options, cb) => {
-    console.log('httpStaticLookup', hostname)
     try {
         const addrinfo = await staticLookupAsync(hostname)
         cb(null, addrinfo.address, addrinfo.family)
@@ -78,11 +88,7 @@ const httpStaticLookup: net.LookupFunction = async (hostname, options, cb) => {
 }
 
 export class SecureFetch {
-    allowUnsafe: boolean
-
-    constructor(options?: { allowUnsafe?: boolean }) {
-        this.allowUnsafe = options?.allowUnsafe ?? (process.env.NODE_ENV === 'functional-tests' || !isProdEnv())
-    }
+    constructor(private options?: { allowUnsafe?: boolean }) {}
 
     fetch(url: RequestInfo, init?: RequestInit): Promise<Response> {
         return runInstrumentedFunction({
@@ -90,7 +96,9 @@ export class SecureFetch {
             func: async () => {
                 const request = new Request(url, init)
 
-                if (this.allowUnsafe) {
+                const allowUnsafe =
+                    this.options?.allowUnsafe ?? (process.env.NODE_ENV?.includes('functional-tests') || !isProdEnv())
+                if (allowUnsafe) {
                     return await fetch(url, init)
                 }
 

@@ -102,9 +102,15 @@ class RateLimit:
         task_name = self.get_task_name(*args, **kwargs)
         running_tasks_key = self.get_task_key(*args, **kwargs) if self.get_task_key else task_name
         task_id = self.get_task_id(*args, **kwargs)
+        team_id: Optional[int] = kwargs.get("team_id", None)
         current_time = self.get_time()
 
-        max_concurrency = kwargs.get("limit") or self.max_concurrency
+        max_concurrency = self.max_concurrency
+        in_beta = team_id in settings.API_QUERIES_PER_TEAM
+        if in_beta:
+            max_concurrency = settings.API_QUERIES_PER_TEAM[team_id]  # type: ignore
+        elif "limit" in kwargs:
+            max_concurrency = kwargs.get("limit") or max_concurrency
         # Atomically check, remove expired if limit hit, and add the new task
         if (
             self.redis_client.eval(lua_script, 1, running_tasks_key, current_time, task_id, max_concurrency, self.ttl)
@@ -112,18 +118,18 @@ class RateLimit:
         ):
             from posthog.rate_limit import team_is_allowed_to_bypass_throttle
 
-            bypass = team_is_allowed_to_bypass_throttle(kwargs.get("team_id", None))
+            bypass = team_is_allowed_to_bypass_throttle(team_id)
             result = "allow" if bypass else "block"
 
             CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER.labels(
                 task_name=task_name,
-                team_id=str(kwargs.get("team_id", "")),
+                team_id=str(team_id),
                 limit=max_concurrency,
                 limit_name=self.limit_name,
                 result=result,
             ).inc()
 
-            if not self.bypass_all and not bypass:
+            if (not self.bypass_all or in_beta) and not bypass:  # team in beta cannot skip limits
                 raise ConcurrencyLimitExceeded(
                     f"Exceeded maximum concurrency limit: {max_concurrency} for key: {task_name} and task: {task_id}"
                 )
