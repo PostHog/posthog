@@ -185,6 +185,28 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
 
         # Compare snapshots
         snapshot_differences = []
+        v1_click_count = 0
+        v2_click_count = 0
+
+        def is_click(event: dict) -> bool:
+            return event.get("type") == 3 and event.get("data", {}).get("source") == 2
+
+        # Count clicks in v1
+        for snapshot in v1_snapshots:
+            if is_click(snapshot["data"]):
+                v1_click_count += 1
+
+        # Count clicks in v2
+        for snapshot in v2_snapshots:
+            if is_click(snapshot["data"]):
+                v2_click_count += 1
+
+        await logger.ainfo(
+            "Click count comparison",
+            v1_click_count=v1_click_count,
+            v2_click_count=v2_click_count,
+            difference=v2_click_count - v1_click_count,
+        )
 
         # Compare total count
         if len(v1_snapshots) != len(v2_snapshots):
