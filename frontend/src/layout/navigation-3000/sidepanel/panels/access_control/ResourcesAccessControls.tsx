@@ -203,7 +203,6 @@ export function ResourcesAccessControls(): JSX.Element {
 
     // Generic function to create resource columns for a specific type
     const createResourceColumnsForType = <T extends DefaultResourceAccessControls>(
-        showNoOverride: boolean = false,
         getRole: (item: T) => RoleType | undefined,
         getMember: (item: T) => OrganizationMemberType | undefined
     ): LemonTableColumns<T> =>
@@ -221,13 +220,10 @@ export function ResourcesAccessControls(): JSX.Element {
                     value: level,
                     label: capitalizeFirstLetter(level ?? ''),
                 }))
-
-                if (showNoOverride) {
-                    options.push({
-                        value: null,
-                        label: 'No override',
-                    })
-                }
+                options.push({
+                    value: null,
+                    label: 'No override',
+                })
 
                 return (
                     <LemonSelect
@@ -246,6 +242,7 @@ export function ResourcesAccessControls(): JSX.Element {
                             ])
                         }
                         options={options}
+                        disabledReason={canEditRoleBasedAccessControls ? undefined : 'You cannot edit this'}
                     />
                 )
             },
@@ -254,25 +251,18 @@ export function ResourcesAccessControls(): JSX.Element {
     // Create specific column creators for each table type
     const createDefaultResourceColumns = (): LemonTableColumns<DefaultResourceAccessControls> =>
         createResourceColumnsForType<DefaultResourceAccessControls>(
-            true,
             () => undefined,
             () => undefined
         )
 
-    const createMemberResourceColumns = (
-        showNoOverride: boolean = false
-    ): LemonTableColumns<MemberResourceAccessControls> =>
+    const createMemberResourceColumns = (): LemonTableColumns<MemberResourceAccessControls> =>
         createResourceColumnsForType<MemberResourceAccessControls>(
-            showNoOverride,
             () => undefined,
             (item) => item.organization_member
         )
 
-    const createRoleResourceColumns = (
-        showNoOverride: boolean = false
-    ): LemonTableColumns<RoleResourceAccessControls> =>
+    const createRoleResourceColumns = (): LemonTableColumns<RoleResourceAccessControls> =>
         createResourceColumnsForType<RoleResourceAccessControls>(
-            showNoOverride,
             (item) => item.role,
             () => undefined
         )
@@ -307,7 +297,7 @@ export function ResourcesAccessControls(): JSX.Element {
                 )
             },
         },
-        ...createMemberResourceColumns(true),
+        ...createMemberResourceColumns(),
     ]
 
     // Roles table
@@ -344,7 +334,7 @@ export function ResourcesAccessControls(): JSX.Element {
                 )
             },
         },
-        ...createRoleResourceColumns(true),
+        ...createRoleResourceColumns(),
     ]
 
     // Function to handle adding a member access control
