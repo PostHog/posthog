@@ -103,8 +103,7 @@ class PipelineNonDLT:
             if (
                 self._job.rows_synced is not None
                 and self._job.rows_synced != 0
-                and not self._schema.is_incremental
-                and not self._reset_pipeline
+                and (not self._schema.is_incremental or self._reset_pipeline is True)
             ):
                 self._job.rows_synced = 0
                 self._job.save()
