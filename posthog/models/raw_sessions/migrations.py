@@ -60,13 +60,16 @@ DISTRIBUTED_RAW_SESSIONS_ADD_VITALS_LCP_COLUMN_SQL = lambda: ADD_VITALS_LCP_COLU
 # irclid and _kx
 ADD_IRCLID_KX_COLUMNS_SQL = """
 ALTER TABLE {table_name} {on_cluster_clause}
+
 ADD COLUMN IF NOT EXISTS
 initial__kx
-AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+AggregateFunction(argMin, String, DateTime64(6, 'UTC'))
+AFTER initial_sccid,
+
 ADD COLUMN IF NOT EXISTS
 initial_irclid
 AggregateFunction(argMin, String, DateTime64(6, 'UTC'))
-AFTER initial_ttclid
+AFTER initial__kx
 """
 
 
@@ -86,6 +89,48 @@ def WRITABLE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(on_cluster=True):
 
 def DISTRIBUTED_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(on_cluster=True):
     return ADD_IRCLID_KX_COLUMNS_SQL.format(
+        table_name=RAW_SESSIONS_DATA_TABLE(),
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+    )
+
+
+# epik, qclid, sccid
+ADD_EPIK_QCLID_SCCID_COLUMNS_SQL = """
+ALTER TABLE {table_name} {on_cluster_clause}
+
+ADD COLUMN IF NOT EXISTS
+initial_epik
+AggregateFunction(argMin, String, DateTime64(6, 'UTC'))
+AFTER initial_ttclid,
+
+ADD COLUMN IF NOT EXISTS
+initial_qclid
+AggregateFunction(argMin, String, DateTime64(6, 'UTC'))
+AFTER initial_epik,
+
+ADD COLUMN IF NOT EXISTS
+initial_sccid
+AggregateFunction(argMin, String, DateTime64(6, 'UTC'))
+AFTER initial_qclid
+"""
+
+
+def BASE_RAW_SESSIONS_ADD_EPIK_QCLID_SCCID_COLUMNS_SQL(on_cluster=True):
+    return ADD_EPIK_QCLID_SCCID_COLUMNS_SQL.format(
+        table_name=TABLE_BASE_NAME,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+    )
+
+
+def WRITABLE_RAW_SESSIONS_ADD_EPIK_QCLID_SCCID_COLUMNS_SQL(on_cluster=True):
+    return ADD_EPIK_QCLID_SCCID_COLUMNS_SQL.format(
+        table_name="writable_raw_sessions",
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+    )
+
+
+def DISTRIBUTED_RAW_SESSIONS_ADD_EPIK_QCLID_SCCID_COLUMNS_SQL(on_cluster=True):
+    return ADD_EPIK_QCLID_SCCID_COLUMNS_SQL.format(
         table_name=RAW_SESSIONS_DATA_TABLE(),
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
     )
