@@ -46,7 +46,11 @@ def get_partition_settings(
     client: bigquery.Client,
     partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 ) -> PartitionSettings | None:
-    """Get partition settings for given BigQuery table."""
+    """Get partition settings for given BigQuery table.
+
+    The `bigquery.Table` is refreshed to obtain latest number of rows and number
+    of bytes. This will fail if the table doesn't exist.
+    """
     table = client.get_table(table)
 
     if not table.num_rows or not table.num_bytes:
@@ -113,6 +117,7 @@ def bigquery_source(
     db_incremental_field_last_value: typing.Any,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
+    partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 ) -> SourceResponse:
     """Produce a pipeline source for BigQuery.
 
@@ -132,7 +137,7 @@ def bigquery_source(
     ) as bq_client:
         bq_table = bq_client.get_table(fully_qualified_table_name)
         primary_keys = get_primary_keys(bq_table, bq_client)
-        partition_settings = get_partition_settings(bq_table, bq_client)
+        partition_settings = get_partition_settings(bq_table, bq_client, partition_size_bytes=partition_size_bytes)
 
     def get_rows(max_table_size: int) -> collections.abc.Iterator[pa.Table]:
         with bigquery_client(
