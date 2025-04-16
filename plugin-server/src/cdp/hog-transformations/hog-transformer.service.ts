@@ -157,7 +157,6 @@ export class HogTransformerService {
 
                 hogTransformationCompleted.inc({ type: 'with_messages' })
 
-
                 if (options.skipProduce) {
                     this.hogFunctionMonitoringService.messagesToProduce = []
                 } else {
