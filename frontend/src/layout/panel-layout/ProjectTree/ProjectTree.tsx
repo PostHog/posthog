@@ -4,6 +4,7 @@ import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, TreeDataItem, TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenuGroup,
@@ -21,6 +22,7 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { TabsListPrimitive, TabsPrimitive, TabsTriggerPrimitive } from 'lib/ui/Tabs/TabsPrimitive'
 import { cn } from 'lib/utils/css-classes'
 import { RefObject, useEffect, useRef } from 'react'
 
@@ -28,7 +30,7 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
-import { projectTreeLogic } from './projectTreeLogic'
+import { projectTreeLogic, ProjectTreeTab } from './projectTreeLogic'
 import { joinPath, splitPath } from './utils'
 
 export function ProjectTree(): JSX.Element {
@@ -44,6 +46,7 @@ export function ProjectTree(): JSX.Element {
         checkedItems,
         checkedItemsCount,
         checkedItemCountNumeric,
+        projectTreeTab,
     } = useValues(projectTreeLogic)
 
     const {
@@ -63,7 +66,9 @@ export function ProjectTree(): JSX.Element {
         deleteCheckedItems,
         setCheckedItems,
         assureVisibility,
+        setProjectTreeTab,
     } = useActions(projectTreeLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
         useActions(panelLayoutLogic)
@@ -292,163 +297,188 @@ export function ProjectTree(): JSX.Element {
     }
 
     return (
-        <PanelLayoutPanel
-            searchPlaceholder="Search your project"
-            panelActions={
-                <>
-                    <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder">
-                        <IconFolderPlus className="text-tertiary" />
-                    </ButtonPrimitive>
-                    {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' ? (
-                        <ButtonPrimitive onClick={() => setCheckedItems({})} tooltip="Clear">
-                            <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
-                        </ButtonPrimitive>
-                    ) : null}
-                </>
-            }
+        <TabsPrimitive
+            defaultValue={projectTreeTab}
+            onValueChange={(value) => setProjectTreeTab(value as ProjectTreeTab)}
         >
-            <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW_TABLE_MODE}>
-                <ButtonPrimitive
-                    tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
-                    onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
-                    className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 z-top w-fit bg-surface-primary border border-primary"
-                >
-                    <IconChevronRight
-                        className={cn('size-4', {
-                            'rotate-180': projectTreeMode === 'table',
-                            'rotate-0': projectTreeMode === 'tree',
-                        })}
-                    />
-                </ButtonPrimitive>
-            </FlaggedFeature>
+            <PanelLayoutPanel
+                searchPlaceholder={
+                    featureFlags[FEATURE_FLAGS.TREE_VIEW_WITH_TABS]
+                        ? projectTreeTab === 'my-stuff'
+                            ? 'Search your stuff'
+                            : 'Search team stuff'
+                        : 'Search your project'
+                }
+                panelActions={
+                    <>
+                        <ButtonPrimitive onClick={() => createFolder('')} tooltip="New root folder">
+                            <IconFolderPlus className="text-tertiary" />
+                        </ButtonPrimitive>
+                        {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' ? (
+                            <ButtonPrimitive onClick={() => setCheckedItems({})} tooltip="Clear">
+                                <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
+                            </ButtonPrimitive>
+                        ) : null}
+                    </>
+                }
+                panelTabs={
+                    <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW_WITH_TABS}>
+                        <TabsListPrimitive className="pt-[2px]">
+                            <TabsTriggerPrimitive value="my-stuff" asChild>
+                                <ButtonPrimitive>My stuff</ButtonPrimitive>
+                            </TabsTriggerPrimitive>
 
-            <LemonTree
-                ref={treeRef}
-                contentRef={mainContentRef as RefObject<HTMLElement>}
-                className="px-0 py-1"
-                data={treeData}
-                mode={projectTreeMode as TreeMode}
-                tableViewKeys={treeTableKeys}
-                defaultSelectedFolderOrNodeId={lastViewedId || undefined}
-                isItemActive={(item) => {
-                    if (!item.record?.href) {
-                        return false
-                    }
-                    return window.location.href.endsWith(item.record?.href)
-                }}
-                enableMultiSelection={checkedItemCountNumeric > 0}
-                onItemChecked={onItemChecked}
-                checkedItemCount={checkedItemCountNumeric}
-                onNodeClick={(node) => {
-                    if (!isLayoutPanelPinned || projectTreeMode === 'table') {
-                        clearActivePanelIdentifier()
-                        showLayoutPanel(false)
-                    }
+                            <TabsTriggerPrimitive value="team-stuff" asChild>
+                                <ButtonPrimitive>Team stuff</ButtonPrimitive>
+                            </TabsTriggerPrimitive>
+                        </TabsListPrimitive>
+                    </FlaggedFeature>
+                }
+            >
+                <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW_TABLE_MODE}>
+                    <ButtonPrimitive
+                        tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
+                        onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
+                        className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 z-top w-fit bg-surface-primary border border-primary"
+                    >
+                        <IconChevronRight
+                            className={cn('size-4', {
+                                'rotate-180': projectTreeMode === 'table',
+                                'rotate-0': projectTreeMode === 'tree',
+                            })}
+                        />
+                    </ButtonPrimitive>
+                </FlaggedFeature>
 
-                    if (node?.record?.path) {
-                        setLastViewedId(node?.id || '')
-                    }
-                    if (node?.id.startsWith('project-load-more/')) {
-                        const path = node.id.split('/').slice(1).join('/')
-                        if (path) {
-                            loadFolder(path)
+                <LemonTree
+                    ref={treeRef}
+                    contentRef={mainContentRef as RefObject<HTMLElement>}
+                    className="px-0 py-1"
+                    data={treeData}
+                    mode={projectTreeMode as TreeMode}
+                    tableViewKeys={treeTableKeys}
+                    defaultSelectedFolderOrNodeId={lastViewedId || undefined}
+                    isItemActive={(item) => {
+                        if (!item.record?.href) {
+                            return false
                         }
-                    }
-                }}
-                onFolderClick={(folder, isExpanded) => {
-                    if (folder) {
-                        toggleFolderOpen(folder?.id || '', isExpanded)
-                    }
-                }}
-                expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
-                onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
-                enableDragAndDrop={true}
-                onDragEnd={(dragEvent) => {
-                    const itemToId = (item: FileSystemEntry): string =>
-                        item.type === 'folder' ? 'project-folder/' + item.path : 'project/' + item.id
-                    const oldId = dragEvent.active.id as string
-                    const newId = dragEvent.over?.id
-                    if (oldId === newId) {
-                        return false
-                    }
-                    const oldItem = viableItems.find((i) => itemToId(i) === oldId)
-                    const newItem = viableItems.find((i) => itemToId(i) === newId)
-                    if (oldItem === newItem || !oldItem || !newItem) {
-                        return false
-                    }
-                    const oldPath = oldItem.path
-                    const folder = newItem.path
-
-                    if (checkedItems[oldId]) {
-                        moveCheckedItems(folder)
-                    } else if (folder === '') {
-                        const oldSplit = splitPath(oldPath)
-                        const oldFile = oldSplit.pop()
-                        if (oldFile && oldSplit.length > 0) {
-                            moveItem(oldItem, joinPath([oldFile]))
+                        return window.location.href.endsWith(item.record?.href)
+                    }}
+                    enableMultiSelection={checkedItemCountNumeric > 0}
+                    onItemChecked={onItemChecked}
+                    checkedItemCount={checkedItemCountNumeric}
+                    onNodeClick={(node) => {
+                        if (!isLayoutPanelPinned || projectTreeMode === 'table') {
+                            clearActivePanelIdentifier()
+                            showLayoutPanel(false)
                         }
-                    } else if (folder) {
-                        const oldSplit = splitPath(oldPath)
-                        const oldFile = oldSplit.pop()
-                        if (oldFile) {
-                            const newFile = joinPath([...splitPath(String(folder)), oldFile])
-                            if (oldItem && newFile !== oldPath) {
-                                moveItem(oldItem, newFile)
+
+                        if (node?.record?.path) {
+                            setLastViewedId(node?.id || '')
+                        }
+                        if (node?.id.startsWith('project-load-more/')) {
+                            const path = node.id.split('/').slice(1).join('/')
+                            if (path) {
+                                loadFolder(path)
                             }
                         }
-                    }
-                }}
-                isItemDraggable={(item) => {
-                    return (
-                        (item.id.startsWith('project/') || item.id.startsWith('project-folder/')) && item.record?.path
-                    )
-                }}
-                isItemDroppable={(item) => {
-                    const path = item.record?.path || ''
+                    }}
+                    onFolderClick={(folder, isExpanded) => {
+                        if (folder) {
+                            toggleFolderOpen(folder?.id || '', isExpanded)
+                        }
+                    }}
+                    expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
+                    onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
+                    enableDragAndDrop={true}
+                    onDragEnd={(dragEvent) => {
+                        const itemToId = (item: FileSystemEntry): string =>
+                            item.type === 'folder' ? 'project-folder/' + item.path : 'project/' + item.id
+                        const oldId = dragEvent.active.id as string
+                        const newId = dragEvent.over?.id
+                        if (oldId === newId) {
+                            return false
+                        }
+                        const oldItem = viableItems.find((i) => itemToId(i) === oldId)
+                        const newItem = viableItems.find((i) => itemToId(i) === newId)
+                        if (oldItem === newItem || !oldItem || !newItem) {
+                            return false
+                        }
+                        const oldPath = oldItem.path
+                        const folder = newItem.path
 
-                    // disable dropping for these IDS
-                    if (!item.id.startsWith('project-folder/')) {
+                        if (checkedItems[oldId]) {
+                            moveCheckedItems(folder)
+                        } else if (folder === '') {
+                            const oldSplit = splitPath(oldPath)
+                            const oldFile = oldSplit.pop()
+                            if (oldFile && oldSplit.length > 0) {
+                                moveItem(oldItem, joinPath([oldFile]))
+                            }
+                        } else if (folder) {
+                            const oldSplit = splitPath(oldPath)
+                            const oldFile = oldSplit.pop()
+                            if (oldFile) {
+                                const newFile = joinPath([...splitPath(String(folder)), oldFile])
+                                if (oldItem && newFile !== oldPath) {
+                                    moveItem(oldItem, newFile)
+                                }
+                            }
+                        }
+                    }}
+                    isItemDraggable={(item) => {
+                        return (
+                            (item.id.startsWith('project/') || item.id.startsWith('project-folder/')) &&
+                            item.record?.path
+                        )
+                    }}
+                    isItemDroppable={(item) => {
+                        const path = item.record?.path || ''
+
+                        // disable dropping for these IDS
+                        if (!item.id.startsWith('project-folder/')) {
+                            return false
+                        }
+
+                        // hacky, if the item has a href, it should not be droppable
+                        if (item.record?.href) {
+                            return false
+                        }
+
+                        if (path) {
+                            return true
+                        }
                         return false
-                    }
-
-                    // hacky, if the item has a href, it should not be droppable
-                    if (item.record?.href) {
-                        return false
-                    }
-
-                    if (path) {
-                        return true
-                    }
-                    return false
-                }}
-                itemContextMenu={(item) => {
-                    if (item.id.startsWith('project-folder-empty/')) {
-                        return undefined
-                    }
-                    return <ContextMenuGroup>{renderMenuItems(item, 'context')}</ContextMenuGroup>
-                }}
-                itemSideAction={(item) => {
-                    if (item.id.startsWith('project-folder-empty/')) {
-                        return undefined
-                    }
-                    return <DropdownMenuGroup>{renderMenuItems(item, 'dropdown')}</DropdownMenuGroup>
-                }}
-                emptySpaceContextMenu={() => {
-                    return (
-                        <ContextMenuGroup>
-                            <ContextMenuItem
-                                asChild
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    createFolder('')
-                                }}
-                            >
-                                <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
-                            </ContextMenuItem>
-                        </ContextMenuGroup>
-                    )
-                }}
-            />
-        </PanelLayoutPanel>
+                    }}
+                    itemContextMenu={(item) => {
+                        if (item.id.startsWith('project-folder-empty/')) {
+                            return undefined
+                        }
+                        return <ContextMenuGroup>{renderMenuItems(item, 'context')}</ContextMenuGroup>
+                    }}
+                    itemSideAction={(item) => {
+                        if (item.id.startsWith('project-folder-empty/')) {
+                            return undefined
+                        }
+                        return <DropdownMenuGroup>{renderMenuItems(item, 'dropdown')}</DropdownMenuGroup>
+                    }}
+                    emptySpaceContextMenu={() => {
+                        return (
+                            <ContextMenuGroup>
+                                <ContextMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        createFolder('')
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
+                                </ContextMenuItem>
+                            </ContextMenuGroup>
+                        )
+                    }}
+                />
+            </PanelLayoutPanel>
+        </TabsPrimitive>
     )
 }
