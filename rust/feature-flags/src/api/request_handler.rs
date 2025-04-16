@@ -683,8 +683,6 @@ mod tests {
 
         let result = evaluate_feature_flags(evaluation_context, request_id).await;
 
-        println!("result: {:?}", result);
-
         assert!(!result.errors_while_computing_flags);
         assert!(result.flags.contains_key("test_flag"));
         assert!(result.flags["test_flag"].enabled);

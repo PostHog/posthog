@@ -8,15 +8,15 @@ from rest_framework import viewsets
 from posthog.auth import PersonalAPIKeyAuthentication
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import serializers
-from rest_framework.renderers import BaseRenderer
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from django.http import StreamingHttpResponse
 from rest_framework.response import Response
 from posthog.rate_limit import EditorProxyBurstRateThrottle, EditorProxySustainedRateThrottle
-from .providers.anthropic import AnthropicProvider, AnthropicConfig
-from .providers.codestral import CodestralProvider
-from .providers.inkeep import InkeepProvider
+from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
+from ..providers.anthropic import AnthropicProvider, AnthropicConfig
+from ..providers.codestral import CodestralProvider
+from ..providers.inkeep import InkeepProvider
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from collections.abc import Generator, Callable
@@ -24,26 +24,6 @@ from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
-
-
-class ServerSentEventRenderer(BaseRenderer):
-    media_type = "text/event-stream"
-    format = "txt"
-
-    def render(self, data, accepted_media_type=None, renderer_context=None):
-        if isinstance(data, dict | list):
-            return None
-        return data
-
-
-class JSONRenderer(BaseRenderer):
-    media_type = "application/json"
-    format = "json"
-
-    def render(self, data, accepted_media_type=None, renderer_context=None):
-        if isinstance(data, dict | list):
-            return json.dumps(data).encode()
-        return None
 
 
 SUPPORTED_MODELS_WITH_THINKING = AnthropicConfig.SUPPORTED_MODELS_WITH_THINKING
@@ -71,7 +51,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
     authentication_classes = [PersonalAPIKeyAuthentication]
     permission_classes = [IsAuthenticated]
-    renderer_classes = [JSONRenderer, ServerSentEventRenderer]
+    renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
     def get_throttles(self):
         return [EditorProxyBurstRateThrottle(), EditorProxySustainedRateThrottle()]
@@ -118,7 +98,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
         try:
             valid_feature_flag = self.validate_feature_flag(request)
             if not valid_feature_flag:
-                return Response({"error": "You are not authorized to use this feature"}, status=400)
+                return Response({"error": "You are not authorized to use this feature"}, status=401)
 
             serializer = serializer_class(data=request.data)
             if not serializer.is_valid():

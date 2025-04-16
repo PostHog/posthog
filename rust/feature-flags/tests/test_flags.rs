@@ -1045,7 +1045,6 @@ async fn it_handles_not_equal_and_not_regex_property_filters() -> Result<()> {
     let pg_client = setup_pg_reader_client(None).await;
     let team = insert_new_team_in_redis(client.clone()).await.unwrap();
     let token = team.api_token;
-
     insert_new_team_in_pg(pg_client.clone(), Some(team.id))
         .await
         .unwrap();
@@ -1318,6 +1317,114 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
         ["control", "test"].contains(&flag_value),
         "Expected either 'control' or 'test' variant, got {}",
         flag_value
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_super_condition_with_complex_request() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "test_user".to_string();
+    let redis_client = setup_redis_client(Some(config.redis_url.clone()));
+    let pg_client = setup_pg_reader_client(None).await;
+    let team = insert_new_team_in_redis(redis_client.clone()).await?;
+    insert_new_team_in_pg(pg_client.clone(), Some(team.id)).await?;
+    let token = team.api_token;
+
+    // Insert person with just their stored properties from the DB
+    insert_person_for_team_in_pg(
+        pg_client.clone(),
+        team.id,
+        distinct_id.clone(),
+        Some(json!({
+            "$feature_enrollment/artificial-hog": true,
+            "$feature_enrollment/error-tracking": true,
+            "$feature_enrollment/llm-observability": false,
+            "$feature_enrollment/messaging-product": true,
+            "email": "gtarasov.work@gmail.com"
+        })),
+    )
+    .await?;
+
+    // Create the same flag as in production
+    let flag_json = json!([{
+        "id": 13651,
+        "key": "artificial-hog",
+        "name": "Generate HogQL with AI in Insights",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [{"key": "email", "type": "person", "value": "@storytell.ai", "operator": "icontains"}],
+                    "rollout_percentage": 100
+                },
+                {
+                    "properties": [{"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}],
+                    "rollout_percentage": 100
+                }
+            ],
+            "super_groups": [{
+                "properties": [{
+                    "key": "$feature_enrollment/artificial-hog",
+                    "type": "person",
+                    "value": ["true"],
+                    "operator": "exact"
+                }],
+                "rollout_percentage": 100
+            }]
+        }
+    }]);
+
+    insert_flags_for_team_in_redis(
+        redis_client,
+        team.id,
+        team.project_id,
+        Some(flag_json.to_string()),
+    )
+    .await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // Send request with all the property overrides from the API request
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+        "groups": {
+            "project": "01908d8e-a7fe-0000-403d-5de1f5feeb34",
+            "organization": "01908d8e-a7ed-0000-5678-bb4cf061a2f6",
+            "customer": "cus_IK2DWsWVn2ZM16",
+            "instance": "https://us.posthog.com"
+        },
+        "person_properties": {
+            "$initial_referrer": "https://us.posthog.com/admin/posthog/user/106009/change/?_changelist_filters=q%3Dgtarasov.work",
+            "$initial_referring_domain": "us.posthog.com",
+            "$initial_current_url": "https://us.posthog.com/project/78189/settings/user",
+            "$initial_host": "us.posthog.com",
+            "$initial_pathname": "/project/78189/settings/user",
+            "$initial_utm_source": null,
+            "$initial_utm_medium": null,
+            "$initial_utm_campaign": null,
+            "$initial_utm_content": null,
+            "$initial_utm_term": null,
+            "email": "gtarasov.work@gmail.com"
+        }
+    });
+
+    let res = server.send_flags_request(payload.to_string(), None).await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {
+                "artificial-hog": true
+            }
+        })
     );
 
     Ok(())

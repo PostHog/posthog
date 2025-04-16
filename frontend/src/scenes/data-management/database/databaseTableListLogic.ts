@@ -165,13 +165,11 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                 views,
                 managedViews
             ): Record<string, DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable> => {
-                if (!database || !database.tables) {
+                if (!database?.tables) {
                     return {}
                 }
 
-                const allViews = [...views, ...managedViews]
-
-                return allViews.reduce((acc, cur) => {
+                return [...views, ...managedViews].reduce((acc, cur) => {
                     acc[cur.name] = database.tables[cur.name] as
                         | DatabaseSchemaViewTable
                         | DatabaseSchemaManagedViewTable
@@ -180,18 +178,12 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             },
         ],
         viewsMapById: [
-            (s) => [s.database],
-            (database): Record<string, DatabaseSchemaViewTable> => {
-                if (!database || !database.tables) {
-                    return {}
-                }
-
-                return Object.values(database.tables)
-                    .filter((n): n is DatabaseSchemaViewTable => n.type === 'view')
-                    .reduce((acc, cur) => {
-                        acc[cur.id] = database.tables[cur.name] as DatabaseSchemaViewTable
-                        return acc
-                    }, {} as Record<string, DatabaseSchemaViewTable>)
+            (s) => [s.viewsMap],
+            (viewsMap): Record<string, DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable> => {
+                return Object.values(viewsMap).reduce((acc, cur) => {
+                    acc[cur.id] = cur
+                    return acc
+                }, {} as Record<string, DatabaseSchemaViewTable | DatabaseSchemaManagedViewTable>)
             },
         ],
     }),

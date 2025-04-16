@@ -15,7 +15,7 @@ from django.conf import settings as app_settings
 from prometheus_client import Counter, Gauge
 from sentry_sdk import set_tag
 
-from posthog.clickhouse.client.connection import Workload, get_client_from_pool
+from posthog.clickhouse.client.connection import Workload, get_client_from_pool, get_default_clickhouse_workload_type
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.cloud_utils import is_cloud
@@ -132,7 +132,7 @@ def sync_execute(
     if get_query_tag_value("id") == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
 
-    chargeable = get_query_tag_value("chargeable") or False
+    chargeable = get_query_tag_value("chargeable") or 0
     # Customer is paying for API
     if (
         team_id
@@ -161,6 +161,9 @@ def sync_execute(
         "query_id": query_id,
     }
 
+    if workload == Workload.DEFAULT:
+        workload = get_default_clickhouse_workload_type()
+
     if workload == Workload.OFFLINE:
         # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the
         # online resource pool when the offline resource pool is under heavy load. this comes at the cost of higher and
@@ -182,14 +185,14 @@ def sync_execute(
         exception_type = type(err).__name__
         set_tag("clickhouse_exception_type", exception_type)
         QUERY_ERROR_COUNTER.labels(
-            exception_type=exception_type, query_type=query_type, workload=workload, chargeable=chargeable
+            exception_type=exception_type, query_type=query_type, workload=workload.value, chargeable=chargeable
         ).inc()
 
         raise err from e
     finally:
         execution_time = perf_counter() - start_time
 
-        QUERY_EXECUTION_TIME_GAUGE.labels(query_type=query_type, workload=workload, chargeable=chargeable).set(
+        QUERY_EXECUTION_TIME_GAUGE.labels(query_type=query_type, workload=workload.value, chargeable=chargeable).set(
             execution_time * 1000.0
         )
 

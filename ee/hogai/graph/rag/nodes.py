@@ -15,7 +15,8 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action
 from posthog.schema import CachedVectorSearchQueryResponse, TeamTaxonomyQuery, VectorSearchQuery
 
-NextRagNode = Literal["trends", "funnel", "retention", "end"]
+NEXT_RAG_NODES = ["trends", "funnel", "retention", "sql", "end"]
+NextRagNode = Literal["trends", "funnel", "retention", "sql", "end"]
 
 
 class InsightRagContextNode(AssistantNode):
@@ -44,6 +45,8 @@ class InsightRagContextNode(AssistantNode):
         )
 
     def router(self, state: AssistantState) -> NextRagNode:
+        if state.root_tool_insight_type and state.root_tool_insight_type not in NEXT_RAG_NODES:
+            raise ValueError(f"Invalid insight type: {state.root_tool_insight_type}")
         next_node = cast(NextRagNode, state.root_tool_insight_type or "end")
         return next_node
 
