@@ -1,4 +1,4 @@
-import { IconChevronRight, IconFolderPlus } from '@posthog/icons'
+import { IconChevronRight, IconFolderPlus, IconSort } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -14,12 +14,16 @@ import {
     ContextMenuSubTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
 import {
+    DropdownMenu,
+    DropdownMenuContent,
     DropdownMenuGroup,
     DropdownMenuItem,
+    DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuSub,
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
+    DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { RefObject, useEffect, useRef } from 'react'
@@ -305,6 +309,25 @@ export function ProjectTree(): JSX.Element {
                         </ButtonPrimitive>
                     ) : null}
                 </>
+            }
+            panelFilters={
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <ButtonPrimitive className="max-w-[210px]" iconOnly>
+                            <IconSort className="text-tertiary" />
+                        </ButtonPrimitive>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent loop align="end" className="w-[140px]">
+                        <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem asChild>
+                            <ButtonPrimitive menuItem>Alphabetical</ButtonPrimitive>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                            <ButtonPrimitive menuItem>Creation date</ButtonPrimitive>
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
             }
         >
             <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW_TABLE_MODE}>
