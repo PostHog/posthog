@@ -3534,5 +3534,23 @@
             "label": "Assignee",
             "description": "The current assignee of an issue."
         }
+    },
+    "error_tracking_issue_properties": {
+        "message": {
+            "label": "Exception message",
+            "description": "The message of the exception."
+        },
+        "description": {
+            "label": "Exception function",
+            "description": "The description of the exception."
+        },
+        "function": {
+            "label": "Exception function",
+            "description": "A function contained in the exception."
+        },
+        "source": {
+            "label": "Exception source",
+            "description": "A source file included in the exception."
+        }
     }
 }
