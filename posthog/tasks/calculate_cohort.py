@@ -7,7 +7,7 @@ from posthog.models.team.team import Team
 import structlog
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
-from django.db.models import Case, F, ExpressionWrapper, DurationField, Q, When
+from django.db.models import Case, F, ExpressionWrapper, DurationField, Q, QuerySet, When
 from django.utils import timezone
 from prometheus_client import Gauge
 from sentry_sdk import set_tag
@@ -36,7 +36,7 @@ logger = structlog.get_logger(__name__)
 MAX_AGE_MINUTES = 15
 
 
-def get_cohort_calculation_candidates_queryset():
+def get_cohort_calculation_candidates_queryset() -> QuerySet:
     return Cohort.objects.filter(
         Q(last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES))
         | Q(last_calculation__isnull=True),
