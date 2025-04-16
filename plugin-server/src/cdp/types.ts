@@ -211,16 +211,15 @@ export type HogFunctionInvocation = {
     globals: HogFunctionInvocationGlobalsWithInputs
     teamId: Team['id']
     hogFunction: HogFunctionType
+    // The current vmstate (set if the invocation is paused)
+    vmState?: VMState
+    timings: HogFunctionTiming[]
     // Params specific to the queueing system
     queue: 'hog' | 'fetch' | 'plugins'
     queueParameters?: HogFunctionInvocationQueueParameters
     queuePriority: number
     queueScheduledAt?: DateTime
     queueMetadata?: Record<string, any>
-    // The current vmstate (set if the invocation is paused)
-    vmState?: VMState
-    timings: HogFunctionTiming[]
-    functionToExecute?: [string, any[]]
 }
 
 export type HogFunctionAsyncFunctionRequest = {

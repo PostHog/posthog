@@ -391,7 +391,7 @@ export class HogExecutorService {
                 let hogLogs = 0
 
                 execRes = execHog(invocationInput, {
-                    globals: invocation.functionToExecute ? undefined : globals,
+                    globals,
                     maxAsyncSteps: MAX_ASYNC_STEPS, // NOTE: This will likely be configurable in the future
                     asyncFunctions: {
                         // We need to pass these in but they don't actually do anything as it is a sync exec
