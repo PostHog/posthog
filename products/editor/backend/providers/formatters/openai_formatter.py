@@ -49,8 +49,8 @@ def convert_to_openai_messages(anthropic_messages: list[MessageParam]) -> list[C
                     if isinstance(_tool_message_content, str):
                         tool_content = _tool_message_content
                     elif isinstance(_tool_message_content, list):
+                        _content: list[str] = []
                         for part in _tool_message_content:
-                            _content: list[str] = []
                             if is_image_block_param(part):
                                 _content.append(f"(see following user message for image)")
                             elif is_text_block_param(part):

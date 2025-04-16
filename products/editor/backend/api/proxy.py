@@ -29,7 +29,9 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-SUPPORTED_MODELS_WITH_THINKING = AnthropicConfig.SUPPORTED_MODELS_WITH_THINKING + OpenAIConfig.O3_MODELS
+SUPPORTED_MODELS_WITH_THINKING = (
+    AnthropicConfig.SUPPORTED_MODELS_WITH_THINKING + OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING
+)
 
 
 class LLMProxyCompletionSerializer(serializers.Serializer):
@@ -126,10 +128,9 @@ class LLMProxyViewSet(viewsets.ViewSet):
             if isinstance(provider, Response):  # Error response
                 return provider
 
-            messages = serializer.validated_data.get("messages")
-
             if mode == "completion" and hasattr(provider, "stream_response"):
-                if not self.validate_messages(serializer.validated_data.get("messages")):
+                messages = serializer.validated_data.get("messages")
+                if not self.validate_messages(messages):
                     return Response({"error": "Invalid messages"}, status=400)
                 stream = self._create_stream_generator(
                     provider.stream_response(

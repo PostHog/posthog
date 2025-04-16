@@ -1,3 +1,4 @@
+import base64
 from anthropic.types import MessageParam
 from google.genai.types import Part, Content, Blob, ContentListUnion
 from typing import cast
@@ -24,13 +25,13 @@ def convert_anthropic_messages_to_gemini(messages: list[MessageParam]) -> Conten
                     parts.append(
                         Part(
                             inline_data=Blob(
-                                data=bytes(cast(str, block["source"]["data"]), "utf-8"),
+                                data=base64.b64decode(cast(str, block["source"]["data"])),
                                 mime_type=block["source"]["media_type"],
                             )
                         )
                     )
                 else:
-                    raise ValueError(f"Unsupported content block type")
+                    raise ValueError(f"Unsupported content block type: {type(block)}")
 
         contents.append(Content(role="model" if message["role"] == "assistant" else "user", parts=parts))
 

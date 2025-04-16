@@ -40,7 +40,7 @@ class InkeepProvider:
             stream = self.client.chat.completions.create(
                 model=self.model_id,
                 stream=True,
-                messages=[*convert_to_openai_messages(messages)],
+                messages=convert_to_openai_messages(messages),
                 stream_options={"include_usage": True},
             )
         except openai.APIError as e:

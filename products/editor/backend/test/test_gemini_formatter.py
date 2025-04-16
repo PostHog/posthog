@@ -61,7 +61,7 @@ class TestGeminiFormatter(TestCase):
         assert result[0].parts[0].text == "Check this image:"
         assert isinstance(result[0].parts[1].inline_data, Blob)
         assert result[0].parts[1].inline_data.mime_type == "image/jpeg"
-        assert result[0].parts[1].inline_data.data == b"SGVsbG8gV29ybGQ="
+        assert result[0].parts[1].inline_data.data == b"Hello World"
 
     def test_invalid_image_source(self):
         messages: list[MessageParam] = [

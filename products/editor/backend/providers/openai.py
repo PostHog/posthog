@@ -42,6 +42,7 @@ class OpenAIConfig:
     O3_MODELS: list[str] = [
         "o3-mini",
     ]
+    SUPPORTED_MODELS_WITH_THINKING = O3_MODELS
 
 
 class OpenAIProvider:
@@ -82,7 +83,7 @@ class OpenAIProvider:
         """
         self.validate_model(self.model_id)
 
-        if "o3-mini" in self.model_id and thinking:
+        if self.model_id in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING and thinking:
             reasoning_on = True
         else:
             reasoning_on = False

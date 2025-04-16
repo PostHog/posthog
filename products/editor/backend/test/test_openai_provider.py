@@ -56,6 +56,13 @@ class TestOpenAIProvider(TestCase):
         provider = OpenAIProvider("o1")
         result = list(provider.stream_response("system prompt", [{"role": "user", "content": "test"}]))
 
+        assert mock_client.chat.completions.create.call_count == 1
+        assert mock_client.chat.completions.create.call_args.kwargs["model"] == "o1"
+        assert mock_client.chat.completions.create.call_args.kwargs["messages"][0]["role"] == "user"
+        assert mock_client.chat.completions.create.call_args.kwargs["messages"][0]["content"] == "system prompt"
+        assert mock_client.chat.completions.create.call_args.kwargs["messages"][1]["role"] == "user"
+        assert mock_client.chat.completions.create.call_args.kwargs["messages"][1]["content"] == "test"
+
         assert len(result) == 2
         assert result[0] == 'data: {"type": "text", "text": "Test response"}\n\n'
         assert (
@@ -94,6 +101,9 @@ class TestOpenAIProvider(TestCase):
         provider = OpenAIProvider("o3-mini")
         result = list(provider.stream_response("system prompt", [{"role": "user", "content": "test"}], thinking=True))
 
+        assert mock_client.chat.completions.create.call_count == 1
+        assert mock_client.chat.completions.create.call_args.kwargs["model"] == "o3-mini"
+        assert mock_client.chat.completions.create.call_args.kwargs["reasoning_effort"] == "medium"
         assert len(result) == 3
         assert result[0] == 'data: {"type": "text", "text": "Test "}\n\n'
         assert result[1] == 'data: {"type": "text", "text": "response"}\n\n'
