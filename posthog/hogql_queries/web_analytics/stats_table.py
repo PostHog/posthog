@@ -326,7 +326,7 @@ ON counts.breakdown_value = bounce.breakdown_value
                 select=selects,
                 select_from=ast.JoinExpr(table=self._frustration_metrics_inner_query()),
                 group_by=[ast.Field(chain=["context.columns.breakdown_value"])],
-                order_by=self._frustration_metrics_order_by(columns=[select.alias for select in selects]),
+                order_by=self._frustration_metrics_order_by(),
             )
 
         return query
@@ -336,7 +336,7 @@ ON counts.breakdown_value = bounce.breakdown_value
             """
             SELECT
                 any(person_id) AS filtered_person_id,
-                count() AS filtered_pageview_count,
+                countIf(events.event = '$pageview' OR events.event = '$screen') AS filtered_pageview_count,
                 {breakdown_value} AS breakdown_value,
                 countIf(events.event = '$rageclick') AS rage_clicks_count,
                 countIf(events.event = '$dead_click') AS dead_clicks_count,
@@ -350,7 +350,9 @@ ON counts.breakdown_value = bounce.breakdown_value
             timings=self.timings,
             placeholders={
                 "breakdown_value": self._counts_breakdown_value(),
-                "event_where": parse_expr("events.event IN ('$pageview', '$rageclick', '$dead_click', '$exception')"),
+                "event_where": parse_expr(
+                    "events.event IN ('$pageview', '$screen', '$rageclick', '$dead_click', '$exception')"
+                ),
                 "all_properties": self._all_properties(),
                 "where_breakdown": self.where_breakdown(),
                 "inside_periods": self._periods_expression(),
@@ -360,7 +362,7 @@ ON counts.breakdown_value = bounce.breakdown_value
         assert isinstance(query, ast.SelectQuery)
         return query
 
-    def _frustration_metrics_order_by(self, columns: list[str]) -> list[ast.OrderExpr] | None:
+    def _frustration_metrics_order_by(self) -> list[ast.OrderExpr] | None:
         return [
             ast.OrderExpr(expr=ast.Field(chain=["context.columns.rage_clicks"]), order="DESC"),
             ast.OrderExpr(expr=ast.Field(chain=["context.columns.dead_clicks"]), order="DESC"),
