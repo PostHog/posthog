@@ -220,7 +220,7 @@ jobs:
     shear:
         name: Shear Rust services
         needs: changes
-        runs-on: depot-ubuntu-22.04-4
+        runs-on: depot-ubuntu-24.04
 
         defaults:
             run:
