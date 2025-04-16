@@ -7355,7 +7355,8 @@
                 "field_traverser",
                 "expression",
                 "view",
-                "materialized_view"
+                "materialized_view",
+                "decimal"
             ],
             "type": "string"
         },
