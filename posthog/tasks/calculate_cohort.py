@@ -7,7 +7,7 @@ from posthog.models.team.team import Team
 import structlog
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
-from django.db.models import F, ExpressionWrapper, DurationField, Q
+from django.db.models import Case, F, ExpressionWrapper, DurationField, Q, When
 from django.utils import timezone
 from prometheus_client import Gauge
 from sentry_sdk import set_tag
@@ -17,7 +17,6 @@ from datetime import timedelta
 from posthog.exceptions_capture import capture_exception
 from posthog.api.monitoring import Feature
 from posthog.models import Cohort
-from posthog.models.cohort import get_and_update_pending_version
 from posthog.models.cohort.util import clear_stale_cohortpeople, get_static_cohort_size
 from posthog.models.user import User
 from posthog.tasks.utils import CeleryQueue
@@ -87,7 +86,10 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
 
 
 def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
-    pending_version = get_and_update_pending_version(cohort)
+    cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
+    cohort.save(update_fields=["pending_version"])
+    cohort.refresh_from_db()
+    pending_version = cohort.pending_version
     calculate_cohort_ch.delay(cohort.id, pending_version, initiating_user.id if initiating_user else None)
 
 

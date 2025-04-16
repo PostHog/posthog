@@ -18,7 +18,11 @@ from posthog.models.async_deletion.async_deletion import AsyncDeletion, Deletion
 from posthog.models.cohort import Cohort
 from posthog.models.team.team import Team
 from posthog.schema import PropertyOperator, PersonsOnEventsMode
-from posthog.tasks.calculate_cohort import calculate_cohort_ch, calculate_cohort_from_list
+from posthog.tasks.calculate_cohort import (
+    calculate_cohort_ch,
+    calculate_cohort_from_list,
+    increment_version_and_enqueue_calculate_cohort,
+)
 from posthog.tasks.tasks import clickhouse_clear_removed_data
 from posthog.test.base import (
     APIBaseTest,
@@ -60,6 +64,27 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         activity: list[dict] = activity_response["results"]
         self.maxDiff = None
         assert activity == expected
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_increment_cohort(self, mock_calculate_cohort_ch):
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="cohort1",
+            pending_version=None,
+        )
+
+        increment_version_and_enqueue_calculate_cohort(cohort1, initiating_user=None)
+        cohort1.refresh_from_db()
+        assert cohort1.pending_version == 1
+
+        increment_version_and_enqueue_calculate_cohort(cohort1, initiating_user=None)
+        cohort1.refresh_from_db()
+        assert cohort1.pending_version == 2
+
+        increment_version_and_enqueue_calculate_cohort(cohort1, initiating_user=None)
+        cohort1.refresh_from_db()
+        assert cohort1.pending_version == 3
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay", side_effect=calculate_cohort_ch)
