@@ -211,14 +211,21 @@ HAVING {inside_start_timestamp_period}
                 params=params,
             )
 
-        def add_metric_pair(metrics_list, function_name, column_name, current_alias, previous_alias=None, params=None):
+        def add_metric_pair(
+            metrics_list: list[ast.Expr],
+            function_name: str,
+            column_name: str,
+            current_alias: str,
+            previous_alias: Optional[str] = None,
+            params: Optional[list[ast.Expr]] = None,
+        ) -> list[ast.Expr]:
             # This could also be done using tuples like the stats_table but I will keep the protocol as close as possible: https://github.com/PostHog/posthog/blob/26588f3689aa505fbf857afcae4e8bd18cf75606/posthog/hogql_queries/web_analytics/stats_table.py#L390-L399
             previous_alias = previous_alias or f"previous_{current_alias}"
             metrics_list.append(current_period_aggregate(function_name, column_name, current_alias, params))
             metrics_list.append(previous_period_aggregate(function_name, column_name, previous_alias, params))
             return metrics_list
 
-        select = []
+        select: list[ast.Expr] = []
 
         if self.query.conversionGoal:
             # Add standard conversion goal metrics
@@ -226,7 +233,7 @@ HAVING {inside_start_timestamp_period}
             add_metric_pair(select, "sum", "conversion_count", "total_conversion_count")
             add_metric_pair(select, "uniq", "conversion_person_id", "unique_conversions")
 
-            conversion_rate = ast.Alias(
+            conversion_rate: ast.Expr = ast.Alias(
                 alias="conversion_rate",
                 expr=ast.Call(
                     name="divide",
@@ -237,16 +244,18 @@ HAVING {inside_start_timestamp_period}
                 ),
             )
 
-            previous_conversion_rate = ast.Alias(
+            previous_conversion_rate: ast.Expr = ast.Alias(
                 alias="previous_conversion_rate",
-                expr=ast.Constant(value=None)
-                if not has_comparison
-                else ast.Call(
-                    name="divide",
-                    args=[
-                        ast.Field(chain=["previous_unique_conversions"]),
-                        ast.Field(chain=["previous_unique_users"]),
-                    ],
+                expr=(
+                    ast.Constant(value=None)
+                    if not has_comparison
+                    else ast.Call(
+                        name="divide",
+                        args=[
+                            ast.Field(chain=["previous_unique_conversions"]),
+                            ast.Field(chain=["previous_unique_users"]),
+                        ],
+                    )
                 ),
             )
 
