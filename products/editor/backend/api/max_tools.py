@@ -14,7 +14,6 @@ from ee.hogai.utils.types import AssistantMode, AssistantState
 from ee.models.assistant import Conversation
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication
-from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
@@ -52,10 +51,6 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def create_and_query_insight(self, request: Request, *args, **kwargs):
         serializer = InsightsToolCallSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        try:
-            self.team = Team.objects.get(id=self.team_id)
-        except Team.DoesNotExist:
-            raise serializers.ValidationError("Team does not exist")
         conversation = self.get_queryset().create(user=request.user, team=self.team, type=Conversation.Type.TOOL_CALL)
         assistant = Assistant(
             self.team,
