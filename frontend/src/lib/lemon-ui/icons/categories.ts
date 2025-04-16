@@ -172,6 +172,7 @@ export const ELEMENTS = {
         'IconFilter',
         'IconArchive',
         'IconSort',
+        'IconSortAlpha',
         'IconExternal',
     ],
     Symbols: [

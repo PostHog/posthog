@@ -574,17 +574,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         pendingActionsCount: [(s) => [s.pendingActions], (pendingActions): number => pendingActions.length],
         projectTree: [
             (s) => [s.viableItems, s.folderStates, s.checkedItems, s.sortMethod],
-            (viableItems, folderStates, checkedItems, sortMethod): TreeDataItem[] => {
-                const items = convertFileSystemEntryToTreeDataItem({
+            (viableItems, folderStates, checkedItems, sortMethod): TreeDataItem[] =>
+                convertFileSystemEntryToTreeDataItem({
                     imports: viableItems,
                     folderStates,
                     checkedItems,
                     root: 'project',
                     sortBy: sortMethod,
-                })
-
-                return items
-            },
+                }),
         ],
         groupNodes: [
             (s) => [s.groupTypes, s.groupsAccessStatus, s.aggregationLabel],
