@@ -1,5 +1,6 @@
 import json
 import os
+from contextlib import suppress
 from urllib.parse import urlparse
 
 import dj_database_url
@@ -177,11 +178,11 @@ try:
 except Exception:
     CLICKHOUSE_PER_TEAM_SETTINGS = {}
 
-try:
+API_QUERIES_PER_TEAM: dict[int, int] = {}
+with suppress(Exception):
     as_json = json.loads(os.getenv("API_QUERIES_PER_TEAM", "{}"))
-    API_QUERIES_PER_TEAM: dict[int, int] = {int(k): int(v) for k, v in as_json.items()}
-except Exception:
-    API_QUERIES_PER_TEAM: dict[int, int] = {}
+    API_QUERIES_PER_TEAM = {int(k): int(v) for k, v in as_json.items()}
+
 
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"

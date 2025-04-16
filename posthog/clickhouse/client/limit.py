@@ -108,7 +108,7 @@ class RateLimit:
         max_concurrency = self.max_concurrency
         in_beta = team_id in settings.API_QUERIES_PER_TEAM
         if in_beta:
-            max_concurrency = settings.API_QUERIES_PER_TEAM.get(team_id)
+            max_concurrency = settings.API_QUERIES_PER_TEAM[team_id]  # type: ignore
         elif "limit" in kwargs:
             max_concurrency = kwargs.get("limit") or max_concurrency
         # Atomically check, remove expired if limit hit, and add the new task
