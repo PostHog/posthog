@@ -1,7 +1,6 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
 import { CyclotronJob, CyclotronJobUpdate } from '@posthog/cyclotron'
-import { Bytecodes } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 import RE2 from 're2'
 import { gunzip, gzip } from 'zlib'
@@ -366,13 +365,13 @@ export function invocationToCyclotronJobUpdate(invocation: HogFunctionInvocation
         blob = body ? Buffer.from(body) : undefined
     }
 
-    const updates = {
+    const updates: CyclotronJobUpdate = {
         vmState: serializeHogFunctionInvocation(invocation),
         priority: invocation.queuePriority,
         queueName: invocation.queue,
         parameters,
         blob,
-        scheduled: invocation.queueScheduledAt,
+        scheduled: invocation.queueScheduledAt?.toJSDate(),
     }
     return updates
 }
