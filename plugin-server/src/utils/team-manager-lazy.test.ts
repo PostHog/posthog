@@ -127,6 +127,27 @@ describe('TeamManager()', () => {
             expect(result2).toBeNull()
             expect(fetchTeamsSpy).toHaveBeenCalledTimes(1)
         })
+
+        it('correctly handles mix of existing and non-existing teams', async () => {
+            const nonExistentId = 9999
+            const [existingTeam, nonExistingTeam] = await Promise.all([
+                teamManager.getTeam(teamId),
+                teamManager.getTeam(nonExistentId),
+            ])
+
+            expect(existingTeam?.id).toEqual(teamId)
+            expect(nonExistingTeam).toBeNull()
+            expect(fetchTeamsSpy).toHaveBeenCalledTimes(1)
+
+            // Second fetch should use cache for both
+            const [existingTeam2, nonExistingTeam2] = await Promise.all([
+                teamManager.getTeam(teamId),
+                teamManager.getTeam(nonExistentId),
+            ])
+            expect(existingTeam2?.id).toEqual(teamId)
+            expect(nonExistingTeam2).toBeNull()
+            expect(fetchTeamsSpy).toHaveBeenCalledTimes(1)
+        })
     })
 
     describe('hasAvailableFeature()', () => {
