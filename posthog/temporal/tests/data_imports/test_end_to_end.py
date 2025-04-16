@@ -1634,6 +1634,7 @@ async def test_partition_folders_with_uuid_id_and_created_at_with_day_format(
     assert schema.partitioning_enabled is True
     assert schema.partitioning_keys == ["created_at"]
     assert schema.partition_mode == "datetime"
+    assert schema.partition_format == "day"
     assert schema.partition_count is not None
 
 
