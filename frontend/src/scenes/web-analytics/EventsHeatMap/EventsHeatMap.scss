@@ -49,7 +49,7 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background-color: var(--retention-table-color); // NOTE: This is usually overridden in JS
+        background-color: var(--heatmap-table-color); // NOTE: This is usually overridden in JS
         border-radius: var(--radius);
 
         &.EventsHeatMap__Cell--clickable {
