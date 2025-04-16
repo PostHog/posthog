@@ -550,24 +550,25 @@ async fn it_reroutes_to_historical_on_event_timestamp() -> Result<()> {
     let stale_timestamp = Utc::now().checked_sub_days(chrono::Days::new(1)).unwrap();
 
     let events = vec![
-    json!([{
-        "token": token1,
-        "event": "event1",
-        "timestamp": Utc::now().to_rfc3339(),
-        "distinct_id": distinct_id1,
-    }]),
-    json!([{
-        "token": token2,
-        "event": "event2",
-        "timestamp": stale_timestamp.to_rfc3339(),
-        "distinct_id": distinct_id2,
-    }]),
-    json!([{
-        "token": token3,
-        "event": "event3",
-        // missing stamp won't trigger historical reroute
-        "distinct_id": distinct_id3,
-    }])];
+        json!([{
+            "token": token1,
+            "event": "event1",
+            "timestamp": Utc::now().to_rfc3339(),
+            "distinct_id": distinct_id1,
+        }]),
+        json!([{
+            "token": token2,
+            "event": "event2",
+            "timestamp": stale_timestamp.to_rfc3339(),
+            "distinct_id": distinct_id2,
+        }]),
+        json!([{
+            "token": token3,
+            "event": "event3",
+            // missing stamp won't trigger historical reroute
+            "distinct_id": distinct_id3,
+        }]),
+    ];
 
     for event in events {
         let res = server.capture_events(event.to_string()).await;
