@@ -8,6 +8,7 @@ import {
     DecodedKafkaMessage,
     getProducedKafkaMessages,
     getProducedKafkaMessagesForTopic,
+    getProducedKafkaMessagesWithHeadersForTopic,
     mockProducer,
 } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
@@ -168,7 +169,7 @@ describe('IngestionConsumer', () => {
             ]
             await ingester.handleKafkaBatch(messages)
 
-            const producedMessages = getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+            const producedMessages = getProducedKafkaMessagesWithHeadersForTopic('clickhouse_events_json_test')
             expect(producedMessages.length).toBe(1)
 
             const headers = producedMessages[0].headers || []
@@ -1004,7 +1005,6 @@ describe('IngestionConsumer', () => {
             expect(forSnapshot(getProducedKafkaMessages())).toMatchInlineSnapshot(`
                 [
                   {
-                    "headers": undefined,
                     "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
                     "topic": "testing_topic",
                     "value": {
