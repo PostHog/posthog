@@ -18,6 +18,8 @@ test.describe('Event Definitions', () => {
         await page.locator('[data-attr=event-definitions-table-view-recordings]').click()
         expect(page.url()).toMatch(/replay/)
 
+        await page.locator('.LemonButton--has-icon .LemonButton__content').filter({ hasText: 'Filters' }).click()
+
         await expect(page.locator('.UniversalFilterButton').first()).toContainText(eventName, { ignoreCase: true })
     })
 })

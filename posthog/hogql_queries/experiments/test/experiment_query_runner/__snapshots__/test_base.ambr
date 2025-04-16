@@ -26,13 +26,13 @@
         GROUP BY entity_id,
                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposures
      LEFT JOIN
-       (SELECT usage.ds AS timestamp,
-               usage.userid AS entity_identifier,
+       (SELECT posthog_test_usage.ds AS timestamp,
+               posthog_test_usage.userid AS entity_identifier,
                exposure_data.variant AS variant,
-               usage.usage AS value
+               posthog_test_usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS posthog_test_usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -48,8 +48,8 @@
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id,
-                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(posthog_test_usage.userid, toString(exposure_data.exposure_identifier))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(posthog_test_usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -91,13 +91,13 @@
         GROUP BY entity_id,
                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposures
      LEFT JOIN
-       (SELECT usage.ds AS timestamp,
-               usage.userid AS entity_identifier,
+       (SELECT posthog_test_usage.ds AS timestamp,
+               posthog_test_usage.userid AS entity_identifier,
                exposure_data.variant AS variant,
                1 AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS posthog_test_usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -113,8 +113,8 @@
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id,
-                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(posthog_test_usage.userid, toString(exposure_data.exposure_identifier))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(posthog_test_usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -216,13 +216,13 @@
         GROUP BY entity_id,
                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposures
      LEFT JOIN
-       (SELECT usage.ds AS timestamp,
-               usage.userid AS entity_identifier,
+       (SELECT posthog_test_usage.ds AS timestamp,
+               posthog_test_usage.userid AS entity_identifier,
                exposure_data.variant AS variant,
                1 AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS posthog_test_usage
         INNER JOIN
           (SELECT events.`$group_0` AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -231,8 +231,8 @@
            FROM events
            WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id,
-                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE and(greaterOrEquals(usage.ds, toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(posthog_test_usage.userid, toString(exposure_data.exposure_identifier))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), ifNull(greaterOrEquals(posthog_test_usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(posthog_test_usage.ds, toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1046,13 +1046,13 @@
         GROUP BY entity_id,
                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposures
      LEFT JOIN
-       (SELECT usage.ds AS timestamp,
-               usage.userid AS entity_identifier,
+       (SELECT posthog_test_usage.ds AS timestamp,
+               posthog_test_usage.userid AS entity_identifier,
                exposure_data.variant AS variant,
-               usage.usage AS value
+               posthog_test_usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS posthog_test_usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1078,8 +1078,8 @@
                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
            WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id,
-                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(posthog_test_usage.userid, toString(exposure_data.exposure_identifier))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(posthog_test_usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1121,13 +1121,13 @@
         GROUP BY entity_id,
                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposures
      LEFT JOIN
-       (SELECT usage.ds AS timestamp,
-               usage.userid AS entity_identifier,
+       (SELECT posthog_test_usage.ds AS timestamp,
+               posthog_test_usage.userid AS entity_identifier,
                exposure_data.variant AS variant,
-               usage.usage AS value
+               posthog_test_usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS posthog_test_usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1143,8 +1143,8 @@
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id,
-                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(posthog_test_usage.userid, toString(exposure_data.exposure_identifier))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(posthog_test_usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1186,13 +1186,13 @@
         GROUP BY entity_id,
                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposures
      LEFT JOIN
-       (SELECT usage.ds AS timestamp,
-               usage.userid AS entity_identifier,
+       (SELECT posthog_test_usage.ds AS timestamp,
+               posthog_test_usage.userid AS entity_identifier,
                exposure_data.variant AS variant,
-               usage.usage AS value
+               posthog_test_usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS posthog_test_usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1208,8 +1208,8 @@
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(not(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)')), 1), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id,
-                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(posthog_test_usage.userid, toString(exposure_data.exposure_identifier))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(posthog_test_usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1251,13 +1251,13 @@
         GROUP BY entity_id,
                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposures
      LEFT JOIN
-       (SELECT usage.ds AS timestamp,
-               usage.userid AS entity_identifier,
+       (SELECT posthog_test_usage.ds AS timestamp,
+               posthog_test_usage.userid AS entity_identifier,
                exposure_data.variant AS variant,
-               usage.usage AS value
+               posthog_test_usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS posthog_test_usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1273,8 +1273,8 @@
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id,
-                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(posthog_test_usage.userid, toString(exposure_data.exposure_identifier))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(posthog_test_usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1316,13 +1316,13 @@
         GROUP BY entity_id,
                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposures
      LEFT JOIN
-       (SELECT usage.ds AS timestamp,
-               usage.userid AS entity_identifier,
+       (SELECT posthog_test_usage.ds AS timestamp,
+               posthog_test_usage.userid AS entity_identifier,
                exposure_data.variant AS variant,
-               usage.usage AS value
+               posthog_test_usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS posthog_test_usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1338,8 +1338,8 @@
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/flag_doesnt_exist'), ''), 'null'), '^"|"$', ''), tuple('test', 'control')), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id,
-                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(posthog_test_usage.userid, toString(exposure_data.exposure_identifier))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(posthog_test_usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1381,13 +1381,13 @@
         GROUP BY entity_id,
                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposures
      LEFT JOIN
-       (SELECT usage.ds AS timestamp,
-               usage.userid AS entity_identifier,
+       (SELECT posthog_test_usage.ds AS timestamp,
+               posthog_test_usage.userid AS entity_identifier,
                exposure_data.variant AS variant,
-               usage.usage AS value
+               posthog_test_usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS posthog_test_usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1403,8 +1403,8 @@
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id,
-                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(posthog_test_usage.userid, toString(exposure_data.exposure_identifier))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(posthog_test_usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1458,13 +1458,13 @@
         GROUP BY entity_id,
                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposures
      LEFT JOIN
-       (SELECT usage.ds AS timestamp,
-               usage.userid AS entity_identifier,
+       (SELECT posthog_test_usage.ds AS timestamp,
+               posthog_test_usage.userid AS entity_identifier,
                exposure_data.variant AS variant,
-               usage.usage AS value
+               posthog_test_usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS posthog_test_usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1483,8 +1483,8 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM person_static_cohort
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id,
-                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(posthog_test_usage.userid, toString(exposure_data.exposure_identifier))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(posthog_test_usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1526,13 +1526,13 @@
         GROUP BY entity_id,
                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposures
      LEFT JOIN
-       (SELECT usage.ds AS timestamp,
-               usage.userid AS entity_identifier,
+       (SELECT posthog_test_usage.ds AS timestamp,
+               posthog_test_usage.userid AS entity_identifier,
                exposure_data.variant AS variant,
-               usage.usage AS value
+               posthog_test_usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS posthog_test_usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1548,8 +1548,8 @@
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id,
-                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(posthog_test_usage.userid, toString(exposure_data.exposure_identifier))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(posthog_test_usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1614,13 +1614,13 @@
         GROUP BY entity_id,
                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposures
      LEFT JOIN
-       (SELECT usage.ds AS timestamp,
-               usage.userid AS entity_identifier,
+       (SELECT posthog_test_usage.ds AS timestamp,
+               posthog_test_usage.userid AS entity_identifier,
                exposure_data.variant AS variant,
-               usage.usage AS value
+               posthog_test_usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS posthog_test_usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1639,8 +1639,8 @@
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0)))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id,
-                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(posthog_test_usage.userid, toString(exposure_data.exposure_identifier))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(posthog_test_usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1682,13 +1682,13 @@
         GROUP BY entity_id,
                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposures
      LEFT JOIN
-       (SELECT usage.ds AS timestamp,
-               usage.userid AS entity_identifier,
+       (SELECT posthog_test_usage.ds AS timestamp,
+               posthog_test_usage.userid AS entity_identifier,
                exposure_data.variant AS variant,
-               usage.usage AS value
+               posthog_test_usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS posthog_test_usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1704,8 +1704,8 @@
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id,
-                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(posthog_test_usage.userid, toString(exposure_data.exposure_identifier))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(posthog_test_usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1755,13 +1755,13 @@
         GROUP BY entity_id,
                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposures
      LEFT JOIN
-       (SELECT usage.ds AS timestamp,
-               usage.userid AS entity_identifier,
+       (SELECT posthog_test_usage.ds AS timestamp,
+               posthog_test_usage.userid AS entity_identifier,
                exposure_data.variant AS variant,
-               usage.usage AS value
+               posthog_test_usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS posthog_test_usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1785,8 +1785,8 @@
                        groups.group_key) AS events__group_0 ON equals(events.`$group_0`, events__group_0.key)
            WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(events__group_0.properties___name, 'Test Group'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id,
-                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(posthog_test_usage.userid, toString(exposure_data.exposure_identifier))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(posthog_test_usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1828,13 +1828,13 @@
         GROUP BY entity_id,
                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposures
      LEFT JOIN
-       (SELECT usage.ds AS timestamp,
-               usage.userid AS entity_identifier,
+       (SELECT posthog_test_usage.ds AS timestamp,
+               posthog_test_usage.userid AS entity_identifier,
                exposure_data.variant AS variant,
-               usage.usage AS value
+               posthog_test_usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS posthog_test_usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1850,8 +1850,8 @@
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id,
-                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(posthog_test_usage.userid, toString(exposure_data.exposure_identifier))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(posthog_test_usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1893,13 +1893,13 @@
         GROUP BY entity_id,
                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposures
      LEFT JOIN
-       (SELECT usage.ds AS timestamp,
-               usage.userid AS entity_identifier,
+       (SELECT posthog_test_usage.ds AS timestamp,
+               posthog_test_usage.userid AS entity_identifier,
                exposure_data.variant AS variant,
-               usage.usage AS value
+               posthog_test_usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS posthog_test_usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1915,8 +1915,8 @@
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), match(events.elements_chain, '(^|;)button(\\.|$|;|:)'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id,
-                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(posthog_test_usage.userid, toString(exposure_data.exposure_identifier))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(posthog_test_usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -1958,13 +1958,13 @@
         GROUP BY entity_id,
                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposures
      LEFT JOIN
-       (SELECT usage.ds AS timestamp,
-               usage.userid AS entity_identifier,
+       (SELECT posthog_test_usage.ds AS timestamp,
+               posthog_test_usage.userid AS entity_identifier,
                exposure_data.variant AS variant,
-               usage.usage AS value
+               posthog_test_usage.usage AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `usage` String, `userid` String')) AS posthog_test_usage
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1980,8 +1980,8 @@
               HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
            WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id,
-                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(usage.userid, toString(exposure_data.exposure_identifier))
-        WHERE and(greaterOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
+                    replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$user_id'), ''), 'null'), '^"|"$', '')) AS exposure_data ON equals(posthog_test_usage.userid, toString(exposure_data.exposure_identifier))
+        WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), ifNull(greaterOrEquals(posthog_test_usage.ds, exposure_data.first_exposure_time), 0), lessOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant
@@ -2033,17 +2033,17 @@
         GROUP BY entity_id,
                  events__person.properties___email) AS exposures
      LEFT JOIN
-       (SELECT toTimeZone(subscriptions.subscription_created_at, 'UTC') AS timestamp,
-               subscriptions__subscription_customer.customer_email AS entity_identifier,
+       (SELECT toTimeZone(posthog_test_stripe_subscriptions.subscription_created_at, 'UTC') AS timestamp,
+               posthog_test_stripe_subscriptions__subscription_customer.customer_email AS entity_identifier,
                exposure_data.variant AS variant,
                1 AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/subscriptions/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`subscription_id` String, `subscription_amount` Int64, `subscription_created_at` DateTime, `subscription_customer_id` String')) AS subscriptions
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_subscriptions/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`subscription_id` String, `subscription_amount` Int64, `subscription_created_at` DateTime, `subscription_customer_id` String')) AS posthog_test_stripe_subscriptions
         LEFT JOIN
-          (SELECT customers.customer_email AS customer_email,
-                  customers.customer_id AS subscriptions__subscription_customer___customer_id
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/customers/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`customer_id` String, `signup_count` Int32, `customer_name` String, `customer_email` String, `customer_created_at` DateTime') AS customers) AS subscriptions__subscription_customer ON equals(subscriptions.subscription_customer_id, subscriptions__subscription_customer.subscriptions__subscription_customer___customer_id)
+          (SELECT posthog_test_stripe_customers.customer_email AS customer_email,
+                  posthog_test_stripe_customers.customer_id AS posthog_test_stripe_subscriptions__subscription_customer___customer_id
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_customers/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`customer_id` String, `signup_count` Int32, `customer_name` String, `customer_email` String, `customer_created_at` DateTime') AS posthog_test_stripe_customers) AS posthog_test_stripe_subscriptions__subscription_customer ON equals(posthog_test_stripe_subscriptions.subscription_customer_id, posthog_test_stripe_subscriptions__subscription_customer.posthog_test_stripe_subscriptions__subscription_customer___customer_id)
         INNER JOIN
           (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                   if(ifNull(greater(count(DISTINCT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), 0), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -2069,8 +2069,8 @@
                                                              HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
            WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(events.event, '$feature_flag_called'), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0))
            GROUP BY entity_id,
-                    events__person.properties___email) AS exposure_data ON equals(subscriptions__subscription_customer.customer_email, toString(exposure_data.exposure_identifier))
-        WHERE and(ifNull(greaterOrEquals(toTimeZone(subscriptions.subscription_created_at, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(subscriptions.subscription_created_at, 'UTC'), exposure_data.first_exposure_time), 0), ifNull(lessOrEquals(toTimeZone(subscriptions.subscription_created_at, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
+                    events__person.properties___email) AS exposure_data ON equals(posthog_test_stripe_subscriptions__subscription_customer.customer_email, toString(exposure_data.exposure_identifier))
+        WHERE and(ifNull(greaterOrEquals(toTimeZone(posthog_test_stripe_subscriptions.subscription_created_at, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0), ifNull(greaterOrEquals(toTimeZone(posthog_test_stripe_subscriptions.subscription_created_at, 'UTC'), exposure_data.first_exposure_time), 0), ifNull(lessOrEquals(toTimeZone(posthog_test_stripe_subscriptions.subscription_created_at, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0))) AS metric_events ON equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
   GROUP BY metric_events.variant

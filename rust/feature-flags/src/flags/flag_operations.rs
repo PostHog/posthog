@@ -68,8 +68,6 @@ impl FeatureFlagList {
         let flags_list: Vec<FeatureFlag> =
             serde_json::from_str(&serialized_flags).map_err(|e| {
                 tracing::error!("failed to parse data to flags list: {}", e);
-                println!("failed to parse data: {}", e);
-
                 FlagError::RedisDataParsingError
             })?;
 

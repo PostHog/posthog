@@ -37,6 +37,13 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
+class ElementStatsSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    hash = serializers.CharField(allow_null=True)
+    type = serializers.CharField()
+    elements = ElementSerializer(many=True)
+
+
 class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     filter_rewrite_rules = {"team_id": "group__team_id"}
@@ -112,16 +119,19 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     },
                 )
 
-            with timer("serialize_elements"):
-                serialized_elements = [
+            with timer("prepare_for_serialization"):
+                elements_data = [
                     {
                         "count": elements[1],
                         "hash": None,
                         "type": elements[2],
-                        "elements": [ElementSerializer(element).data for element in chain_to_elements(elements[0])],
+                        "elements": chain_to_elements(elements[0]),
                     }
                     for elements in result[:limit]
                 ]
+
+            with timer("serialize_elements"):
+                serialized_elements = ElementStatsSerializer(elements_data, many=True).data
 
             has_next = len(result) == limit + 1
             next_url = format_query_params_absolute_url(request, offset + limit) if has_next else None
@@ -135,6 +145,8 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
             elements_response.headers["Server-Timing"] = timer.to_header_string()
+            elements_response.headers["Cache-Control"] = "public, max-age=30"  # Cache for 30 seconds
+            elements_response.headers["Vary"] = "Accept, Accept-Encoding, Query-String"
             return elements_response
 
     def _events_filter(self, request) -> tuple[Literal["$autocapture", "$rageclick", "$dead_click"], ...]:

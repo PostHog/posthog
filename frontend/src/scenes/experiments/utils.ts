@@ -31,13 +31,10 @@ import {
     FeatureFlagType,
     FilterType,
     FunnelConversionWindowTimeUnit,
-    FunnelTimeConversionMetrics,
     FunnelVizType,
-    InsightType,
     PropertyFilterType,
     PropertyOperator,
     type QueryBasedInsightModel,
-    TrendResult,
     UniversalFiltersGroupValue,
 } from '~/types'
 
@@ -58,64 +55,6 @@ export function percentageDistribution(variantCount: number): number[] {
         percentages[i] += 1
     }
     return percentages
-}
-
-export function getMinimumDetectableEffect(
-    metricType: InsightType,
-    conversionMetrics: FunnelTimeConversionMetrics,
-    trendResults: TrendResult[]
-): number | null {
-    if (metricType === InsightType.FUNNELS) {
-        // FUNNELS
-        // Given current CR, find a realistic target CR increase and return MDE based on it
-        if (!conversionMetrics) {
-            return null
-        }
-
-        let currentConversionRate = conversionMetrics.totalRate * 100
-        // 40% should have the same MDE as 60% -> perform a flip above 50%
-        if (currentConversionRate > 50) {
-            currentConversionRate = 100 - currentConversionRate
-        }
-
-        // Multiplication would result in 0; return MDE = 1
-        if (currentConversionRate === 0) {
-            return 1
-        }
-
-        // CR = 50% requires a high running time
-        // CR = 1% or 99% requires a low running time
-        const midpointDistance = Math.abs(50 - currentConversionRate)
-
-        let targetConversionRateIncrease
-        if (midpointDistance <= 20) {
-            targetConversionRateIncrease = 0.1
-        } else if (midpointDistance <= 35) {
-            targetConversionRateIncrease = 0.2
-        } else {
-            targetConversionRateIncrease = 0.5
-        }
-
-        const targetConversionRate = Math.round(currentConversionRate * (1 + targetConversionRateIncrease))
-        const mde = Math.ceil(targetConversionRate - currentConversionRate)
-
-        return mde || 30
-    }
-
-    // TRENDS
-    // Given current count of the Trend metric, what percentage increase are we targeting?
-    if (trendResults[0]?.count === undefined) {
-        return null
-    }
-
-    const baselineCount = trendResults[0].count
-
-    if (baselineCount <= 200) {
-        return 100
-    } else if (baselineCount <= 1000) {
-        return 20
-    }
-    return 5
 }
 
 export function transformFiltersForWinningVariant(
