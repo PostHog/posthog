@@ -137,7 +137,7 @@ export enum TaxonomicFilterGroupType {
     HogQLExpression = 'hogql_expression',
     Notebooks = 'notebooks',
     LogEntries = 'log_entries',
-    ErrorTrackingIssue = 'error_tracking_issues',
+    ErrorTrackingIssues = 'error_tracking_issues',
     ErrorTrackingIssueProperties = 'error_tracking_issue_properties',
     // Misc
     Replay = 'replay',

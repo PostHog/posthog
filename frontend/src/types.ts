@@ -3444,6 +3444,7 @@ export enum PropertyDefinitionType {
     Session = 'session',
     LogEntry = 'log_entry',
     Meta = 'meta',
+    Resource = 'resource',
 }
 
 export interface PropertyDefinition {

@@ -225,9 +225,9 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                     TaxonomicFilterGroupType.SessionProperties,
                     TaxonomicFilterGroupType.EventFeatureFlags,
                     TaxonomicFilterGroupType.NumericalEventProperties,
-                    TaxonomicFilterGroupType.ErrorTrackingIssueProperties,
                     TaxonomicFilterGroupType.Metadata,
                     TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                    TaxonomicFilterGroupType.ErrorTrackingIssueProperties,
                 ].includes(type) || type.startsWith(TaxonomicFilterGroupType.GroupsPrefix),
         ],
         hasSentAs: [
