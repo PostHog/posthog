@@ -233,18 +233,18 @@ HAVING {inside_start_timestamp_period}
             add_metric_pair(select, "sum", "conversion_count", "total_conversion_count")
             add_metric_pair(select, "uniq", "conversion_person_id", "unique_conversions")
 
-            conversion_rate: ast.Expr = ast.Alias(
+            conversion_rate = ast.Alias(
                 alias="conversion_rate",
                 expr=ast.Call(
                     name="divide",
                     args=[
-                        ast.Field(chain=["unique_conversions"]) if has_comparison else select[4].expr,
-                        ast.Field(chain=["unique_users"]) if has_comparison else ast.Field(chain=["unique_users"]),
+                        ast.Field(chain=["unique_conversions"]),
+                        ast.Field(chain=["unique_users"]),
                     ],
                 ),
             )
 
-            previous_conversion_rate: ast.Expr = ast.Alias(
+            previous_conversion_rate = ast.Alias(
                 alias="previous_conversion_rate",
                 expr=(
                     ast.Constant(value=None)
