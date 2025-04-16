@@ -47,8 +47,9 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
                     <div className="py-2">
                         <PropertyFilters
                             propertyFilters={(rule.filters.values as AnyPropertyFilter[]) ?? []}
-                            taxonomicGroupTypes={[TaxonomicFilterGroupType.ErrorTrackingIssues]}
+                            taxonomicGroupTypes={[TaxonomicFilterGroupType.ErrorTrackingIssueProperties]}
                             onChange={(properties: AnyPropertyFilter[]) => {
+                                debugger
                                 updateRule({ ...rule, filters: { ...rule, values: properties } })
                             }}
                             pageKey={`error-tracking-auto-assignment-properties-${rule.id}`}

@@ -114,7 +114,8 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.DataWarehousePersonProperty]: TaxonomicFilterGroupType.DataWarehousePersonProperties,
         [PropertyFilterType.Recording]: TaxonomicFilterGroupType.Replay,
         [PropertyFilterType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
-        [PropertyFilterType.ErrorTrackingIssue]: TaxonomicFilterGroupType.ErrorTrackingIssues,
+        [PropertyFilterType.ErrorTrackingIssue]: TaxonomicFilterGroupType.ErrorTrackingIssue,
+        [PropertyFilterType.ErrorTrackingIssueProperty]: TaxonomicFilterGroupType.ErrorTrackingIssueProperties,
     }
 
 export function formatPropertyLabel(
@@ -356,8 +357,6 @@ export function propertyFilterTypeToPropertyDefinitionType(
         ? PropertyDefinitionType.Session
         : filterType === PropertyFilterType.LogEntry
         ? PropertyDefinitionType.LogEntry
-        : filterType === PropertyFilterType.ErrorTrackingIssue
-        ? PropertyDefinitionType.Resource
         : PropertyDefinitionType.Event
 }
 
@@ -386,12 +385,12 @@ export function taxonomicFilterTypeToPropertyFilterType(
         return PropertyFilterType.DataWarehouse
     }
 
-    if (filterType == TaxonomicFilterGroupType.ErrorTrackingIssues) {
-        return PropertyFilterType.ErrorTrackingIssue
-    }
-
     if (filterType == TaxonomicFilterGroupType.DataWarehousePersonProperties) {
         return PropertyFilterType.DataWarehousePersonProperty
+    }
+
+    if (filterType == TaxonomicFilterGroupType.ErrorTrackingIssueProperties) {
+        return PropertyFilterType.ErrorTrackingIssueProperty
     }
 
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as

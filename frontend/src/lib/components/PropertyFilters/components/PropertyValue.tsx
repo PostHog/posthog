@@ -33,7 +33,7 @@ export interface PropertyValueProps {
     inputClassName?: string
     additionalPropertiesFilter?: { key: string; values: string | string[] }[]
     groupTypeIndex?: GroupTypeIndex
-    size: LemonButtonProps['size']
+    size?: LemonButtonProps['size']
 }
 
 export function PropertyValue({
