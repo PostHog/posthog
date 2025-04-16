@@ -213,7 +213,7 @@ export class IngestionConsumer {
         }
     }
 
-    private getExistingBreadcrumbsFromHeaders(message: Message): KafkaConsumerBreadcrumb[] {
+    private getExistingBreadcrumbsFromHeaders(message: Message): unknown[] {
         const existingBreadcrumbs: KafkaConsumerBreadcrumb[] = []
         if (message.headers) {
             for (const header of message.headers) {
@@ -225,7 +225,6 @@ export class IngestionConsumer {
                             if (validatedBreadcrumbs.success) {
                                 existingBreadcrumbs.push(...validatedBreadcrumbs.data)
                             } else {
-                                console.log('yes')
                                 logger.warn('Failed to validated breadcrumbs array from header', {
                                     error: validatedBreadcrumbs.error.format(),
                                 })
