@@ -13,7 +13,6 @@ on:
     push:
         branches:
             - master
-            - frank/push-to-ghcr
         paths-ignore:
             - 'rust/**'
             - 'livestream/**'
