@@ -2077,7 +2077,7 @@
       initial_geoip_subdivision_city_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_geoip_time_zone AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
-      -- attribution
+      -- attribution - please add new columns at the end of this list, and make sure you use AFTER in the migration
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -2097,11 +2097,10 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-      initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-      initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
       -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
@@ -2123,7 +2122,11 @@
       page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   
       -- web vitals
-      vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
+      vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC')),
+  
+      -- this was accidentally added at the end in prod, it lives here now
+      initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC'))
+  
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions', cityHash64(session_id_v7))
   
   '''
@@ -2166,7 +2169,7 @@
       argMinState(JSONExtractString(properties, '$geoip_subdivision_city_name'), timestamp) as initial_geoip_subdivision_city_name,
       argMinState(JSONExtractString(properties, '$geoip_time_zone'), timestamp) as initial_geoip_time_zone,
   
-      -- attribution
+      -- attribution - match the order in the table
       argMinState(JSONExtractString(properties, '$referring_domain'), timestamp) as initial_referring_domain,
       argMinState(JSONExtractString(properties, 'utm_source'), timestamp) as initial_utm_source,
       argMinState(JSONExtractString(properties, 'utm_campaign'), timestamp) as initial_utm_campaign,
@@ -2186,11 +2189,10 @@
       argMinState(JSONExtractString(properties, 'mc_cid'), timestamp) as initial_mc_cid,
       argMinState(JSONExtractString(properties, 'igshid'), timestamp) as initial_igshid,
       argMinState(JSONExtractString(properties, 'ttclid'), timestamp) as initial_ttclid,
+      argMinState(JSONExtractString(properties, 'irclid'), timestamp) as initial_irclid,
       argMinState(JSONExtractString(properties, 'epik'), timestamp) as initial_epik,
       argMinState(JSONExtractString(properties, 'qclid'), timestamp) as initial_qclid,
       argMinState(JSONExtractString(properties, 'sccid'), timestamp) as initial_sccid,
-      argMinState(JSONExtractString(properties, '_kx'), timestamp) as initial__kx,
-      argMinState(JSONExtractString(properties, 'irclid'), timestamp) as initial_irclid,
   
       -- count
       sumIf(1, event='$pageview') as pageview_count,
@@ -2207,7 +2209,11 @@
       uniqUpToState(1)(CAST(if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL) AS Nullable(UUID))) as page_screen_autocapture_uniq_up_to,
   
       -- web vitals
-      argMinState(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$web_vitals_LCP_value'), ''), 'null'), '^"|"$', ''), 'Float64'), timestamp) as vitals_lcp
+      argMinState(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$web_vitals_LCP_value'), ''), 'null'), '^"|"$', ''), 'Float64'), timestamp) as vitals_lcp,
+  
+      -- end
+      argMinState(JSONExtractString(properties, '_kx'), timestamp) as initial__kx
+  
   FROM posthog_test.sharded_events
   WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7)
   GROUP BY
@@ -2493,9 +2499,6 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-      initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-      initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-      initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- create a map of how many times we saw each event
       event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
@@ -2548,9 +2551,6 @@
   argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'mc_cid'), '^"|"$', ''), timestamp) as initial_mc_cid,
   argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'igshid'), '^"|"$', ''), timestamp) as initial_igshid,
   argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'ttclid'), '^"|"$', ''), timestamp) as initial_ttclid,
-  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'epik'), '^"|"$', ''), timestamp) as initial_epik,
-  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'qclid'), '^"|"$', ''), timestamp) as initial_qclid,
-  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'sccid'), '^"|"$', ''), timestamp) as initial_sccid,
   
   sumMap(CAST(([event], [1]), 'Map(String, UInt64)')) as event_count_map,
   sumIf(1, event='$pageview') as pageview_count,
@@ -2875,7 +2875,7 @@
       initial_geoip_subdivision_city_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_geoip_time_zone AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
-      -- attribution
+      -- attribution - please add new columns at the end of this list, and make sure you use AFTER in the migration
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -2895,11 +2895,10 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-      initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-      initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
       -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
@@ -2921,7 +2920,11 @@
       page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   
       -- web vitals
-      vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
+      vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC')),
+  
+      -- this was accidentally added at the end in prod, it lives here now
+      initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC'))
+  
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions', '{replica}')
   
   PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
@@ -3101,9 +3104,6 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-      initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-      initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-      initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- create a map of how many times we saw each event
       event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
@@ -3232,7 +3232,7 @@
       initial_geoip_subdivision_city_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_geoip_time_zone AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
-      -- attribution
+      -- attribution - please add new columns at the end of this list, and make sure you use AFTER in the migration
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -3252,11 +3252,10 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-      initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-      initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
       -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
@@ -3278,7 +3277,11 @@
       page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   
       -- web vitals
-      vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
+      vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC')),
+  
+      -- this was accidentally added at the end in prod, it lives here now
+      initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC'))
+  
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions', cityHash64(session_id_v7))
   
   '''
@@ -3347,9 +3350,6 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-      initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-      initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-      initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- create a map of how many times we saw each event
       event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
@@ -4158,7 +4158,7 @@
       initial_geoip_subdivision_city_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_geoip_time_zone AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
-      -- attribution
+      -- attribution - please add new columns at the end of this list, and make sure you use AFTER in the migration
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -4178,11 +4178,10 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-      initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-      initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
       -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
@@ -4204,7 +4203,11 @@
       page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   
       -- web vitals
-      vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
+      vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC')),
+  
+      -- this was accidentally added at the end in prod, it lives here now
+      initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC'))
+  
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions', '{replica}')
   
   PARTITION BY toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))
@@ -4384,9 +4387,6 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-      initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-      initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-      initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- create a map of how many times we saw each event
       event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
