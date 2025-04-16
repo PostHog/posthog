@@ -81,6 +81,7 @@ describe('lib/utils', () => {
             expect(actual).toEqual('include=a&include=b')
         })
     })
+
     describe('capitalizeFirstLetter()', () => {
         it('returns the capitalized string', () => {
             expect(capitalizeFirstLetter('jane')).toEqual('Jane')
@@ -510,7 +511,6 @@ describe('lib/utils', () => {
             expect(humanFriendlyLargeNumber(-Infinity)).toEqual('-inf')
         })
     })
-
     describe('humanFriendlyDuration()', () => {
         it('returns correct value for 0 <= t < 1', () => {
             expect(humanFriendlyDuration(0)).toEqual('0s')
