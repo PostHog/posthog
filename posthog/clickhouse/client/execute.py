@@ -26,13 +26,13 @@ from posthog.utils import generate_short_id, patchable
 QUERY_ERROR_COUNTER = Counter(
     "clickhouse_query_failure",
     "Query execution failure signal is dispatched when a query fails.",
-    labelnames=["exception_type", "query_type"],
+    labelnames=["exception_type", "query_type", "workload", "chargeable"],
 )
 
 QUERY_EXECUTION_TIME_GAUGE = Gauge(
     "clickhouse_query_execution_time",
     "Clickhouse query execution time",
-    labelnames=["query_type"],
+    labelnames=["query_type", "workload", "chargeable"],
 )
 
 InsertParams = Union[list, tuple, types.GeneratorType]
@@ -132,11 +132,12 @@ def sync_execute(
     if get_query_tag_value("id") == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
 
+    chargeable = get_query_tag_value("chargeable") or False
     # Customer is paying for API
     if (
         team_id
         and workload == Workload.OFFLINE
-        and get_query_tag_value("chargeable")
+        and chargeable
         and is_cloud()
         and team_id in get_api_queries_online_allow_list()
     ):
@@ -180,13 +181,17 @@ def sync_execute(
         err = wrap_query_error(e)
         exception_type = type(err).__name__
         set_tag("clickhouse_exception_type", exception_type)
-        QUERY_ERROR_COUNTER.labels(exception_type=exception_type, query_type=query_type).inc()
+        QUERY_ERROR_COUNTER.labels(
+            exception_type=exception_type, query_type=query_type, workload=workload, chargeable=chargeable
+        ).inc()
 
         raise err from e
     finally:
         execution_time = perf_counter() - start_time
 
-        QUERY_EXECUTION_TIME_GAUGE.labels(query_type=query_type).set(execution_time * 1000.0)
+        QUERY_EXECUTION_TIME_GAUGE.labels(query_type=query_type, workload=workload, chargeable=chargeable).set(
+            execution_time * 1000.0
+        )
 
         if query_counter := getattr(thread_local_storage, "query_counter", None):
             query_counter.total_query_time += execution_time
