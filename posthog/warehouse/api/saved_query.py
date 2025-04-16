@@ -346,17 +346,33 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         workflow_id = f"data-modeling-run-{saved_query.id.hex}"
 
         try:
+            # Ad-hoc handling
             workflow_handle = temporal.get_workflow_handle(workflow_id)
-            async_to_sync(workflow_handle.cancel)()
+            if workflow_handle:
+                async_to_sync(workflow_handle.cancel)()
+                DataModelingJob.objects.filter(
+                    saved_query_id=saved_query.id, status=DataModelingJob.Status.RUNNING, workflow_id=workflow_id
+                ).update(status=DataModelingJob.Status.CANCELLED, last_run_at=timezone.now())
+
+            # Schedule handling
+            scheduled_workflow_handle = temporal.get_schedule_handle(str(saved_query.id))
+            if scheduled_workflow_handle:
+                desc = async_to_sync(scheduled_workflow_handle.describe)()
+                recent_actions = desc.info.running_actions
+                if len(recent_actions) > 0:
+                    workflow_id_to_cancel = recent_actions[-1].workflow_id
+                    DataModelingJob.objects.filter(
+                        saved_query_id=saved_query.id,
+                        status=DataModelingJob.Status.RUNNING,
+                        workflow_id=workflow_id_to_cancel,
+                    ).update(status=DataModelingJob.Status.CANCELLED, last_run_at=timezone.now())
+                    workflow_handle_to_cancel = temporal.get_workflow_handle(workflow_id_to_cancel)
+                    if workflow_handle_to_cancel:
+                        async_to_sync(workflow_handle_to_cancel.cancel)()
 
             # Update saved query status
             saved_query.status = DataWarehouseSavedQuery.Status.CANCELLED
             saved_query.save()
-
-            # Update any related DataModelingJob
-            DataModelingJob.objects.filter(
-                saved_query_id=saved_query.id, status=DataModelingJob.Status.RUNNING, workflow_id=workflow_id
-            ).update(status=DataModelingJob.Status.CANCELLED, last_run_at=timezone.now())
 
             return response.Response(status=status.HTTP_200_OK)
         except Exception as e:
