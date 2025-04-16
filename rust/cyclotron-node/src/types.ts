@@ -33,7 +33,7 @@ export type CyclotronJob = {
     queueName: string
     state: CyclotronJobState
     priority: number
-    scheduled: Date
+    scheduled: string | null
     vmState: object | null
     metadata: object | null
     parameters: object | null

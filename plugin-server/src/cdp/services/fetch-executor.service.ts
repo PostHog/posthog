@@ -95,7 +95,6 @@ export class FetchExecutorService {
             responseBody = await fetchResponse.text()
 
             const duration = performance.now() - start
-
             const headers = Object.fromEntries(fetchResponse.headers.entries())
 
             // Match Rust implementation: Only return response for success status codes (<400)

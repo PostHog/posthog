@@ -371,13 +371,14 @@ export function invocationToCyclotronJobUpdate(invocation: HogFunctionInvocation
         queueName: invocation.queue,
         parameters,
         blob,
-        scheduled: invocation.queueScheduledAt?.toJSDate(),
+        metadata: invocation.queueMetadata,
+        scheduled: invocation.queueScheduledAt?.toISO(),
     }
     return updates
 }
 
 export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunctionType): HogFunctionInvocation {
-    const parsedState = job.vmState as HogFunctionInvocationSerialized
+    const parsedState = job.vmState as HogFunctionInvocationSerialized | null
     const params = job.parameters as HogFunctionInvocationQueueParameters | undefined
 
     if (job.blob && params) {
@@ -392,14 +393,17 @@ export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunc
 
     return {
         id: job.id,
-        globals: parsedState.globals,
+        // TODO: Fix this
+        globals: parsedState?.globals ?? ({} as any),
         teamId: hogFunction.team_id,
         hogFunction,
-        queuePriority: job.priority,
         queue: (job.queueName as any) ?? 'hog',
+        queuePriority: job.priority,
+        queueScheduledAt: job.scheduled ? DateTime.fromISO(job.scheduled) : undefined,
+        queueMetadata: job.metadata ?? undefined,
         queueParameters: params,
-        vmState: parsedState.vmState,
-        timings: parsedState.timings,
+        vmState: parsedState?.vmState,
+        timings: parsedState?.timings ?? [],
     }
 }
 

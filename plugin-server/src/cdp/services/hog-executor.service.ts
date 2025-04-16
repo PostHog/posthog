@@ -655,5 +655,7 @@ export class HogExecutorService {
 }
 
 function fetchFailureToLogMessage(failure: CyclotronFetchFailureInfo): string {
-    return `Fetch failure of kind ${failure.kind} with status ${failure.status} and message ${failure.message}`
+    return `Fetch failure of kind ${failure.kind} with status ${failure.status ?? '(none)'} and message ${
+        failure.message
+    }`
 }
