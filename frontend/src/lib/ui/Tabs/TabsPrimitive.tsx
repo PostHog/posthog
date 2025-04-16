@@ -3,10 +3,6 @@ import { cva } from 'cva'
 import { cn } from 'lib/utils/css-classes'
 import * as React from 'react'
 
-export interface TabsTriggerWithLabel extends React.ComponentPropsWithoutRef<typeof TabsPrimitive.Trigger> {
-    element: React.ReactNode
-}
-
 const Tabs = TabsPrimitive.Root
 
 const TabsList = React.forwardRef<
