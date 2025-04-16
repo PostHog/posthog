@@ -213,7 +213,7 @@ export class IngestionConsumer {
         }
     }
 
-    private getExistingBreadcrumbsFromHeaders(message: Message): unknown[] {
+    private getExistingBreadcrumbsFromHeaders(message: Message): KafkaConsumerBreadcrumb[] {
         const existingBreadcrumbs: KafkaConsumerBreadcrumb[] = []
         if (message.headers) {
             for (const header of message.headers) {
