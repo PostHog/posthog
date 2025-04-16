@@ -242,7 +242,7 @@ jobs:
 
             - name: Install cargo-shear
               if: needs.changes.outputs.rust == 'true'
-              run: cargo binstall --no-confirm cargo-shear
+              run: cargo binstall --no-confirm cargo-shear@1.1.12
 
             - run: cargo shear
               if: needs.changes.outputs.rust == 'true'

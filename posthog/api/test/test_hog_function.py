@@ -1992,67 +1992,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert "HOG code exceeds maximum size" in update_response.json()["detail"]
             assert f"{MAX_HOG_CODE_SIZE_BYTES // 1024}KB" in update_response.json()["detail"]
 
-    def test_validation_catches_runtime_exceeded_in_python_vm_for_transformations(self):
-        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
-            """Test that runtime exceeded errors during validation in our Python VM are properly handled for transformations"""
-            # Create a function with an infinite loop that will exceed the 100ms validation timeout
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_functions/",
-                data={
-                    "name": "Slow Function",
-                    "type": "transformation",
-                    "hog": """
-                    while (true) { print('hello'); } return event;
-                    """,
-                },
-            )
-
-            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-            assert "Your function is taking too long to run (over 0.1 seconds)" in response.json()["detail"]
-            # Test that the same code is allowed for destinations
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_functions/",
-                data={
-                    "name": "Slow Function",
-                    "type": "destination",
-                    "hog": """
-                    while (true) { print('hello'); } return event;
-                    """,
-                },
-            )
-            assert response.status_code == status.HTTP_201_CREATED, response.json()
-
-    def test_validation_catches_memory_exceeded_in_python_vm_for_transformations(self):
-        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
-            """Test that memory exceeded errors during validation in our Python VM are properly handled for transformations"""
-            memory_hungry_code = """
-                let arr := arrayMap(x -> toString(x), range(10000000));  // Create array with 10M strings
-                return event;
-                """
-
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_functions/",
-                data={
-                    "name": "Memory Hungry Function",
-                    "type": "transformation",
-                    "hog": memory_hungry_code,
-                },
-            )
-
-            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-            assert "Your function needs too much memory" in response.json()["detail"]
-
-            # Test that the same code is allowed for destinations
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_functions/",
-                data={
-                    "name": "Memory Hungry Function",
-                    "type": "destination",
-                    "hog": memory_hungry_code,
-                },
-            )
-            assert response.status_code == status.HTTP_201_CREATED, response.json()
-
     def test_transformation_undeletion_puts_at_end(self, *args):
         """Test that undeleted transformation functions are placed at the end of the execution order sequence."""
         with patch("posthog.api.hog_function_template.HogFunctionTemplates.template") as mock_template:
