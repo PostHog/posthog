@@ -331,6 +331,19 @@ class ErrorTrackingQueryRunner(QueryRunner):
 
             exprs.append(ast.And(exprs=and_exprs))
 
+        # We do this prefetching of a list of "valid" issue id's based on issue properties that aren't in
+        # CH, so that when we run the aggregation and LIMIT, we can filter out the invalid issue id's
+        # This is a hack - it'll break down if the list of valid issue id's is too long, but we do it for now
+        prefetched_ids = self.prefetch_issue_ids()
+        if prefetched_ids:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["issue_id"]),
+                    right=ast.Constant(value=prefetched_ids),
+                )
+            )
+
         return ast.And(exprs=exprs)
 
     def calculate(self):
@@ -456,6 +469,40 @@ class ErrorTrackingQueryRunner(QueryRunner):
             results[issue["id"]] = result
 
         return results
+
+    def prefetch_issue_ids(self) -> list[str]:
+        # We hit postgres to get a list of "valid" issue id's based on issue properties that aren't in
+        # CH, but that we want to filter the returned results by. This is a hack - it'll break down if
+        # the list of valid issue id's is too long, but we do it for now, until we can get issue properties
+        # into CH
+
+        use_prefetched = False
+        if self.query.issueId:
+            # If we have an issueId, we should just use that
+            return [self.query.issueId]
+
+        queryset = ErrorTrackingIssue.objects
+        if self.query.dateRange.date_from:
+            queryset = queryset.with_first_seen().filter(first_seen__gte=self.query.dateRange.date_from)
+
+        queryset = queryset.select_related("assignment").filter(team=self.team)
+
+        if self.query.status and not self.query.status not in ["all", "active"]:
+            use_prefetched = True
+            queryset = queryset.filter(status=self.query.status)
+
+        if self.query.assignee:
+            use_prefetched = True
+            queryset = (
+                queryset.filter(assignment__user_id=self.query.assignee.id)
+                if self.query.assignee.type == "user"
+                else queryset.filter(assignment__user_group_id=self.query.assignee.id)
+            )
+
+        if not use_prefetched:
+            return []
+
+        return [str(issue.id) for issue in queryset.only("id").iterator()]
 
 
 def search_tokenizer(query: str) -> list[str]:
