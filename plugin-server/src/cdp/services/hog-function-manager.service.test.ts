@@ -4,7 +4,7 @@ import { HogFunctionType, IntegrationType } from '~/src/cdp/types'
 import { Hub } from '~/src/types'
 import { closeHub, createHub } from '~/src/utils/db/hub'
 import { PostgresUse } from '~/src/utils/db/postgres'
-import { createTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { insertHogFunction, insertIntegration } from '../_tests/fixtures'
 import { HogFunctionManagerService } from './hog-function-manager.service'
@@ -25,7 +25,7 @@ describe('HogFunctionManager', () => {
         await resetTestDatabase()
         manager = new HogFunctionManagerService(hub)
 
-        const team = await hub.db.fetchTeam(2)
+        const team = await getTeam(hub, 2)
 
         teamId1 = await createTeam(hub.db.postgres, team!.organization_id)
         teamId2 = await createTeam(hub.db.postgres, team!.organization_id)
@@ -301,7 +301,7 @@ describe('Hogfunction Manager - Execution Order', () => {
         await resetTestDatabase()
         manager = new HogFunctionManagerService(hub)
 
-        const team = await hub.db.fetchTeam(2)
+        const team = await getTeam(hub, 2)
         teamId = await createTeam(hub.db.postgres, team!.organization_id)
         teamId2 = await createTeam(hub.db.postgres, team!.organization_id)
 
@@ -495,7 +495,7 @@ describe('HogFunctionManager - Integration Updates', () => {
         await resetTestDatabase()
         manager = new HogFunctionManagerService(hub)
 
-        const team = await hub.db.fetchTeam(2)
+        const team = await getTeam(hub, 2)
         teamId = await createTeam(hub.db.postgres, team!.organization_id)
 
         // Create an integration

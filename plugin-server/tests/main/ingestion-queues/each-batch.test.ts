@@ -1,4 +1,5 @@
 import { PostgresRouter } from '~/src/utils/db/postgres'
+import { TeamManager } from '~/src/utils/team-manager'
 
 import { eachBatchAppsOnEventHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-onevent'
 import {
@@ -17,7 +18,6 @@ import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
-import { OrganizationManager } from '../../../src/worker/ingestion/organization-manager'
 import { runOnEvent } from '../../../src/worker/plugins/run'
 import { pluginConfig39 } from '../../helpers/plugins'
 
@@ -140,7 +140,6 @@ describe('eachBatchX', () => {
             const hookCannon = new HookCommander(
                 queue.pluginsServer.postgres,
                 queue.pluginsServer.teamManager,
-                queue.pluginsServer.organizationManager,
                 queue.pluginsServer.rustyHook,
                 queue.pluginsServer.appMetrics,
                 queue.pluginsServer.EXTERNAL_REQUEST_TIMEOUT_MS
@@ -148,9 +147,9 @@ describe('eachBatchX', () => {
             const groupTypeManager: GroupTypeManager = {
                 fetchGroupTypes: jest.fn(() => Promise.resolve({})),
             } as unknown as GroupTypeManager
-            const organizatonManager: OrganizationManager = {
+            const teamManager: TeamManager = {
                 hasAvailableFeature: jest.fn(() => Promise.resolve(true)),
-            } as unknown as OrganizationManager
+            } as unknown as TeamManager
 
             const matchSpy = jest.spyOn(actionMatcher, 'match')
             // mock hasWebhooks to return true
@@ -161,7 +160,7 @@ describe('eachBatchX', () => {
                 hookCannon,
                 10,
                 groupTypeManager,
-                organizatonManager,
+                teamManager,
 
                 // @ts-expect-error this is not being used in the function, so just passing null here
                 null as PostgresRouter

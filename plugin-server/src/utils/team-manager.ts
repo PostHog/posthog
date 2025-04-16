@@ -9,7 +9,7 @@ type RawTeam = Omit<Team, 'availableFeatures'> & {
     available_product_features: { key: string; name: string }[]
 }
 
-export class TeamManagerLazy {
+export class TeamManager {
     private lazyLoader: LazyLoader<Team>
 
     constructor(private postgres: PostgresRouter) {
@@ -41,7 +41,7 @@ export class TeamManagerLazy {
 
     public async hasAvailableFeature(teamId: number, feature: string): Promise<boolean> {
         const team = await this.getTeam(teamId)
-        return team?.available_features?.includes(feature) || false
+        return team?.available_features.includes(feature) || false
     }
 
     public orgAvailableFeaturesChanged(organizationId: string): void {
