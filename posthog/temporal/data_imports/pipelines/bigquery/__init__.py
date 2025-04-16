@@ -26,9 +26,6 @@ def bigquery_client(project_id: str, private_key: str, private_key_id: str, clie
     client = bigquery.Client(
         project=project_id,
         credentials=credentials,
-        client_options={
-            "scopes": ["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"]
-        },
     )
 
     try:

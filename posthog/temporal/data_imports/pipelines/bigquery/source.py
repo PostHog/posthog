@@ -34,9 +34,6 @@ def bigquery_storage_read_client(
 
     client = bigquery_storage.BigQueryReadClient(
         credentials=credentials,
-        client_options={
-            "scopes": ["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"]
-        },
     )
 
     yield client
