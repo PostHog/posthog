@@ -202,8 +202,7 @@ HAVING {inside_start_timestamp_period}
                 params=params,
             )
 
-        def add_metric_pair(
-            metrics_list: list[ast.Expr],
+        def metric_pair(
             function_name: str,
             column_name: str,
             current_alias: str,
@@ -212,17 +211,18 @@ HAVING {inside_start_timestamp_period}
         ) -> list[ast.Expr]:
             # This could also be done using tuples like the stats_table but I will keep the protocol as close as possible: https://github.com/PostHog/posthog/blob/26588f3689aa505fbf857afcae4e8bd18cf75606/posthog/hogql_queries/web_analytics/stats_table.py#L390-L399
             previous_alias = previous_alias or f"previous_{current_alias}"
-            metrics_list.append(current_period_aggregate(function_name, column_name, current_alias, params))
-            metrics_list.append(previous_period_aggregate(function_name, column_name, previous_alias, params))
-            return metrics_list
+            return [
+                current_period_aggregate(function_name, column_name, current_alias, params),
+                previous_period_aggregate(function_name, column_name, previous_alias, params),
+            ]
 
         select: list[ast.Expr] = []
 
         if self.query.conversionGoal:
             # Add standard conversion goal metrics
-            add_metric_pair(select, "uniq", "session_person_id", "unique_users")
-            add_metric_pair(select, "sum", "conversion_count", "total_conversion_count")
-            add_metric_pair(select, "uniq", "conversion_person_id", "unique_conversions")
+            select.extend(metric_pair("uniq", "session_person_id", "unique_users"))
+            select.extend(metric_pair("sum", "conversion_count", "total_conversion_count"))
+            select.extend(metric_pair("uniq", "conversion_person_id", "unique_conversions"))
 
             conversion_rate = ast.Alias(
                 alias="conversion_rate",
@@ -253,17 +253,17 @@ HAVING {inside_start_timestamp_period}
             select.extend([conversion_rate, previous_conversion_rate])
 
             if self.query.includeRevenue:
-                add_metric_pair(select, "sum", "session_conversion_revenue", "conversion_revenue")
+                select.extend(metric_pair("sum", "session_conversion_revenue", "conversion_revenue"))
 
         else:
-            add_metric_pair(select, "uniq", "session_person_id", "unique_users")
-            add_metric_pair(select, "sum", "filtered_pageview_count", "total_filtered_pageview_count")
-            add_metric_pair(select, "uniq", "session_id", "unique_sessions")
-            add_metric_pair(select, "avg", "session_duration", "avg_duration_s")
-            add_metric_pair(select, "avg", "is_bounce", "bounce_rate")
+            select.extend(metric_pair("uniq", "session_person_id", "unique_users"))
+            select.extend(metric_pair("sum", "filtered_pageview_count", "total_filtered_pageview_count"))
+            select.extend(metric_pair("uniq", "session_id", "unique_sessions"))
+            select.extend(metric_pair("avg", "session_duration", "avg_duration_s"))
+            select.extend(metric_pair("avg", "is_bounce", "bounce_rate"))
 
             if self.query.includeRevenue:
-                add_metric_pair(select, "sum", "session_revenue", "revenue")
+                select.extend(metric_pair("sum", "session_revenue", "revenue"))
 
         return ast.SelectQuery(select=select, select_from=ast.JoinExpr(table=self.inner_select))
 
@@ -299,7 +299,7 @@ def to_data(
     if value is not None and previous is not None and previous != 0:
         try:
             change_from_previous_pct = round(100 * (value - previous) / previous)
-        except (ValueError, ZeroDivisionError):
+        except ValueError:
             pass
 
     return {
