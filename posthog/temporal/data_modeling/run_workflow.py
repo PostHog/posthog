@@ -297,7 +297,7 @@ async def handle_model_ready(model: ModelNode, team_id: int, queue: asyncio.Queu
             try:
                 key, delta_table, job_id = await materialize_model(model.label, team, saved_query, job)
             except DataModelingCancelledException:
-                # don't do anything, just continue
+                # we are already set to cancelled at this point
                 pass
     except CHQueryErrorMemoryLimitExceeded as err:
         await handle_error(job, model, queue, err, "Memory limit exceeded for model %s: %s")

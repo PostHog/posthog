@@ -361,14 +361,14 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 recent_actions = desc.info.running_actions
                 if len(recent_actions) > 0:
                     workflow_id_to_cancel = recent_actions[-1].workflow_id
-                    DataModelingJob.objects.filter(
-                        saved_query_id=saved_query.id,
-                        status=DataModelingJob.Status.RUNNING,
-                        workflow_id=workflow_id_to_cancel,
-                    ).update(status=DataModelingJob.Status.CANCELLED, last_run_at=timezone.now())
                     workflow_handle_to_cancel = temporal.get_workflow_handle(workflow_id_to_cancel)
                     if workflow_handle_to_cancel:
                         async_to_sync(workflow_handle_to_cancel.cancel)()
+                        DataModelingJob.objects.filter(
+                            saved_query_id=saved_query.id,
+                            status=DataModelingJob.Status.RUNNING,
+                            workflow_id=workflow_id_to_cancel,
+                        ).update(status=DataModelingJob.Status.CANCELLED, last_run_at=timezone.now())
 
             # Update saved query status
             saved_query.status = DataWarehouseSavedQuery.Status.CANCELLED
