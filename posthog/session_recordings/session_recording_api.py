@@ -17,7 +17,7 @@ import requests
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from drf_spectacular.utils import extend_schema
 from prometheus_client import Counter, Histogram
 from pydantic import ValidationError, BaseModel
@@ -29,6 +29,7 @@ from rest_framework.utils.encoders import JSONEncoder
 from rest_framework.request import Request
 from rest_framework.exceptions import Throttled
 
+from ee.api.conversation import ServerSentEventRenderer
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 
 import posthog.session_recordings.queries.sub_queries.events_subquery
@@ -813,19 +814,23 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             raise exceptions.ValidationError("session summary is not enabled for this user")
 
         replay_summarizer = ReplaySummarizer(recording, user, self.team)
-        summary = replay_summarizer.summarize_recording()
-        timings = summary.pop("timings", None)
-        cache.set(cache_key, summary, timeout=30)
+        return StreamingHttpResponse(
+            replay_summarizer.stream_recording_summary(), content_type=ServerSentEventRenderer.media_type
+        )
 
-        posthoganalytics.capture(event="session summarized", distinct_id=str(user.distinct_id), properties=summary)
+        # TODO: Combine the logic of streaming and caching? Collect the timings also?
+        # timings = summary.pop("timings", None)
+        # cache.set(cache_key, summary, timeout=30)
 
-        # let the browser cache for half the time we cache on the server
-        r = Response(summary, headers={"Cache-Control": "max-age=15"})
-        if timings:
-            r.headers["Server-Timing"] = ", ".join(
-                f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
-            )
-        return r
+        # posthoganalytics.capture(event="session summarized", distinct_id=str(user.distinct_id), properties=summary)
+
+        # # let the browser cache for half the time we cache on the server
+        # r = Response(summary, headers={"Cache-Control": "max-age=15"})
+        # if timings:
+        #     r.headers["Server-Timing"] = ", ".join(
+        #         f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
+        #     )
+        # return r
 
     def _stream_blob_to_client(
         self, recording: SessionRecording, request: request.Request, event_properties: dict

@@ -1,16 +1,15 @@
 from datetime import datetime
 from typing import Any
 from rest_framework import serializers
-from openai.types.chat.chat_completion import ChatCompletion
 import yaml
 
 from ee.session_recordings.session_summary.utils import get_column_index
 
 
 class RawKeyActionSerializer(serializers.Serializer):
-    description = serializers.CharField(min_length=1, max_length=1024)
-    error = serializers.BooleanField()
-    event_id = serializers.CharField(min_length=1, max_length=128)
+    description = serializers.CharField(min_length=1, max_length=1024, required=False, default=None, allow_null=True)
+    error = serializers.BooleanField(required=False, default=None, allow_null=True)
+    event_id = serializers.CharField(min_length=1, max_length=128, required=False, default=None, allow_null=True)
 
 
 class EnrichedKeyActionSerializer(RawKeyActionSerializer):
@@ -18,13 +17,13 @@ class EnrichedKeyActionSerializer(RawKeyActionSerializer):
     LLM actions enriched with metadata.
     """
 
-    timestamp = serializers.CharField(max_length=128)
-    milliseconds_since_start = serializers.IntegerField(min_value=0)
+    timestamp = serializers.CharField(max_length=128, required=False, allow_null=True)
+    milliseconds_since_start = serializers.IntegerField(min_value=0, required=False, allow_null=True)
     window_id = serializers.CharField(max_length=128, required=False, allow_null=True)
-    current_url = serializers.CharField(min_length=1)
-    event = serializers.CharField(min_length=1, max_length=128)
+    current_url = serializers.CharField(min_length=1, required=False, allow_null=True)
+    event = serializers.CharField(min_length=1, max_length=128, required=False, allow_null=True)
     event_type = serializers.CharField(max_length=128, required=False, allow_null=True)
-    event_index = serializers.IntegerField(min_value=0)
+    event_index = serializers.IntegerField(min_value=0, required=False, allow_null=True)
 
 
 class RawObjectiveKeyActionsSerializer(serializers.Serializer):
@@ -32,8 +31,8 @@ class RawObjectiveKeyActionsSerializer(serializers.Serializer):
     Key actions grouped by objective.
     """
 
-    objective = serializers.CharField(min_length=1, max_length=256)
-    events = serializers.ListField(child=RawKeyActionSerializer(), allow_empty=False)
+    objective = serializers.CharField(min_length=1, max_length=256, required=False, allow_null=True)
+    events = serializers.ListField(child=RawKeyActionSerializer(), required=False, allow_empty=True, allow_null=True)
 
 
 class EnrichedObjectiveKeyActionsSerializer(serializers.Serializer):
@@ -41,8 +40,10 @@ class EnrichedObjectiveKeyActionsSerializer(serializers.Serializer):
     Key actions grouped by objective, enriched with metadata.
     """
 
-    objective = serializers.CharField(min_length=1, max_length=256)
-    events = serializers.ListField(child=EnrichedKeyActionSerializer(), allow_empty=False)
+    objective = serializers.CharField(min_length=1, max_length=256, required=False, allow_null=True)
+    events = serializers.ListField(
+        child=EnrichedKeyActionSerializer(), required=False, allow_empty=True, allow_null=True
+    )
 
 
 class ObjectiveSerializer(serializers.Serializer):
@@ -50,8 +51,8 @@ class ObjectiveSerializer(serializers.Serializer):
     Objectives coming from LLM.
     """
 
-    name = serializers.CharField(min_length=1, max_length=256)
-    summary = serializers.CharField(min_length=1, max_length=1024)
+    name = serializers.CharField(min_length=1, max_length=256, required=False, allow_null=True)
+    summary = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
 
 
 class RawSessionSummarySerializer(serializers.Serializer):
@@ -59,10 +60,12 @@ class RawSessionSummarySerializer(serializers.Serializer):
     Raw session summary coming from LLM.
     """
 
-    objectives = serializers.ListField(child=ObjectiveSerializer(), allow_empty=False)
-    key_actions = serializers.ListField(child=RawObjectiveKeyActionsSerializer(), allow_empty=False)
-    initial_goal = serializers.CharField(min_length=1, max_length=1024)
-    session_outcome = serializers.CharField(min_length=1, max_length=1024)
+    objectives = serializers.ListField(child=ObjectiveSerializer(), required=False, allow_empty=True, allow_null=True)
+    key_actions = serializers.ListField(
+        child=RawObjectiveKeyActionsSerializer(), required=False, allow_empty=True, allow_null=True
+    )
+    initial_goal = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
+    session_outcome = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
 
 
 class SessionSummarySerializer(serializers.Serializer):
@@ -70,18 +73,17 @@ class SessionSummarySerializer(serializers.Serializer):
     Session summary enriched with metadata.
     """
 
-    objectives = serializers.ListField(child=ObjectiveSerializer(), allow_empty=False)
-    key_actions = serializers.ListField(child=EnrichedObjectiveKeyActionsSerializer(), allow_empty=False)
-    initial_goal = serializers.CharField(min_length=1, max_length=1024)
-    session_outcome = serializers.CharField(min_length=1, max_length=1024)
+    objectives = serializers.ListField(child=ObjectiveSerializer(), required=False, allow_empty=True, allow_null=True)
+    key_actions = serializers.ListField(
+        child=EnrichedObjectiveKeyActionsSerializer(), required=False, allow_empty=True, allow_null=True
+    )
+    initial_goal = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
+    session_outcome = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
 
 
 def load_raw_session_summary_from_llm_content(
-    llm_response: ChatCompletion, allowed_event_ids: list[str], session_id: str
-) -> RawSessionSummarySerializer:
-    if not llm_response.choices or not llm_response.choices[0].message or not llm_response.choices[0].message.content:
-        raise ValueError(f"No LLM content found when summarizing session_id {session_id}: {llm_response}")
-    raw_content: str = llm_response.choices[0].message.content
+    raw_content: str, allowed_event_ids: list[str], session_id: str
+) -> RawSessionSummarySerializer | None:
     try:
         # Strip the first and the last line of the content to load the YAML data only into JSON
         # TODO Work on a more robust solution
@@ -94,20 +96,35 @@ def load_raw_session_summary_from_llm_content(
         raise ValueError(
             f"Error validating LLM output against the schema when summarizing session_id {session_id}: {raw_session_summary.errors}"
         )
-    objectives_names = [objective.get("name") for objective in raw_session_summary.data["objectives"]]
-    for key_action_group in raw_session_summary.data["key_actions"]:
+    objectives = raw_session_summary.data.get("objectives")
+    if not objectives:
+        # If objectives aren't generated yet - return the current state
+        return raw_session_summary
+    objectives_names = [objective.get("name") for objective in objectives]
+    key_actions = raw_session_summary.data.get("key_actions")
+    if not key_actions:
+        # If key actions aren't generated yet - return the current state
+        return raw_session_summary
+    for key_action_group in key_actions:
+        key_group_objective = key_action_group.get("objective")
+        if not key_group_objective:
+            # If key group objective isn't generated yet - return the current state
+            return raw_session_summary
         # Ensure that LLM didn't hallucinate objectives
-        if key_action_group["objective"] not in objectives_names:
+        if key_group_objective not in objectives_names:
             raise ValueError(
-                f"LLM hallucinated objective {key_action_group['objective']} when summarizing session_id {session_id}: {raw_session_summary.data}"
+                f"LLM hallucinated objective {key_group_objective} when summarizing session_id {session_id}: {raw_session_summary.data}"
             )
-        for event in key_action_group["events"]:
+        key_group_events = key_action_group.get("events")
+        if not key_group_events:
+            # If key group events aren't generated yet - return the current state
+            return raw_session_summary
+        for event in key_group_events:
             # Ensure that LLM didn't hallucinate events
             event_id = event.get("event_id")
             if not event_id:
-                raise ValueError(
-                    f"LLM returned event without event_id when summarizing session_id {session_id}: {raw_session_summary.data}"
-                )
+                # If event ID isn't generated yet - return the current state
+                return raw_session_summary
             # TODO: Allow skipping some events (even if not too many to speed up the process
             if event_id not in allowed_event_ids:
                 raise ValueError(
