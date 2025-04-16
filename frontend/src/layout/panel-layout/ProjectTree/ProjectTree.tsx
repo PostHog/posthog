@@ -48,6 +48,7 @@ export function ProjectTree(): JSX.Element {
         checkedItems,
         checkedItemsCount,
         checkedItemCountNumeric,
+        sortMethod,
     } = useValues(projectTreeLogic)
 
     const {
@@ -67,6 +68,7 @@ export function ProjectTree(): JSX.Element {
         deleteCheckedItems,
         setCheckedItems,
         assureVisibility,
+        setSortMethod,
     } = useActions(projectTreeLogic)
 
     const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
@@ -313,7 +315,20 @@ export function ProjectTree(): JSX.Element {
             panelFilters={
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <ButtonPrimitive className="max-w-[210px]" iconOnly>
+                        <ButtonPrimitive
+                            className="max-w-[210px]"
+                            iconOnly
+                            tooltip={
+                                sortMethod === 'created_at'
+                                    ? 'Currently sorted by creation date'
+                                    : 'Currently sorted alphabetically'
+                            }
+                            aria-label={
+                                sortMethod === 'created_at'
+                                    ? 'Currently sorted by creation date'
+                                    : 'Currently sorted alphabetically'
+                            }
+                        >
                             <IconSort className="text-tertiary" />
                         </ButtonPrimitive>
                     </DropdownMenuTrigger>
@@ -321,10 +336,22 @@ export function ProjectTree(): JSX.Element {
                         <DropdownMenuLabel>Sort by</DropdownMenuLabel>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem asChild>
-                            <ButtonPrimitive menuItem>Alphabetical</ButtonPrimitive>
+                            <ButtonPrimitive
+                                menuItem
+                                active={sortMethod === 'alphabetical'}
+                                onClick={() => setSortMethod('alphabetical')}
+                            >
+                                Alphabetical
+                            </ButtonPrimitive>
                         </DropdownMenuItem>
                         <DropdownMenuItem asChild>
-                            <ButtonPrimitive menuItem>Creation date</ButtonPrimitive>
+                            <ButtonPrimitive
+                                menuItem
+                                active={sortMethod === 'created_at'}
+                                onClick={() => setSortMethod('created_at')}
+                            >
+                                Creation date
+                            </ButtonPrimitive>
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
@@ -344,6 +371,10 @@ export function ProjectTree(): JSX.Element {
                     />
                 </ButtonPrimitive>
             </FlaggedFeature>
+
+            <div role="status" aria-live="polite" className="sr-only">
+                Sorted {sortMethod === 'created_at' ? 'by creation date' : 'alphabetically'}
+            </div>
 
             <LemonTree
                 ref={treeRef}
