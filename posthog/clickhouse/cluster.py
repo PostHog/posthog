@@ -20,6 +20,7 @@ from collections.abc import Iterable
 
 import dagster
 from clickhouse_driver import Client
+from clickhouse_driver.errors import ServerException, ErrorCodes
 from clickhouse_pool import ChPool
 
 from posthog import settings
@@ -118,15 +119,24 @@ class ClickhouseCluster:
         self.__shards: dict[int, set[HostInfo]] = defaultdict(set)
         self.__extra_hosts: set[HostInfo] = set()
 
-        cluster_hosts = bootstrap_client.execute(
-            """
-            SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
-            FROM clusterAllReplicas(%(name)s, system.clusters)
-            WHERE name = %(name)s and is_local
-            ORDER BY shard_num, replica_num
-            """,
-            {"name": cluster or settings.CLICKHOUSE_CLUSTER},
-        )
+        retry_count: int = 0
+        while True:
+            try:
+                cluster_hosts = bootstrap_client.execute(
+                    """
+                    SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
+                    FROM clusterAllReplicas(%(name)s, system.clusters)
+                    WHERE name = %(name)s and is_local
+                    ORDER BY shard_num, replica_num
+                    """,
+                    {"name": cluster or settings.CLICKHOUSE_CLUSTER},
+                )
+            except ServerException as ex:
+                if ex.code == ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES and retry_count < 3:
+                    time.sleep(0.5 * retry_count)
+                    retry_count += 1
+                else:
+                    raise
 
         for row in cluster_hosts:
             (host_name, port, shard_num, replica_num, host_cluster_type, host_cluster_role) = row
