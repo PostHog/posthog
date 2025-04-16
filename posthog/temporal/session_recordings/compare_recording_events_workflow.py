@@ -17,6 +17,8 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.storage import object_storage
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.storage.session_recording_v2_object_storage import client as v2_client
+from posthog.clickhouse.client import sync_execute
+from posthog.models import Team
 
 
 def decompress_and_parse_gzipped_json(data: bytes) -> list[Any]:
@@ -137,8 +139,6 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
     )
 
     async with Heartbeater():
-        from posthog.models import Team
-
         team = await sync_to_async(Team.objects.get)(id=inputs.team_id)
         recording = await sync_to_async(SessionRecording.get_or_build)(session_id=inputs.session_id, team=team)
 
@@ -189,7 +189,12 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
         v2_click_count = 0
 
         def is_click(event: dict) -> bool:
-            return event.get("type") == 3 and event.get("data", {}).get("source") == 2
+            CLICK_TYPES = [2, 4, 9, 3]  # Click, DblClick, TouchEnd, ContextMenu
+            return (
+                event.get("type") == 3  # RRWebEventType.IncrementalSnapshot
+                and event.get("data", {}).get("source") == 2  # RRWebEventSource.MouseInteraction
+                and event.get("data", {}).get("type") in CLICK_TYPES
+            )
 
         # Count clicks in v1
         for snapshot in v1_snapshots:
@@ -201,11 +206,58 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
             if is_click(snapshot["data"]):
                 v2_click_count += 1
 
+        # Get metadata click counts
+        def get_metadata_click_count(team_id: int, session_id: str, table_name: str) -> int:
+            query = f"""
+                SELECT
+                    session_id,
+                    team_id,
+                    any(distinct_id) as distinct_id,
+                    min(min_first_timestamp) as min_first_timestamp_agg,
+                    max(max_last_timestamp) as max_last_timestamp_agg,
+                    argMinMerge(first_url) as first_url,
+                    groupUniqArrayArray(all_urls) as all_urls,
+                    sum(click_count) as click_count,
+                    sum(keypress_count) as keypress_count,
+                    sum(mouse_activity_count) as mouse_activity_count,
+                    sum(active_milliseconds) as active_milliseconds,
+                    sum(console_log_count) as console_log_count,
+                    sum(console_warn_count) as console_warn_count,
+                    sum(console_error_count) as console_error_count,
+                    sum(event_count) as event_count,
+                    argMinMerge(snapshot_source) as snapshot_source,
+                    argMinMerge(snapshot_library) as snapshot_library
+                FROM {table_name}
+                WHERE team_id = %(team_id)s
+                AND session_id = %(session_id)s
+                GROUP BY session_id, team_id
+                LIMIT 1
+            """
+            result = sync_execute(
+                query,
+                {
+                    "team_id": team_id,
+                    "session_id": session_id,
+                },
+            )
+            # click_count is at index 7 in the result tuple (0-based index matching the SELECT order)
+            return result[0][7] if result else 0
+
+        v1_metadata_click_count = get_metadata_click_count(team.pk, recording.session_id, "session_replay_events")
+        v2_metadata_click_count = get_metadata_click_count(
+            team.pk, recording.session_id, "session_replay_events_v2_test"
+        )
+
         await logger.ainfo(
             "Click count comparison",
-            v1_click_count=v1_click_count,
-            v2_click_count=v2_click_count,
-            difference=v2_click_count - v1_click_count,
+            v1_snapshot_click_count=v1_click_count,
+            v2_snapshot_click_count=v2_click_count,
+            v1_metadata_click_count=v1_metadata_click_count,
+            v2_metadata_click_count=v2_metadata_click_count,
+            snapshot_difference=v2_click_count - v1_click_count,
+            metadata_difference=v2_metadata_click_count - v1_metadata_click_count,
+            snapshot_vs_metadata_v1_difference=v1_click_count - v1_metadata_click_count,
+            snapshot_vs_metadata_v2_difference=v2_click_count - v2_metadata_click_count,
         )
 
         # Compare total count
