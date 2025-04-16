@@ -38,47 +38,43 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
         assert response.results
 
         row = response.results[0]
-
-        # Only include previous period data if comparison is enabled
         include_previous = bool(self.query.compareFilter and self.query.compareFilter.compare)
 
-        if self.query.conversionGoal:
-            results = [
-                to_data(
-                    "visitors", "unit", self._unsample(row[0]), self._unsample(row[1]) if include_previous else None
-                ),
-                to_data(
-                    "total conversions",
-                    "unit",
-                    self._unsample(row[2]),
-                    self._unsample(row[3]) if include_previous else None,
-                ),
-                to_data(
-                    "unique conversions",
-                    "unit",
-                    self._unsample(row[4]),
-                    self._unsample(row[5]) if include_previous else None,
-                ),
-                to_data("conversion rate", "percentage", row[6], row[7] if include_previous else None),
-            ]
-            if self.query.includeRevenue:
-                results.append(to_data("conversion revenue", "currency", row[8], row[9] if include_previous else None))
-        else:
-            results = [
-                to_data(
-                    "visitors", "unit", self._unsample(row[0]), self._unsample(row[1]) if include_previous else None
-                ),
-                to_data("views", "unit", self._unsample(row[2]), self._unsample(row[3]) if include_previous else None),
-                to_data(
-                    "sessions", "unit", self._unsample(row[4]), self._unsample(row[5]) if include_previous else None
-                ),
-                to_data("session duration", "duration_s", row[6], row[7] if include_previous else None),
-                to_data(
-                    "bounce rate", "percentage", row[8], row[9] if include_previous else None, is_increase_bad=True
-                ),
-            ]
-            if self.query.includeRevenue:
-                results.append(to_data("revenue", "currency", row[10], row[11] if include_previous else None))
+        def get_prev_val(idx, use_unsample=True):
+            if not include_previous:
+                return None
+            return self._unsample(row[idx]) if use_unsample else row[idx]
+
+        def create_base_metrics():
+            """Create metrics based on whether we're showing conversion goals or standard metrics"""
+            if self.query.conversionGoal:
+                return [
+                    to_data("visitors", "unit", self._unsample(row[0]), get_prev_val(1)),
+                    to_data("total conversions", "unit", self._unsample(row[2]), get_prev_val(3)),
+                    to_data("unique conversions", "unit", self._unsample(row[4]), get_prev_val(5)),
+                    to_data("conversion rate", "percentage", row[6], get_prev_val(7, False)),
+                ]
+            else:
+                return [
+                    to_data("visitors", "unit", self._unsample(row[0]), get_prev_val(1)),
+                    to_data("views", "unit", self._unsample(row[2]), get_prev_val(3)),
+                    to_data("sessions", "unit", self._unsample(row[4]), get_prev_val(5)),
+                    to_data("session duration", "duration_s", row[6], get_prev_val(7, False)),
+                    to_data("bounce rate", "percentage", row[8], get_prev_val(9, False), is_increase_bad=True),
+                ]
+
+        def add_revenue_metrics(metrics):
+            """Add revenue metrics if they should be included"""
+            if not self.query.includeRevenue:
+                return metrics
+
+            if self.query.conversionGoal:
+                metrics.append(to_data("conversion revenue", "currency", row[8], get_prev_val(9, False)))
+            else:
+                metrics.append(to_data("revenue", "currency", row[10], get_prev_val(11, False)))
+            return metrics
+
+        results = add_revenue_metrics(create_base_metrics())
 
         return WebOverviewQueryResponse(
             results=results,
@@ -215,26 +211,27 @@ HAVING {inside_start_timestamp_period}
                 params=params,
             )
 
-        if self.query.conversionGoal:
-            # For conversion goals, we need to handle the case where comparison is disabled
-            unique_users = current_period_aggregate("uniq", "session_person_id", "unique_users")
-            previous_unique_users = previous_period_aggregate("uniq", "session_person_id", "previous_unique_users")
-            total_conversion_count = current_period_aggregate("sum", "conversion_count", "total_conversion_count")
-            previous_total_conversion_count = previous_period_aggregate(
-                "sum", "conversion_count", "previous_total_conversion_count"
-            )
-            unique_conversions = current_period_aggregate("uniq", "conversion_person_id", "unique_conversions")
-            previous_unique_conversions = previous_period_aggregate(
-                "uniq", "conversion_person_id", "previous_unique_conversions"
-            )
+        def add_metric_pair(metrics_list, function_name, column_name, current_alias, previous_alias=None, params=None):
+            # This could also be done using tuples like the stats_table but I will keep the protocol as close as possible: https://github.com/PostHog/posthog/blob/26588f3689aa505fbf857afcae4e8bd18cf75606/posthog/hogql_queries/web_analytics/stats_table.py#L390-L399
+            previous_alias = previous_alias or f"previous_{current_alias}"
+            metrics_list.append(current_period_aggregate(function_name, column_name, current_alias, params))
+            metrics_list.append(previous_period_aggregate(function_name, column_name, previous_alias, params))
+            return metrics_list
 
-            # Create appropriate conversion rate calculations
+        select = []
+
+        if self.query.conversionGoal:
+            # Add standard conversion goal metrics
+            add_metric_pair(select, "uniq", "session_person_id", "unique_users")
+            add_metric_pair(select, "sum", "conversion_count", "total_conversion_count")
+            add_metric_pair(select, "uniq", "conversion_person_id", "unique_conversions")
+
             conversion_rate = ast.Alias(
                 alias="conversion_rate",
                 expr=ast.Call(
                     name="divide",
                     args=[
-                        ast.Field(chain=["unique_conversions"]) if has_comparison else unique_users.expr,
+                        ast.Field(chain=["unique_conversions"]) if has_comparison else select[4].expr,
                         ast.Field(chain=["unique_users"]) if has_comparison else ast.Field(chain=["unique_users"]),
                     ],
                 ),
@@ -253,45 +250,20 @@ HAVING {inside_start_timestamp_period}
                 ),
             )
 
-            select = [
-                unique_users,
-                previous_unique_users,
-                total_conversion_count,
-                previous_total_conversion_count,
-                unique_conversions,
-                previous_unique_conversions,
-                conversion_rate,
-                previous_conversion_rate,
-            ]
+            select.extend([conversion_rate, previous_conversion_rate])
 
             if self.query.includeRevenue:
-                select.extend(
-                    [
-                        current_period_aggregate("sum", "session_conversion_revenue", "conversion_revenue"),
-                        previous_period_aggregate("sum", "session_conversion_revenue", "previous_conversion_revenue"),
-                    ]
-                )
+                add_metric_pair(select, "sum", "session_conversion_revenue", "conversion_revenue")
+
         else:
-            select = [
-                current_period_aggregate("uniq", "session_person_id", "unique_users"),
-                previous_period_aggregate("uniq", "session_person_id", "previous_unique_users"),
-                current_period_aggregate("sum", "filtered_pageview_count", "total_filtered_pageview_count"),
-                previous_period_aggregate("sum", "filtered_pageview_count", "previous_filtered_pageview_count"),
-                current_period_aggregate("uniq", "session_id", "unique_sessions"),
-                previous_period_aggregate("uniq", "session_id", "previous_unique_sessions"),
-                current_period_aggregate("avg", "session_duration", "avg_duration_s"),
-                previous_period_aggregate("avg", "session_duration", "prev_avg_duration_s"),
-                current_period_aggregate("avg", "is_bounce", "bounce_rate"),
-                previous_period_aggregate("avg", "is_bounce", "prev_bounce_rate"),
-            ]
+            add_metric_pair(select, "uniq", "session_person_id", "unique_users")
+            add_metric_pair(select, "sum", "filtered_pageview_count", "total_filtered_pageview_count")
+            add_metric_pair(select, "uniq", "session_id", "unique_sessions")
+            add_metric_pair(select, "avg", "session_duration", "avg_duration_s", previous_alias="prev_avg_duration_s")
+            add_metric_pair(select, "avg", "is_bounce", "bounce_rate", previous_alias="prev_bounce_rate")
 
             if self.query.includeRevenue:
-                select.extend(
-                    [
-                        current_period_aggregate("sum", "session_revenue", "revenue"),
-                        previous_period_aggregate("sum", "session_revenue", "previous_revenue"),
-                    ]
-                )
+                add_metric_pair(select, "sum", "session_revenue", "revenue")
 
         return ast.SelectQuery(select=select, select_from=ast.JoinExpr(table=self.inner_select))
 
