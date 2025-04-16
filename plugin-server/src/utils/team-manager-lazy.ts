@@ -103,9 +103,10 @@ export class TeamManagerLazy {
                 // TRICKY: We are caching ids and tokens so we need to determine which is which
                 // Fix this to be a prefix based lookup. Added hack to limit to positive integer
                 // that shouldn't overflow 32-bit integer in DB column.
-                if (/^\d{,10}$/.test(idOrToken)) {
+                if (/^\d{1,10}$/.test(idOrToken)) {
                     const parsed = parseInt(idOrToken)
-                    if (parsed > 0 && parsed <= 2147483647) {
+                    // TODO: stat if this happens
+                    if (!isNaN(parsed) && parsed > 0 && parsed <= 2147483647) {
                         teamIds.push(parsed)
                     }
                 } else {
