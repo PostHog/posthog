@@ -97,7 +97,7 @@ export class SecureFetch {
                 const request = new Request(url, init)
 
                 const allowUnsafe =
-                    this.options?.allowUnsafe ?? (process.env.NODE_ENV === 'functional-tests' || !isProdEnv())
+                    this.options?.allowUnsafe ?? (process.env.NODE_ENV?.includes('functional-tests') || !isProdEnv())
                 if (allowUnsafe) {
                     return await fetch(url, init)
                 }
