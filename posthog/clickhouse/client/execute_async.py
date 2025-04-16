@@ -156,7 +156,6 @@ def execute_process_query(
     from posthog.models.user import User
 
     team = Team.objects.get(pk=team_id)
-    sentry_sdk.set_tag("team_id", team_id)
 
     is_staff_user = False
 

@@ -6,7 +6,6 @@ import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
-import { addSentryBreadcrumbsEventListeners } from '../main/ingestion-queues/kafka-metrics'
 import {
     eventDroppedCounter,
     latestOffsetTimestampGauge,
@@ -22,8 +21,6 @@ import { retryIfRetriable } from '../utils/retries'
 import { UUIDT } from '../utils/utils'
 import { EventPipelineResult, EventPipelineRunner } from '../worker/ingestion/event-pipeline/runner'
 import { MemoryRateLimiter } from './utils/overflow-detector'
-// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
-require('@sentry/tracing')
 
 const ingestionEventOverflowed = new Counter({
     name: 'ingestion_event_overflowed',
@@ -377,15 +374,14 @@ export class IngestionConsumer {
         // NOTE: there is behavior to push to a DLQ at the moment within EventPipelineRunner. This
         // doesn't work so well with e.g. messages that when sent to the DLQ is it's self too large.
         // Here we explicitly do _not_ add any additional metadata to the message. We might want to add
-        // some metadata to the message e.g. in the header or reference e.g. the sentry event id.
+        // some metadata to the message e.g. in the header or reference e.g. the event id.
         //
         // TODO: properly abstract out this `isRetriable` error logic. This is currently relying on the
         // fact that node-rdkafka adheres to the `isRetriable` interface.
 
         if (error?.isRetriable === false) {
-            const sentryEventId = captureException(error)
+            captureException(error)
             const headers: MessageHeader[] = message.headers ?? []
-            headers.push({ ['sentry-event-id']: sentryEventId })
             headers.push({ ['event-id']: event.uuid })
             try {
                 await this.kafkaProducer!.produce({
@@ -510,7 +506,7 @@ export class IngestionConsumer {
 
                 return await runInstrumentedFunction({
                     statsKey: `ingestionConsumer.handleEachBatch`,
-                    sendTimeoutGuardToSentry: false,
+                    sendException: false,
                     func: async () => {
                         await options.handleBatch(messages)
                     },
@@ -518,8 +514,6 @@ export class IngestionConsumer {
             },
             callEachBatchWhenEmpty: false,
         })
-
-        addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('disconnected', async (err) => {
             if (this.isStopping) {

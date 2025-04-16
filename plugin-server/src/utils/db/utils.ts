@@ -44,12 +44,12 @@ export function timeoutGuard(
     message: string,
     context?: Record<string, any> | (() => Record<string, any>),
     timeout = defaultConfig.TASK_TIMEOUT * 1000,
-    sendToSentry = true
+    sendException = true
 ): NodeJS.Timeout {
     return setTimeout(() => {
         const ctx = typeof context === 'function' ? context() : context
         logger.warn('⌛', message, ctx)
-        if (sendToSentry) {
+        if (sendException) {
             captureException(message, ctx ? { extra: ctx } : undefined)
         }
     }, timeout)

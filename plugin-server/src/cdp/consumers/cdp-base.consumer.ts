@@ -4,7 +4,6 @@ import { Counter, Histogram } from 'prom-client'
 import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { addSentryBreadcrumbsEventListeners } from '../../main/ingestion-queues/kafka-metrics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, PluginServerService, TeamId } from '../../types'
 import { logger } from '../../utils/logger'
@@ -143,8 +142,6 @@ export abstract class CdpConsumerBase {
             },
             callEachBatchWhenEmpty: false,
         })
-
-        addSentryBreadcrumbsEventListeners(this.batchConsumer.consumer)
 
         this.batchConsumer.consumer.on('disconnected', async (err) => {
             if (this.isStopping) {

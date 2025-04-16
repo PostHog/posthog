@@ -1,7 +1,6 @@
 import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
 import { PluginsServerConfig } from '../../../types'
-import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { KAFKA_CONSUMER_SESSION_TIMEOUT_MS } from './constants'
 import { EachBatchHandler } from './types'
 
@@ -66,7 +65,6 @@ export class DefaultBatchConsumerFactory implements BatchConsumerFactory {
             maxHealthHeartbeatIntervalMs: KAFKA_CONSUMER_SESSION_TIMEOUT_MS * 2,
         })
 
-        addSentryBreadcrumbsEventListeners(consumer.consumer)
         return consumer
     }
 }

@@ -2,15 +2,11 @@ const fs = require('fs')
 
 import * as Sentry from '@sentry/node'
 import { Span, SpanContext, TransactionContext } from '@sentry/types'
-import { timestampWithMs } from '@sentry/utils'
-import { AsyncLocalStorage } from 'node:async_hooks'
 
 import { PluginsServerConfig } from '../types'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
-
-const asyncLocalStorage = new AsyncLocalStorage<Span>()
 
 // Code that runs on app start, in both the main and worker threads
 export function initSentry(config: PluginsServerConfig): void {
@@ -51,19 +47,13 @@ export function runInTransaction<T>(
         return runInSpan(transactionContext, callback, currentSpan)
     }
 
-    const transaction = Sentry.startTransaction(transactionContext)
     return asyncLocalStorage.run(transaction, async () => {
         try {
             const result = await callback()
             return result
         } finally {
-            // :TRICKY: Allow post-filtering some transactions by duration
-            const endTimestamp = timestampWithMs()
-            const duration = endTimestamp - transaction.startTimestamp
-            if (sampleRateByDuration && transaction.sampled) {
-                transaction.sampled = Math.random() < sampleRateByDuration(duration)
+            if (sampleRateByDuration) {
             }
-            transaction.finish(endTimestamp)
         }
     })
 }
@@ -77,14 +67,9 @@ export function runInSpan<Callback extends (...args: any[]) => any>(
         parentSpan = getSpan()
     }
     if (parentSpan) {
-        const span = parentSpan.startChild(spanContext)
         return asyncLocalStorage.run(span, async () => {
-            try {
-                const result = await callback()
-                return result
-            } finally {
-                span.finish()
-            }
+            const result = await callback()
+            return result
         })
     } else {
         return callback()

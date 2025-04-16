@@ -295,6 +295,7 @@ export function WithCymbalErrors(): JSX.Element {
     )
 }
 
+// TODO: Is this used anywhere?
 export function SentryStackTrace(): JSX.Element {
     return <ErrorDisplay eventProperties={errorProperties({ $exception_list: [] })} />
 }
