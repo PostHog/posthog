@@ -304,7 +304,6 @@ def to_data(
         if previous is not None:
             previous = previous / 1000
 
-    # Only calculate change if both value and previous exist and previous is not zero
     change_from_previous_pct = None
     if value is not None and previous is not None and previous != 0:
         try:
@@ -317,6 +316,6 @@ def to_data(
         "kind": kind,
         "isIncreaseBad": is_increase_bad,
         "value": value,
-        "previous": previous if previous is not None else None,  # Explicitly handle None case
+        "previous": previous,
         "changeFromPreviousPct": change_from_previous_pct,
     }
