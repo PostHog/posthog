@@ -25,6 +25,7 @@ from ee.hogai.graph import (
     TrendsGeneratorNode,
     QueryExecutorNode,
 )
+from ee.hogai.graph.base import AssistantNode
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.hogai.utils.exceptions import GenerationCanceled
@@ -63,7 +64,7 @@ VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
 }
 
-VISUALIZATION_NODES_TOOL_CALL_MODE: dict[AssistantNodeName, type[SchemaGeneratorNode] | type[QueryExecutorNode]] = {
+VISUALIZATION_NODES_TOOL_CALL_MODE: dict[AssistantNodeName, type[AssistantNode]] = {
     **VISUALIZATION_NODES,
     AssistantNodeName.QUERY_EXECUTOR: QueryExecutorNode,
 }
@@ -93,7 +94,7 @@ class Assistant:
     _user: Optional[User]
     _contextual_tools: dict[str, Any]
     _conversation: Conversation
-    _latest_message: HumanMessage
+    _latest_message: Optional[HumanMessage]
     _state: Optional[AssistantState]
     _callback_handler: Optional[BaseCallbackHandler]
     _trace_id: Optional[str | UUID]
@@ -102,20 +103,22 @@ class Assistant:
         self,
         team: Team,
         conversation: Conversation,
-        new_message: HumanMessage,
         *,
+        new_message: Optional[HumanMessage] = None,
         mode: AssistantMode = AssistantMode.ASSISTANT,
         user: Optional[User] = None,
         contextual_tools: Optional[dict[str, Any]] = None,
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
-        tool_call_partial_state: Optional[PartialAssistantState] = None,
+        tool_call_partial_state: Optional[AssistantState] = None,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
         self._user = user
         self._conversation = conversation
-        self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())})
+        if not new_message and not tool_call_partial_state:
+            raise ValueError("Either new_message or tool_call_partial_state must be provided")
+        self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())}) if new_message else None
         self._is_new_conversation = is_new_conversation
         self._mode = mode
         match mode:
@@ -243,7 +246,7 @@ class Assistant:
         snapshot = self._graph.get_state(config)
 
         # If the graph previously hasn't reset the state, it is an interrupt. We resume from the point of interruption.
-        if snapshot.next:
+        if snapshot.next and self._latest_message:
             saved_state = validate_state_update(snapshot.values)
             if saved_state.graph_status == "interrupted":
                 self._state = saved_state
@@ -300,7 +303,7 @@ class Assistant:
                                         else action.tool_input["action_id"]
                                     )
                                     try:
-                                        action_model = Action.objects.get(pk=id, team=self._team)
+                                        action_model = Action.objects.get(pk=id, team__project_id=self._team.project_id)
                                         if action.tool == "retrieve_action_properties":
                                             substeps.append(f"Exploring `{action_model.name}` action properties")
                                         elif action.tool == "retrieve_action_property_values" and isinstance(
@@ -360,8 +363,7 @@ class Assistant:
 
         # this needs full type annotation otherwise mypy complains
         visualization_nodes: (
-            dict[AssistantNodeName, type[SchemaGeneratorNode] | type[QueryExecutorNode]]
-            | dict[AssistantNodeName, type[SchemaGeneratorNode]]
+            dict[AssistantNodeName, type[AssistantNode]] | dict[AssistantNodeName, type[SchemaGeneratorNode]]
         ) = VISUALIZATION_NODES if self._mode == AssistantMode.ASSISTANT else VISUALIZATION_NODES_TOOL_CALL_MODE
         if intersected_nodes := state_update.keys() & visualization_nodes.keys():
             # Reset chunks when schema validation fails.
@@ -436,13 +438,31 @@ class Assistant:
         return output
 
     def _report_conversation_state(self, message: Optional[VisualizationMessage]):
-        human_message = self._latest_message
-        if self._user and message:
+        if not (self._user and message):
+            return
+
+        response = message.model_dump_json(exclude_none=True)
+
+        if self._mode == AssistantMode.ASSISTANT:
+            if self._latest_message:
+                report_user_action(
+                    self._user,
+                    "chat with ai",
+                    {"prompt": self._latest_message.content, "response": response},
+                )
+            return
+
+        if self._mode == AssistantMode.INSIGHTS_TOOL and self._tool_call_partial_state:
             report_user_action(
                 self._user,
-                "chat with ai" if self._mode == AssistantMode.ASSISTANT else "ai tool call",
-                {"prompt": human_message.content, "response": message.model_dump_json(exclude_none=True)},
+                "standalone ai tool call",
+                {
+                    "prompt": self._tool_call_partial_state.root_tool_insight_plan,
+                    "response": response,
+                    "tool_name": "create_and_query_insight",
+                },
             )
+            return
 
     @contextmanager
     def _lock_conversation(self):

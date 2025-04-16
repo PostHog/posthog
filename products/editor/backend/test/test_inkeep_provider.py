@@ -8,7 +8,7 @@ from products.editor.backend.providers.inkeep import InkeepProvider
 class TestInkeepProvider(TestCase):
     def setUp(self):
         self.api_key = "test-key"
-        self.model_id = "inkeep-qa"
+        self.model_id = "inkeep-qa-expert"
 
     def test_validate_messages(self):
         provider = InkeepProvider(self.model_id)

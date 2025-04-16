@@ -112,7 +112,7 @@ class TestLLMProxyViewSet(APIBaseTest):
         mock_stream.return_value = iter(["test response"])
         response = self.client.post(
             "/api/llm_proxy/completion/",
-            {"system": "test system", "messages": [{"role": "user", "content": "test"}], "model": "inkeep-qa"},
+            {"system": "test system", "messages": [{"role": "user", "content": "test"}], "model": "inkeep-qa-expert"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response["Content-Type"], "text/event-stream")

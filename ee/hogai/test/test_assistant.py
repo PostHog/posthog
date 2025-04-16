@@ -21,7 +21,7 @@ from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import search_documentation
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.utils.test import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
-from ee.hogai.utils.types import AssistantNodeName, AssistantMode, PartialAssistantState
+from ee.hogai.utils.types import AssistantNodeName, AssistantMode, AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation, CoreMemory
 from posthog.models import Action
 from posthog.schema import (
@@ -81,7 +81,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         test_graph: Optional[CompiledStateGraph] = None,
         message: Optional[str] = "Hello",
         conversation: Optional[Conversation] = None,
-        tool_call_partial_state: Optional[PartialAssistantState] = None,
+        tool_call_partial_state: Optional[AssistantState] = None,
         is_new_conversation: bool = False,
         mode: AssistantMode = AssistantMode.ASSISTANT,
     ) -> list[tuple[str, Any]]:
@@ -89,7 +89,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         assistant = Assistant(
             self.team,
             conversation or self.conversation,
-            HumanMessage(content=message or "Hello"),
+            new_message=HumanMessage(content=message or "Hello"),
             user=self.user,
             is_new_conversation=is_new_conversation,
             tool_call_partial_state=tool_call_partial_state,
@@ -300,12 +300,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_root(
                 {
-                    "product_analytics": AssistantNodeName.PRODUCT_ANALYTICS_SUBGRAPH,
+                    "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
                     "root": AssistantNodeName.ROOT,
                     "end": AssistantNodeName.END,
                 }
             )
-            .add_product_analytics_subgraph(AssistantNodeName.ROOT)
+            .add_insights(AssistantNodeName.ROOT)
             .compile()
         )
 
@@ -461,7 +461,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
         )
-        assistant = Assistant(self.team, self.conversation, HumanMessage(content="foo"))
+        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="foo"))
         assistant._graph = graph
 
         expected_output = [
@@ -483,7 +483,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
         )
-        assistant = Assistant(self.team, self.conversation, HumanMessage(content="foo"))
+        assistant = Assistant(self.team, self.conversation, new_message=HumanMessage(content="foo"))
         assistant._graph = graph
 
         expected_output = [
@@ -1068,10 +1068,11 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         """Test that the insights tool mode works correctly."""
         query = AssistantTrendsQuery(series=[])
         tool_call_id = str(uuid4())
-        tool_call_state = PartialAssistantState(
+        tool_call_state = AssistantState(
             root_tool_call_id=tool_call_id,
             root_tool_insight_plan="Foobar",
             root_tool_insight_type="trends",
+            messages=[],
         )
 
         planner_mock.return_value = RunnableLambda(
@@ -1126,10 +1127,11 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
     def test_insights_tool_mode_invalid_insight_type(self, query_executor_mock, planner_mock, generator_mock):
         """Test that insights tool mode handles invalid insight types correctly."""
-        tool_call_state = PartialAssistantState(
+        tool_call_state = AssistantState(
             root_tool_call_id=str(uuid4()),
             root_tool_insight_plan="Foobar",
             root_tool_insight_type="invalid_type",  # Invalid type
+            messages=[],
         )
 
         with self.assertRaises(ValueError) as cm:

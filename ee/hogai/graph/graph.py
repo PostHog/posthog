@@ -46,7 +46,7 @@ from posthog.models.team.team import Team
 checkpointer = DjangoCheckpointer()
 
 
-class _AssistantGraph:
+class BaseAssistantGraph:
     _team: Team
     _graph: StateGraph
 
@@ -71,7 +71,7 @@ class _AssistantGraph:
         return self._graph.compile(checkpointer=checkpointer)
 
 
-class InsightsAssistantGraph(_AssistantGraph):
+class InsightsAssistantGraph(BaseAssistantGraph):
     def add_rag_context(self):
         builder = self._graph
         self._has_start_node = True
@@ -298,14 +298,14 @@ class InsightsAssistantGraph(_AssistantGraph):
         )
 
 
-class AssistantGraph(_AssistantGraph):
+class AssistantGraph(BaseAssistantGraph):
     def add_root(
         self,
         path_map: Optional[dict[Hashable, AssistantNodeName]] = None,
     ):
         builder = self._graph
         path_map = path_map or {
-            "product_analytics": AssistantNodeName.PRODUCT_ANALYTICS_SUBGRAPH,
+            "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
             "search_documentation": AssistantNodeName.INKEEP_DOCS,
             "root": AssistantNodeName.ROOT,
             "end": AssistantNodeName.END,
@@ -320,12 +320,12 @@ class AssistantGraph(_AssistantGraph):
         )
         return self
 
-    def add_product_analytics_subgraph(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
+    def add_insights(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
         builder = self._graph
-        product_analytics_subgraph = InsightsAssistantGraph(self._team)
-        compiled_graph = product_analytics_subgraph.compile_full_graph()
-        builder.add_node(AssistantNodeName.PRODUCT_ANALYTICS_SUBGRAPH, compiled_graph)
-        builder.add_edge(AssistantNodeName.PRODUCT_ANALYTICS_SUBGRAPH, next_node)
+        insights_assistant_graph = InsightsAssistantGraph(self._team)
+        compiled_graph = insights_assistant_graph.compile_full_graph()
+        builder.add_node(AssistantNodeName.INSIGHTS_SUBGRAPH, compiled_graph)
+        builder.add_edge(AssistantNodeName.INSIGHTS_SUBGRAPH, next_node)
         return self
 
     def add_memory_initializer(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
@@ -406,7 +406,7 @@ class AssistantGraph(_AssistantGraph):
             .add_memory_collector()
             .add_memory_collector_tools()
             .add_root()
-            .add_product_analytics_subgraph()
+            .add_insights()
             .add_inkeep_docs()
             .compile()
         )

@@ -90,7 +90,6 @@ router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plug
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
-router.register(r"max_tools", MaxToolsViewSet, "max_tools")
 
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
@@ -645,3 +644,5 @@ register_grandfathered_environment_nested_viewset(
     "environment_data_modeling_jobs",
     ["team_id"],
 )
+
+environments_router.register(r"max_tools", MaxToolsViewSet, "environment_max_tools", ["team_id"])

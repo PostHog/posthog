@@ -44,7 +44,7 @@ for module_info in pkgutil.iter_modules(products.__path__):
     except ModuleNotFoundError:
         pass  # Skip if backend or max_tools doesn't exist - note that the product's dir needs a top-level __init__.py
 
-RouteName = Literal["product_analytics", "root", "end", "search_documentation", "session_recordings_filters"]
+RouteName = Literal["insights", "root", "end", "search_documentation", "session_recordings_filters"]
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)
@@ -293,5 +293,5 @@ class RootNodeTools(AssistantNode):
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
         if state.root_tool_call_id:
-            return "product_analytics" if state.root_tool_insight_type else "search_documentation"
+            return "insights" if state.root_tool_insight_type else "search_documentation"
         return "end"

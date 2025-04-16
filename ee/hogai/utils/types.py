@@ -140,7 +140,7 @@ class AssistantNodeName(StrEnum):
     MEMORY_COLLECTOR_TOOLS = "memory_collector_tools"
     INKEEP_DOCS = "inkeep_docs"
     INSIGHT_RAG_CONTEXT = "insight_rag_context"
-    PRODUCT_ANALYTICS_SUBGRAPH = "product_analytics_subgraph"
+    INSIGHTS_SUBGRAPH = "insights_subgraph"
 
 
 class AssistantMode(StrEnum):

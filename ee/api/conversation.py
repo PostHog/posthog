@@ -5,7 +5,6 @@ from django.http import StreamingHttpResponse
 from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
@@ -18,6 +17,7 @@ from posthog.exceptions import Conflict
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.schema import HumanMessage
+from posthog.renderers import ServerSentEventRenderer
 
 
 class MessageSerializer(serializers.Serializer):
@@ -32,14 +32,6 @@ class MessageSerializer(serializers.Serializer):
             data["message"] = message
         except pydantic.ValidationError:
             raise serializers.ValidationError("Invalid message content.")
-        return data
-
-
-class ServerSentEventRenderer(BaseRenderer):
-    media_type = "text/event-stream"
-    format = "txt"
-
-    def render(self, data, accepted_media_type=None, renderer_context=None):
         return data
 
 
@@ -77,7 +69,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         assistant = Assistant(
             self.team,
             conversation,
-            serializer.validated_data["message"],
+            new_message=serializer.validated_data["message"],
             user=cast(User, request.user),
             contextual_tools=serializer.validated_data.get("contextual_tools"),
             is_new_conversation=not conversation_id,
