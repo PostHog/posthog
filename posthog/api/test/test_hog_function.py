@@ -2313,3 +2313,89 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert names_in_order[0] == "Transform B", "B should be first (order 1, most recently updated)"
             assert names_in_order[1] == "Transform A", "A should be second (order 1, updated earlier)"
             assert names_in_order[2] == "Transform C", "C should be last (order 3)"
+
+    def test_complex_property_hashing_transformation(self):
+        with override_settings(HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS=[self.team.id]):
+            """Test that complex property hashing transformation code validates properly"""
+            # Create a function with property hashing code
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": "Property Hasher",
+                    "type": "transformation",
+                    "hog": """
+                    let propertiesToHash := []
+                    if (notEmpty(inputs.propertiesToHash)) {
+                        propertiesToHash := splitByString(',', inputs.propertiesToHash)
+                    }
+                    let hashDistinctId := inputs.hashDistinctId
+                    let salt := inputs.salt
+                    if (empty(propertiesToHash) and not hashDistinctId) {
+                        return event
+                    }
+                    let returnEvent := event
+                    fun getNestedValue(obj, path) {
+                        let parts := splitByString('.', path)
+                        let current := obj
+                        for (let part in parts) {
+                            if (current = null) {
+                                return null
+                            }
+                            current := current[part]
+                        }
+                        return current
+                    }
+                    fun setNestedValue(obj, path, value) {
+                        let parts := splitByString('.', path)
+                        let current := obj
+                        for (let i := 1; i < length(parts); i := i + 1) {
+                            let part := parts[i]
+                            if (current[part] = null) {
+                                current[part] := {}
+                            }
+                            current := current[part]
+                        }
+                        let lastPart := parts[length(parts)]
+                        current[lastPart] := value
+                    }
+                    if (hashDistinctId and notEmpty(event.distinct_id)) {
+                        if(notEmpty(salt)) {
+                            returnEvent.distinct_id := sha256Hex(concat(toString(event.distinct_id), salt))
+                        } else {
+                            returnEvent.distinct_id := sha256Hex(toString(event.distinct_id))
+                        }
+                    }
+                    for (let _, path in propertiesToHash) {
+                        let value := getNestedValue(event.properties, trim(path))  // Trim to handle spaces after commas
+                        if (notEmpty(value)) {
+                            if(notEmpty(salt)) {
+                                let hashedValue := sha256Hex(concat(toString(value), salt))
+                                setNestedValue(returnEvent.properties, trim(path), hashedValue)
+                            } else {
+                                let hashedValue := sha256Hex(toString(value))
+                                setNestedValue(returnEvent.properties, trim(path), hashedValue)
+                            }
+                        }
+                    }
+                    return returnEvent
+                    """,
+                    "inputs_schema": [
+                        {"key": "propertiesToHash", "type": "string", "label": "Properties to Hash", "required": False},
+                        {"key": "hashDistinctId", "type": "boolean", "label": "Hash Distinct ID", "required": False},
+                        {
+                            "key": "salt",
+                            "type": "string",
+                            "label": "Salt (optional)",
+                            "required": False,
+                            "secret": True,
+                        },
+                    ],
+                    "inputs": {
+                        "propertiesToHash": {"value": "email,phone,name"},
+                        "hashDistinctId": {"value": True},
+                        "salt": {"value": "my-secret-salt"},
+                    },
+                },
+            )
+
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
