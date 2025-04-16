@@ -446,6 +446,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Wizard',
         layout: 'plain',
     },
+    [Scene.StartupProgram]: {
+        name: 'PostHog for Startups',
+        organizationBased: true,
+        layout: 'app-container',
+    },
     [Scene.MessagingBroadcasts]: {
         projectBased: true,
         name: 'Messaging Broadcasts',
@@ -656,5 +661,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
+    [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
+    [urls.startups(true)]: [Scene.StartupProgram, 'startupProgramYC'],
     ...productRoutes,
 }

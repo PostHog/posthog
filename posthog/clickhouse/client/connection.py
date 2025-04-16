@@ -193,6 +193,11 @@ def _make_ch_pool(*, client_settings: Mapping[str, str] | None = None, **overrid
 make_ch_pool = cache(_make_ch_pool)
 
 
+def get_default_clickhouse_workload_type():
+    global _default_workload
+    return _default_workload
+
+
 @contextmanager
 def set_default_clickhouse_workload_type(workload: Workload):
     global _default_workload

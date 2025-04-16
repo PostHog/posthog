@@ -25,6 +25,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::error;
+use uuid::Uuid;
 
 #[cfg(test)] // Only used in the tests
 use crate::api::types::{FlagValue, LegacyFlagsResponse};
@@ -200,6 +201,7 @@ impl FeatureFlagMatcher {
         person_property_overrides: Option<HashMap<String, Value>>,
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_override: Option<String>,
+        request_id: Uuid,
     ) -> FlagsResponse {
         let mut errors_while_computing_flags = false;
         if (self
@@ -263,6 +265,7 @@ impl FeatureFlagMatcher {
                 person_property_overrides,
                 group_property_overrides,
                 hash_key_overrides,
+                request_id,
             )
             .await;
 
@@ -286,6 +289,7 @@ impl FeatureFlagMatcher {
                 || errors_while_computing_flags,
             flags_response.flags,
             None,
+            request_id,
         )
     }
 
@@ -438,6 +442,7 @@ impl FeatureFlagMatcher {
         person_property_overrides: Option<HashMap<String, Value>>,
         group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: Option<HashMap<String, String>>,
+        request_id: Uuid,
     ) -> FlagsResponse {
         let mut errors_while_computing_flags = false;
         let mut flag_details_map = HashMap::new();
@@ -495,17 +500,66 @@ impl FeatureFlagMatcher {
 
         // Step 2: Prepare evaluation data for remaining flags
         if !flags_needing_db_properties.is_empty() {
-            if let Err(e) = self
+            // TRICKY: sometimes we don't have a person_id ingested by the time we get a `/flags` request for a given
+            // distinct_id. In this case, we need to return a "no person found" error for all flags that need DB properties.
+            // We don't need to worry about this for group flags because they don't need person data, nor do we need to
+            // do this for flags have have locally computable properties, since we don't need to fetch DB properties for them.
+            // However, for flags that need DB properties, we need to return a "no person found" error.
+            match self
                 .prepare_flag_evaluation_state(&flags_needing_db_properties)
                 .await
             {
-                errors_while_computing_flags = true;
-                let reason = parse_exception_for_prometheus_label(&e);
-                for flag in flags_needing_db_properties {
-                    flag_details_map
-                        .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason));
+                Ok(_) => {
+                    // Log an error, track a metric, and return early if no person_id is found
+                    // likely an issue where the person hasn't been ingested yet, i.e. an issue with the ingestion pipeline
+                    if self.flag_evaluation_state.get_person_id().is_none() {
+                        // No person found - mark all DB-dependent flags as "no match"
+                        // and return early
+                        for flag in flags_needing_db_properties {
+                            flag_details_map.insert(
+                                flag.key.clone(),
+                                FlagDetails::create_error(&flag, "no_person_found"),
+                            );
+                        }
+                        error!(
+                            "No person found for distinct_id '{}' while preparing flag evaluation state",
+                            self.distinct_id
+                        );
+                        inc(
+                            FLAG_EVALUATION_ERROR_COUNTER,
+                            &[("reason".to_string(), "no_person_found".to_string())],
+                            1,
+                        );
+                        errors_while_computing_flags = true;
+                        return FlagsResponse::new(
+                            errors_while_computing_flags,
+                            flag_details_map,
+                            None,
+                            request_id,
+                        );
+                    }
                 }
-                return FlagsResponse::new(errors_while_computing_flags, flag_details_map, None);
+                // Log an error, track a metric, and return early if there's an error preparing the flag evaluation state (likely a DB error and hopefully transient)
+                Err(e) => {
+                    errors_while_computing_flags = true;
+                    let reason = parse_exception_for_prometheus_label(&e);
+                    for flag in flags_needing_db_properties {
+                        flag_details_map
+                            .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason));
+                    }
+                    error!("Error preparing flag evaluation state: {:?}", e);
+                    inc(
+                        FLAG_EVALUATION_ERROR_COUNTER,
+                        &[("reason".to_string(), reason.to_string())],
+                        1,
+                    );
+                    return FlagsResponse::new(
+                        errors_while_computing_flags,
+                        flag_details_map,
+                        None,
+                        request_id,
+                    );
+                }
             }
 
             // Step 3: Evaluate remaining flags with cached properties
@@ -564,7 +618,12 @@ impl FeatureFlagMatcher {
                 .fin();
         }
 
-        FlagsResponse::new(errors_while_computing_flags, flag_details_map, None)
+        FlagsResponse::new(
+            errors_while_computing_flags,
+            flag_details_map,
+            None,
+            request_id,
+        )
     }
 
     /// Matches a feature flag with property overrides.
@@ -580,11 +639,21 @@ impl FeatureFlagMatcher {
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<Option<FeatureFlagMatch>, FlagError> {
-        let flag_property_filters: Vec<PropertyFilter> = flag
+        // Collect ALL property filters - both from regular conditions and super conditions
+        let mut flag_property_filters: Vec<PropertyFilter> = flag
             .get_conditions()
             .iter()
             .flat_map(|c| c.properties.clone().unwrap_or_default())
             .collect();
+
+        // Add super condition properties
+        if let Some(super_groups) = &flag.filters.super_groups {
+            flag_property_filters.extend(
+                super_groups
+                    .iter()
+                    .flat_map(|c| c.properties.clone().unwrap_or_default()),
+            );
+        }
 
         let overrides = match flag.get_group_type_index() {
             Some(group_type_index) => self.get_group_overrides(
@@ -940,8 +1009,8 @@ impl FeatureFlagMatcher {
         } else {
             match self.get_person_properties_from_cache() {
                 Ok(props) => Ok(props),
-                Err(FlagError::PersonNotFound) => Ok(HashMap::new()), // NB: If we can't find a person ID associated with the distinct ID, return an empty map
-                Err(FlagError::PropertiesNotInCache) => Ok(HashMap::new()), // NB: If we can't find a person ID associated with the distinct ID, return an empty map
+                Err(FlagError::PersonNotFound) => Ok(HashMap::new()),
+                Err(FlagError::PropertiesNotInCache) => Ok(HashMap::new()),
                 Err(e) => Err(e),
             }
         }
@@ -1012,11 +1081,8 @@ impl FeatureFlagMatcher {
             .as_ref()
             .and_then(|sc| sc.first())
         {
-            // Need to fetch person properties to check super conditions.  If these properties are already locally computable,
-            // we don't need to fetch from the database, but if they aren't we need to fetch from the database and then we'll cache them.
-            // don't do that ^
             let person_properties = self.get_person_properties(
-                property_overrides,
+                property_overrides.clone(),
                 first_condition.properties.as_deref().unwrap_or(&[]),
             )?;
 
@@ -1210,7 +1276,7 @@ impl FeatureFlagMatcher {
             self.team_id,
             &group_data.type_indexes,
             &group_data.keys,
-            Some(static_cohort_ids),
+            static_cohort_ids,
         )
         .await
         {
@@ -1512,7 +1578,7 @@ mod tests {
             flags: vec![flag.clone()],
         };
         let result = matcher
-            .evaluate_all_feature_flags(flags, Some(overrides), None, None)
+            .evaluate_all_feature_flags(flags, Some(overrides), None, None, Uuid::new_v4())
             .await;
         assert!(!result.errors_while_computing_flags);
         assert_eq!(
@@ -1589,7 +1655,7 @@ mod tests {
             flags: vec![flag.clone()],
         };
         let result = matcher
-            .evaluate_all_feature_flags(flags, None, Some(group_overrides), None)
+            .evaluate_all_feature_flags(flags, None, Some(group_overrides), None, Uuid::new_v4())
             .await;
 
         let legacy_response = LegacyFlagsResponse::from_response(result);
@@ -1810,6 +1876,7 @@ mod tests {
                 Some(person_property_overrides),
                 None,
                 None,
+                Uuid::new_v4(),
             )
             .await;
 
@@ -3899,7 +3966,13 @@ mod tests {
             Some(group_type_mapping_cache),
             None,
         )
-        .evaluate_all_feature_flags(flags, None, None, Some("hash_key_continuity".to_string()))
+        .evaluate_all_feature_flags(
+            flags,
+            None,
+            None,
+            Some("hash_key_continuity".to_string()),
+            Uuid::new_v4(),
+        )
         .await;
 
         let legacy_response = LegacyFlagsResponse::from_response(result);
@@ -3978,7 +4051,7 @@ mod tests {
             Some(group_type_mapping_cache),
             None,
         )
-        .evaluate_all_feature_flags(flags, None, None, None)
+        .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4())
         .await;
 
         assert!(result.flags.get("flag_continuity_missing").unwrap().enabled);
@@ -4105,6 +4178,7 @@ mod tests {
             Some(HashMap::from([("age".to_string(), json!(35))])),
             None,
             Some("hash_key_mixed".to_string()),
+            Uuid::new_v4(),
         )
         .await;
 
@@ -4707,5 +4781,332 @@ mod tests {
 
         let match_result = result.unwrap();
         assert!(match_result.matches, "User should match the static cohort");
+    }
+
+    #[tokio::test]
+    async fn test_no_person_id_early_return() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+
+        // Create a flag that requires DB properties
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: json!("test@example.com"),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "nonexistent_user".to_string(), // Use a distinct_id that doesn't exist in the DB
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        let result = matcher
+            .evaluate_all_feature_flags(
+                FeatureFlagList {
+                    flags: vec![flag.clone()],
+                },
+                None,
+                None,
+                None,
+                Uuid::new_v4(),
+            )
+            .await;
+
+        // Verify the response indicates an error and the flag is marked as "no match"
+        assert!(result.errors_while_computing_flags);
+        let flag_details = result.flags.get("test_flag").unwrap();
+        assert!(!flag_details.enabled);
+        assert_eq!(flag_details.reason.code, "no_person_found");
+    }
+
+    #[tokio::test]
+    async fn test_no_person_id_with_overrides() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            None,
+            Some(FlagFilters {
+                groups: vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "email".to_string(),
+                        value: json!("test@example.com"),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        let person_property_overrides =
+            HashMap::from([("email".to_string(), json!("test@example.com"))]);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            "nonexistent_user".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        let result = matcher
+            .evaluate_all_feature_flags(
+                FeatureFlagList {
+                    flags: vec![flag.clone()],
+                },
+                Some(person_property_overrides),
+                None,
+                None,
+                Uuid::new_v4(),
+            )
+            .await;
+
+        // Should succeed because we have overrides
+        assert!(!result.errors_while_computing_flags);
+        let flag_details = result.flags.get("test_flag").unwrap();
+        assert!(flag_details.enabled);
+    }
+
+    #[tokio::test]
+    async fn test_complex_super_condition_matching() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("complex_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![
+                    FlagGroupType {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: json!("@storytell.ai"),
+                            operator: Some(OperatorType::Icontains),
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                            negation: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    },
+                    FlagGroupType {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: json!([
+                                "simone.demarchi@outlook.com",
+                                "djokovic.dav@gmail.com",
+                                "dario.passarello@gmail.com",
+                                "matt.amick@purplewave.com"
+                            ]),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                            negation: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    },
+                    FlagGroupType {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: json!("@posthog.com"),
+                            operator: Some(OperatorType::Icontains),
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                            negation: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    },
+                ],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: Some(vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "$feature_enrollment/artificial-hog".to_string(),
+                        value: json!(["true"]),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }]),
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        // Test case 1: User with super condition property set to true
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "super_user".to_string(),
+            Some(json!({
+                "email": "random@example.com",
+                "$feature_enrollment/artificial-hog": true
+            })),
+        )
+        .await
+        .unwrap();
+
+        // Test case 2: User with matching email but no super condition
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "posthog_user".to_string(),
+            Some(json!({
+                "email": "test@posthog.com",
+                "$feature_enrollment/artificial-hog": false
+            })),
+        )
+        .await
+        .unwrap();
+
+        // Test case 3: User with neither super condition nor matching email
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "regular_user".to_string(),
+            Some(json!({
+                "email": "regular@example.com"
+            })),
+        )
+        .await
+        .unwrap();
+
+        // Test super condition user
+        let mut matcher = FeatureFlagMatcher::new(
+            "super_user".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[flag.clone()])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(result.matches, "Super condition user should match");
+        assert_eq!(
+            result.reason,
+            FeatureFlagMatchReason::SuperConditionValue,
+            "Match reason should be SuperConditionValue"
+        );
+
+        // Test PostHog user
+        let mut matcher = FeatureFlagMatcher::new(
+            "posthog_user".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[flag.clone()])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(!result.matches, "PostHog user should not match");
+        assert_eq!(
+            result.reason,
+            FeatureFlagMatchReason::SuperConditionValue,
+            "Match reason should be SuperConditionValue"
+        );
+
+        // Test regular user
+        let mut matcher = FeatureFlagMatcher::new(
+            "regular_user".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[flag.clone()])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(!result.matches, "Regular user should not match");
+        assert_eq!(
+            result.reason,
+            FeatureFlagMatchReason::NoConditionMatch,
+            "Match reason should be NoConditionMatch"
+        );
     }
 }
