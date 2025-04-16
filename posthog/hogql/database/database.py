@@ -94,13 +94,11 @@ from posthog.schema import (
     PersonsOnEventsMode,
     SessionTableVersion,
 )
-from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.warehouse.models.table import (
     DataWarehouseTable,
     DataWarehouseTableColumns,
 )
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from products.revenue_analytics.backend.models import RevenueAnalyticsRevenueView
 
 if TYPE_CHECKING:
@@ -506,19 +504,19 @@ def create_hogql_database(
 
     # For every Stripe source, let's generate its own revenue view
     # Prefetch related schemas and tables to avoid N+1
-    with timings.measure("revenue_analytics_views"):
-        with timings.measure("select"):
-            stripe_sources = list(
-                ExternalDataSource.objects.filter(team_id=team.pk, source_type=ExternalDataSource.Type.STRIPE)
-                .exclude(deleted=True)
-                .prefetch_related(Prefetch("schemas", queryset=ExternalDataSchema.objects.prefetch_related("table")))
-            )
+    # with timings.measure("revenue_analytics_views"):
+    #     with timings.measure("select"):
+    #         stripe_sources = list(
+    #             ExternalDataSource.objects.filter(team_id=team.pk, source_type=ExternalDataSource.Type.STRIPE)
+    #             .exclude(deleted=True)
+    #             .prefetch_related(Prefetch("schemas", queryset=ExternalDataSchema.objects.prefetch_related("table")))
+    #         )
 
-        with timings.measure("for_schema_source"):
-            for stripe_source in stripe_sources:
-                view = RevenueAnalyticsRevenueView.for_schema_source(stripe_source)
-                if view is not None:
-                    views[view.name] = view
+    #     with timings.measure("for_schema_source"):
+    #         for stripe_source in stripe_sources:
+    #             view = RevenueAnalyticsRevenueView.for_schema_source(stripe_source)
+    #             if view is not None:
+    #                 views[view.name] = view
 
     def define_mappings(store: dict[str, Table | TableGroup], get_table: Callable):
         table: Table | None = None
