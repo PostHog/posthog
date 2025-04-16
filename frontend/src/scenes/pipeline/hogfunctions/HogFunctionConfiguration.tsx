@@ -2,7 +2,6 @@ import { IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
-    LemonDialog,
     LemonDivider,
     LemonDropdown,
     LemonInput,
@@ -25,6 +24,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { HogFunctionBroadcastDelivery } from 'products/messaging/frontend/HogFunctionCustomConfiguration/HogFunctionBroadcastDelivery'
 import { useEffect, useState } from 'react'
 import { useRef } from 'react'
 import { urls } from 'scenes/urls'
@@ -37,7 +37,7 @@ import { hogFunctionConfigurationLogic, mightDropEvents } from './hogFunctionCon
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
-import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
+import { HogFunctionTest } from './HogFunctionTest'
 import { HogFunctionMappings } from './mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from './metrics/HogFunctionEventEstimates'
 export interface HogFunctionConfigurationProps {
@@ -89,7 +89,6 @@ export function HogFunctionConfiguration({
         type,
         usesGroups,
         hasGroupsAddon,
-        broadcastLoading,
     } = useValues(logic)
 
     // State for debounced mightDropEvents check
@@ -124,7 +123,6 @@ export function HogFunctionConfiguration({
         duplicateFromTemplate,
         setConfigurationValue,
         deleteHogFunction,
-        sendBroadcast,
     } = useActions(logic)
     const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
     const sourceCodeRef = useRef<HTMLDivElement>(null)
@@ -555,85 +553,7 @@ export function HogFunctionConfiguration({
                             {showTesting ? (
                                 <HogFunctionTest configurable={!displayOptions.hideTestingConfiguration} />
                             ) : null}
-                            {type === 'broadcast' ? (
-                                <HogFunctionTestPlaceholder
-                                    title="Send broadcast"
-                                    description={
-                                        id && id !== 'new' ? (
-                                            <div className="mt-2 space-y-2">
-                                                <LemonButton
-                                                    type="primary"
-                                                    onClick={() => {
-                                                        LemonDialog.open({
-                                                            title: 'Confirm Broadcast',
-                                                            description: (
-                                                                <>
-                                                                    <p>
-                                                                        Emails will be sent to{' '}
-                                                                        <Link
-                                                                            to={
-                                                                                combineUrl(
-                                                                                    urls.activity(),
-                                                                                    {},
-                                                                                    { q: personsListQuery }
-                                                                                ).url
-                                                                            }
-                                                                            target="_blank"
-                                                                        >
-                                                                            {personsCount} person
-                                                                            <span>
-                                                                                {personsCount === 1 ? '' : 's'}
-                                                                            </span>{' '}
-                                                                            matching the filters.
-                                                                        </Link>
-                                                                    </p>
-                                                                    <p>Are you sure you want to send this broadcast?</p>
-                                                                </>
-                                                            ),
-                                                            primaryButton: {
-                                                                children: 'Send',
-                                                                onClick: sendBroadcast,
-                                                            },
-                                                            secondaryButton: {
-                                                                children: 'Cancel',
-                                                            },
-                                                        })
-                                                    }}
-                                                    loading={personsCountLoading || broadcastLoading}
-                                                    disabledReason={
-                                                        configurationChanged
-                                                            ? 'Save or clear changes to send broadcast'
-                                                            : undefined
-                                                    }
-                                                >
-                                                    Send to {personsCount} email
-                                                    <span>{personsCount === 1 ? '' : 's'}</span>
-                                                </LemonButton>
-                                                <div>
-                                                    <strong>Please note:</strong> Clicking the button above will
-                                                    synchronously send to all the e-mails. While this is fine for
-                                                    testing with small lists, please don't use this for production use
-                                                    cases yet.
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div className="mt-2 space-y-2">
-                                                <LemonButton
-                                                    type="primary"
-                                                    disabledReason="Must save to send broadcast"
-                                                >
-                                                    Send to {personsCount} email
-                                                    <span>{personsCount === 1 ? '' : 's'}</span>
-                                                </LemonButton>
-                                                <div>
-                                                    Save your configuration to send a broadcast. Nothing will be sent
-                                                    until you manually send the broadcast above.
-                                                </div>
-                                            </div>
-                                        )
-                                    }
-                                />
-                            ) : null}
+                            {type === 'broadcast' && <HogFunctionBroadcastDelivery />}
                             <div className="flex justify-end gap-2">{saveButtons}</div>
                         </div>
                     </div>
