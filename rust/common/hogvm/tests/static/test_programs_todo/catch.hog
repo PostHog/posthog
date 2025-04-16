@@ -1,0 +1,30 @@
+fun FishError(message) {
+  return HogError('FishError', message)
+}
+fun FoodError(message) {
+  return HogError('FoodError', message)
+}
+
+try {
+  throw FishError('You forgot to feed your fish')
+} catch (e: FoodError) {
+  print(f'Problem with your food: {e.message}')
+} catch (e: FishError) {
+  print(f'Problem with your fish: {e.message}')
+}
+
+try {
+  throw FoodError('Your fish are hungry')
+} catch (e: FoodError) {
+  print(f'Problem with your food: {e.message}')
+} catch (e: FishError) {
+  print(f'Problem with your fish: {e.message}')
+}
+
+try {
+  throw NotImplementedError('Your fish are hungry')
+} catch (e: FoodError) {
+  print(f'Problem with your food: {e.message}')
+} catch {
+  print(f'Unknown problem: {e}')
+}

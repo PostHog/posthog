@@ -109,7 +109,7 @@ export enum NodeKind {
     // Revenue analytics queries
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
-    RevenueAnalyticsChurnRateQuery = 'RevenueAnalyticsChurnRateQuery',
+    RevenueAnalyticsTopCustomersQuery = 'RevenueAnalyticsTopCustomersQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -148,7 +148,7 @@ export type AnyDataNode =
     | HogQLAutocomplete
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsGrowthRateQuery
-    | RevenueAnalyticsChurnRateQuery
+    | RevenueAnalyticsTopCustomersQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
@@ -206,7 +206,7 @@ export type QuerySchema =
     // Revenue analytics
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsGrowthRateQuery
-    | RevenueAnalyticsChurnRateQuery
+    | RevenueAnalyticsTopCustomersQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -707,7 +707,7 @@ export interface DataTableNode
                     | SessionAttributionExplorerQuery
                     | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsGrowthRateQuery
-                    | RevenueAnalyticsChurnRateQuery
+                    | RevenueAnalyticsTopCustomersQuery
                     | RevenueExampleEventsQuery
                     | RevenueExampleDataWarehouseTablesQuery
                     | ErrorTrackingQuery
@@ -736,7 +736,7 @@ export interface DataTableNode
         | SessionAttributionExplorerQuery
         | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsGrowthRateQuery
-        | RevenueAnalyticsChurnRateQuery
+        | RevenueAnalyticsTopCustomersQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
         | ErrorTrackingQuery
@@ -1830,10 +1830,10 @@ export interface RevenueAnalyticsOverviewQuery
     kind: NodeKind.RevenueAnalyticsOverviewQuery
 }
 
-export type RevenueAnalyticsOverviewItemKey = 'MRR' | 'ARR' | 'Customer Count' | 'New customers' | 'Churned customers'
+export type RevenueAnalyticsOverviewItemKey = 'revenue' | 'paying_customer_count' | 'avg_revenue_per_customer'
 export interface RevenueAnalyticsOverviewItem {
     key: RevenueAnalyticsOverviewItemKey
-    value?: number
+    value: number
 }
 
 export interface RevenueAnalyticsOverviewQueryResponse
@@ -1845,16 +1845,21 @@ export interface RevenueAnalyticsGrowthRateQuery
     kind: NodeKind.RevenueAnalyticsGrowthRateQuery
 }
 
-export interface RevenueAnalyticsGrowthRateQueryResponse extends AnalyticsQueryResponseBase<unknown> {}
+export interface RevenueAnalyticsGrowthRateQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    columns?: string[]
+}
 export type CachedRevenueAnalyticsGrowthRateQueryResponse = CachedQueryResponse<RevenueAnalyticsGrowthRateQueryResponse>
 
-export interface RevenueAnalyticsChurnRateQuery
-    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsChurnRateQueryResponse> {
-    kind: NodeKind.RevenueAnalyticsChurnRateQuery
+export interface RevenueAnalyticsTopCustomersQuery
+    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsTopCustomersQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsTopCustomersQuery
 }
 
-export interface RevenueAnalyticsChurnRateQueryResponse extends AnalyticsQueryResponseBase<unknown> {}
-export type CachedRevenueAnalyticsChurnRateQueryResponse = CachedQueryResponse<RevenueAnalyticsChurnRateQueryResponse>
+export interface RevenueAnalyticsTopCustomersQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    columns?: string[]
+}
+export type CachedRevenueAnalyticsTopCustomersQueryResponse =
+    CachedQueryResponse<RevenueAnalyticsTopCustomersQueryResponse>
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery

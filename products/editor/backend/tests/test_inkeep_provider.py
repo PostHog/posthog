@@ -1,14 +1,17 @@
-from unittest.mock import patch, MagicMock
 import json
-from django.test import TestCase
+from unittest.mock import MagicMock, patch
+
 import openai
+from django.test import TestCase
+
 from products.editor.backend.providers.inkeep import InkeepProvider
 
 
+@patch("django.conf.settings.INKEEP_API_KEY", "test_key")
 class TestInkeepProvider(TestCase):
-    def setUp(self):
-        self.api_key = "test-key"
-        self.model_id = "inkeep-qa"
+    def setUp(self) -> None:
+        super().setUp()
+        self.model_id = "inkeep-qa-expert"
 
     def test_validate_messages(self):
         provider = InkeepProvider(self.model_id)
@@ -77,7 +80,7 @@ class TestInkeepProvider(TestCase):
         self.assertEqual(len(responses), 1)
         error_response = json.loads(responses[0].split("data: ")[1])
         self.assertEqual(error_response["type"], "error")
-        self.assertEqual(error_response["error"], "Inkeep API error: API Error")
+        self.assertEqual(error_response["error"], "Inkeep API error")
 
     @patch("openai.OpenAI")
     def test_stream_response_unexpected_error(self, mock_openai):
@@ -91,7 +94,7 @@ class TestInkeepProvider(TestCase):
         self.assertEqual(len(responses), 1)
         error_response = json.loads(responses[0].split("data: ")[1])
         self.assertEqual(error_response["type"], "error")
-        self.assertEqual(error_response["error"], "Unexpected error: Unexpected Error")
+        self.assertEqual(error_response["error"], "Unexpected error")
 
     @patch("openai.OpenAI")
     def test_stream_response_empty_response(self, mock_openai):

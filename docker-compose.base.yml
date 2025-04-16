@@ -151,6 +151,7 @@ services:
             CLICKHOUSE_DATABASE: 'posthog'
             CLICKHOUSE_SECURE: 'false'
             CLICKHOUSE_VERIFY: 'false'
+            API_QUERIES_PER_TEAM: '{"1": 7}'
             KAFKA_HOSTS: 'kafka'
             REDIS_URL: 'redis://redis:6379/'
             PGHOST: db

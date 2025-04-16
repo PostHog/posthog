@@ -38,7 +38,6 @@ def get_session_replay_events(
             sum(console_log_count) as console_log_count,
             sum(console_warn_count) as console_warn_count,
             sum(console_error_count) as console_error_count,
-            sum(message_count) as message_count,
             sum(event_count) as event_count,
             argMinMerge(snapshot_source) as snapshot_source,
             argMinMerge(snapshot_library) as snapshot_library
@@ -90,7 +89,6 @@ FIELD_NAMES = [
     "console_log_count",
     "console_warn_count",
     "console_error_count",
-    "message_count",
     "event_count",
     "snapshot_source",
     "snapshot_library",
@@ -167,6 +165,7 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
         all_differing_sessions_excluding_active_ms: list[tuple[str, int]] = []  # (session_id, team_id)
         differing_sessions_count = 0
         active_ms_diffs_percentage: list[float] = []
+        field_differences: dict[str, int] = {field: 0 for field in FIELD_NAMES}  # Track per-field differences
 
         for session_key in set(v1_sessions.keys()) & set(v2_sessions.keys()):
             session_id, team_id = session_key
@@ -191,6 +190,7 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
                 if v1_data[i] != v2_data[i]:
                     diff = {"field": field_name, "v1_value": v1_data[i], "v2_value": v2_data[i]}
                     differences.append(diff)
+                    field_differences[field_name] += 1
                     if field_name != "active_milliseconds":
                         differences_excluding_active_ms.append(diff)
 
@@ -233,6 +233,7 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
             total_differing_sessions=len(all_differing_sessions),
             total_differing_sessions_excluding_active_ms=len(all_differing_sessions_excluding_active_ms),
             active_ms_stats=active_ms_stats,
+            field_differences=field_differences,
             time_range={
                 "started_after": started_after.isoformat(),
                 "started_before": started_before.isoformat(),

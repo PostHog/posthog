@@ -16,6 +16,7 @@ export interface TableRowProps<T extends Record<string, any>> {
     onRow: ((record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>) | undefined
     expandable: ExpandableConfig<T> | undefined
     firstColumnSticky: boolean | undefined
+    rowCount: number
 }
 
 function TableRowRaw<T extends Record<string, any>>({
@@ -29,6 +30,7 @@ function TableRowRaw<T extends Record<string, any>>({
     onRow,
     expandable,
     firstColumnSticky,
+    rowCount,
 }: TableRowProps<T>): JSX.Element {
     const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
@@ -95,7 +97,7 @@ function TableRowRaw<T extends Record<string, any>>({
                             // != is intentional to catch undefined too
                             const value = column.dataIndex != null ? record[column.dataIndex] : undefined
                             const contents = column.render
-                                ? column.render(value as T[keyof T], record, recordIndex)
+                                ? column.render(value as T[keyof T], record, recordIndex, rowCount)
                                 : value
                             const isSticky = firstColumnSticky && columnGroupIndex === 0 && columnIndex === 0
                             const extraCellProps =

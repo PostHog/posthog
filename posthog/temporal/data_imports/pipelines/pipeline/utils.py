@@ -23,6 +23,7 @@ from dlt.sources import DltResource
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.typings import (
+    PartitionFormat,
     PartitionMode,
     SourceResponse,
 )
@@ -311,6 +312,7 @@ def append_partition_key_to_table(
     partition_size: int,
     partition_keys: list[str],
     partition_mode: PartitionMode | None,
+    partition_format: PartitionFormat | None,
     logger: FilteringBoundLogger,
 ) -> tuple[pa.Table, PartitionMode, list[str]]:
     normalized_partition_keys = [normalize_column_name(key) for key in partition_keys]
@@ -353,11 +355,17 @@ def append_partition_key_to_table(
             elif mode == "datetime":
                 key = normalized_partition_keys[0]
                 date = row[key]
+
+                if partition_format == "day":
+                    date_format = "%Y-%m-%d"
+                else:
+                    date_format = "%Y-%m"
+
                 if isinstance(date, int):
                     date = datetime.datetime.fromtimestamp(date)
-                    partition_array.append(date.strftime("%Y-%m"))
+                    partition_array.append(date.strftime(date_format))
                 elif isinstance(date, datetime.datetime):
-                    partition_array.append(date.strftime("%Y-%m"))
+                    partition_array.append(date.strftime(date_format))
                 else:
                     partition_array.append("1970-01")
             else:

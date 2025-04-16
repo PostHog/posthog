@@ -1,0 +1,5 @@
+["_H", 1, 32, "this is a secure string", 32, "string:", 36, 0, 2, "print", 2, 35, 32, "md5Hex(string):", 36, 0, 2,
+"md5Hex", 1, 2, "print", 2, 35, 32, "md5Hex(null):", 31, 2, "md5Hex", 1, 2, "print", 2, 35, 32, "sha256Hex(string):",
+36, 0, 2, "sha256Hex", 1, 2, "print", 2, 35, 32, "sha256Hex(null):", 31, 2, "sha256Hex", 1, 2, "print", 2, 35, 32, "1",
+32, "string", 32, "more", 32, "keys", 43, 4, 32, "data:", 36, 1, 2, "print", 2, 35, 32, "sha256HmacChainHex(data):", 36,
+1, 2, "sha256HmacChainHex", 1, 2, "print", 2, 35, 35, 35]

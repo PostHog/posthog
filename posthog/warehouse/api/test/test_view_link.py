@@ -1,5 +1,8 @@
 from posthog.test.base import APIBaseTest
-from posthog.warehouse.models import DataWarehouseJoin
+from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseTable
+from posthog.warehouse.models.credential import DataWarehouseCredential
+from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from posthog.warehouse.models.external_data_source import ExternalDataSource
 
 
 class TestViewLinkQuery(APIBaseTest):
@@ -32,6 +35,57 @@ class TestViewLinkQuery(APIBaseTest):
                 "configuration": None,
             },
         )
+
+    def test_reading_dot_notation(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSource.Type.STRIPE,
+        )
+        credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        warehouse_table = DataWarehouseTable.objects.create(
+            name="stripe_table_1",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            external_data_source_id=source.id,
+            credential=credentials,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            name="table_1",
+            source=source,
+            table=warehouse_table,
+            should_sync=True,
+            last_synced_at="2024-01-01",
+        )
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="distinct_id",
+            joining_table_name="stripe_table_1",
+            joining_table_key="id",
+            field_name="some_field",
+            configuration=None,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/warehouse_view_links/")
+        assert response.status_code == 200
+
+        view_links = response.json()
+        assert isinstance(view_links, dict)
+        assert isinstance(view_links["results"], list)
+        assert len(view_links["results"]) == 1
+
+        view_link = view_links["results"][0]
+
+        # Assert it gets returned with dot notation
+        assert view_link["joining_table_name"] == "stripe.table_1"
 
     def test_create_with_configuration(self):
         response = self.client.post(

@@ -1,12 +1,15 @@
-from unittest.mock import patch, MagicMock
 import json
+from unittest.mock import MagicMock, patch
+
 from django.test import TestCase
-from products.editor.backend.providers.codestral import CodestralProvider, CodestralConfig
+
+from products.editor.backend.providers.codestral import CodestralConfig, CodestralProvider
 
 
+@patch("django.conf.settings.MISTRAL_API_KEY", "test_key")
 class TestCodestralProvider(TestCase):
-    def setUp(self):
-        self.api_key = "test-key"
+    def setUp(self) -> None:
+        super().setUp()
         self.model_id = "codestral-latest"
 
     def test_init_validates_model(self):
@@ -68,7 +71,7 @@ class TestCodestralProvider(TestCase):
         # Since the provider doesn't have explicit error handling yet,
         # we expect the error to propagate
         self.assertEqual(len(responses), 1)
-        self.assertEqual(responses[0], 'data: {"type": "error", "error": "API Error"}\n\n')
+        self.assertEqual(responses[0], 'data: {"type": "error", "error": "Codestral API error"}\n\n')
 
     @patch("mistralai.Mistral")
     def test_stream_fim_response_empty_response(self, mock_mistral):

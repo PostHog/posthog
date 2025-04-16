@@ -1,27 +1,26 @@
 from decimal import Decimal
-
-from freezegun import freeze_time
 from unittest.mock import patch
 
-from products.revenue_analytics.backend.hogql_queries.revenue_example_events_query_runner import (
-    RevenueExampleEventsQueryRunner,
-)
+from freezegun import freeze_time
 
 from posthog.models.utils import uuid7
 from posthog.schema import (
     CurrencyCode,
-    RevenueExampleEventsQuery,
-    RevenueTrackingConfig,
     RevenueCurrencyPropertyConfig,
+    RevenueExampleEventsQuery,
     RevenueExampleEventsQueryResponse,
+    RevenueTrackingConfig,
     RevenueTrackingEventItem,
 )
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
-    snapshot_clickhouse_queries,
     _create_event,
     _create_person,
+    snapshot_clickhouse_queries,
+)
+from products.revenue_analytics.backend.hogql_queries.revenue_example_events_query_runner import (
+    RevenueExampleEventsQueryRunner,
 )
 
 EMPTY_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(events=[])
@@ -128,7 +127,7 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_no_crash_when_no_data(self):
         results = self._run_revenue_example_events_query(EMPTY_REVENUE_TRACKING_CONFIG).results
-        assert len(results.results) == 0
+        assert len(results) == 0
 
     def test_single_event(self):
         s11 = str(uuid7("2023-12-02"))

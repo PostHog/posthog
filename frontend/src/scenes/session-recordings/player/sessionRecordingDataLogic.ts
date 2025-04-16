@@ -506,6 +506,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                     $pathname: pathname,
                                     $viewport_width: viewportWidth,
                                     $viewport_height: viewportHeight,
+                                    $screen_name: event.length > 9 ? event[9] : undefined,
                                 },
                                 playerTime: +dayjs(event[2]) - +start,
                                 fullyLoaded: false,

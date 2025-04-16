@@ -1,17 +1,17 @@
-from unittest.mock import patch, MagicMock
 import json
-from django.test import TestCase
-from products.editor.backend.providers.anthropic import AnthropicProvider, AnthropicConfig
 from typing import Any
+from unittest.mock import MagicMock, patch
+
+from django.test import TestCase
+
+from products.editor.backend.providers.anthropic import AnthropicConfig, AnthropicProvider
 
 
+@patch("django.conf.settings.ANTHROPIC_API_KEY", "test_key")
 class TestAnthropicProvider(TestCase):
-    def setUp(self):
-        self.api_key = "test-key"
+    def setUp(self) -> None:
+        super().setUp()
         self.model_id = "claude-3-5-sonnet-20241022"
-        self.patch_api_key = patch.dict("os.environ", {"ANTHROPIC_API_KEY": self.api_key})
-        self.patch_api_key.start()
-        self.addCleanup(self.patch_api_key.stop)
 
     def test_init_validates_model(self):
         # Valid model

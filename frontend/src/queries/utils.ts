@@ -38,9 +38,9 @@ import {
     QueryStatusResponse,
     ResultCustomizationBy,
     RetentionQuery,
-    RevenueAnalyticsChurnRateQuery,
     RevenueAnalyticsGrowthRateQuery,
     RevenueAnalyticsOverviewQuery,
+    RevenueAnalyticsTopCustomersQuery,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleEventsQuery,
     SavedInsightNode,
@@ -158,10 +158,10 @@ export function isRevenueAnalyticsGrowthRateQuery(
     return node?.kind === NodeKind.RevenueAnalyticsGrowthRateQuery
 }
 
-export function isRevenueAnalyticsChurnRateQuery(
+export function isRevenueAnalyticsTopCustomersQuery(
     node?: Record<string, any> | null
-): node is RevenueAnalyticsChurnRateQuery {
-    return node?.kind === NodeKind.RevenueAnalyticsChurnRateQuery
+): node is RevenueAnalyticsTopCustomersQuery {
+    return node?.kind === NodeKind.RevenueAnalyticsTopCustomersQuery
 }
 
 export function isWebOverviewQuery(node?: Record<string, any> | null): node is WebOverviewQuery {

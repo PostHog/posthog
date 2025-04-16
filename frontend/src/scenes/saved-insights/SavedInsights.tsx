@@ -266,9 +266,9 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPiggyBank,
         inMenu: true,
     },
-    [NodeKind.RevenueAnalyticsChurnRateQuery]: {
-        name: 'Revenue Analytics Churn Rate',
-        description: 'View revenue analytics churn rate.',
+    [NodeKind.RevenueAnalyticsTopCustomersQuery]: {
+        name: 'Revenue Analytics Top Customers',
+        description: 'View revenue analytics top customers.',
         icon: IconPiggyBank,
         inMenu: true,
     },

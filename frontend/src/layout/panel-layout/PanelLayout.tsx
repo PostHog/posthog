@@ -46,12 +46,12 @@ const panelLayoutStyles = cva({
         {
             isMobileLayout: true,
             isLayoutNavbarVisibleForMobile: true,
-            className: 'translate-x-0',
+            className: 'block',
         },
         {
             isMobileLayout: true,
             isLayoutNavbarVisibleForMobile: false,
-            className: 'translate-x-[calc(var(--project-navbar-width)*-1)]',
+            className: 'hidden',
         },
         // Tree mode
         {

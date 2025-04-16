@@ -65,9 +65,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
     actions: () => ({
         setPageUrl: (url: string | string[] | null) => ({ url }),
         setPageUrlSearchTerm: (searchTerm: string) => ({ searchTerm }),
-        loadPages: (searchTerm: string = '') => {
-            return { searchTerm }
-        },
+        loadPages: (searchTerm: string = '') => ({ searchTerm }),
         toggleStripQueryParams: () => ({}),
         setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({
             tileId,
@@ -154,8 +152,14 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             (pagesUrlsLoading: boolean, isInitialLoad: boolean) => pagesUrlsLoading || isInitialLoad,
         ],
         queries: [
-            (s) => [s.webAnalyticsTiles, s.pageUrl, s.stripQueryParams],
-            (webAnalyticsTiles: WebAnalyticsTile[], pageUrl: string | null, stripQueryParams: boolean) => {
+            (s) => [s.webAnalyticsTiles, s.pageUrl, s.stripQueryParams, s.dateFilter, s.shouldFilterTestAccounts],
+            (
+                webAnalyticsTiles: WebAnalyticsTile[],
+                pageUrl: string | null,
+                stripQueryParams: boolean,
+                dateFilter: typeof webAnalyticsLogic.values.dateFilter,
+                shouldFilterTestAccounts: boolean
+            ) => {
                 // If we don't have a pageUrl, return empty queries to rendering problems
                 if (!pageUrl) {
                     return {
@@ -172,6 +176,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         citiesQuery: undefined,
                         timezonesQuery: undefined,
                         languagesQuery: undefined,
+                        topEventsQuery: undefined,
                     }
                 }
 
@@ -194,6 +199,44 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     return query
                 }
 
+                // Enforcing the type to be QuerySchema so we can build it in a type-safe way
+                const getTopEventsQuery = (): QuerySchema | undefined => ({
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: null,
+                                name: 'All events',
+                                math: BaseMathType.TotalCount,
+                            },
+                        ],
+                        trendsFilter: {},
+                        breakdownFilter: {
+                            breakdowns: [
+                                {
+                                    property: 'event',
+                                    type: 'event_metadata',
+                                },
+                            ],
+                        },
+                        properties: [
+                            ...(pageUrl ? [createUrlPropertyFilter(pageUrl, stripQueryParams)] : []),
+                            {
+                                key: 'event',
+                                value: ['$pageview', '$pageleave'],
+                                operator: PropertyOperator.IsNot,
+                                type: PropertyFilterType.EventMetadata,
+                            },
+                        ],
+                        filterTestAccounts: shouldFilterTestAccounts,
+                        dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+                    },
+                    embedded: true,
+                    hidePersonsModal: true,
+                })
+
                 return {
                     // Path queries
                     entryPathsQuery: getQuery(TileId.PATHS, PathTab.INITIAL_PATH),
@@ -215,6 +258,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                     citiesQuery: getQuery(TileId.GEOGRAPHY, GeographyTab.CITIES),
                     timezonesQuery: getQuery(TileId.GEOGRAPHY, GeographyTab.TIMEZONES),
                     languagesQuery: getQuery(TileId.GEOGRAPHY, GeographyTab.LANGUAGES),
+
+                    topEventsQuery: getTopEventsQuery(),
                 }
             },
         ],
@@ -310,6 +355,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             title,
                             description,
                         },
+                        canOpenModal: true,
                     }
                 }
 
@@ -458,6 +504,25 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                 'Languages',
                                 'Languages of users accessing this page',
                                 queries.languagesQuery
+                            ),
+                        ].filter(Boolean) as WebAnalyticsTile[],
+                    },
+                    {
+                        kind: 'section',
+                        tileId: TileId.PAGE_REPORTS_TOP_EVENTS_SECTION,
+                        title: '',
+                        layout: {
+                            className: 'grid-cols-1 gap-2',
+                        },
+                        tiles: [
+                            createQueryTile(
+                                TileId.PAGE_REPORTS_TOP_EVENTS,
+                                'Top Events',
+                                'Most common events triggered by users on this page, broken down by event type',
+                                queries.topEventsQuery,
+                                {
+                                    className: 'w-full min-h-[300px]',
+                                }
                             ),
                         ].filter(Boolean) as WebAnalyticsTile[],
                     },

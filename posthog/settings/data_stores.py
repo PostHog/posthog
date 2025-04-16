@@ -1,5 +1,6 @@
 import json
 import os
+from contextlib import suppress
 from urllib.parse import urlparse
 
 import dj_database_url
@@ -112,7 +113,6 @@ if read_host:
 if JOB_QUEUE_GRAPHILE_URL:
     DATABASES["graphile"] = dj_database_url.config(default=JOB_QUEUE_GRAPHILE_URL, conn_max_age=600)
 
-
 # Opt-in to using the read replica
 # Models using this will likely see better query latency, and better performance.
 # Immediately reading after writing may not return consistent data if done in <100ms
@@ -122,7 +122,6 @@ if JOB_QUEUE_GRAPHILE_URL:
 # Database routers route models!
 replica_opt_in = os.environ.get("READ_REPLICA_OPT_IN", "")
 READ_REPLICA_OPT_IN: list[str] = get_list(replica_opt_in)
-
 
 # Xdist Settings
 # When running concurrent tests, PYTEST_XDIST_WORKER gets set to "gw0" ... "gwN"
@@ -179,6 +178,12 @@ try:
 except Exception:
     CLICKHOUSE_PER_TEAM_SETTINGS = {}
 
+API_QUERIES_PER_TEAM: dict[int, int] = {}
+with suppress(Exception):
+    as_json = json.loads(os.getenv("API_QUERIES_PER_TEAM", "{}"))
+    API_QUERIES_PER_TEAM = {int(k): int(v) for k, v in as_json.items()}
+
+
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
 if CLICKHOUSE_SECURE:
@@ -195,7 +200,6 @@ if TEST or DEBUG or os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None) is None:
     # When testing, there is no offline cluster.
     # Also in EU, there is no offline cluster.
     CLICKHOUSE_OFFLINE_HTTP_URL = CLICKHOUSE_HTTP_URL
-
 
 READONLY_CLICKHOUSE_USER: str | None = os.getenv("READONLY_CLICKHOUSE_USER", None)
 READONLY_CLICKHOUSE_PASSWORD: str | None = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)
@@ -299,7 +303,6 @@ if get_from_env("POSTHOG_SESSION_RECORDING_REDIS_HOST", ""):
         os.getenv("POSTHOG_SESSION_RECORDING_REDIS_PORT", "6379"),
     )
 
-
 if not REDIS_URL:
     raise ImproperlyConfigured(
         "Env var REDIS_URL or POSTHOG_REDIS_HOST is absolutely required to run this software.\n"
@@ -325,7 +328,6 @@ REDIS_READER_URL = os.getenv("REDIS_READER_URL", None)
 # pubsub channel, pushed to when plugin configs change.
 # We should move away to a different communication channel and remove this.
 PLUGINS_RELOAD_REDIS_URL = os.getenv("PLUGINS_RELOAD_REDIS_URL", REDIS_URL)
-
 
 CDP_API_URL = get_from_env("CDP_API_URL", "")
 

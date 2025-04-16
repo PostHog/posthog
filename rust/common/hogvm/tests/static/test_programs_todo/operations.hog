@@ -1,0 +1,89 @@
+fun test(val) {
+  print(jsonStringify(val))
+}
+
+print('-- test the most common expressions --')
+test(1 + 2)                               // 3
+test(1 - 2)                               // -1
+test(3 * 2)                               // 6
+test(3 / 2)                               // 1.5
+test(3 % 2)                               // 1
+test(1 and 2)                             // true
+test(1 or 0)                              // true
+test(1 and 0)                             // false
+test(1 or (0 and 1) or 2)                 // true
+test((1 and 0) and 1)                     // false
+test((1 or 2) and (1 or 2))               // true
+test(true)                                // true
+test(not true)                            // false
+test(false)                               // false
+test(null)                                // null
+test(3.14)                                // 3.14
+test(1 = 2)                               // false
+test(1 == 2)                              // false
+test(1 != 2)                              // true
+test(1 < 2)                               // true
+test(1 <= 2)                              // true
+test(1 > 2)                               // false
+test(1 >= 2)                              // false
+test('a' like 'b')                        // false
+test('baa' like '%a%')                    // true
+test('baa' like '%x%')                    // false
+test('baa' ilike '%A%')                   // true
+test('baa' ilike '%C%')                   // false
+test('a' ilike 'b')                       // false
+test('a' not like 'b')                    // true
+test('a' not ilike 'b')                   // true
+test('a' in 'car')                        // true
+test('a' in 'foo')                        // false
+test('a' not in 'car')                    // false
+test('bax' like 'b_x')
+test('baax' not like 'b_x')
+test('baax' like 'b%x')
+test(concat('arg', 'another'))            // 'arganother'
+test(concat(1, NULL))                     // '1'
+test(concat(true, false))                 // 'truefalse'
+test(match('test', 'e.*'))                // true
+test(match('test', '^e.*'))               // false
+test(match('test', 'x.*'))                // false
+test('test' =~ 'e.*')                     // true
+test('test' !~ 'e.*')                     // false
+test('test' =~ '^e.*')                    // false
+test('test' !~ '^e.*')                    // true
+test('test' =~ 'x.*')                     // false
+test('test' !~ 'x.*')                     // true
+test('test' ~* 'EST')                     // true
+test('test' =~* 'EST')                    // true
+test('test' !~* 'EST')                    // false
+test(toString(1))                         // '1'
+test(toString(1.5))                       // '1.5'
+test(toString(true))                      // 'true'
+test(toString(null))                      // 'null'
+test(toString('string'))                  // 'string'
+test(toInt('1'))                          // 1
+test(toInt('bla'))                        // null
+test(toFloat('1.2'))                      // 1.2
+test(toFloat('bla'))                      // null
+test(toUUID('asd'))                       // 'asd'
+test(1 == null)                           // false
+test(1 != null)                           // true
+test('1' = 1)                             // true
+test(1 = '1')                             // true
+test(1 == true)                           // true
+test(0 == true)                           // false
+test(2 == true)                           // false
+test(1 != false)                          // true
+test(1 = '2')                             // false
+test(1 == '2')                            // false
+test(1 != '2')                            // true
+test(1 < '2')                             // true
+test(1 <= '2')                            // true
+test(1 > '2')                             // false
+test(1 >= '2')                            // false
+test('1' = 2)                             // false
+test('1' == 2)                            // false
+test('1' != 2)                            // true
+test('1' < 2)                             // true
+test('1' <= 2)                            // true
+test('1' > 2)                             // false
+test('1' >= 2)                            // false

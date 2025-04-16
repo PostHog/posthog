@@ -1,0 +1,20 @@
+let props := {
+}
+let email := props.email
+
+if (email == '') {
+    print('ERROR - Email not found!')
+    print('3')
+}
+
+print('1')
+
+
+if (email == '') {
+    print('ERROR - Email not found!')
+    print('3')
+} else {
+    print('else')
+}
+
+print('1')

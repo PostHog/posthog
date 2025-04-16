@@ -23,7 +23,7 @@ use time::OffsetDateTime;
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
 use tokio::time::timeout;
-use tracing::{debug, warn};
+use tracing::{info, warn};
 
 use capture::config::{CaptureMode, Config, KafkaConfig};
 use capture::server::serve;
@@ -37,8 +37,8 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     overflow_enabled: false,
     overflow_burst_limit: NonZeroU32::new(5).unwrap(),
     overflow_per_second_limit: NonZeroU32::new(10).unwrap(),
-    overflow_forced_keys: None,
-    dropped_keys: None,
+    ingestion_force_overflow_by_token_distinct_id: None,
+    drop_events_by_token_distinct_id: None,
     kafka: KafkaConfig {
         kafka_producer_linger_ms: 0, // Send messages as soon as possible
         kafka_producer_queue_mib: 10,
@@ -48,6 +48,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_compression_codec: "none".to_string(),
         kafka_hosts: "kafka:9092".to_string(),
         kafka_topic: "events_plugin_ingestion".to_string(),
+        kafka_overflow_topic: "events_plugin_ingestion_overflow".to_string(),
         kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
         kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
         kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
@@ -259,13 +260,13 @@ impl EphemeralTopic {
 
 impl Drop for EphemeralTopic {
     fn drop(&mut self) {
-        debug!("dropping EphemeralTopic {}...", self.topic_name);
+        info!("dropping EphemeralTopic {}...", self.topic_name);
         self.consumer.unsubscribe();
         match futures::executor::block_on(timeout(
             Duration::from_secs(10),
             delete_topic(self.topic_name.clone()),
         )) {
-            Ok(_) => debug!("dropped topic"),
+            Ok(_) => info!("dropped topic: {}", self.topic_name.clone()),
             Err(err) => warn!("failed to drop topic: {}", err),
         }
     }

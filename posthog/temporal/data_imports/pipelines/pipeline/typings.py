@@ -20,3 +20,4 @@ class SourceResponse:
 
 
 PartitionMode = Literal["md5", "numerical", "datetime"]
+PartitionFormat = Literal["month", "day"]
