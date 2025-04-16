@@ -235,7 +235,6 @@ export class HogTransformerService {
                     }
 
                     if (!result.execResult) {
-                        logger.warn('⚠️', 'Execution result is null - dropping event')
                         hogTransformationDroppedEvents.inc()
                         transformationsFailed.push(transformationIdentifier)
                         return {
