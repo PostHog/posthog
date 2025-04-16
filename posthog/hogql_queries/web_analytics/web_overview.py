@@ -46,7 +46,6 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
             return self._unsample(row[idx]) if use_unsample else row[idx]
 
         def create_base_metrics():
-            """Create metrics based on whether we're showing conversion goals or standard metrics"""
             if self.query.conversionGoal:
                 return [
                     to_data("visitors", "unit", self._unsample(row[0]), get_prev_val(1)),
@@ -64,7 +63,6 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner):
                 ]
 
         def add_revenue_metrics(metrics):
-            """Add revenue metrics if they should be included"""
             if not self.query.includeRevenue:
                 return metrics
 
