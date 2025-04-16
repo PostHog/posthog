@@ -928,7 +928,7 @@
          NULL AS previous_total_conversion_count,
          uniq(conversion_person_id) AS unique_conversions,
          NULL AS previous_unique_conversions,
-         divide(uniq(conversion_person_id), unique_users) AS conversion_rate,
+         divide(unique_conversions, unique_users) AS conversion_rate,
          NULL AS previous_conversion_rate
   FROM
     (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
