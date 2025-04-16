@@ -117,9 +117,11 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         )
         .expect("failed to create billing limiter");
 
-        // for this test, shut it off entirely as we use fixture files with old timestamps
+        // disable historical rerouting for this test,
+        // since we use fixture files with old timestamps
         let enable_historical_rerouting = false;
         let historical_rerouting_threshold_days = 1_i64;
+        let historical_tokens_keys = None;
 
         let app = router(
             timesource,
@@ -134,6 +136,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             25 * 1024 * 1024,
             enable_historical_rerouting,
             historical_rerouting_threshold_days,
+            historical_tokens_keys,
         );
 
         let client = TestClient::new(app);

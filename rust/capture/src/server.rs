@@ -179,6 +179,7 @@ where
         event_max_bytes,
         config.enable_historical_rerouting,
         config.historical_rerouting_threshold_days,
+        config.historical_tokens_keys,
     );
 
     // run our app with hyper

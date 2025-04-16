@@ -324,18 +324,35 @@ pub fn process_single_event(
     // if this event was historical but not assigned to the right topic
     // by the submitting user (i.e. no historical prop flag in event)
     // we should route it there using event#now if older than 1 day
-    let is_historical_event =
-        if historical_cfg.enable_historical_rerouting && raw_event_timestamp.is_some() {
-            let days_stale = Duration::days(historical_cfg.historical_rerouting_threshold_days);
-            let threshold = Utc::now() - days_stale;
-            raw_event_timestamp.unwrap().to_utc() <= threshold
-        } else {
-            false
-        };
+    let should_reroute_event = if raw_event_timestamp.is_some() {
+        let days_stale = Duration::days(historical_cfg.historical_rerouting_threshold_days);
+        let threshold = Utc::now() - days_stale;
+        let decision = raw_event_timestamp.unwrap().to_utc() <= threshold;
+        if decision {
+            counter!(
+                "capture_events_rerouted_historical",
+                &[("reason", "timestamp")]
+            )
+            .increment(1);
+        }
+        decision
+    } else {
+        let decision = historical_cfg.should_reroute(&event.key());
+        if decision {
+            counter!(
+                "capture_events_rerouted_historical",
+                &[("reason", "key_or_token")]
+            )
+            .increment(1);
+        }
+        decision
+    };
 
-    if metadata.data_type == DataType::AnalyticsMain && is_historical_event {
+    if metadata.data_type == DataType::AnalyticsMain
+        && historical_cfg.enable_historical_rerouting
+        && should_reroute_event
+    {
         metadata.data_type = DataType::AnalyticsHistorical;
-        counter!("capture_events_rerouted_historical").increment(1);
     }
 
     Ok(ProcessedEvent { metadata, event })
