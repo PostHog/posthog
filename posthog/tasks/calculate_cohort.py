@@ -36,6 +36,16 @@ logger = structlog.get_logger(__name__)
 MAX_AGE_MINUTES = 15
 
 
+def get_cohort_calculation_candidates_queryset():
+    return Cohort.objects.filter(
+        Q(last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES))
+        | Q(last_calculation__isnull=True),
+        deleted=False,
+        is_calculating=False,
+        errors_calculating__lte=20,
+    ).exclude(is_static=True)
+
+
 def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
     """
     Calculates maximum N cohorts in parallel.
@@ -43,45 +53,24 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
     Args:
         parallel_count: Maximum number of cohorts to calculate in parallel.
     """
-
-    # This task will be run every minute
-    # Every minute, grab a few cohorts off the list and execute them
-
-    # calculate exponential backoff
+    # Exponential backoff, with the first one starting after 30 minutes
     backoff_duration = ExpressionWrapper(
         timedelta(minutes=30) * (2 ** F("errors_calculating")),  # type: ignore
         output_field=DurationField(),
     )
 
     for cohort in (
-        Cohort.objects.filter(
-            deleted=False,
-            is_calculating=False,
-            last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES),
-            errors_calculating__lte=20,
-            # Exponential backoff, with the first one starting after 30 minutes
-        )
+        get_cohort_calculation_candidates_queryset()
         .filter(
             Q(last_error_at__lte=timezone.now() - backoff_duration)  # type: ignore
             | Q(last_error_at__isnull=True)  # backwards compatability cohorts before last_error_at was introduced
         )
-        .exclude(is_static=True)
         .order_by(F("last_calculation").asc(nulls_first=True))[0:parallel_count]
     ):
         cohort = Cohort.objects.filter(pk=cohort.pk).get()
         increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
 
-    # update gauge
-    backlog = (
-        Cohort.objects.filter(
-            deleted=False,
-            is_calculating=False,
-            last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES),
-            errors_calculating__lte=20,
-        )
-        .exclude(is_static=True)
-        .count()
-    )
+    backlog = get_cohort_calculation_candidates_queryset().count()
     COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
 
 
