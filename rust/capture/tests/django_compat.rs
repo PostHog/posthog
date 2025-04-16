@@ -94,12 +94,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
             continue;
         }
 
-        // kludge to ensure test fixtures have up-to-date "now" timestamps
-        // so that stamp-based historical rerouting works as expected
-        //let event_now = Utc::now().to_rfc3339();
-
         let case: RequestDump = serde_json::from_str(&line_contents)?;
-        //case.now = event_now.clone();
 
         let raw_body = general_purpose::STANDARD.decode(&case.body)?;
         assert_eq!(
@@ -122,7 +117,7 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
         )
         .expect("failed to create billing limiter");
 
-        // for this test, shut it off entirely
+        // for this test, shut it off entirely as we use fixture files with old timestamps
         let enable_historical_rerouting = false;
         let historical_rerouting_threshold_days = 1_i64;
 
@@ -187,12 +182,6 @@ async fn it_matches_django_capture_behaviour() -> anyhow::Result<()> {
 
             // Normalizing the expected event to align with known django->rust inconsistencies
             let mut expected = expected.clone();
-
-            // kludge to ensure fixtures and expected "now" values match and
-            // are too new to trigger "now" based historical rerouting
-            //if let Some(timestamp) = expected.get_mut("now") {
-            //    *timestamp = Value::from(event_now.clone());
-            //}
 
             if let Some(value) = expected.get_mut("sent_at") {
                 // Default ISO format is different between python and rust, both are valid
