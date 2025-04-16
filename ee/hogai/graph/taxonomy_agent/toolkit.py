@@ -244,7 +244,7 @@ class TaxonomyAgentToolkit(ABC):
 
     @property
     def _groups(self):
-        return GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
+        return GroupTypeMapping.objects.filter(team_id=self._team.id).order_by("group_type_index")
 
     @cached_property
     def _entity_names(self) -> list[str]:
@@ -353,8 +353,8 @@ class TaxonomyAgentToolkit(ABC):
         try:
             response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
         except Action.DoesNotExist:
-            project_actions = Action.objects.filter(team__project_id=self._team.project_id, deleted=False)
-            if not project_actions:
+            actions = Action.objects.filter(team_id=self._team.id, deleted=False)
+            if not actions:
                 return "No actions exist in the project."
             return f"Action {event_name_or_action_id} does not exist in the taxonomy. Verify that the action ID is correct and try again."
 

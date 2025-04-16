@@ -4,6 +4,7 @@ from functools import cached_property
 from pydantic import ValidationError
 from typing import Any, Literal, Optional, cast
 from uuid import UUID
+from django.db import transaction
 
 from django.shortcuts import get_object_or_404
 from loginas.utils import is_impersonated_session
@@ -21,6 +22,7 @@ from posthog.geoip import get_geoip_properties
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import ProductIntent, Team, User
 from posthog.models.activity_logging.activity_log import (
+    Change,
     Detail,
     dict_changes_between,
     load_activity,
@@ -30,9 +32,8 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.group_type_mapping import GroupTypeMapping, GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.product_intent.product_intent import ProductIntentSerializer, calculate_product_activation
-from posthog.models.project import Project
 from posthog.models.scopes import APIScopeObjectOrNotSupported
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
@@ -45,6 +46,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    get_organization_from_view,
 )
 from posthog.rate_limit import SetupWizardAuthenticationRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -99,6 +101,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "heatmaps_opt_in",
             "capture_dead_clicks",
             "flags_persistence_default",
+            "root_team_id",
         ]
         read_only_fields = fields
 
@@ -188,13 +191,18 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     product_intents = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     revenue_tracking_config = RevenueTrackingConfigSerializer(required=False)
+    name = serializers.CharField(max_length=200)
+    root_name = serializers.CharField(max_length=200, required=False)
 
     class Meta:
         model = Team
         fields = (
             "id",
             "uuid",
+            "root_team_id",  # Given back always
+            "parent_team",  # Only sent on updates
             "name",
+            "root_name",
             "access_control",
             "organization",
             "project_id",
@@ -234,17 +242,35 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "user_access_level",
             "product_intents",
             "access_control_version",
+            "root_team_id",
         )
 
-    def to_representation(self, instance):
-        representation = super().to_representation(instance)
-        # fallback to the default posthog data theme id, if the color feature isn't available e.g. after a downgrade
+        extra_kwargs = {
+            "parent_team": {"write_only": True},
+        }
+
+    def validate_name(self, value):
+        if ">>" in value:
+            raise exceptions.ValidationError(detail="Project names cannot contain '>>'")
+        return value
+
+    def validate_root_name(self, value):
+        if ">>" in value:
+            raise exceptions.ValidationError(detail="Project names cannot contain '>>'")
+        return value
+
+    def to_representation(self, instance: Team) -> dict:
+        ret = super().to_representation(instance)
+        # Since environments we want to map over the standard name
+        ret["name"] = instance.environment_name
+
+        # Fallback to the default posthog data theme id if the color feature isn't available
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
-            representation["default_data_theme"] = (
+            ret["default_data_theme"] = (
                 DataColorTheme.objects.filter(team_id__isnull=True).values_list("id", flat=True).first()
             )
 
-        return representation
+        return ret
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
         # TODO: Map from user_access_controls
@@ -257,7 +283,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return "v2"
 
     def get_has_group_types(self, team: Team) -> bool:
-        return GroupTypeMapping.objects.filter(project_id=team.project_id).exists()
+        return GroupTypeMapping.objects.filter(team_id=team.id).exists()
 
     def get_group_types(self, team: Team) -> list[dict[str, Any]]:
         return list(
@@ -390,15 +416,90 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return value
 
+    def validate_parent_team(self, value):
+        if value is None:
+            return None
+
+        parent_team = cast(Team, value)
+
+        if parent_team.id not in self.user_permissions.team_ids_visible_for_user:
+            # Ensure you can only create teams under other teams you have access to
+            raise exceptions.NotFound("Team not found.")
+
+        if parent_team.organization_id != self.context["view"].organization.id:
+            raise exceptions.ValidationError(detail="This project does not belong to the same organization.")
+
+        # Finally we need to ensure the team isn't already nested
+
+        if parent_team.parent_team:
+            raise exceptions.ValidationError(detail="This project is not a root level project.")
+
+        return value
+
     def validate(self, attrs: Any) -> Any:
-        attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
+        instance = self.instance
+        request = self.context["request"]
+        view = self.context["view"]
+
+        # Derive the appropriate name from the given values
+        if "name" in attrs or "root_name" in attrs:
+            # Combine the values into one name field
+            root_name = attrs.get("root_name", self.instance.root_name if self.instance else "")
+            environment_name = attrs.get("name", self.instance.environment_name if self.instance else "")
+
+            attrs["name"] = f"{root_name} >> {environment_name}"
+            if "root_name" in attrs:
+                del attrs["root_name"]
+
+        if "primary_dashboard" in attrs:
+            if not instance:
+                raise exceptions.ValidationError(
+                    {"primary_dashboard": "Primary dashboard cannot be set on project creation."}
+                )
+            if attrs["primary_dashboard"].team_id != instance.id:
+                raise exceptions.ValidationError({"primary_dashboard": "Dashboard does not belong to this team."})
+
+        if "access_control" in attrs:
+            assert isinstance(request.user, User)
+            # We get the instance's organization_id, unless we're handling creation, in which case there's no instance yet
+            organization_id = (
+                instance.organization_id if instance is not None else cast(UUID | str, view.organization_id)
+            )
+            # Only organization-wide admins and above should be allowed to switch the project between open and private
+            # If a project-only admin who is only an org member disabled this it, they wouldn't be able to reenable it
+            org_membership: OrganizationMembership = OrganizationMembership.objects.only("level").get(
+                organization_id=organization_id, user=request.user
+            )
+            if org_membership.level < OrganizationMembership.Level.ADMIN:
+                raise exceptions.PermissionDenied(
+                    "Your organization access level is insufficient to configure project access restrictions."
+                )
+
+        if "autocapture_exceptions_errors_to_ignore" in attrs:
+            if not isinstance(attrs["autocapture_exceptions_errors_to_ignore"], list):
+                raise exceptions.ValidationError(
+                    "Must provide a list for field: autocapture_exceptions_errors_to_ignore."
+                )
+            for error in attrs["autocapture_exceptions_errors_to_ignore"]:
+                if not isinstance(error, str):
+                    raise exceptions.ValidationError(
+                        "Must provide a list of strings to field: autocapture_exceptions_errors_to_ignore."
+                    )
+
+            if len(json.dumps(attrs["autocapture_exceptions_errors_to_ignore"])) > 300:
+                raise exceptions.ValidationError(
+                    "Field autocapture_exceptions_errors_to_ignore must be less than 300 characters. Complex config should be provided in posthog-js initialization."
+                )
+
         return super().validate(attrs)
 
     def create(self, validated_data: dict[str, Any], **kwargs) -> Team:
         request = self.context["request"]
-        if self.context["project_id"] not in self.user_permissions.project_ids_visible_for_user:
-            raise exceptions.NotFound("Project not found.")
-        validated_data["project_id"] = self.context["project_id"]
+
+        if "project_id" in validated_data:
+            # Temporarily we just delete this. It results in a project being created which is fine as we will follow up by removing all Projects
+            del validated_data["project_id"]
+
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
 
         if "week_start_day" not in validated_data:
@@ -564,7 +665,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             IsAuthenticated,
             APIScopePermission,
             AccessControlPermission,
-            PremiumMultiEnvironmentPermission,
+            PremiumMultiProjectPermission,
             *self.permission_classes,
         ]
 
@@ -605,6 +706,11 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         team_id = team.pk
         organization_id = team.organization_id
         team_name = team.name
+
+        if team.child_teams.exists():
+            # NOTE: Currently this is how we are handling this.
+            # Ideally we need a better solution to separate deletion of the "project" versus deleting the "environment"
+            raise exceptions.ValidationError("You must delete or move all child projects before deleting this project.")
 
         user = cast(User, self.request.user)
 
@@ -774,6 +880,97 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
 
         return response.Response({"success": True}, status=200)
 
+    @action(methods=["POST"], detail=True)
+    def change_organization(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        team = self.get_object()
+        user = cast(User, request.user)
+
+        target_organization_id = request.data.get("organization_id")
+        current_organization = team.organization
+
+        if team.parent_team:
+            raise exceptions.ValidationError(
+                "This project is a child of another project and cannot be moved. Please move the parent project instead."
+            )
+
+        try:
+            target_organization = Organization.objects.get(pk=target_organization_id)
+            current_organization_membership = OrganizationMembership.objects.get(
+                user=user, organization=current_organization
+            )
+            target_organization_membership = OrganizationMembership.objects.get(
+                user=user, organization=target_organization
+            )
+
+            if (
+                current_organization_membership.level < OrganizationMembership.Level.ADMIN
+                or target_organization_membership.level < OrganizationMembership.Level.ADMIN
+            ):
+                raise exceptions.ValidationError(
+                    "You must be an admin of both the source and target organizations to move a project."
+                )
+
+        except (OrganizationMembership.DoesNotExist, Organization.DoesNotExist):
+            raise exceptions.ValidationError("You must be a member of the target organization to move a project.")
+
+        if team.organization_id == target_organization_id:
+            raise exceptions.ValidationError("Project is already in the target organization.")
+
+        # Get all child teams to be moved
+        child_teams = list(team.child_teams.all())
+
+        with transaction.atomic():
+            # NOTE: Can be removed once Project model is removed
+            team.project.organization_id = target_organization_id
+            team.project.save()
+            team.organization_id = target_organization_id
+            team.save()
+
+            log_activity(
+                organization_id=cast(UUIDT, target_organization_id),
+                team_id=team.pk,
+                user=user,
+                was_impersonated=is_impersonated_session(request),
+                scope="Project",
+                item_id=team.pk,
+                activity="updated",
+                detail=Detail(
+                    name="moved to another organization",
+                    changes=[
+                        Change(
+                            type="Project",
+                            action="changed",
+                            field="organization_id",
+                            before=str(current_organization.id),
+                            after=str(target_organization.id),
+                        )
+                    ],
+                ),
+            )
+
+            for child_team in child_teams:
+                # NOTE: Can be removed once Project model is removed
+                child_team.project.organization_id = target_organization_id
+                child_team.project.save()
+                child_team.organization_id = target_organization_id
+                child_team.save()
+
+        report_user_action(
+            user,
+            f"project moved to another organization",
+            {
+                "project_id": team.id,
+                "project_name": team.name,
+                "old_organization_id": current_organization.id,
+                "old_organization_name": current_organization.name,
+                "new_organization_id": target_organization_id,
+                "new_organization_name": target_organization.name,
+            },
+            team=team,
+        )
+
+        return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data, status=200)
+
     @cached_property
     def user_permissions(self):
         team = self.get_object() if self.action == "reset_token" else None
@@ -786,81 +983,47 @@ class RootTeamViewSet(TeamViewSet):
     hide_api_docs = True
 
 
-def validate_team_attrs(
-    attrs: dict[str, Any], view: TeamAndOrgViewSetMixin, request: request.Request, instance: Optional[Team | Project]
-) -> dict[str, Any]:
-    if "primary_dashboard" in attrs:
-        if not instance:
-            raise exceptions.ValidationError(
-                {"primary_dashboard": "Primary dashboard cannot be set on project creation."}
-            )
-        if attrs["primary_dashboard"].team_id != instance.id:
-            raise exceptions.ValidationError({"primary_dashboard": "Dashboard does not belong to this team."})
-
-    if "access_control" in attrs:
-        assert isinstance(request.user, User)
-        # We get the instance's organization_id, unless we're handling creation, in which case there's no instance yet
-        organization_id = instance.organization_id if instance is not None else cast(UUID | str, view.organization_id)
-        # Only organization-wide admins and above should be allowed to switch the project between open and private
-        # If a project-only admin who is only an org member disabled this it, they wouldn't be able to reenable it
-        org_membership: OrganizationMembership = OrganizationMembership.objects.only("level").get(
-            organization_id=organization_id, user=request.user
-        )
-        if org_membership.level < OrganizationMembership.Level.ADMIN:
-            raise exceptions.PermissionDenied(
-                "Your organization access level is insufficient to configure project access restrictions."
-            )
-
-    if "autocapture_exceptions_errors_to_ignore" in attrs:
-        if not isinstance(attrs["autocapture_exceptions_errors_to_ignore"], list):
-            raise exceptions.ValidationError("Must provide a list for field: autocapture_exceptions_errors_to_ignore.")
-        for error in attrs["autocapture_exceptions_errors_to_ignore"]:
-            if not isinstance(error, str):
-                raise exceptions.ValidationError(
-                    "Must provide a list of strings to field: autocapture_exceptions_errors_to_ignore."
-                )
-
-        if len(json.dumps(attrs["autocapture_exceptions_errors_to_ignore"])) > 300:
-            raise exceptions.ValidationError(
-                "Field autocapture_exceptions_errors_to_ignore must be less than 300 characters. Complex config should be provided in posthog-js initialization."
-            )
-    return attrs
-
-
-class PremiumMultiEnvironmentPermission(BasePermission):
+class PremiumMultiProjectPermission(BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
-    message = "You must upgrade your PostHog plan to be able to create and manage more environments per project."
+    message = "You must upgrade your PostHog plan to be able to create and manage more projects."
 
     def has_permission(self, request: request.Request, view) -> bool:
         if view.action not in CREATE_ACTIONS:
             return True
 
         try:
-            project = view.project
-        except KeyError:  # KeyError occurs when "project_id" is not in parents_query_dict
-            raise exceptions.ValidationError(
-                "Environments must be created under a specific project. Send the POST request to /api/projects/<project_id>/environments/ instead."
-            )
+            organization = get_organization_from_view(view)
+        except ValueError:
+            return False
 
         if request.data.get("is_demo"):
             # If we're requesting to make a demo project but the org already has a demo project
-            if project.organization.teams.filter(is_demo=True).count() > 0:
+            if organization.teams.filter(is_demo=True).count() > 0:
                 return False
 
-        environments_feature = project.organization.get_available_feature(AvailableFeature.ENVIRONMENTS)
-        current_non_demo_team_count = project.teams.exclude(is_demo=True).count()
-        if environments_feature:
-            allowed_team_per_project_count = environments_feature.get("limit")
+        has_projects_feature = organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
+        current_non_demo_project_count = organization.teams.exclude(is_demo=True).distinct("id").count()
+
+        allowed_project_count = next(
+            (
+                feature.get("limit")
+                for feature in organization.available_product_features or []
+                if feature.get("key") == AvailableFeature.ORGANIZATIONS_PROJECTS
+            ),
+            None,
+        )
+
+        if has_projects_feature:
             # If allowed_project_count is None then the user is allowed unlimited projects
-            if allowed_team_per_project_count is None:
+            if allowed_project_count is None:
                 return True
             # Check current limit against allowed limit
-            if current_non_demo_team_count >= allowed_team_per_project_count:
+            if current_non_demo_project_count >= allowed_project_count:
                 return False
         else:
             # If the org doesn't have the feature, they can only have one non-demo project
-            if current_non_demo_team_count >= 1:
+            if current_non_demo_project_count >= 1:
                 return False
 
         # in any other case, we're good to go

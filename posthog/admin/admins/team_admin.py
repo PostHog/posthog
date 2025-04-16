@@ -13,7 +13,6 @@ class TeamAdmin(admin.ModelAdmin):
         "organization_link",
         "organization_id",
         "project_link",
-        "project_id",
         "created_at",
         "updated_at",
     )

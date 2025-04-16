@@ -26,7 +26,7 @@ const meta: Meta<typeof Query> = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/query/': (req) => {
+                '/api/projects/:team_id/query/': (req) => {
                     if ((req.body as any).query.kind === 'WebStatsTableQuery') {
                         if ((req.body as any).query.breakdownBy === 'InitialReferringDomain') {
                             return [200, referringDomainMock]

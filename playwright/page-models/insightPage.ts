@@ -57,7 +57,7 @@ export class InsightPage {
         await this.page.getByTestId('saved-insights-new-insight-dropdown').click()
 
         const insightQuery = this.page.waitForRequest((req) => {
-            return !!(req.url().match(/api\/environments\/\d+\/query/) && req.method() === 'POST')
+            return !!(req.url().match(/api\/projects\/\d+\/query/) && req.method() === 'POST')
         })
         await this.page.locator(`[data-attr-insight-type="${insightType || 'TRENDS'}"]`).click()
         await insightQuery

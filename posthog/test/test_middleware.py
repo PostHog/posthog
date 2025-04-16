@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timedelta
 from urllib.parse import quote
+from unittest import mock
 
 from django.test.client import Client
 from django.urls import reverse
@@ -15,6 +16,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
 from posthog.test.base import APIBaseTest, override_settings
+from posthog.middleware import EnvironmentToProjectMiddleware
 
 
 class TestAccessMiddleware(APIBaseTest):
@@ -142,7 +144,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 50
+        cls.base_app_num_queries = 46
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -618,3 +620,48 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             res = self.client.get("/api/users/@me")
             assert res.status_code == 200
             assert res.json()["email"] == "user1@posthog.com"
+
+
+class TestEnvironmentToProjectMiddleware(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.middleware = EnvironmentToProjectMiddleware(get_response=lambda request: request)
+
+    def test_middleware_rewrites_environments_path_to_projects(self):
+        # Create a mock request with a path starting with /environments/
+        request = mock.MagicMock()
+        request.path = "/environments/123/settings"
+        request.path_info = "/environments/123/settings"
+
+        # Process the request through the middleware
+        response = self.middleware(request)
+
+        # Verify the path was rewritten
+        self.assertEqual(response.path, "/projects/123/settings")
+        self.assertEqual(response.path_info, "/projects/123/settings")
+
+    def test_middleware_does_not_rewrite_other_paths(self):
+        # Create a mock request with a path not starting with /environments/
+        request = mock.MagicMock()
+        request.path = "/api/projects/123/settings"
+        request.path_info = "/api/projects/123/settings"
+
+        # Process the request through the middleware
+        response = self.middleware(request)
+
+        # Verify the path was not changed
+        self.assertEqual(response.path, "/api/projects/123/settings")
+        self.assertEqual(response.path_info, "/api/projects/123/settings")
+
+    def test_middleware_only_replaces_first_occurrence(self):
+        # Create a mock request with a path that has multiple occurrences of /environments/
+        request = mock.MagicMock()
+        request.path = "/environments/123/settings/environments/test"
+        request.path_info = "/environments/123/settings/environments/test"
+
+        # Process the request through the middleware
+        response = self.middleware(request)
+
+        # Verify only the first occurrence was replaced
+        self.assertEqual(response.path, "/projects/123/settings/environments/test")
+        self.assertEqual(response.path_info, "/projects/123/settings/environments/test")

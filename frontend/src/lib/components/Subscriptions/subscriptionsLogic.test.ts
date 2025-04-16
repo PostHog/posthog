@@ -54,15 +54,15 @@ describe('subscriptionsLogic', () => {
         subscriptions = [fixtureSubscriptionResponse(1), fixtureSubscriptionResponse(2)]
         useMocks({
             get: {
-                '/api/environments/:team_id/insights/1': fixtureInsightResponse(1),
-                '/api/environments/:team_id/insights/2': fixtureInsightResponse(2),
-                '/api/environments/:team_id/insights': (req) => {
+                '/api/projects/:team_id/insights/1': fixtureInsightResponse(1),
+                '/api/projects/:team_id/insights/2': fixtureInsightResponse(2),
+                '/api/projects/:team_id/insights': (req) => {
                     const insightShortId = req.url.searchParams.get('short_id')
                     const res = insightShortId ? [fixtureInsightResponse(parseInt(insightShortId, 10))] : []
                     return [200, { results: res }]
                 },
 
-                '/api/environments/:team_id/subscriptions': (req) => {
+                '/api/projects/:team_id/subscriptions': (req) => {
                     const insightId = req.url.searchParams.get('insight')
                     let results: SubscriptionType[] = []
 

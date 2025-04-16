@@ -4,7 +4,7 @@ from django.db.models.expressions import F
 from django.db.models.functions import Coalesce
 
 from posthog.models.team import Team
-from posthog.models.utils import UniqueConstraintByExpression, UUIDModel
+from posthog.models.utils import RootTeamMixin, UniqueConstraintByExpression, UUIDModel
 
 
 class PropertyType(models.TextChoices):
@@ -30,7 +30,7 @@ class PropertyFormat(models.TextChoices):
     WithSlashesIncreasing = "DD/MM/YYYY hh:mm:ss", "DD/MM/YYYY hh:mm:ss"
 
 
-class PropertyDefinition(UUIDModel):
+class PropertyDefinition(RootTeamMixin, UUIDModel):
     class Type(models.IntegerChoices):
         EVENT = 1, "event"
         PERSON = 2, "person"
@@ -43,6 +43,7 @@ class PropertyDefinition(UUIDModel):
         related_name="property_definitions",
         related_query_name="team",
     )
+    # DEPRECATED
     project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
     name = models.CharField(max_length=400)
     is_numerical = models.BooleanField(

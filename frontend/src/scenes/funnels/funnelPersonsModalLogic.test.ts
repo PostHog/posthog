@@ -22,7 +22,7 @@ describe('funnelPersonsModalLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/insights/': {
+                '/api/projects/:team_id/insights/': {
                     results: [{}],
                 },
             },

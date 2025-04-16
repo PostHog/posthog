@@ -112,7 +112,7 @@ async function executeQuery<N extends DataNode>(
                 const abortController = new AbortController()
 
                 void api
-                    .stream(`/api/environments/${currentTeamId}/query_awaited/`, {
+                    .stream(`/api/projects/${currentTeamId}/query_awaited/`, {
                         method: 'POST',
                         data: {
                             query: queryNode,

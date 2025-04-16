@@ -29,8 +29,8 @@ describe('insightVizDataLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/insights/trend': [],
-                '/api/environments/:team_id/insights/': { results: [{}] },
+                '/api/projects/:team_id/insights/trend': [],
+                '/api/projects/:team_id/insights/': { results: [{}] },
             },
         })
         initKeaTests()

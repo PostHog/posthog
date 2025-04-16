@@ -14,10 +14,9 @@ from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.filters.utils import get_filter
-from posthog.models.utils import sane_repr
+from posthog.models.utils import RootTeamMixin, sane_repr, RootTeamManager
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.utils import RootTeamMixin, RootTeamManager
 
 logger = structlog.get_logger(__name__)
 

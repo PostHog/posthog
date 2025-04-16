@@ -19,11 +19,11 @@ describe('insightSceneLogic', () => {
     beforeEach(async () => {
         useMocks({
             get: {
-                '/api/environments/:team_id/insights/trend/': { result: ['result from api'] },
+                '/api/projects/:team_id/insights/trend/': { result: ['result from api'] },
             },
             post: {
-                '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
-                '/api/environments/:team_id/insights/': (req) => [
+                '/api/projects/:team_id/insights/funnel/': { result: ['result from api'] },
+                '/api/projects/:team_id/insights/': (req) => [
                     200,
                     { id: 12, short_id: Insight12, ...((req.body as any) || {}) },
                 ],

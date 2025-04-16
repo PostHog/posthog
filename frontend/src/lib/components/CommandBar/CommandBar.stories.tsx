@@ -520,7 +520,6 @@ const meta: Meta<typeof CommandBar> = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/search': SEARCH_RESULT,
-                '/api/environments/:team_id/search': SEARCH_RESULT,
             },
         }),
     ],

@@ -173,7 +173,7 @@ urlpatterns = [
     # ee
     *ee_urlpatterns,
     # api
-    path("api/environments/<int:team_id>/query_awaited/", query_awaited),
+    path("api/projects/<int:team_id>/query_awaited/", query_awaited),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/", include(router.urls)),
     path("", include(tf_urls)),

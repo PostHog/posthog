@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { ApiConfig } from 'lib/api'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -16,10 +16,9 @@ import {
 } from 'lib/utils/product-intents'
 
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { CorrelationConfigType, ProductKey, ProjectType, TeamPublicType, TeamType } from '~/types'
+import { CorrelationConfigType, ProductKey, TeamBasicType, TeamPublicType, TeamType } from '~/types'
 
 import { organizationLogic } from './organizationLogic'
-import { projectLogic } from './projectLogic'
 import type { teamLogicType } from './teamLogicType'
 import { userLogic } from './userLogic'
 
@@ -48,7 +47,7 @@ export const teamLogic = kea<teamLogicType>([
     path(['scenes', 'teamLogic']),
     connect(() => ({
         actions: [userLogic, ['loadUser', 'switchTeam'], organizationLogic, ['loadCurrentOrganization']],
-        values: [projectLogic, ['currentProject'], featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], organizationLogic, ['currentOrganization']],
     })),
     actions({
         deleteTeam: (team: TeamType) => ({ team }),
@@ -75,7 +74,7 @@ export const teamLogic = kea<teamLogicType>([
                         return null
                     }
                     try {
-                        return await api.get('api/environments/@current')
+                        return await api.get('api/projects/@current')
                     } catch {
                         return values.currentTeam
                     }
@@ -93,21 +92,7 @@ export const teamLogic = kea<teamLogicType>([
                         }
                     }
 
-                    const promises: [Promise<TeamType>, Promise<ProjectType> | undefined] = [
-                        api.update(`api/environments/${values.currentTeam.id}`, payload),
-                        undefined,
-                    ]
-                    if (
-                        Object.keys(payload).length === 1 &&
-                        payload.name &&
-                        values.currentProject &&
-                        !values.featureFlags[FEATURE_FLAGS.ENVIRONMENTS]
-                    ) {
-                        // If we're only updating the name and the user doesn't have access to the environments feature,
-                        // update the project name as well, for 100% equivalence
-                        promises[0] = api.update(`api/projects/${values.currentProject.id}`, { name: payload.name })
-                    }
-                    const [patchedTeam] = await Promise.all(promises)
+                    const patchedTeam = await api.update(`api/projects/${values.currentTeam.id}`, payload)
                     breakpoint()
 
                     // We need to reload current org (which lists its teams) in organizationLogic AND in userLogic
@@ -145,15 +130,22 @@ export const teamLogic = kea<teamLogicType>([
 
                     return patchedTeam
                 },
-                createTeam: async ({ name, is_demo }: { name: string; is_demo: boolean }) => {
-                    if (!values.currentProject) {
-                        throw new Error(
-                            'Environment could not be created, because the parent project has not been loaded yet!'
-                        )
-                    }
-                    return await api.create(`api/projects/${values.currentProject.id}/environments/`, { name, is_demo })
+                createTeam: async ({
+                    name,
+                    is_demo,
+                    parent_team_id,
+                }: {
+                    name: string
+                    is_demo?: boolean
+                    parent_team_id?: number
+                }) => {
+                    return await api.create(`api/projects/`, {
+                        name,
+                        is_demo: is_demo ?? false,
+                        parent_team: parent_team_id,
+                    })
                 },
-                resetToken: async () => await api.update(`api/environments/${values.currentTeamId}/reset_token`, {}),
+                resetToken: async () => await api.update(`api/projects/${values.currentTeamId}/reset_token`, {}),
                 /**
                  * If adding a product intent that also represents regular product usage, see explainer in posthog.models.product_intent.product_intent.py.
                  */
@@ -161,7 +153,7 @@ export const teamLogic = kea<teamLogicType>([
                 addProductIntentForCrossSell: async (properties: ProductCrossSellProperties) =>
                     await addProductIntentForCrossSell(properties),
                 recordProductIntentOnboardingComplete: async ({ product_type }: { product_type: ProductKey }) =>
-                    await api.update(`api/environments/${values.currentTeamId}/complete_product_onboarding`, {
+                    await api.update(`api/projects/${values.currentTeamId}/complete_product_onboarding`, {
                         product_type,
                     }),
             },
@@ -236,6 +228,21 @@ export const teamLogic = kea<teamLogicType>([
                 return frequentMistakes
             },
         ],
+        otherTeams: [
+            (s) => [s.currentOrganization, s.currentTeam],
+            (currentOrganization, currentTeam): TeamBasicType[] =>
+                currentOrganization?.teams.filter((team) => team.id !== currentTeam?.id) || [],
+        ],
+
+        currentTeamIsSubProject: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam?.root_team_id && currentTeam.root_team_id !== currentTeam.id,
+        ],
+
+        currentTeamHasSubProjects: [
+            (s) => [s.otherTeams, s.currentTeam],
+            (otherTeams, currentTeam): boolean => otherTeams.some((team) => team.root_team_id === currentTeam?.id),
+        ],
     })),
     listeners(({ actions }) => ({
         loadCurrentTeamSuccess: ({ currentTeam }) => {
@@ -255,7 +262,7 @@ export const teamLogic = kea<teamLogicType>([
         },
         deleteTeam: async ({ team }) => {
             try {
-                await api.delete(`api/environments/${team.id}`)
+                await api.delete(`api/projects/${team.id}`)
                 location.reload()
                 actions.deleteTeamSuccess()
             } catch {
@@ -266,27 +273,19 @@ export const teamLogic = kea<teamLogicType>([
             lemonToast.success('Project has been deleted')
         },
     })),
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions }) => {
         const appContext = getAppContext()
         const currentTeam = appContext?.current_team
-        const currentProject = appContext?.current_project
         const switchedTeam = appContext?.switched_team
         if (switchedTeam) {
-            lemonToast.info(
-                <>
-                    You've switched to&nbsp;project{' '}
-                    {values.featureFlags[FEATURE_FLAGS.ENVIRONMENTS]
-                        ? `${currentProject?.name}, environment ${currentTeam?.name}`
-                        : currentTeam?.name}
-                </>,
-                {
-                    button: {
-                        label: 'Switch back',
-                        action: () => actions.switchTeam(switchedTeam),
-                    },
-                    icon: <IconSwapHoriz />,
-                }
-            )
+            // TODO: Add back in the project name
+            lemonToast.info(<>You've switched to&nbsp;project {currentTeam?.name}</>, {
+                button: {
+                    label: 'Switch back',
+                    action: () => actions.switchTeam(switchedTeam),
+                },
+                icon: <IconSwapHoriz />,
+            })
         }
 
         if (currentTeam) {

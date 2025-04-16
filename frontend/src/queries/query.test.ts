@@ -11,7 +11,7 @@ describe('query', () => {
     beforeEach(() => {
         useMocks({
             post: {
-                '/api/environments/:team_id/query': (req) => {
+                '/api/projects/:team_id/query': (req) => {
                     const data = req.body as any
                     if (data.query?.kind === 'HogQLQuery') {
                         return [

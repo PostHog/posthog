@@ -2339,7 +2339,7 @@ const meta: Meta = {
                 '/api/projects/997/feature_flags/163/status/': {},
             },
             post: {
-                '/api/environments/:team_id/query': (req, res, ctx) => {
+                '/api/projects/:team_id/query': (req, res, ctx) => {
                     const body = req.body as Record<string, any>
 
                     if (body.query.kind === NodeKind.ExperimentExposureQuery) {

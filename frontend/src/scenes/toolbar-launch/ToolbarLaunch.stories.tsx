@@ -24,7 +24,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:environment_id/query/': () => [
+                '/api/projects/:environment_id/query/': () => [
                     200,
                     {
                         results: [
@@ -64,7 +64,7 @@ export const NoUrlsTemplate: StoryFn = () => {
 
 export const NoSuggestionsTemplate: StoryFn = () => {
     useStorybookMocks({
-        post: { '/api/environments/:environment_id/query/': () => [200, { results: [] }] },
+        post: { '/api/projects/:environment_id/query/': () => [200, { results: [] }] },
     })
 
     return <Template />
@@ -80,7 +80,7 @@ export const EmptyStateTemplate: StoryFn = () => {
     }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
     useStorybookMocks({
-        post: { '/api/environments/:environment_id/query/': () => [200, { results: [] }] },
+        post: { '/api/projects/:environment_id/query/': () => [200, { results: [] }] },
     })
 
     return <Template />

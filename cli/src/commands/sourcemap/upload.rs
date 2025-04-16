@@ -14,7 +14,7 @@ pub fn upload(host: &str, directory: &PathBuf, _build_id: &Option<String>) -> Re
     let capture_handle = capture_command_invoked("sourcemap_upload", Some(&token.env_id));
 
     let url = format!(
-        "{}/api/environments/{}/error_tracking/symbol_sets",
+        "{}/api/projects/{}/error_tracking/symbol_sets",
         host, token.env_id
     );
 

@@ -2,14 +2,11 @@ import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { Dispatch, SetStateAction, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { TeamType } from '~/types'
-
-import { ProjectDangerZone } from '../project/ProjectDangerZone'
 
 export function DeleteTeamModal({
     isOpen,
@@ -68,8 +65,7 @@ export function DeleteTeamModal({
 }
 
 export function TeamDangerZone(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { currentTeam, otherTeams } = useValues(teamLogic)
 
     const [isModalVisible, setIsModalVisible] = useState(false)
 
@@ -78,15 +74,10 @@ export function TeamDangerZone(): JSX.Element {
         scope: RestrictionScope.Project,
     })
 
-    if (!featureFlags[FEATURE_FLAGS.ENVIRONMENTS]) {
-        return <ProjectDangerZone />
-    }
+    // TODO: Detect if the team being deleted is a sub project and indicate that only the data and sub-project specific resources will be deleted
 
-    // We don't yet allow deleting individual environments, as we still use `team` fields with `on_delete=CASCADE`
-    // on many models that conceptually are project-level (such as insights or feature flags). That `on_delete=CASCADE`
-    // means currently deleting an environment would also delete resources a user wouldn't expect to disappear.
-    // TODO: Remove once point 15 ("Denormalize models") of https://github.com/PostHog/posthog/issues/13418#issuecomment-2180883524 is resolved
-    return <i>Deletion of individual environments is coming soon.</i>
+    // TODO: Detect if the team has children and if so, indicate that the deletion will also delete all sub-projects...
+    // Indicate that a workaround is coming soon.
 
     return (
         <>

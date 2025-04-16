@@ -94,7 +94,7 @@ class UserAccessControl:
     Typically a Team (Project) is required other than in certain circumstances, particularly when validating which projects a user has access to within an organization.
     """
 
-    def __init__(self, user: User, team: Optional[Team] = None, organization_id: Optional[str] = None):
+    def __init__(self, user: User | AnonymousUser, team: Optional[Team] = None, organization_id: Optional[str] = None):
         self._user = user
         self._team = team
         self._cache: dict[str, list[AccessControl]] = {}
@@ -113,6 +113,9 @@ class UserAccessControl:
         # NOTE: This is optimized to reduce queries - we get the users membership _with_ the organization
         try:
             if not self._organization_id:
+                return None
+            # Check if user is anonymous and return None early to avoid trying to query with AnonymousUser
+            if isinstance(self._user, AnonymousUser):
                 return None
             return OrganizationMembership.objects.select_related("organization").get(
                 organization_id=self._organization_id, user=self._user
@@ -153,6 +156,10 @@ class UserAccessControl:
         """
         Adds the 3 main filter options to the query
         """
+        # If user is anonymous, only include team-level access controls
+        if isinstance(self._user, AnonymousUser):
+            return Q(**filters, organization_member=None, role=None)
+
         return (
             Q(  # Access controls applying to this team
                 **filters, organization_member=None, role=None

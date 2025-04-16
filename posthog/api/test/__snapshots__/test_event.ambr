@@ -124,21 +124,6 @@
                     optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
-# name: TestEvents.test_event_property_values.7
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
-  FROM events
-  WHERE team_id = 99999
-    AND JSONHas(properties, 'random_prop')
-    AND timestamp >= '2020-01-13 00:00:00'
-    AND timestamp <= '2020-01-20 23:59:59'
-    AND (event = '404_i_dont_exist')
-    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
-  order by length(replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', ''))
-  LIMIT 10
-  '''
-# ---
 # name: TestEvents.test_event_property_values_materialized
   '''
   /* user_id:0 request:_snapshot_ */
@@ -262,20 +247,5 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295
-  '''
-# ---
-# name: TestEvents.test_event_property_values_materialized.7
-  '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT DISTINCT "mat_random_prop"
-  FROM events
-  WHERE team_id = 99999
-    AND notEmpty("mat_random_prop")
-    AND timestamp >= '2020-01-13 00:00:00'
-    AND timestamp <= '2020-01-20 23:59:59'
-    AND (event = '404_i_dont_exist')
-    AND "mat_random_prop" ILIKE '%qw%'
-  order by length("mat_random_prop")
-  LIMIT 10
   '''
 # ---

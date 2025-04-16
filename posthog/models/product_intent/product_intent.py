@@ -83,7 +83,7 @@ class ProductIntent(UUIDModel, RootTeamMixin):
 
     def has_activated_data_warehouse(self) -> bool:
         insights = Insight.objects.filter(
-            team__project_id=self.team.project_id,
+            team_id=self.team.id,
             created_at__gte=datetime(2024, 6, 1, tzinfo=UTC),
             query__kind="DataVisualizationNode",
         )
@@ -105,10 +105,12 @@ class ProductIntent(UUIDModel, RootTeamMixin):
 
     def has_activated_error_tracking(self) -> bool:
         # the team has resolved any issues
-        return ErrorTrackingIssue.objects.filter(team=self.team, status=ErrorTrackingIssue.Status.RESOLVED).exists()
+        return ErrorTrackingIssue.objects.filter(
+            team__in=self.team.root_team.all_teams, status=ErrorTrackingIssue.Status.RESOLVED
+        ).exists()
 
     def has_activated_surveys(self) -> bool:
-        return Survey.objects.filter(team__project_id=self.team.project_id, start_date__isnull=False).exists()
+        return Survey.objects.filter(team_id=self.team.id, start_date__isnull=False).exists()
 
     def has_activated_feature_flags(self) -> bool:
         # Get feature flags that have at least one filter group, excluding ones used by experiments and surveys
@@ -137,7 +139,9 @@ class ProductIntent(UUIDModel, RootTeamMixin):
         return total_groups >= 2
 
     def has_activated_session_replay(self) -> bool:
-        has_viewed_five_recordings = SessionRecordingViewed.objects.filter(team=self.team).count() >= 5
+        has_viewed_five_recordings = (
+            SessionRecordingViewed.objects.filter(team__in=self.team.root_team.all_teams).count() >= 5
+        )
 
         intent = ProductIntent.objects.filter(
             team=self.team,

@@ -178,7 +178,7 @@ async function getSingleInsight(
     filtersOverride?: DashboardFilter,
     variablesOverride?: Record<string, HogQLVariable>
 ): Promise<QueryBasedInsightModel | null> {
-    const apiUrl = `api/environments/${currentTeamId}/insights/${insight.id}/?${toParams({
+    const apiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
         refresh,
         from_dashboard: dashboardId, // needed to load insight in correct context
         client_query_id: queryId,
@@ -373,7 +373,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         breakpoint()
 
                         const dashboard: DashboardType<InsightModel> = await api.update(
-                            `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
+                            `api/projects/${values.currentTeamId}/dashboards/${props.id}`,
                             {
                                 filters: values.filters,
                                 variables: values.insightVariables,
@@ -389,7 +389,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 },
                 updateTileColor: async ({ tileId, color }) => {
-                    await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
+                    await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                         tiles: [{ id: tileId, color }],
                     })
                     const matchingTile = values.tiles.find((tile) => tile.id === tileId)
@@ -400,7 +400,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
                 removeTile: async ({ tile }) => {
                     try {
-                        await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
+                        await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                             tiles: [{ id: tile.id, deleted: true }],
                         })
                         dashboardsModel.actions.tileRemovedFromDashboard({
@@ -443,7 +443,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         }
 
                         const dashboard: DashboardType<InsightModel> = await api.update(
-                            `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
+                            `api/projects/${values.currentTeamId}/dashboards/${props.id}`,
                             {
                                 tiles: [newTile],
                             }
@@ -463,7 +463,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return values.dashboard
                     }
                     const dashboard: DashboardType<InsightModel> = await api.update(
-                        `api/environments/${teamLogic.values.currentTeamId}/dashboards/${props.id}/move_tile`,
+                        `api/projects/${teamLogic.values.currentTeamId}/dashboards/${props.id}/move_tile`,
                         {
                             tile,
                             toDashboard,
@@ -1022,7 +1022,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     filtersOverride?: DashboardFilter,
                     variablesOverride?: Record<string, HogQLVariable>
                 ) =>
-                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
+                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
                         refresh,
                         filters_override: filtersOverride,
                         variables_override: variablesOverride,
@@ -1615,7 +1615,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         abortQuery: async ({ queryId, queryStartTime }) => {
             const { currentTeamId } = values
             try {
-                await api.delete(`api/environments/${currentTeamId}/query/${queryId}?dequeue_only=true`)
+                await api.delete(`api/projects/${currentTeamId}/query/${queryId}?dequeue_only=true`)
             } catch (e) {
                 console.warn('Failed cancelling query', e)
             }

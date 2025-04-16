@@ -50,10 +50,10 @@ import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { projectLogic } from 'scenes/projectLogic'
 import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -510,7 +510,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
 function SavedInsightsGrid(): JSX.Element {
     const { loadInsights, renameInsight, duplicateInsight } = useActions(savedInsightsLogic)
     const { insights, insightsLoading, pagination } = useValues(savedInsightsLogic)
-    const { currentProjectId } = useValues(projectLogic)
+    const { currentTeamId } = useValues(teamLogic)
 
     const paginationState = usePagination(insights?.results || [], pagination)
 
@@ -527,7 +527,7 @@ function SavedInsightsGrid(): JSX.Element {
                             deleteWithUndo={async () =>
                                 await deleteInsightWithUndo({
                                     object: insight,
-                                    endpoint: `projects/${currentProjectId}/insights`,
+                                    endpoint: `projects/${currentTeamId}/insights`,
                                     callback: loadInsights,
                                 })
                             }
@@ -555,7 +555,7 @@ export function SavedInsights(): JSX.Element {
     const { insights, count, insightsLoading, filters, sorting, pagination, alertModalId } =
         useValues(savedInsightsLogic)
     const { hasTagging } = useValues(organizationLogic)
-    const { currentProjectId } = useValues(projectLogic)
+    const { currentTeamId } = useValues(teamLogic)
     const summarizeInsight = useSummarizeInsight()
 
     const { tab, layoutView, page } = filters
@@ -694,7 +694,7 @@ export function SavedInsights(): JSX.Element {
                                     onClick={() =>
                                         void deleteInsightWithUndo({
                                             object: insight,
-                                            endpoint: `projects/${currentProjectId}/insights`,
+                                            endpoint: `projects/${currentTeamId}/insights`,
                                             callback: loadInsights,
                                         })
                                     }

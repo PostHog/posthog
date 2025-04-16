@@ -127,7 +127,7 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
     @cached_property
     def _group_mapping_prompt(self) -> str:
-        groups = GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
+        groups = GroupTypeMapping.objects.filter(team_id=self._team.id).order_by("group_type_index")
         if not groups:
             return "The user has not defined any groups."
 

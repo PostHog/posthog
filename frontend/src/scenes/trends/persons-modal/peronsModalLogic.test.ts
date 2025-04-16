@@ -11,7 +11,7 @@ describe('personsModalLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                'api/environments/:team_id/persons/trends': {},
+                'api/projects/:team_id/persons/trends': {},
             },
         })
         initKeaTests()

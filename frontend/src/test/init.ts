@@ -5,7 +5,6 @@ import { dayjs } from 'lib/dayjs'
 import posthog from 'posthog-js'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKea } from '~/initKea'
@@ -43,7 +42,6 @@ export function initKeaTests(
     if (mountCommonLogic) {
         preflightLogic.mount()
         teamLogic.mount()
-        projectLogic.mount()
         organizationLogic.mount()
     }
 }

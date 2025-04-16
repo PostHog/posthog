@@ -31,7 +31,9 @@ def cohort(node: ast.Expr, args: list[ast.Expr], context: HogQLContext) -> ast.E
     from posthog.models import Cohort
 
     if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
-        cohorts1 = Cohort.objects.filter(id=int(arg.value), team__project_id=context.project_id).values_list(
+        if context.team_id is None:
+            raise QueryError("team_id is required for cohort lookup", node=arg)
+        cohorts1 = Cohort.objects.filter(id=int(arg.value), team_id=context.team_id).values_list(
             "id", "is_static", "version", "name"
         )
         if len(cohorts1) == 1:
@@ -45,7 +47,9 @@ def cohort(node: ast.Expr, args: list[ast.Expr], context: HogQLContext) -> ast.E
         raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
 
     if isinstance(arg.value, str):
-        cohorts2 = Cohort.objects.filter(name=arg.value, team__project_id=context.project_id).values_list(
+        if context.team_id is None:
+            raise QueryError("team_id is required for cohort lookup", node=arg)
+        cohorts2 = Cohort.objects.filter(name=arg.value, team_id=context.team_id).values_list(
             "id", "is_static", "version"
         )
         if len(cohorts2) == 1:

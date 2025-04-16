@@ -17,7 +17,7 @@ const meta: Meta<typeof Query> = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/query/': (req) => {
+                '/api/projects/:team_id/query/': (req) => {
                     if ((req.body as any).query.kind === 'WebVitalsPathBreakdownQuery') {
                         return [200, webVitalsPathBreakdown]
                     }

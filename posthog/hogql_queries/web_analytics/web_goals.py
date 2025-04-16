@@ -40,7 +40,7 @@ class WebGoalsQueryRunner(WebAnalyticsQueryRunner):
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         with self.timings.measure("actions"):
-            actions = Action.objects.filter(team__project_id=self.team.project_id, deleted=False).order_by(
+            actions = Action.objects.filter(team_id=self.team.id, deleted=False).order_by(
                 "pinned_at", "-last_calculated_at"
             )[:5]
             if not actions:
