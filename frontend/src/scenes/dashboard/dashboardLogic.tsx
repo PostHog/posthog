@@ -204,7 +204,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             dataThemeLogic,
             ['getTheme'],
         ],
-        logic: [dashboardsModel, insightsModel, eventUsageLogic],
+        logic: [dashboardsModel, insightsModel, eventUsageLogic, variableDataLogic],
     })),
 
     props({} as DashboardLogicProps),
@@ -309,6 +309,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         resetDashboardFilters: () => true,
         setAccessDeniedToDashboard: true,
         setURLVariables: (variables: Record<string, Partial<HogQLVariable>>) => ({ variables }),
+        setInitialVariablesLoaded: (initialVariablesLoaded: boolean) => ({ initialVariablesLoaded }),
     })),
 
     loaders(({ actions, props, values }) => ({
@@ -892,6 +893,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setTextTileId: (_, { textTileId }) => textTileId,
             },
         ],
+        initialVariablesLoaded: [
+            false,
+            {
+                setInitialVariablesLoaded: (_, { initialVariablesLoaded }) => initialVariablesLoaded,
+            },
+        ],
     })),
     selectors(() => ({
         canAutoPreview: [
@@ -1036,9 +1043,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         textTiles: [(s) => [s.tiles], (tiles) => tiles.filter((t) => !!t.text)],
         itemsLoading: [
-            (s) => [s._dashboardLoading, s.refreshStatus],
-            (dashboardLoading, refreshStatus) => {
-                return dashboardLoading || Object.values(refreshStatus).some((s) => s.loading || s.queued)
+            (s) => [s._dashboardLoading, s.refreshStatus, s.initialVariablesLoaded],
+            (dashboardLoading, refreshStatus, initialVariablesLoaded) => {
+                return (
+                    dashboardLoading ||
+                    Object.values(refreshStatus).some((s) => s.loading || s.queued) ||
+                    !initialVariablesLoaded
+                )
             },
         ],
         isRefreshingQueued: [(s) => [s.refreshStatus], (refreshStatus) => (id: string) => !!refreshStatus[id]?.queued],
@@ -1217,19 +1228,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.dataColorThemeId, s.getTheme],
             (dataColorThemeId, getTheme): DataColorTheme | null => getTheme(dataColorThemeId),
         ],
+        // NOTE: noCache is used to prevent the dashboard from using cached results from previous loads when url variables override
+        noCache: [(s) => [s.urlVariables], (urlVariables) => Object.keys(urlVariables).length > 0],
     })),
     events(({ actions, cache, props }) => ({
         afterMount: () => {
+            // NOTE: initial dashboard load is done after variables are loaded in initialVariablesLoaded
             if (props.id) {
                 if (props.dashboard) {
                     // If we already have dashboard data, use it. Should the data turn out to be stale,
                     // the loadDashboardSuccess listener will initiate a refresh
                     actions.loadDashboardSuccess(props.dashboard)
-                } else {
-                    actions.loadDashboard({
-                        refresh: 'lazy_async',
-                        action: 'initial_load',
-                    })
                 }
             }
         },
@@ -1656,7 +1665,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         overrideVariableValue: () => {
-            actions.loadDashboard({ action: 'preview' })
+            if (values.initialVariablesLoaded) {
+                actions.loadDashboard({ action: 'preview' })
+            }
+        },
+        [variableDataLogic.actionTypes.getVariablesSuccess]: () => {
+            if (!values.initialVariablesLoaded) {
+                actions.loadDashboard({
+                    refresh: 'lazy_async',
+                    action: 'initial_load',
+                })
+            }
+            actions.setInitialVariablesLoaded(true)
         },
     })),
 
