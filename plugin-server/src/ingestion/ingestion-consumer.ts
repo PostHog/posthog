@@ -218,7 +218,7 @@ export class IngestionConsumer {
                             existingBreadcrumbs.push(parsedValue)
                         }
                     } catch (e) {
-                        logger.debug('Failed to parse breadcrumb from header', { error: e })
+                        logger.warn('Failed to parse breadcrumb from header', { error: e })
                     }
                 }
             }
