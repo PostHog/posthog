@@ -516,50 +516,6 @@ export function humanFriendlyLargeNumber(d: number): string {
     return `${prefix}${d}`
 }
 
-export function humanFriendlyLargeNumberMaxChars(d: number, maxChars: number): string {
-    if (isNaN(d)) {
-        return 'NaN'
-    } else if (!isFinite(d)) {
-        if (d > 0) {
-            return 'inf'
-        }
-        return '-inf'
-    }
-    const trillion = 1_000_000_000_000
-    const billion = 1_000_000_000
-    const million = 1_000_000
-    const thousand = 1_000
-
-    const prefix = d >= 0 ? '' : '-'
-    d = Math.abs(d)
-    
-    // Account for prefix in available chars
-    const availableChars = maxChars - (prefix ? 1 : 0)
-    
-    // Helper to format with suffix
-    const formatWithSuffix = (num: number, suffix: string): string => {
-        const maxDigits = availableChars - suffix.length
-        if (maxDigits <= 0) {
-            return `${prefix}${Math.round(num)}${suffix}`
-        }
-        const rounded = parseFloat(num.toPrecision(maxDigits))
-        return `${prefix}${rounded}${suffix}`
-    }
-
-    if (d >= trillion && availableChars > 1) {
-        return formatWithSuffix(d / trillion, 'T')
-    } else if (d >= billion && availableChars > 1) {
-        return formatWithSuffix(d / billion, 'B')
-    } else if (d >= million && availableChars > 1) {
-        return formatWithSuffix(d / million, 'M')
-    } else if (d >= thousand && availableChars > 1) {
-        return formatWithSuffix(d / thousand, 'K')
-    }
-    
-    // For regular numbers, just use toPrecision with available chars
-    return `${prefix}${parseFloat(d.toPrecision(availableChars))}`
-}
-
 /** Format currency from string with commas and a number of decimal places (defaults to 2). */
 export function humanFriendlyCurrency(d: string | undefined | number, precision: number = 2): string {
     if (!d) {

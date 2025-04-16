@@ -31,7 +31,10 @@
     }
 
     .EventsHeatMap__TextTab {
-        padding: 0 1rem 0 0.5rem;
+        min-height: 2rem;
+        margin: 2px;
+        text-align: center;
+        padding: 0.2rem;
         white-space: nowrap;
         display: flex;
         align-items: center;

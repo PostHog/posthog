@@ -3,7 +3,6 @@ from typing import Optional, Union
 from freezegun import freeze_time
 
 from posthog.hogql_queries.web_analytics.active_hours_heatmap_query_runner import ActiveHoursHeatMapQueryRunner
-from posthog.models.utils import uuid7
 from posthog.schema import (
     DateRange,
     SessionTableVersion,

@@ -35,11 +35,4 @@ describe('EventsHeatMap config', () => {
             expect(HoursAbbreviated.values.length).toBe(24)
         })
     })
-
-    describe('COLORS', () => {
-        it('should have correct color values', () => {
-            expect(COLORS.heatmap).toBe('#1D4AFF')
-            expect(COLORS.aggregation).toBe('#611DA5')
-        })
-    })
 })

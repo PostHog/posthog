@@ -22,8 +22,3 @@ export const HoursAbbreviated: AxisConfig = {
     values: Array.from({ length: 24 }, (_, i) => String(i)),
     startIndex: 0
 }
-
-export const COLORS = {
-    heatmap: "#1D4AFF",
-    aggregation: "#611DA5"
-} as const 
