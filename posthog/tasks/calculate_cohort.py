@@ -87,10 +87,17 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
 
 def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
     cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
-    cohort.save(update_fields=["pending_version"])
+    update_fields = ["pending_version"]
+
+    if not cohort.is_static:
+        # avoid starting another cohort calculation if one is already expected to be in progress
+        # XXX: it is possible for a job to fail without resetting this field and need to be manually recovered
+        cohort.is_calculating = True
+        update_fields.append("is_calculating")
+
+    cohort.save(update_fields=update_fields)
     cohort.refresh_from_db()
-    pending_version = cohort.pending_version
-    calculate_cohort_ch.delay(cohort.id, pending_version, initiating_user.id if initiating_user else None)
+    calculate_cohort_ch.delay(cohort.id, cohort.pending_version, initiating_user.id if initiating_user else None)
 
 
 @shared_task(ignore_result=True)

@@ -72,19 +72,24 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
             name="cohort1",
             pending_version=None,
+            is_static=False,
+            is_calculating=False,
         )
 
         increment_version_and_enqueue_calculate_cohort(cohort1, initiating_user=None)
         cohort1.refresh_from_db()
         assert cohort1.pending_version == 1
+        assert cohort1.is_calculating is True
 
         increment_version_and_enqueue_calculate_cohort(cohort1, initiating_user=None)
         cohort1.refresh_from_db()
         assert cohort1.pending_version == 2
+        assert cohort1.is_calculating is True
 
         increment_version_and_enqueue_calculate_cohort(cohort1, initiating_user=None)
         cohort1.refresh_from_db()
         assert cohort1.pending_version == 3
+        assert cohort1.is_calculating is True
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay", side_effect=calculate_cohort_ch)
