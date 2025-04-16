@@ -13,15 +13,33 @@ export type ErrorTrackingAssignmentRule = {
     filters: UniversalFiltersGroup
 }
 
+const validRule = (rule: ErrorTrackingAssignmentRule): boolean => {
+    return rule.assignee !== null && rule.filters.values.length > 0
+}
+
 export const errorTrackingAutoAssignmentLogic = kea<errorTrackingAutoAssignmentLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingAutoAssignmentLogic']),
 
     loaders(({ values }) => ({
         assignmentRules: [
-            [] as ErrorTrackingAssignmentRule[],
+            [
+                {
+                    id: 'new',
+                    assignee: null,
+                    filters: { type: FilterLogicalOperator.Or, values: [] },
+                },
+            ] as ErrorTrackingAssignmentRule[],
             {
                 loadRules: async () => {
-                    return await api.errorTracking.assignmentRules()
+                    const rules = await api.errorTracking.assignmentRules()
+                    if (rules.length === 0) {
+                        rules.push({
+                            id: 'new',
+                            assignee: null,
+                            filters: { type: FilterLogicalOperator.Or, values: [] },
+                        })
+                    }
+                    return rules
                 },
                 addRule: async () => {
                     return [
@@ -33,16 +51,17 @@ export const errorTrackingAutoAssignmentLogic = kea<errorTrackingAutoAssignmentL
                         },
                     ]
                 },
-                createRule: async (rule) => {
+                saveRule: async (rule) => {
+                    const newValues = [...values.assignmentRules]
                     if (rule.id === 'new') {
-                        const createdRule = await api.errorTracking.createAssignmentRule(rule)
-                        const newValues = [...values.assignmentRules]
-                        return newValues.map((r) => (rule.id === 'new' ? createdRule : r))
+                        const newRule = await api.errorTracking.createAssignmentRule(rule)
+                        return newValues.map((r) => (rule.id === r.id ? newRule : r))
                     }
-                    return values.assignmentRules
+                    await api.errorTracking.updateAssignmentRule(rule)
+
+                    return newValues
                 },
                 updateRule: async (rule) => {
-                    await api.errorTracking.updateAssignmentRule(rule)
                     const newValues = [...values.assignmentRules]
                     return newValues.map((r) => (rule.id === r.id ? rule : r))
                 },
@@ -58,24 +77,6 @@ export const errorTrackingAutoAssignmentLogic = kea<errorTrackingAutoAssignmentL
     })),
 
     selectors({
-        assignmentRulesWithNew: [
-            (s) => [s.assignmentRules],
-            (assignmentRules): ErrorTrackingAssignmentRule[] => {
-                return assignmentRules.length > 0
-                    ? assignmentRules
-                    : [
-                          {
-                              id: 'new',
-                              assignee: null,
-                              filters: { type: FilterLogicalOperator.Or, values: [] },
-                          },
-                      ]
-            },
-        ],
-
-        hasNewRule: [
-            (s) => [s.assignmentRulesWithNew],
-            (assignmentRulesWithNew) => assignmentRulesWithNew.some(({ id }) => id === 'new'),
-        ],
+        hasNewRule: [(s) => [s.assignmentRules], (assignmentRules) => assignmentRules.some(({ id }) => id === 'new')],
     }),
 ])
