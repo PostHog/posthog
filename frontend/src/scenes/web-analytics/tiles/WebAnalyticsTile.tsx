@@ -731,6 +731,19 @@ export const WebQuery = ({
     const { stripQueryParams: stripQueryParamsPageReports } = useValues(pageReportsLogic)
 
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
+        // Handle Frustrating Pages tile specifically, which uses WebStatsTableQuery but is not wrapped by a WebAnalyticsTabTile
+        if (query.source.breakdownBy === WebStatsBreakdown.FrustrationMetrics) {
+            return (
+                <div className="border rounded bg-surface-primary flex-1 flex flex-col py-2 px-1">
+                    <Query
+                        query={query}
+                        readOnly={true}
+                        context={{ ...webAnalyticsDataTableQueryContext, insightProps }}
+                    />
+                </div>
+            )
+        }
+
         return (
             <WebStatsTableTile
                 query={query}
