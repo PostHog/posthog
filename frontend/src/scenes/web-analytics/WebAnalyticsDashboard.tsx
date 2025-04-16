@@ -41,6 +41,7 @@ import { ProductKey } from '~/types'
 
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
+import { WebAnalyticsPageReportsCTA } from './WebAnalyticsPageReportsCTA'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
     const { tiles: tilesFromProps, compact = false } = props
@@ -440,6 +441,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                         <Filters />
                     </div>
 
+                    <WebAnalyticsPageReportsCTA />
                     <WebAnalyticsHealthCheck />
                     <MainContent />
                 </div>
