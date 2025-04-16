@@ -285,6 +285,17 @@ pub fn process_single_event(
         (_, false) => DataType::AnalyticsMain,
     };
 
+    // only should be used to check if historical topic
+    // rerouting should be applied to this event
+    let raw_event_timestamp =
+        event
+            .timestamp
+            .as_ref()
+            .and_then(|ts| match DateTime::parse_from_rfc3339(ts) {
+                Ok(dt) => Some(dt),
+                Err(_) => None,
+            });
+
     let data = serde_json::to_string(&event).map_err(|e| {
         tracing::error!("failed to encode data field: {}", e);
         CaptureError::NonRetryableSinkError
@@ -313,19 +324,16 @@ pub fn process_single_event(
     // if this event was historical but not assigned to the right topic
     // by the submitting user (i.e. no historical prop flag in event)
     // we should route it there using event#now if older than 1 day
-    let dayold_event = if historical_cfg.enable_historical_rerouting {
-        if let Ok(event_dt) = DateTime::parse_from_rfc3339(&event.now) {
+    let is_historical_event =
+        if historical_cfg.enable_historical_rerouting && raw_event_timestamp.is_some() {
             let days_stale = Duration::days(historical_cfg.historical_rerouting_threshold_days);
             let threshold = Utc::now() - days_stale;
-            event_dt.to_utc() <= threshold
+            raw_event_timestamp.unwrap().to_utc() <= threshold
         } else {
             false
-        }
-    } else {
-        false
-    };
+        };
 
-    if metadata.data_type == DataType::AnalyticsMain && dayold_event {
+    if metadata.data_type == DataType::AnalyticsMain && is_historical_event {
         metadata.data_type = DataType::AnalyticsHistorical;
         counter!("capture_events_rerouted_historical").increment(1);
     }
