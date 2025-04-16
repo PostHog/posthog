@@ -119,6 +119,9 @@ export type CdpConfig = {
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
     CDP_FETCH_TIMEOUT_MS: number
+    CDP_FETCH_RETRIES: number
+    CDP_FETCH_BACKOFF_BASE_MS: number
+    CDP_FETCH_BACKOFF_MAX_MS: number
 }
 
 export type IngestionConsumerConfig = {
