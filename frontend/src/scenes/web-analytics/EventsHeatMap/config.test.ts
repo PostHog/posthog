@@ -1,4 +1,4 @@
-import { Sum, DaysAbbreviated, HoursAbbreviated, COLORS } from './config'
+import { DaysAbbreviated, HoursAbbreviated, Sum } from './config'
 
 describe('EventsHeatMap config', () => {
     describe('Sum aggregation', () => {

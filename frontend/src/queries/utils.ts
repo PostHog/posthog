@@ -4,6 +4,7 @@ import { dayjs } from 'lib/dayjs'
 
 import {
     ActionsNode,
+    ActiveHoursHeatMapQuery,
     ActorsQuery,
     BreakdownFilter,
     CompareFilter,
@@ -11,7 +12,6 @@ import {
     DataTableNode,
     DataVisualizationNode,
     DataWarehouseNode,
-    ActiveHoursHeatMapQuery,
     DateRange,
     ErrorTrackingQuery,
     EventsNode,

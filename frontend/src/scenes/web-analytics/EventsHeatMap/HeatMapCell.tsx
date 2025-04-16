@@ -1,6 +1,6 @@
+import clsx from 'clsx'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { gradateColor, humanFriendlyLargeNumber } from 'lib/utils'
-import clsx from 'clsx'
 
 interface HeatMapCellProps {
     value: number
@@ -26,6 +26,7 @@ export function HeatMapCell({
     const cell = (
         <div
             className={clsx('EventsHeatMap__Cell')}
+            // eslint-disable-next-line react/forbid-dom-props
             style={{ fontSize, backgroundColor: saturatedBackgroundColor, color: textColor }}
         >
             {humanFriendlyLargeNumber(value)}
@@ -36,5 +37,7 @@ export function HeatMapCell({
         <Tooltip delayMs={0} title={`${dayAndTime} - ${humanFriendlyLargeNumber(value)}`}>
             {cell}
         </Tooltip>
-    ) : cell
-} 
+    ) : (
+        cell
+    )
+}

@@ -26,9 +26,9 @@ import { DataTableVisualization } from '../nodes/DataVisualization/DataVisualiza
 import { SavedInsight } from '../nodes/SavedInsight/SavedInsight'
 import { WebVitalsPathBreakdown } from '../nodes/WebVitals/WebVitalsPathBreakdown'
 import {
+    isActiveHoursHeatMapQuery,
     isDataTableNode,
     isDataVisualizationNode,
-    isActiveHoursHeatMapQuery,
     isHogQuery,
     isInsightVizNode,
     isRevenueAnalyticsOverviewQuery,
@@ -158,7 +158,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isHogQuery(query)) {
         component = <HogDebug query={query} setQuery={setQuery as (query: any) => void} queryKey={String(uniqueKey)} />
     } else if (isActiveHoursHeatMapQuery(query)) {
-        component = <EventsHeatMap query={query} context={queryContext}/>
+        component = <EventsHeatMap query={query} context={queryContext} />
     } else {
         component = <DataNode query={query} cachedResults={props.cachedResults} />
     }

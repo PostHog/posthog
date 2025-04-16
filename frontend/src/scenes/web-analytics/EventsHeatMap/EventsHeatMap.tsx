@@ -1,12 +1,16 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import './EventsHeatMap.scss'
+
 import { useValues } from 'kea'
+import React, { useCallback, useEffect, useState } from 'react'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
+
+import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ActiveHoursHeatMapQuery, ActiveHoursHeatMapResult } from '~/queries/schema/schema-general'
-import { HeatMapCell } from './HeatMapCell'
-import { DaysAbbreviated, HoursAbbreviated, Sum } from './config'
-import './EventsHeatMap.scss'
 import { QueryContext } from '~/queries/types'
-import { dataThemeLogic } from 'scenes/dataThemeLogic'
+
+import { DaysAbbreviated, HoursAbbreviated, Sum } from './config'
+import { HeatMapCell } from './HeatMapCell'
 
 interface EventsHeatMapProps {
     query: ActiveHoursHeatMapQuery
@@ -16,18 +20,18 @@ interface EventsHeatMapProps {
 export function EventsHeatMap({ query, context }: EventsHeatMapProps): JSX.Element {
     const { themes, getTheme } = useValues(dataThemeLogic)
     const theme = getTheme(themes?.[0]?.id)
+    const { ref: elementRef, width } = useResizeObserver()
 
     const heatmapColor = theme?.['preset-1'] ?? '#000000' // Default to black if no color found
     const aggregationColor = theme?.['preset-2'] ?? '#000000' // Default to black if no color found
     const backgroundColorOverall = theme?.['preset-3'] || '#000000' // Default to black if no color found
-    const containerRef = useRef<HTMLDivElement>(null)
     const [fontSize, setFontSize] = useState(13)
     const [showTooltip, setShowTooltip] = useState(false)
 
     const updateSize = useCallback(() => {
-        if (!containerRef.current) return
-        const width = containerRef.current.offsetWidth
-        console.log("width", width)
+        if (!elementRef || !width) {
+            return
+        }
         if (width < 1007) {
             setFontSize(0)
             setShowTooltip(true)
@@ -41,32 +45,38 @@ export function EventsHeatMap({ query, context }: EventsHeatMapProps): JSX.Eleme
             setFontSize(11.5)
             setShowTooltip(false)
         }
-    }, [])
+    }, [elementRef, width])
 
     useEffect(() => {
-        const element = containerRef.current
-        if (!element) return
+        const element = elementRef
+        if (!element) {
+            return
+        }
 
         updateSize()
-        const resizeObserver = new ResizeObserver(updateSize)
-        resizeObserver.observe(element)
-        return () => resizeObserver.unobserve(element)
-    }, [updateSize])
+    }, [elementRef, updateSize])
 
-    const { response } = useValues(dataNodeLogic({ query, key: 'events-heat-map', dataNodeCollectionId: context.insightProps?.dataNodeCollectionId }))
+    const { response } = useValues(
+        dataNodeLogic({
+            query,
+            key: 'events-heat-map',
+            dataNodeCollectionId: context.insightProps?.dataNodeCollectionId,
+        })
+    )
 
-    const { matrix, maxValue, xAggregations, yAggregations, maxXAggregation, maxYAggregation, overallValue } = 
+    const { matrix, maxValue, xAggregations, yAggregations, maxXAggregation, maxYAggregation, overallValue } =
         processData(response?.results ?? [])
 
     const rotatedYLabels = [
         ...DaysAbbreviated.values.slice(DaysAbbreviated.startIndex || 0),
-        ...DaysAbbreviated.values.slice(0, DaysAbbreviated.startIndex || 0)
+        ...DaysAbbreviated.values.slice(0, DaysAbbreviated.startIndex || 0),
     ]
 
     return (
-        <div className="EventsHeatMapContainer" ref={containerRef}>
-            <table 
+        <div className="EventsHeatMapContainer" ref={elementRef}>
+            <table
                 className="EventsHeatMap"
+                // eslint-disable-next-line react/forbid-dom-props
                 style={{ '--heatmap-table-color': heatmapColor } as React.CSSProperties}
             >
                 <tbody>
@@ -76,7 +86,7 @@ export function EventsHeatMap({ query, context }: EventsHeatMapProps): JSX.Eleme
                         {HoursAbbreviated.values.map((label, i) => (
                             <th key={i}>{label}</th>
                         ))}
-                        {yAggregations[0] !== undefined && <th style={{borderLeft: '5px solid transparent'}}>{Sum.label}</th>}
+                        {yAggregations[0] !== undefined && <th className="aggregation-border">{Sum.label}</th>}
                     </tr>
 
                     {/* Data rows */}
@@ -84,14 +94,27 @@ export function EventsHeatMap({ query, context }: EventsHeatMapProps): JSX.Eleme
                         <tr key={yIndex}>
                             <td className="EventsHeatMap__TextTab">{day}</td>
                             {renderDataCells(matrix[yIndex], maxValue, day, showTooltip, fontSize, heatmapColor)}
-                            {renderYAggregationCell(yAggregations[yIndex], maxYAggregation, day, showTooltip, fontSize, aggregationColor)}
+                            {renderYAggregationCell(
+                                yAggregations[yIndex],
+                                maxYAggregation,
+                                day,
+                                showTooltip,
+                                fontSize,
+                                aggregationColor
+                            )}
                         </tr>
                     ))}
 
                     {/* Aggregation row */}
-                    <tr style={{borderTop: '5px solid transparent'}}>
+                    <tr className="aggregation-border">
                         {xAggregations[0] !== undefined && <td className="EventsHeatMap__TextTab">{Sum.label}</td>}
-                        {renderAggregationCells(xAggregations, maxXAggregation, showTooltip, fontSize, aggregationColor)}
+                        {renderAggregationCells(
+                            xAggregations,
+                            maxXAggregation,
+                            showTooltip,
+                            fontSize,
+                            aggregationColor
+                        )}
                         {renderOverallCell(overallValue, showTooltip, fontSize, backgroundColorOverall)}
                     </tr>
                 </tbody>
@@ -100,7 +123,15 @@ export function EventsHeatMap({ query, context }: EventsHeatMapProps): JSX.Eleme
     )
 }
 
-function processData(results: ActiveHoursHeatMapResult[]) {
+function processData(results: ActiveHoursHeatMapResult[]): {
+    matrix: { [key: number]: { [key: number]: number } }
+    maxValue: number
+    xAggregations: { [key: number]: number }
+    yAggregations: { [key: number]: number }
+    maxXAggregation: number
+    maxYAggregation: number
+    overallValue: number
+} {
     const matrix: { [key: number]: { [key: number]: number } } = {}
     let maxValue = 0
     let maxXAggregation = 0
@@ -116,7 +147,9 @@ function processData(results: ActiveHoursHeatMapResult[]) {
 
     // Fill matrix
     results.forEach((result) => {
-        const adjustedDay = (result.day - (DaysAbbreviated.startIndex || 0) + DaysAbbreviated.values.length) % DaysAbbreviated.values.length
+        const adjustedDay =
+            (result.day - (DaysAbbreviated.startIndex || 0) + DaysAbbreviated.values.length) %
+            DaysAbbreviated.values.length
         matrix[adjustedDay][result.hour] = result.total
         maxValue = Math.max(maxValue, result.total)
     })
@@ -127,22 +160,22 @@ function processData(results: ActiveHoursHeatMapResult[]) {
     maxXAggregation = Math.max(...Object.values(xAggregations))
     maxYAggregation = Math.max(...Object.values(yAggregations))
 
-    const allValues = Object.values(matrix).flatMap(row => Object.values(row))
+    const allValues = Object.values(matrix).flatMap((row) => Object.values(row))
     const overallValue = Sum.fn(allValues)
 
     return { matrix, maxValue, xAggregations, yAggregations, maxXAggregation, maxYAggregation, overallValue }
 }
 
-function calculateXAggregations(matrix: { [key: number]: { [key: number]: number } }) {
+function calculateXAggregations(matrix: { [key: number]: { [key: number]: number } }): { [key: number]: number } {
     const xAggregations: { [key: number]: number } = {}
     for (let x = 0; x < HoursAbbreviated.values.length; x++) {
-        const values = Object.values(matrix).map(day => day[x])
+        const values = Object.values(matrix).map((day) => day[x])
         xAggregations[x] = Sum.fn(values)
     }
     return xAggregations
 }
 
-function calculateYAggregations(matrix: { [key: number]: { [key: number]: number } }) {
+function calculateYAggregations(matrix: { [key: number]: { [key: number]: number } }): { [key: number]: number } {
     const yAggregations: { [key: number]: number } = {}
     for (let y = 0; y < DaysAbbreviated.values.length; y++) {
         yAggregations[y] = Sum.fn(Object.values(matrix[y]))
@@ -150,23 +183,34 @@ function calculateYAggregations(matrix: { [key: number]: { [key: number]: number
     return yAggregations
 }
 
-function renderOverallCell(overallValue: number, showTooltip: boolean, fontSize: number, backgroundColorOverall: string) {
-    return overallValue !== undefined ? (
-        <td style={{borderLeft: '5px solid transparent'}}>
+function renderOverallCell(
+    overallValue: number,
+    showTooltip: boolean,
+    fontSize: number,
+    backgroundColorOverall: string
+): JSX.Element {
+    return (
+        <td className="aggregation-border">
             <HeatMapCell
                 showTooltip={showTooltip}
                 fontSize={fontSize}
                 value={overallValue}
                 maxValue={1}
                 backgroundColor={backgroundColorOverall}
-                    dayAndTime={Sum.label}
-                    />
+                dayAndTime={Sum.label}
+            />
         </td>
-    ) : <td />
+    )
 }
 
-function renderAggregationCells(xAggregations: { [key: number]: number }, maxXAggregation: number, showTooltip: boolean, fontSize: number, aggregationColor: string) {
-    return xAggregations[0] !== undefined && Array.from({ length: HoursAbbreviated.values.length }, (_, x) => (
+function renderAggregationCells(
+    xAggregations: { [key: number]: number },
+    maxXAggregation: number,
+    showTooltip: boolean,
+    fontSize: number,
+    aggregationColor: string
+): JSX.Element[] {
+    return Array.from({ length: HoursAbbreviated.values.length }, (_, x) => (
         <td key={x}>
             <HeatMapCell
                 showTooltip={showTooltip}
@@ -175,27 +219,41 @@ function renderAggregationCells(xAggregations: { [key: number]: number }, maxXAg
                 maxValue={maxXAggregation}
                 backgroundColor={aggregationColor}
                 dayAndTime={`${Sum.label} - ${String(x).padStart(2, '0')}:00`}
-                />
+            />
         </td>
     ))
 }
 
-function renderYAggregationCell(value: number, maxYAggregation: number, day: string, showTooltip: boolean, fontSize: number, aggregationColor: string) {
-    return Sum && value !== undefined && (
-        <td style={{borderLeft: '5px solid transparent'}}>
-                <HeatMapCell
-                    showTooltip={showTooltip}
-                    fontSize={fontSize}
-                    value={value}
-                    maxValue={maxYAggregation}
-                    backgroundColor={aggregationColor}
-                    dayAndTime={`${Sum.label} - ${day}`}
-                />
+function renderYAggregationCell(
+    value: number,
+    maxYAggregation: number,
+    day: string,
+    showTooltip: boolean,
+    fontSize: number,
+    aggregationColor: string
+): JSX.Element {
+    return (
+        <td className="aggregation-border">
+            <HeatMapCell
+                showTooltip={showTooltip}
+                fontSize={fontSize}
+                value={value}
+                maxValue={maxYAggregation}
+                backgroundColor={aggregationColor}
+                dayAndTime={`${Sum.label} - ${day}`}
+            />
         </td>
     )
 }
 
-function renderDataCells(rowData: { [key: number]: number }, maxValue: number, day: string, showTooltip: boolean, fontSize: number, heatmapColor: string) {
+function renderDataCells(
+    rowData: { [key: number]: number },
+    maxValue: number,
+    day: string,
+    showTooltip: boolean,
+    fontSize: number,
+    heatmapColor: string
+): JSX.Element[] {
     return Array.from({ length: HoursAbbreviated.values.length }, (_, x) => (
         <td key={x}>
             <HeatMapCell

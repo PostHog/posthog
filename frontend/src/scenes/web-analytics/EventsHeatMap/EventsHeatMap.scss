@@ -1,10 +1,10 @@
 .EventsHeatMapContainer {
+    max-width: 100%;
+    padding: 0.5rem;
+    overflow-x: auto;
     background: var(--bg-surface-primary);
     border: 1px solid var(--border-primary);
     border-radius: var(--radius);
-    padding: 0.5rem;
-    max-width: 100%;
-    overflow-x: auto;
 }
 
 .EventsHeatMap {
@@ -18,10 +18,18 @@
         white-space: nowrap;
         border-top: 10px solid transparent;
         border-bottom: 10px solid transparent;
+
+        &.aggregation-border {
+            border-left: 5px solid transparent;
+        }
     }
 
     tr {
         border-left: 0.25rem solid transparent;
+
+        &.aggregation-border {
+            border-top: 5px solid transparent;
+        }
 
         &:not(:nth-of-type(-n + 1)) {
             &:hover {
@@ -30,25 +38,29 @@
         }
     }
 
+    td.aggregation-border {
+        border-left: 5px solid transparent;
+    }
+
     .EventsHeatMap__TextTab {
-        min-height: 2rem;
-        margin: 2px;
-        text-align: center;
-        padding: 0.2rem;
-        white-space: nowrap;
         display: flex;
         align-items: center;
         justify-content: center;
+        min-height: 2rem;
+        padding: 0.2rem;
+        margin: 2px;
+        text-align: center;
+        white-space: nowrap;
     }
 
     .EventsHeatMap__Cell {
+        display: flex;
+        align-items: center;
+        justify-content: center;
         min-height: 2rem;
         padding: 0.2rem;
         margin: 2px;
         text-align: center;
-        display: flex;
-        align-items: center;
-        justify-content: center;
         background-color: var(--heatmap-table-color); // NOTE: This is usually overridden in JS
         border-radius: var(--radius);
 
@@ -77,6 +89,7 @@
 
         .EventsHeatMap__Cell {
             cursor: initial;
+
             &:hover {
                 transform: none;
             }
