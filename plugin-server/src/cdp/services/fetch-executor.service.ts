@@ -3,7 +3,6 @@ import { FetchError } from 'node-fetch'
 
 import { PluginsServerConfig } from '../../types'
 import { trackedFetch } from '../../utils/fetch'
-import { logger } from '../../utils/logger'
 import {
     CyclotronFetchFailureInfo,
     CyclotronFetchFailureKind,
