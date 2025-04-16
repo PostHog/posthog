@@ -232,7 +232,7 @@ def org_quota_limited_until(
                 "event": "already limited",
                 "current_usage": usage + todays_usage,
                 "resource": resource.value,
-                "quota_limited_until": quota_limited_until,
+                "quota_limited_until": billing_period_end,
                 "quota_limiting_suspended_until": quota_limiting_suspended_until,
             },
         )
