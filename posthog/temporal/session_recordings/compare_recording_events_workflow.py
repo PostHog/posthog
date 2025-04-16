@@ -440,40 +440,40 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
 
             return differences
 
-        def sample_events(events: dict[str, int], size: int) -> list[tuple[str, dict, list[dict]]]:
-            """Sample events and include their differences."""
-            samples = []
-            for event_json, _ in list(events.items())[:size]:
-                window_id, data = json.loads(event_json)
-                # Try to find matching event in other version by window_id
-                matching_event = None
-                if event_json in only_in_v1:
-                    # Look for matching window_id in v2
-                    for v2_json, _ in v2_events.items():
-                        v2_window_id, v2_data = json.loads(v2_json)
-                        if v2_window_id == window_id:
-                            matching_event = v2_data
-                            break
-                else:
-                    # Look for matching window_id in v1
-                    for v1_json, _ in v1_events.items():
-                        v1_window_id, v1_data = json.loads(v1_json)
-                        if v1_window_id == window_id:
-                            matching_event = v1_data
-                            break
+        # def sample_events(events: dict[str, int], size: int) -> list[tuple[str, dict, list[dict]]]:
+        #     """Sample events and include their differences."""
+        #     samples = []
+        #     for event_json, _ in list(events.items())[:size]:
+        #         window_id, data = json.loads(event_json)
+        #         # Try to find matching event in other version by window_id
+        #         matching_event = None
+        #         if event_json in only_in_v1:
+        #             # Look for matching window_id in v2
+        #             for v2_json, _ in v2_events.items():
+        #                 v2_window_id, v2_data = json.loads(v2_json)
+        #                 if v2_window_id == window_id:
+        #                     matching_event = v2_data
+        #                     break
+        #         else:
+        #             # Look for matching window_id in v1
+        #             for v1_json, _ in v1_events.items():
+        #                 v1_window_id, v1_data = json.loads(v1_json)
+        #                 if v1_window_id == window_id:
+        #                     matching_event = v1_data
+        #                     break
 
-                differences = []
-                if matching_event:
-                    differences = find_differences(data, matching_event)
+        #         differences = []
+        #         if matching_event:
+        #             differences = find_differences(data, matching_event)
 
-                samples.append((window_id, data, differences))
-            return samples
+        #         samples.append((window_id, data, differences))
+        #     return samples
 
-        await logger.ainfo(
-            "Sample of differing events",
-            v1_exclusive_samples=sample_events(only_in_v1, inputs.sample_size),
-            v2_exclusive_samples=sample_events(only_in_v2, inputs.sample_size),
-        )
+        # await logger.ainfo(
+        #     "Sample of differing events",
+        #     v1_exclusive_samples=[(window_id, str(data)[:100], differences) for window_id, data, differences in sample_events(only_in_v1, inputs.sample_size)],
+        #     v2_exclusive_samples=[(window_id, str(data)[:100], differences) for window_id, data, differences in sample_events(only_in_v2, inputs.sample_size)],
+        # )
 
         await logger.ainfo(
             "Event type comparison",
