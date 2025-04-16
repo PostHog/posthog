@@ -64,12 +64,12 @@ ALTER TABLE {table_name} {on_cluster_clause}
 ADD COLUMN IF NOT EXISTS
 initial__kx
 AggregateFunction(argMin, String, DateTime64(6, 'UTC'))
-AFTER initial_sccid,
+AFTER vitals_lcp, -- add at the end as it was accidentally added here on prod
 
 ADD COLUMN IF NOT EXISTS
 initial_irclid
 AggregateFunction(argMin, String, DateTime64(6, 'UTC'))
-AFTER initial__kx
+AFTER initial_ttclid
 """
 
 
@@ -101,7 +101,7 @@ ALTER TABLE {table_name} {on_cluster_clause}
 ADD COLUMN IF NOT EXISTS
 initial_epik
 AggregateFunction(argMin, String, DateTime64(6, 'UTC'))
-AFTER initial_ttclid,
+AFTER initial_irclid,
 
 ADD COLUMN IF NOT EXISTS
 initial_qclid
