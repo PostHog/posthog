@@ -177,7 +177,7 @@ describe('IngestionConsumer', () => {
 
             expect(breadcrumbHeader).toBeDefined()
 
-            const parsedBreadcrumbs = parseJSON(breadcrumbHeader.value.toString())
+            const parsedBreadcrumbs = parseJSON(breadcrumbHeader?.value.toString() || '')
             expect(Array.isArray(parsedBreadcrumbs)).toBe(true)
             expect(parsedBreadcrumbs.length).toBe(2)
 
