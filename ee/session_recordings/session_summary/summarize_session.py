@@ -1,6 +1,5 @@
 from collections.abc import Generator
 from pathlib import Path
-from typing import Any
 
 import structlog
 from ee.hogai.utils.asgi import SyncIterableToAsync
@@ -45,7 +44,7 @@ class ReplaySummarizer(BaseReplaySummarizer):
         )
         return summary_prompt, system_prompt
 
-    def summarize_recording(self) -> Generator[dict[str, Any], None, None]:
+    def summarize_recording(self) -> Generator[str, None, None]:
         timer = ServerTimingsGathered()
         # TODO Learn how to make data collection for prompt as async as possible to improve latency
         with timer("get_metadata"):
@@ -108,6 +107,7 @@ class ReplaySummarizer(BaseReplaySummarizer):
         #     session_id=self.recording.session_id,
         # )
 
+        # TODO: Would it make sense to stream initial goal and outcome at the very start? Check if it makes a quality difference.
         session_summary_generator = stream_raw_llm_session_summary(
             summary_prompt=summary_prompt,
             user=self.user,

@@ -1,3 +1,4 @@
+import json
 import openai
 import structlog
 from ee.session_recordings.ai.output_data import RawSessionSummarySerializer, load_raw_session_summary_from_llm_content
@@ -8,7 +9,6 @@ from posthog.models.user import User
 from posthog.utils import get_instance_region
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
-from typing import Any
 from collections.abc import Generator
 
 logger = structlog.get_logger(__name__)
@@ -111,7 +111,7 @@ def get_raw_llm_session_summary(
 )
 def stream_raw_llm_session_summary(
     summary_prompt: str, user: User, allowed_event_ids: list[str], session_id: str, system_prompt: str | None = None
-) -> Generator[dict[str, Any], None, None]:
+) -> Generator[str, None, None]:
     try:
         accumulated_content = ""
         accumulated_usage = 0
@@ -136,7 +136,9 @@ def stream_raw_llm_session_summary(
                     continue
                 # If parsing succeeds, yield the new chunk
                 # TODO: Return back to summarizer when adding the enrichment
-                yield raw_session_summary.data
+                # TODO: Move to a separate function to use on the enriched summary
+                sse_event_to_send = f"event: session-summary-stream\ndata: {json.dumps(raw_session_summary.data)}\n\n"
+                yield sse_event_to_send
             except ValueError:
                 # The same logic, we can justify the retry for stream only
                 # at the very end of stream when we are sure we have all the data
@@ -155,8 +157,10 @@ def stream_raw_llm_session_summary(
         if accumulated_usage:
             TOKENS_IN_PROMPT_HISTOGRAM.observe(accumulated_usage)
         # TODO: Return back to summarizer when adding the enrichment
+        # TODO: Move to a separate function to use on the enriched summary
         # Yield the final validated summary
-        yield final_summary.data
+        final_summary_sse_event = f"event: session-summary-stream-finish\ndata: {json.dumps(final_summary.data)}\n\n"
+        yield final_summary_sse_event
     except ValueError as err:
         logger.exception(f"Failed to validate final LLM content for session_id {session_id}: {str(err)}")
         raise ExceptionToRetry()

@@ -7,9 +7,9 @@ from ee.session_recordings.session_summary.utils import get_column_index
 
 
 class RawKeyActionSerializer(serializers.Serializer):
-    description = serializers.CharField(min_length=1, max_length=1024, required=False, default=None, allow_null=True)
+    description = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
     error = serializers.BooleanField(required=False, default=None, allow_null=True)
-    event_id = serializers.CharField(min_length=1, max_length=128, required=False, default=None, allow_null=True)
+    event_id = serializers.CharField(min_length=1, max_length=128, required=False, allow_null=True)
 
 
 class EnrichedKeyActionSerializer(RawKeyActionSerializer):
