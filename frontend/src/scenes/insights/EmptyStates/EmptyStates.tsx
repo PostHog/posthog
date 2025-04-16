@@ -24,6 +24,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber, humanizeBytes, inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { getAppContext } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -699,7 +700,9 @@ export function SavedInsightsEmptyState(): JSX.Element {
                             className="add-insight-button"
                             resourceType={AccessControlResourceType.Insight}
                             minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={insights?.user_access_level}
+                            userAccessLevel={
+                                getAppContext()?.resource_access_control[AccessControlResourceType.Insight]
+                            }
                         >
                             New insight
                         </AccessControlledLemonButton>

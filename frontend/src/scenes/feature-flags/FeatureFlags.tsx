@@ -20,6 +20,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { getAppContext } from 'lib/utils/getAppContext'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { projectLogic } from 'scenes/projectLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -467,9 +468,18 @@ export function FeatureFlags(): JSX.Element {
         <div className="feature_flags">
             <PageHeader
                 buttons={
-                    <LemonButton type="primary" to={urls.featureFlag('new')} data-attr="new-feature-flag">
+                    <AccessControlledLemonButton
+                        type="primary"
+                        to={urls.featureFlag('new')}
+                        data-attr="new-feature-flag"
+                        resourceType={AccessControlResourceType.FeatureFlag}
+                        minAccessLevel={AccessControlLevel.Editor}
+                        userAccessLevel={
+                            getAppContext()?.resource_access_control[AccessControlResourceType.FeatureFlag]
+                        }
+                    >
                         New feature flag
-                    </LemonButton>
+                    </AccessControlledLemonButton>
                 }
             />
             <LemonTabs
