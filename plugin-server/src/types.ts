@@ -1216,7 +1216,6 @@ export enum OrganizationMembershipLevel {
 export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     team_id?: number | null
     token?: string
-    // kafka_consumer_breadcrumbs?: KafkaConsumerBreadcrumb[]
 }
 
 export type RedisPool = GenericPool<Redis>

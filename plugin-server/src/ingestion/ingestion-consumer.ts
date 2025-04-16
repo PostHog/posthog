@@ -310,7 +310,12 @@ export class IngestionConsumer {
             // of random partitioning.
             const preserveLocality = shouldForceOverflow && !this.shouldSkipPerson(token, distinctId) ? true : undefined
 
-            void this.scheduleWork(this.emitToOverflow(eventsForDistinctId.events, preserveLocality))
+            void this.scheduleWork(
+                this.emitToOverflow(
+                    eventsForDistinctId.events.map((x) => x.message),
+                    preserveLocality
+                )
+            )
 
             return {
                 ...eventsForDistinctId,
@@ -609,13 +614,13 @@ export class IngestionConsumer {
         )
     }
 
-    private async emitToOverflow(incomingEvents: IncomingEvent[], preservePartitionLocalityOverride?: boolean) {
+    private async emitToOverflow(kafkaMessages: Message[], preservePartitionLocalityOverride?: boolean) {
         const overflowTopic = this.hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
         if (!overflowTopic) {
             throw new Error('No overflow topic configured')
         }
 
-        ingestionOverflowingMessagesTotal.inc(incomingEvents.length)
+        ingestionOverflowingMessagesTotal.inc(kafkaMessages.length)
 
         const preservePartitionLocality =
             preservePartitionLocalityOverride !== undefined
@@ -623,12 +628,11 @@ export class IngestionConsumer {
                 : this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
 
         await Promise.all(
-            incomingEvents.map(({ message }) => {
+            kafkaMessages.map((message) => {
                 const headers: MessageHeader[] = message.headers ?? []
                 const existingBreadcrumbs = this.getExistingBreadcrumbsFromHeaders(message)
                 const breadcrumb = this.createBreadcrumb(message)
                 const allBreadcrumbs = [...existingBreadcrumbs, breadcrumb]
-                // NICK TODO: understand if we want buffer or string here?
                 headers.push({
                     key: 'kafka-consumer-breadcrumbs',
                     value: Buffer.from(JSON.stringify(allBreadcrumbs)),
