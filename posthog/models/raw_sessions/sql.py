@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     initial_geoip_subdivision_city_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_geoip_time_zone AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
 
-    -- attribution
+    -- attribution - please add new columns at the end of this list, and make sure you use AFTER in the migration
     initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -210,7 +210,7 @@ SELECT
     initializeAggregation('argMinState', {geoip_subdivision_city_name}, timestamp) as initial_geoip_subdivision_city_name,
     initializeAggregation('argMinState', {geoip_time_zone}, timestamp) as initial_geoip_time_zone,
 
-    -- attribution
+    -- attribution - match the order in the table
     initializeAggregation('argMinState', {referring_domain}, timestamp) as initial_referring_domain,
     initializeAggregation('argMinState', {utm_source}, timestamp) as initial_utm_source,
     initializeAggregation('argMinState', {utm_campaign}, timestamp) as initial_utm_campaign,
@@ -333,7 +333,7 @@ SELECT
     argMinState({geoip_subdivision_city_name}, timestamp) as initial_geoip_subdivision_city_name,
     argMinState({geoip_time_zone}, timestamp) as initial_geoip_time_zone,
 
-    -- attribution
+    -- attribution - match the order in the table
     argMinState({referring_domain}, timestamp) as initial_referring_domain,
     argMinState({utm_source}, timestamp) as initial_utm_source,
     argMinState({utm_campaign}, timestamp) as initial_utm_campaign,
