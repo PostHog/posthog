@@ -98,7 +98,11 @@ export function HogFunctionFilters({ embedded = false }: { embedded?: boolean })
             <LemonField
                 name="filters"
                 label={useMapping ? 'Global filters' : 'Filters'}
-                info={useMapping ? 'Filters applied to all events before they reach a mapping' : null}
+                info={
+                    useMapping
+                        ? 'Filters applied to all events before they reach a mapping'
+                        : 'Filters applied to all events'
+                }
             >
                 {({ value, onChange }) => {
                     const filters = (value ?? {}) as HogFunctionFiltersType
