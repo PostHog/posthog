@@ -526,7 +526,7 @@ projects_router.register(
 projects_router.register(
     r"insight_variables",
     insight_variable.InsightVariableViewSet,
-    "insight_variables",
+    "project_insight_variables",
     ["team_id"],
 )
 

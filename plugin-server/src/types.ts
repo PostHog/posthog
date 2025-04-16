@@ -228,7 +228,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean // refuse to start unless there is a properly configured persistent job queue (e.g. graphile)
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
     SITE_URL: string | null
-    FILTER_TRANSFORMATIONS_ENABLED_TEAMS: number[] // comma-separated list of team IDs to enable filter-based transformations for
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
