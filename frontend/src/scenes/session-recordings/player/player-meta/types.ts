@@ -1,22 +1,31 @@
-export interface SessionKeyEvent {
-    description: string
-    error: boolean
-    tags: {
-        where: string[]
-        what: string[]
-    }
-    timestamp: string
-    milliseconds_since_start: number
-    window_id: string
-    current_url: string
-    event: string
-    event_type: string | null
-    importance: number
+export interface SessionKeyAction {
+    description?: string | null
+    error?: boolean | null
+    event_id?: string | null
+    timestamp?: string | null
+    milliseconds_since_start?: number | null
+    window_id?: string | null
+    current_url?: string | null
+    event?: string | null
+    event_type?: string | null
+    event_index?: number | null
+}
+
+export interface SessionObjectiveKeyActions {
+    objective?: string | null
+    events?: SessionKeyAction[] | null
+}
+
+export interface SessionObjective {
+    name?: string | null
+    summary?: string | null
 }
 
 export interface SessionSummaryContent {
-    summary: string
-    key_events: SessionKeyEvent[]
+    objectives?: SessionObjective[] | null
+    key_actions?: SessionObjectiveKeyActions[] | null
+    initial_goal?: string | null
+    session_outcome?: string | null
 }
 
 export interface SessionSummaryResponse {
