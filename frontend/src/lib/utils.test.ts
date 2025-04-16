@@ -29,7 +29,6 @@ import {
     hexToRGBA,
     humanFriendlyDuration,
     humanFriendlyLargeNumber,
-    humanFriendlyLargeNumberMaxChars,
     identifierToHuman,
     is12HoursOrLess,
     isExternalLink,
@@ -82,7 +81,6 @@ describe('lib/utils', () => {
             expect(actual).toEqual('include=a&include=b')
         })
     })
-
     describe('capitalizeFirstLetter()', () => {
         it('returns the capitalized string', () => {
             expect(capitalizeFirstLetter('jane')).toEqual('Jane')
