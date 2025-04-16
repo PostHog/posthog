@@ -19,7 +19,7 @@ export function HeatMapCell({
     showTooltip,
     dayAndTime,
 }: HeatMapCellProps): JSX.Element {
-    const backgroundColorSaturation = value / maxValue
+    const backgroundColorSaturation = maxValue === 0 ? 0 : value / maxValue
     const saturatedBackgroundColor = gradateColor(backgroundColor, backgroundColorSaturation, 0.1)
     const textColor = backgroundColorSaturation > 0.4 ? '#fff' : 'var(--text-3000)'
 

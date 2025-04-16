@@ -1698,7 +1698,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                               activeTabId: geographyTab || GeographyTab.MAP || GeographyTab.HEATMAP,
                               setTabId: actions.setGeographyTab,
-                              tabs: [
+                              tabs: ([
                                   {
                                       id: GeographyTab.MAP,
                                       title: 'World map',
@@ -1755,7 +1755,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       'Cities',
                                       WebStatsBreakdown.City
                                   ),
-                                  {
+                                  featureFlags[FEATURE_FLAGS.ACTIVE_HOURS_HEATMAP] ? {
                                     id: GeographyTab.HEATMAP,
                                     title: 'Active hours',
                                     linkText: 'Active hours',
@@ -1766,7 +1766,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         dateRange,
                                     },
                                     insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.HEATMAP),
-                                },
+                                }: null,
                                   createTableTab(
                                       TileId.GEOGRAPHY,
                                       GeographyTab.TIMEZONES,
@@ -1781,7 +1781,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       'Languages',
                                       WebStatsBreakdown.Language
                                   ),
-                              ],
+                              ] as (TabsTileTab | null)[]).filter(isNotNil),
                           }
                         : null,
                     !conversionGoal
