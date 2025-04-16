@@ -1675,66 +1675,66 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                               activeTabId: geographyTab || GeographyTab.MAP,
                               setTabId: actions.setGeographyTab,
-                              tabs: (
-                                  [
-                                      {
-                                          id: GeographyTab.MAP,
-                                          title: 'World map',
-                                          linkText: 'Map',
-                                          query: {
-                                              kind: NodeKind.InsightVizNode,
-                                              source: {
-                                                  kind: NodeKind.TrendsQuery,
-                                                  breakdownFilter: {
-                                                      // use the event level country code rather than person, to work better with personless users
-                                                      breakdown: '$geoip_country_code',
-                                                      breakdown_type: 'event',
-                                                  },
-                                                  dateRange,
-                                                  series: [
-                                                      {
-                                                          event: '$pageview',
-                                                          name: 'Pageview',
-                                                          kind: NodeKind.EventsNode,
-                                                          math: BaseMathType.UniqueUsers,
-                                                      },
-                                                  ],
-                                                  trendsFilter: {
-                                                      display: ChartDisplayType.WorldMap,
-                                                  },
-                                                  conversionGoal,
-                                                  filterTestAccounts,
-                                                  properties: webAnalyticsFilters,
+                              tabs: [
+                                  {
+                                      id: GeographyTab.MAP,
+                                      title: 'World map',
+                                      linkText: 'Map',
+                                      query: {
+                                          kind: NodeKind.InsightVizNode,
+                                          source: {
+                                              kind: NodeKind.TrendsQuery,
+                                              breakdownFilter: {
+                                                  // use the event level country code rather than person, to work better with personless users
+                                                  breakdown: '$geoip_country_code',
+                                                  breakdown_type: 'event',
                                               },
-                                              hidePersonsModal: true,
-                                              embedded: true,
+                                              dateRange,
+                                              series: [
+                                                  {
+                                                      event: '$pageview',
+                                                      name: 'Pageview',
+                                                      kind: NodeKind.EventsNode,
+                                                      math: BaseMathType.UniqueUsers,
+                                                  },
+                                              ],
+                                              trendsFilter: {
+                                                  display: ChartDisplayType.WorldMap,
+                                              },
+                                              conversionGoal,
+                                              filterTestAccounts,
+                                              properties: webAnalyticsFilters,
                                           },
-                                          insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.MAP),
-                                          canOpenInsight: true,
+                                          hidePersonsModal: true,
+                                          embedded: true,
                                       },
-                                      createTableTab(
-                                          TileId.GEOGRAPHY,
-                                          GeographyTab.COUNTRIES,
-                                          'Countries',
-                                          'Countries',
-                                          WebStatsBreakdown.Country
-                                      ),
-                                      createTableTab(
-                                          TileId.GEOGRAPHY,
-                                          GeographyTab.REGIONS,
-                                          'Regions',
-                                          'Regions',
-                                          WebStatsBreakdown.Region
-                                      ),
-                                      createTableTab(
-                                          TileId.GEOGRAPHY,
-                                          GeographyTab.CITIES,
-                                          'Cities',
-                                          'Cities',
-                                          WebStatsBreakdown.City
-                                      ),
-                                      featureFlags[FEATURE_FLAGS.ACTIVE_HOURS_HEATMAP]
-                                          ? {
+                                      insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.MAP),
+                                      canOpenInsight: true,
+                                  },
+                                  createTableTab(
+                                      TileId.GEOGRAPHY,
+                                      GeographyTab.COUNTRIES,
+                                      'Countries',
+                                      'Countries',
+                                      WebStatsBreakdown.Country
+                                  ),
+                                  createTableTab(
+                                      TileId.GEOGRAPHY,
+                                      GeographyTab.REGIONS,
+                                      'Regions',
+                                      'Regions',
+                                      WebStatsBreakdown.Region
+                                  ),
+                                  createTableTab(
+                                      TileId.GEOGRAPHY,
+                                      GeographyTab.CITIES,
+                                      'Cities',
+                                      'Cities',
+                                      WebStatsBreakdown.City
+                                  ),
+                                  ...((featureFlags[FEATURE_FLAGS.ACTIVE_HOURS_HEATMAP]
+                                      ? [
+                                            {
                                                 id: GeographyTab.HEATMAP,
                                                 title: 'Active hours',
                                                 linkText: 'Active hours',
@@ -1748,24 +1748,24 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                     TileId.GEOGRAPHY,
                                                     GeographyTab.HEATMAP
                                                 ),
-                                            }
-                                          : null,
-                                      createTableTab(
-                                          TileId.GEOGRAPHY,
-                                          GeographyTab.TIMEZONES,
-                                          'Timezones',
-                                          'Timezones',
-                                          WebStatsBreakdown.Timezone
-                                      ),
-                                      createTableTab(
-                                          TileId.GEOGRAPHY,
-                                          GeographyTab.LANGUAGES,
-                                          'Languages',
-                                          'Languages',
-                                          WebStatsBreakdown.Language
-                                      ),
-                                  ] as (TabsTileTab | null)[]
-                              ).filter(isNotNil),
+                                            },
+                                        ]
+                                      : []) as TabsTileTab[]),
+                                  createTableTab(
+                                      TileId.GEOGRAPHY,
+                                      GeographyTab.TIMEZONES,
+                                      'Timezones',
+                                      'Timezones',
+                                      WebStatsBreakdown.Timezone
+                                  ),
+                                  createTableTab(
+                                      TileId.GEOGRAPHY,
+                                      GeographyTab.LANGUAGES,
+                                      'Languages',
+                                      'Languages',
+                                      WebStatsBreakdown.Language
+                                  ),
+                              ],
                           }
                         : null,
                     !conversionGoal
