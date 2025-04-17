@@ -5,8 +5,7 @@ import { Span, SpanContext, TransactionContext } from '@sentry/types'
 
 import { PluginsServerConfig } from '../types'
 
-// Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
-require('@sentry/tracing')
+// TODO: DAVID remove this separately
 
 // Code that runs on app start, in both the main and worker threads
 export function initSentry(config: PluginsServerConfig): void {

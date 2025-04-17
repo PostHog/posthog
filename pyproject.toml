@@ -99,7 +99,6 @@ dependencies = [
     "scikit-learn==1.5.0",
     "selenium==4.28.1",
     "semantic-version==2.8.5",
-    "sentry-sdk[celery,clickhouse-driver,django,openai]~=1.44.1",
     "simple-salesforce>=1.12.6",
     "slack-sdk==3.17.1",
     "snowflake-connector-python==3.13.2",

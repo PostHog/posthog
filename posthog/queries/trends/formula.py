@@ -4,8 +4,6 @@ import re
 from string import ascii_uppercase
 from typing import Any
 
-from sentry_sdk import push_scope
-
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE
 from posthog.models.filters.filter import Filter
@@ -64,53 +62,53 @@ class TrendsFormula:
                 ]
             ),
             breakdown_value=breakdown_value if filter.breakdown else "",
-            max_length=""
-            if is_aggregate
-            else ", arrayMax([{}]) as max_length".format(
-                ", ".join(f"length(sub_{letter}.total)" for letter in letters)
+            max_length=(
+                ""
+                if is_aggregate
+                else ", arrayMax([{}]) as max_length".format(
+                    ", ".join(f"length(sub_{letter}.total)" for letter in letters)
+                )
             ),
             first_query=queries[0],
-            queries="".join(
-                [
-                    "FULL OUTER JOIN ({query}) as sub_{letter} ON sub_A.breakdown_value = sub_{letter}.breakdown_value ".format(
-                        query=query, letter=letters[i + 1]
-                    )
-                    for i, query in enumerate(queries[1:])
-                ]
-            )
-            if filter.breakdown
-            else "".join(
-                [" CROSS JOIN ({}) as sub_{}".format(query, letters[i + 1]) for i, query in enumerate(queries[1:])]
+            queries=(
+                "".join(
+                    [
+                        "FULL OUTER JOIN ({query}) as sub_{letter} ON sub_A.breakdown_value = sub_{letter}.breakdown_value ".format(
+                            query=query, letter=letters[i + 1]
+                        )
+                        for i, query in enumerate(queries[1:])
+                    ]
+                )
+                if filter.breakdown
+                else "".join(
+                    [" CROSS JOIN ({}) as sub_{}".format(query, letters[i + 1]) for i, query in enumerate(queries[1:])]
+                )
             ),
         )
-        with push_scope() as scope:
-            scope.set_context("filter", filter.to_dict())
-            scope.set_tag("team", team)
-            scope.set_context("query", {"sql": sql, "params": params})
-            result = insight_sync_execute(
-                sql,
-                params,
-                query_type="trends_formula",
-                filter=filter,
-                team_id=team.pk,
-            )
-            response = []
-            for item in result:
-                additional_values: dict[str, Any] = {"label": self._label(filter, item)}
-                if filter.breakdown:
-                    additional_values["breakdown_value"] = additional_values["label"]
+        result = insight_sync_execute(
+            sql,
+            params,
+            query_type="trends_formula",
+            filter=filter,
+            team_id=team.pk,
+        )
+        response = []
+        for item in result:
+            additional_values: dict[str, Any] = {"label": self._label(filter, item)}
+            if filter.breakdown:
+                additional_values["breakdown_value"] = additional_values["label"]
 
-                if is_aggregate:
-                    additional_values["data"] = []
-                    additional_values["aggregated_value"] = item[1][0]
-                else:
-                    additional_values["data"] = [
-                        number if not math.isnan(number) and not math.isinf(number) else 0.0 for number in item[1]
-                    ]
-                    if filter.display == TRENDS_CUMULATIVE:
-                        additional_values["data"] = list(accumulate(additional_values["data"]))
-                additional_values["count"] = float(sum(additional_values["data"]))
-                response.append(parse_response(item, filter, additional_values=additional_values))
+            if is_aggregate:
+                additional_values["data"] = []
+                additional_values["aggregated_value"] = item[1][0]
+            else:
+                additional_values["data"] = [
+                    number if not math.isnan(number) and not math.isinf(number) else 0.0 for number in item[1]
+                ]
+                if filter.display == TRENDS_CUMULATIVE:
+                    additional_values["data"] = list(accumulate(additional_values["data"]))
+            additional_values["count"] = float(sum(additional_values["data"]))
+            response.append(parse_response(item, filter, additional_values=additional_values))
         return response
 
     def _label(self, filter: Filter, item: list) -> str:

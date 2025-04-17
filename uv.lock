@@ -3644,7 +3644,6 @@ dependencies = [
     { name = "scikit-learn" },
     { name = "selenium" },
     { name = "semantic-version" },
-    { name = "sentry-sdk", extra = ["celery", "clickhouse-driver", "django", "openai"] },
     { name = "simple-salesforce" },
     { name = "slack-sdk" },
     { name = "snowflake-connector-python" },
@@ -3837,7 +3836,6 @@ requires-dist = [
     { name = "scikit-learn", specifier = "==1.5.0" },
     { name = "selenium", specifier = "==4.28.1" },
     { name = "semantic-version", specifier = "==2.8.5" },
-    { name = "sentry-sdk", extras = ["celery", "clickhouse-driver", "django", "openai"], specifier = "~=1.44.1" },
     { name = "simple-salesforce", specifier = ">=1.12.6" },
     { name = "slack-sdk", specifier = "==3.17.1" },
     { name = "snowflake-connector-python", specifier = "==3.13.2" },
@@ -5082,21 +5080,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/fd/72/85a8bc961d9160ac8c9f0a6d39dbdad21795d55c7b02a433bd0ffb75c037/sentry-sdk-1.44.1.tar.gz", hash = "sha256:24e6a53eeabffd2f95d952aa35ca52f0f4201d17f820ac9d3ff7244c665aaf68", size = 243446 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b1/f8/2038661bc32579d0c11191fc1093e49db590bfb6e63d501d7995fb798d62/sentry_sdk-1.44.1-py2.py3-none-any.whl", hash = "sha256:5f75eb91d8ab6037c754a87b8501cc581b2827e923682f593bed3539ce5b3999", size = 266105 },
-]
-
-[package.optional-dependencies]
-celery = [
-    { name = "celery" },
-]
-clickhouse-driver = [
-    { name = "clickhouse-driver" },
-]
-django = [
-    { name = "django" },
-]
-openai = [
-    { name = "openai" },
-    { name = "tiktoken" },
 ]
 
 [[package]]

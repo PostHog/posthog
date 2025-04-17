@@ -101,6 +101,7 @@ def receiver_bind_extra_request_metadata(sender, signal, task=None, logger=None)
 def on_worker_start(**kwargs) -> None:
     from prometheus_client import start_http_server
 
+    # TODO: DAVID TO FIGURE OUT
     from posthog.settings import sentry_init
 
     sentry_init()

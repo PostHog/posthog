@@ -17,6 +17,7 @@
         }
     </style>
     <body>
+        <!-- TODO: DAVID look at where sentry_event_id is set -->
         <iframe src="https://posthog.com/service-error{% if sentry_event_id %}#{{ sentry_event_id }}{% endif %}"/>
     </body>
 </html>

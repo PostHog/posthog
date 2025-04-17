@@ -19,6 +19,7 @@ export function ErrorBoundary({ children, tags = {} }: ErrorBoundaryProps): JSX.
     const { openSupportForm } = useActions(supportLogic)
 
     return (
+        // TODO: Replace with default error boundary
         <SentryErrorBoundary
             beforeCapture={(scope, err) => {
                 posthog.captureException(err)
