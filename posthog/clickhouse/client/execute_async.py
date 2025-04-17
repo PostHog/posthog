@@ -162,8 +162,8 @@ def execute_process_query(
     user = None
     if user_id:
         user = User.objects.only("email", "is_staff").get(pk=user_id)
-        tag_queries(user_email=user.email)
         is_staff_user = user.is_staff
+        tag_queries(user_email=user.email)
 
     query_status = manager.get_query_status()
 

@@ -28,7 +28,7 @@ API_REQUESTS_ERROR_COUNTER = Counter(
 def monitor(*, feature: Feature | None, endpoint: str, method: str) -> Callable:
     """
     Decorator to increment the API requests counter
-    Sets sentry tags for the endpoint and method
+    Tags endpoints and methods with the feature name
     """
 
     def decorator(func: Callable) -> Callable:
