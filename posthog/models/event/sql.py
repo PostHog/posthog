@@ -176,7 +176,7 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
         table_name="kafka_events_json",
         on_cluster_clause=ON_CLUSTER_CLAUSE(),
         engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
-        extra_fields=", _headers Array(Tuple(String, String))",  # NICKS TODOD: do we want to make this string a constatn?
+        extra_fields=", _headers Array(Tuple(String, String))",
         materialized_columns="",
         indexes="",
     )
