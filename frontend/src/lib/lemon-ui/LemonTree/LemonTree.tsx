@@ -317,7 +317,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                                 selectedId === item.id ||
                                                                 isContextMenuOpenForItem === item.id,
                                                             'bg-fill-button-tertiary-active': getItemActiveState(item),
-                                                            'pl-13': enableMultiSelection,
+                                                            'pl-13': enableMultiSelection && !item.disableSelect,
                                                             'pl-4 italic text-tertiary pointer-events-none cursor-default h-[var(--button-height-base)]':
                                                                 isEmptyFolder,
                                                             'group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover cursor-pointer':

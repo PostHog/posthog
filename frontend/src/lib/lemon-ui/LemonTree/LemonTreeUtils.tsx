@@ -65,7 +65,10 @@ export const TreeNodeDisplayIconWrapper = ({
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         // If multi-selection is enabled, we need to offset the icon to the right to make space for the checkbox
-                        left: enableMultiSelection ? `${depthOffset + 28}px` : `${depthOffset + 5}px`,
+                        left:
+                            enableMultiSelection && !item.disableSelect
+                                ? `${depthOffset + 28}px`
+                                : `${depthOffset + 5}px`,
                     }}
                     // Since we need to make this element hoverable, we cannot pointer-events: none, so we pass onClick to mimic the sibling button click
                     onClick={() => {
