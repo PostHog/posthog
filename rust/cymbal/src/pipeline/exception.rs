@@ -218,11 +218,21 @@ pub async fn do_exception_handling(
         } else if issue.eligible_for_assignment && !assignment_rule_futs.contains_key(&issue.id) {
             assignment_rule_futs.insert(
                 issue.id,
-                assign_issue(context.clone(), issue.clone(), output.clone()),
+                (
+                    index,
+                    tokio::spawn(assign_issue(context.clone(), issue.clone(), output.clone())),
+                ),
             );
         }
 
         event.properties = Some(serde_json::to_string(&output).map_err(|e| (index, e.into()))?);
+    }
+
+    for (index, future) in assignment_rule_futs.into_values() {
+        future
+            .await
+            .expect("assignment task did not panic")
+            .map_err(|e| (index, e))?; // Wait on all the assignment rules to finish running
     }
 
     // Drop the suppressed events, replacing their entries in the event buffer with EventErrors
