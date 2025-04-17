@@ -49,9 +49,9 @@ def ADD_BREADCRUMBS_COLUMNS_SHARDED_EVENTS_TABLE_SQL(on_cluster=True):
 
 operations = [
     # First drop the materialized view
-    run_sql_with_exceptions(DROP_EVENTS_TABLE_JSON_MV, NodeRole.WRITE),
+    run_sql_with_exceptions(DROP_EVENTS_TABLE_JSON_MV()),
     # then drop the kafka table
-    run_sql_with_exceptions(DROP_KAFKA_EVENTS_TABLE_JSON, NodeRole.WRITE),
+    run_sql_with_exceptions(DROP_KAFKA_EVENTS_TABLE_JSON()),
     # add missing columns to all tables in correct order
     # first the sharded tables
     run_sql_with_exceptions(ADD_BREADCRUMBS_COLUMNS_SHARDED_EVENTS_TABLE_SQL()),
