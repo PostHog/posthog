@@ -30,6 +30,7 @@ import {
 } from '~/types'
 
 import { getNiceTickValues } from './MetricsView/MetricsView'
+import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
@@ -37,6 +38,7 @@ import {
     filterToMetricConfig,
     getViewRecordingFilters,
     hasLegacyMetrics,
+    hasLegacySharedMetrics,
     isLegacyExperimentQuery,
     metricToFilter,
     metricToQuery,
@@ -987,5 +989,38 @@ describe('hasLegacyMetrics', () => {
         } as unknown as Experiment
 
         expect(hasLegacyMetrics(experiment)).toBe(false)
+    })
+})
+
+describe('hasLegacySharedMetrics', () => {
+    it('returns true if shared metrics contain legacy query', () => {
+        const sharedMetrics = [
+            {
+                query: {
+                    kind: NodeKind.ExperimentTrendsQuery,
+                    count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                },
+            } as unknown as SharedMetric,
+        ]
+
+        expect(hasLegacySharedMetrics(sharedMetrics)).toBe(true)
+    })
+
+    it('returns false if shared metrics contain no legacy queries', () => {
+        const sharedMetrics = [
+            {
+                query: {
+                    kind: NodeKind.ExperimentMetric,
+                    metric_type: ExperimentMetricType.MEAN,
+                    source: { kind: NodeKind.EventsNode, event: 'test' },
+                },
+            } as unknown as SharedMetric,
+        ]
+
+        expect(hasLegacySharedMetrics(sharedMetrics)).toBe(false)
+    })
+
+    it('returns false for empty shared metrics array', () => {
+        expect(hasLegacySharedMetrics([])).toBe(false)
     })
 })
