@@ -747,6 +747,24 @@ def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dash
             },
         },
         {
+            "name": "Top events",
+            "description": f"Shows the most popular events by this {singular} in the last 30 days",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {"kind": "EventsNode", "event": None, "name": "All events", "properties": [], "math": "total"}
+                    ],
+                    "trendsFilter": {"display": "ActionsBarValue"},
+                    "breakdownFilter": {"breakdowns": [{"property": "event", "type": "event_metadata"}]},
+                    "dateRange": {"date_from": "-30d", "date_to": None, "explicitDate": False},
+                    "interval": "day",
+                },
+                "full": True,
+            },
+        },
+        {
             "name": "Weekly active users",
             "description": f"Shows the number of unique users from this {singular} in the last 90 days",
             "query": {

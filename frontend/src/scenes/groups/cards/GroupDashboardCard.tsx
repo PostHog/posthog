@@ -112,6 +112,52 @@ export function GroupDashboardCard(): JSX.Element {
                     context={{ refresh: 'force_blocking' }}
                 />
                 <QueryCard
+                    title="Top events"
+                    description={`Shows the most popular events by this ${groupTypeName} in the last 30 days`}
+                    query={
+                        {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.TrendsQuery,
+                                series: [
+                                    {
+                                        kind: NodeKind.EventsNode,
+                                        event: null,
+                                        name: 'All events',
+                                        properties: [
+                                            {
+                                                key: `$group_${groupData.group_type_index}`,
+                                                value: groupData.group_key,
+                                                operator: PropertyOperator.Exact,
+                                            },
+                                        ],
+                                        math: 'total',
+                                    },
+                                ],
+                                trendsFilter: {
+                                    display: 'ActionsBarValue',
+                                },
+                                breakdownFilter: {
+                                    breakdowns: [
+                                        {
+                                            property: 'event',
+                                            type: 'event_metadata',
+                                        },
+                                    ],
+                                },
+                                dateRange: {
+                                    date_from: '-30d',
+                                    date_to: null,
+                                    explicitDate: false,
+                                },
+                                interval: 'day',
+                            },
+                            full: true,
+                        } as Node
+                    }
+                    context={{ refresh: 'force_blocking' }}
+                />
+                <QueryCard
                     title="Weekly active users"
                     description={`Shows the number of unique users from this ${groupTypeName} in the last 90 days`}
                     query={
