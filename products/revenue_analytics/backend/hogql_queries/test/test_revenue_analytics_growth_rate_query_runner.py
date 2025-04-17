@@ -30,7 +30,7 @@ TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.growth_rate_query_r
 
 @snapshot_clickhouse_queries
 class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest):
-    QUERY_TIMESTAMP = "2025-02-15"
+    QUERY_TIMESTAMP = "2025-04-21"
 
     def setUp(self):
         super().setUp()
@@ -64,9 +64,12 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
         self.cleanUpFilesystem()
         super().tearDown()
 
-    def _run_revenue_analytics_growth_rate_query(self):
+    def _run_revenue_analytics_growth_rate_query(self, date_range: DateRange | None = None):
+        if date_range is None:
+            date_range: DateRange = DateRange(date_from="all")
+
         with freeze_time(self.QUERY_TIMESTAMP):
-            query = RevenueAnalyticsGrowthRateQuery(dateRange=DateRange(date_from="-30d"))
+            query = RevenueAnalyticsGrowthRateQuery(dateRange=date_range)
             runner = RevenueAnalyticsGrowthRateQueryRunner(
                 team=self.team,
                 query=query,
@@ -86,12 +89,68 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
     def test_with_data(self):
         results = self._run_revenue_analytics_growth_rate_query().results
 
-        # Month, MRR, Previous MRR, Growth Rate
+        # Month, MRR, Previous MRR, Growth Rate, 3M Growth Rate, 6M Growth Rate
         self.assertEqual(
             results,
             [
-                (date(2025, 4, 1), Decimal("723.3846543563"), Decimal("674.7379876897"), Decimal("0.0720971215")),
-                (date(2025, 3, 1), Decimal("674.7379876897"), Decimal("674.6747652889"), Decimal("0.0000937080")),
-                (date(2025, 2, 1), Decimal("674.6747652889"), Decimal("253.9594324913"), Decimal("1.6566241650")),
+                (
+                    date(2025, 1, 1),
+                    Decimal("253.9594324913"),
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
+                (
+                    date(2025, 2, 1),
+                    Decimal("1095.3900980864"),
+                    Decimal("253.9594324913"),
+                    Decimal("3.31324833"),
+                    Decimal("3.31324833"),
+                    Decimal("3.31324833"),
+                ),
+                (
+                    date(2025, 3, 1),
+                    Decimal("674.8644324913"),
+                    Decimal("1095.3900980864"),
+                    Decimal("-0.383904936"),
+                    Decimal("1.464671697"),
+                    Decimal("1.464671697"),
+                ),
+                (
+                    date(2025, 4, 1),
+                    Decimal("399.8994324913"),
+                    Decimal("674.8644324913"),
+                    Decimal("-0.4074373855"),
+                    Decimal("0.8406353362"),
+                    Decimal("0.8406353362"),
+                ),
+            ],
+        )
+
+    def test_with_data_and_date_range(self):
+        results = self._run_revenue_analytics_growth_rate_query(
+            date_range=DateRange(date_from="2025-02-03", date_to="2025-03-04")
+        ).results
+
+        self.assertEqual(
+            results,
+            [
+                (
+                    date(2025, 2, 1),
+                    Decimal("935.9900980864"),
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
+                (
+                    date(2025, 3, 1),
+                    Decimal("494.8644324913"),
+                    Decimal("935.9900980864"),
+                    Decimal("-0.47129309"),
+                    Decimal("-0.47129309"),
+                    Decimal("-0.47129309"),
+                ),
             ],
         )

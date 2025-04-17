@@ -1,18 +1,16 @@
-import { IconHome, IconPlus } from '@posthog/icons'
-import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconPlus } from '@posthog/icons'
+import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { PipelineStage, ProductKey } from '~/types'
 
+import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 import { GrossRevenueTile } from './tiles/GrossRevenueTile'
 import { OverviewTile } from './tiles/OverviewTile'
@@ -75,32 +73,18 @@ export function RevenueAnalyticsScene(): JSX.Element {
     )
 }
 
-const RevenueAnalyticsFilters = (): JSX.Element => {
-    const {
-        dateFilter: { dateTo, dateFrom, interval },
-    } = useValues(revenueAnalyticsLogic)
-    const { setDates, setInterval, resetDatesAndInterval } = useActions(revenueAnalyticsLogic)
-
-    return (
-        <div className="flex flex-row gap-1">
-            <Tooltip title="Reset to default">
-                <LemonButton icon={<IconHome />} onClick={resetDatesAndInterval} />
-            </Tooltip>
-            <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
-            <IntervalFilterStandalone interval={interval} onIntervalChange={setInterval} />
-            <ReloadAll iconOnly />
-        </div>
-    )
-}
-
 const RevenueAnalyticsTables = (): JSX.Element => {
     return (
         <div className="flex flex-col gap-4">
             <OverviewTile />
-
             <GrossRevenueTile />
-            <RevenueGrowthRateTile />
-            <RevenueChurnTile />
+
+            <LemonDivider className="mt-6" />
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <RevenueGrowthRateTile />
+                <RevenueChurnTile />
+            </div>
         </div>
     )
 }

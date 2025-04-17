@@ -29,6 +29,7 @@ const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
 export const RevenueGrowthRateTile = (): JSX.Element => {
     const { baseCurrency } = useValues(revenueEventsSettingsLogic)
 
+    // TODO: Don't render this in case we're not looking at monthly intervals
     const { queries } = useValues(revenueAnalyticsLogic)
     const query = queries[QUERY_ID]
 
@@ -54,7 +55,18 @@ export const RevenueGrowthRateTile = (): JSX.Element => {
 
     const context = useMemo(() => ({ columns, insightProps: { ...INSIGHT_PROPS, query } }), [query, columns])
 
-    return <Query query={query} readOnly context={context} />
+    return (
+        <div className="flex flex-col gap-1">
+            <h3 className="text-lg font-semibold">
+                Revenue growth rate&nbsp;
+                <Tooltip title="Revenue growth rate is the percentage change in revenue from the previous month. You can also see the rolling growth rate for the last 3 and 6 months.">
+                    <IconInfo />
+                </Tooltip>
+            </h3>
+
+            <Query query={query} readOnly context={context} />
+        </div>
+    )
 }
 
 const MRRCell = ({ value, currency }: { value: number; currency: CurrencyCode }): JSX.Element => {

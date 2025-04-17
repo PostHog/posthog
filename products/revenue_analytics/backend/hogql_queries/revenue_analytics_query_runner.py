@@ -78,7 +78,7 @@ class RevenueAnalyticsQueryRunner(QueryRunner):
             now=datetime.now(),
         )
 
-    def where_clause(self) -> ast.Expr:
+    def timestamp_where_clause(self) -> ast.Expr:
         return ast.Call(
             name="and",
             args=[
@@ -90,7 +90,7 @@ class RevenueAnalyticsQueryRunner(QueryRunner):
                 ast.CompareOperation(
                     left=ast.Field(chain=["timestamp"]),
                     right=self.query_date_range.date_to_as_hogql(),
-                    op=ast.CompareOperationOp.Lt,
+                    op=ast.CompareOperationOp.LtEq,
                 ),
             ],
         )

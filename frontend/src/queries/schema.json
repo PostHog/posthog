@@ -16083,11 +16083,18 @@
             "required": ["results"],
             "type": "object"
         },
+        "RevenueAnalyticsTopCustomersGroupBy": {
+            "enum": ["month", "all"],
+            "type": "string"
+        },
         "RevenueAnalyticsTopCustomersQuery": {
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "groupBy": {
+                    "$ref": "#/definitions/RevenueAnalyticsTopCustomersGroupBy"
                 },
                 "kind": {
                     "const": "RevenueAnalyticsTopCustomersQuery",
@@ -16101,7 +16108,7 @@
                     "$ref": "#/definitions/RevenueAnalyticsTopCustomersQueryResponse"
                 }
             },
-            "required": ["kind"],
+            "required": ["groupBy", "kind"],
             "type": "object"
         },
         "RevenueAnalyticsTopCustomersQueryResponse": {

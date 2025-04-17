@@ -1707,6 +1707,11 @@ class RevenueAnalyticsOverviewItemKey(StrEnum):
     AVG_REVENUE_PER_CUSTOMER = "avg_revenue_per_customer"
 
 
+class RevenueAnalyticsTopCustomersGroupBy(StrEnum):
+    MONTH = "month"
+    ALL = "all"
+
+
 class RevenueCurrencyPropertyConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7365,6 +7370,7 @@ class RevenueAnalyticsTopCustomersQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
+    groupBy: RevenueAnalyticsTopCustomersGroupBy
     kind: Literal["RevenueAnalyticsTopCustomersQuery"] = "RevenueAnalyticsTopCustomersQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"

@@ -1,12 +1,12 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { getDefaultInterval, updateDatesWithInterval } from 'lib/utils'
+import { getDefaultInterval } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { urls } from 'scenes/urls'
 
 import { NodeKind, QuerySchema } from '~/queries/schema/schema-general'
-import { Breadcrumb, ChartDisplayType, InsightLogicProps, IntervalType, PropertyMathType } from '~/types'
+import { Breadcrumb, ChartDisplayType, InsightLogicProps, PropertyMathType } from '~/types'
 
 import type { revenueAnalyticsLogicType } from './revenueAnalyticsLogicType'
 import { revenueEventsSettingsLogic } from './settings/revenueEventsSettingsLogic'
@@ -28,7 +28,7 @@ export const buildDashboardItemId = (queryType: RevenueAnalyticsQuery): InsightL
     return `new-AdHoc.revenue-analytics.${queryType}`
 }
 
-const INITIAL_DATE_FROM = '-30d' as string | null
+const INITIAL_DATE_FROM = 'yStart' as string | null
 const INITIAL_DATE_TO = null as string | null
 const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
 const INITIAL_DATE_FILTER = {
@@ -54,8 +54,6 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
     })),
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
-        setInterval: (interval: IntervalType) => ({ interval }),
-        resetDatesAndInterval: true,
     }),
     reducers({
         dateFilter: [
@@ -67,17 +65,6 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                     dateFrom,
                     interval: getDefaultInterval(dateFrom, dateTo),
                 }),
-                setInterval: ({ dateFrom: oldDateFrom, dateTo: oldDateTo }, { interval }) => {
-                    const { dateFrom, dateTo } = updateDatesWithInterval(interval, oldDateFrom, oldDateTo)
-                    return {
-                        dateTo,
-                        dateFrom,
-                        interval,
-                    }
-                },
-                resetDatesAndInterval: () => {
-                    return INITIAL_DATE_FILTER
-                },
             },
         ],
     }),
@@ -159,6 +146,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                         source: {
                             kind: NodeKind.RevenueAnalyticsTopCustomersQuery,
                             dateRange,
+                            groupBy: 'month',
                         },
                         full: true,
                         embedded: false,

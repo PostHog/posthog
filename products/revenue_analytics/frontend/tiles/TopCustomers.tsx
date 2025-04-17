@@ -1,3 +1,5 @@
+import { IconInfo } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { humanFriendlyNumber } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
@@ -45,7 +47,18 @@ export const RevenueChurnTile = (): JSX.Element => {
 
     const context = useMemo(() => ({ columns, insightProps: { ...INSIGHT_PROPS, query } }), [columns, query])
 
-    return <Query query={query} readOnly context={context} />
+    return (
+        <div className="flex flex-col gap-1">
+            <h3 className="text-lg font-semibold">
+                Top customers&nbsp;
+                <Tooltip title="Top customers by all revenue accumulated in the selected period.">
+                    <IconInfo />
+                </Tooltip>
+            </h3>
+
+            <Query query={query} readOnly context={context} />
+        </div>
+    )
 }
 
 const AmountCell = ({ value, currency }: { value: number; currency: CurrencyCode }): JSX.Element => {

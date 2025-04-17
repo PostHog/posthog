@@ -1850,9 +1850,11 @@ export interface RevenueAnalyticsGrowthRateQueryResponse extends AnalyticsQueryR
 }
 export type CachedRevenueAnalyticsGrowthRateQueryResponse = CachedQueryResponse<RevenueAnalyticsGrowthRateQueryResponse>
 
+export type RevenueAnalyticsTopCustomersGroupBy = 'month' | 'all'
 export interface RevenueAnalyticsTopCustomersQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsTopCustomersQueryResponse> {
     kind: NodeKind.RevenueAnalyticsTopCustomersQuery
+    groupBy: RevenueAnalyticsTopCustomersGroupBy
 }
 
 export interface RevenueAnalyticsTopCustomersQueryResponse extends AnalyticsQueryResponseBase<unknown> {
