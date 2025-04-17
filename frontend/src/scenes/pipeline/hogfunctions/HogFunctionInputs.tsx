@@ -5,6 +5,7 @@ import { IconGear, IconInfo, IconLock, IconPlus, IconTrash, IconX } from '@posth
 import {
     LemonButton,
     LemonCheckbox,
+    LemonCollapse,
     LemonInput,
     LemonInputSelect,
     LemonLabel,
@@ -77,26 +78,35 @@ function JsonConfigField(props: {
     // Format initial value for display
     const formattedValue = useMemo(() => formatJsonValue(props.value), [props.value])
 
-    return (
-        <LemonField.Pure error={error}>
-            <CodeEditorResizeable
-                language={props.templating ? 'hogJson' : 'json'}
-                value={formattedValue}
-                onChange={(value) => setJsonValue(value || '{}')}
-                options={{
-                    lineNumbers: 'off',
-                    minimap: {
-                        enabled: false,
-                    },
-                    scrollbar: {
-                        vertical: 'hidden',
-                        verticalScrollbarSize: 0,
-                    },
-                }}
-                globals={props.templating ? globalsWithInputs : undefined}
-            />
-        </LemonField.Pure>
-    )
+    const panels = [
+        {
+            key: 1,
+            header: 'Click to edit',
+            content: (
+                <LemonField.Pure error={error}>
+                    <CodeEditorResizeable
+                        language={props.templating ? 'hogJson' : 'json'}
+                        value={formattedValue}
+                        onChange={(value) => setJsonValue(value || '{}')}
+                        options={{
+                            lineNumbers: 'off',
+                            minimap: {
+                                enabled: false,
+                            },
+                            scrollbar: {
+                                vertical: 'hidden',
+                                verticalScrollbarSize: 0,
+                            },
+                        }}
+                        globals={props.templating ? globalsWithInputs : undefined}
+                    />
+                </LemonField.Pure>
+            ),
+            className: 'p-0',
+        },
+    ]
+
+    return <LemonCollapse embedded={false} panels={panels} size="xsmall" />
 }
 
 function EmailTemplateField({ schema }: { schema: HogFunctionInputSchemaType }): JSX.Element {

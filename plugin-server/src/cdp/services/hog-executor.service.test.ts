@@ -130,11 +130,11 @@ describe('Hog Executor', () => {
                 invocation: {
                     id: expect.any(String),
                     teamId: 1,
-                    priority: 0,
                     globals: invocation.globals,
                     hogFunction: invocation.hogFunction,
                     queue: 'fetch',
                     queueParameters: expect.any(Object),
+                    queuePriority: 0,
                     timings: [
                         {
                             kind: 'hog',

@@ -1,14 +1,5 @@
 import { IconGear } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonCheckbox,
-    LemonDivider,
-    LemonSegmentedButton,
-    LemonSkeleton,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonDivider, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -62,7 +53,6 @@ export function ErrorTrackingScene(): JSX.Element {
             sessions: { align: 'center', render: CountColumn },
             users: { align: 'center', render: CountColumn },
             volume: { align: 'right', renderTitle: VolumeColumnHeader, render: VolumeColumn },
-            assignee: { align: 'center', render: AssigneeColumn },
         },
         showOpenEditorButton: false,
         insightProps: insightProps,
@@ -104,20 +94,9 @@ const VolumeColumn: QueryContextColumnComponent = (props) => {
 }
 
 const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) => {
-    const { sparklineSelectedPeriod, sparklineOptions } = useValues(errorTrackingSceneLogic)
-    const { setSparklineSelectedPeriod } = useActions(errorTrackingSceneLogic)
-
     return (
         <div className="flex justify-between items-center min-w-64">
             <div>{columnName}</div>
-            {sparklineOptions.length > 0 && (
-                <LemonSegmentedButton
-                    size="xsmall"
-                    value={sparklineSelectedPeriod}
-                    options={sparklineOptions}
-                    onChange={setSparklineSelectedPeriod}
-                />
-            )}
         </div>
     )
 }
@@ -142,6 +121,7 @@ const CustomGroupTitleHeader: QueryContextColumnTitleComponent = ({ columnName }
 const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const { selectedIssueIds } = useValues(errorTrackingSceneLogic)
     const { setSelectedIssueIds } = useActions(errorTrackingSceneLogic)
+    const { assignIssue } = useActions(errorTrackingDataNodeLogic)
     const record = props.record as ErrorTrackingIssue
     const checked = selectedIssueIds.includes(record.id)
     const runtime = getRuntimeFromLib(record.library)
@@ -186,6 +166,14 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     ) : (
                         <LemonSkeleton />
                     )}
+                    <span>|</span>
+                    <AssigneeSelect
+                        showName={true}
+                        showIcon={false}
+                        assignee={record.assignee}
+                        onChange={(assignee) => assignIssue(record.id, assignee)}
+                        size="xsmall"
+                    />
                 </div>
             </div>
         </div>
@@ -206,18 +194,6 @@ const CountColumn = ({ record, columnName }: { record: unknown; columnName: stri
                 humanFriendlyLargeNumber(count)
             )}
         </span>
-    )
-}
-
-const AssigneeColumn: QueryContextColumnComponent = (props) => {
-    const { assignIssue } = useActions(errorTrackingDataNodeLogic)
-
-    const record = props.record as ErrorTrackingIssue
-
-    return (
-        <div className="flex justify-center">
-            <AssigneeSelect assignee={record.assignee} onChange={(assignee) => assignIssue(record.id, assignee)} />
-        </div>
     )
 }
 

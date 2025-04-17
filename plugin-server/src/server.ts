@@ -1,4 +1,3 @@
-import * as Sentry from '@sentry/node'
 import express from 'express'
 import { Server } from 'http'
 import { CompressionCodecs, CompressionTypes } from 'kafkajs'
@@ -9,8 +8,9 @@ import { Counter } from 'prom-client'
 
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
-import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-plugins-worker.consumer'
-import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from './cdp/consumers/cdp-cyclotron-worker.consumer'
+import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
+import { CdpCyclotronWorkerFetch } from './cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
+import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-worker-plugins.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpProcessedEventsConsumer } from './cdp/consumers/cdp-processed-events.consumer'
 import { defaultConfig } from './config/config'
@@ -37,7 +37,7 @@ import { isTestEnv } from './utils/env-utils'
 import { parseJSON } from './utils/json-parse'
 import { logger } from './utils/logger'
 import { getObjectStorage } from './utils/object_storage'
-import { shutdown as posthogShutdown } from './utils/posthog'
+import { captureException, shutdown as posthogShutdown } from './utils/posthog'
 import { PubSub } from './utils/pubsub'
 import { delay } from './utils/utils'
 import { teardownPlugins } from './worker/plugins/teardown'
@@ -252,36 +252,28 @@ export class PluginServer {
             }
 
             if (capabilities.cdpCyclotronWorker) {
-                if (!hub.CYCLOTRON_DATABASE_URL) {
-                    logger.error('💥', 'Cyclotron database URL not set.')
-                } else {
-                    serviceLoaders.push(async () => {
-                        const worker = new CdpCyclotronWorker(hub)
-                        await worker.start()
-                        return worker.service
-                    })
-
-                    if (process.env.EXPERIMENTAL_CDP_FETCH_WORKER) {
-                        serviceLoaders.push(async () => {
-                            const workerFetch = new CdpCyclotronWorkerFetch(hub)
-                            await workerFetch.start()
-                            return workerFetch.service
-                        })
-                    }
-                }
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronWorker(hub)
+                    await worker.start()
+                    return worker.service
+                })
             }
 
             if (capabilities.cdpCyclotronWorkerPlugins) {
                 await initPlugins()
-                if (!hub.CYCLOTRON_DATABASE_URL) {
-                    logger.error('💥', 'Cyclotron database URL not set.')
-                } else {
-                    serviceLoaders.push(async () => {
-                        const worker = new CdpCyclotronWorkerPlugins(hub)
-                        await worker.start()
-                        return worker.service
-                    })
-                }
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronWorkerPlugins(hub)
+                    await worker.start()
+                    return worker.service
+                })
+            }
+
+            if (capabilities.cdpCyclotronWorkerFetch) {
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronWorkerFetch(hub)
+                    await worker.start()
+                    return worker.service
+                })
             }
 
             const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
@@ -329,9 +321,8 @@ export class PluginServer {
             pluginServerStartupTimeMs.inc(Date.now() - startupTimer.valueOf())
             logger.info('🚀', `All systems go in ${Date.now() - startupTimer.valueOf()}ms`)
         } catch (error) {
-            Sentry.captureException(error)
+            captureException(error)
             logger.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
-            void Sentry.flush().catch(() => null) // Flush Sentry in the background
             logger.error('💥', 'Exception while starting server, shutting down!', { error })
             await this.stop(error)
         }
@@ -349,7 +340,7 @@ export class PluginServer {
         process.on('unhandledRejection', (error: Error | any, promise: Promise<any>) => {
             logger.error('🤮', `Unhandled Promise Rejection`, { error: String(error), promise })
 
-            Sentry.captureException(error, {
+            captureException(error, {
                 extra: { detected_at: `pluginServer.ts on unhandledRejection` },
             })
         })

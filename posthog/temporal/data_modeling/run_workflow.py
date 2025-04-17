@@ -23,6 +23,7 @@ from deltalake import DeltaTable
 from django.conf import settings
 from dlt.common.libs.deltalake import get_delta_tables
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
@@ -387,12 +388,12 @@ async def materialize_model(
         table_columns[column_name] = column_schema
 
     hogql_query = saved_query.query["query"]
-
     destination = get_dlt_destination()
     pipeline = dlt.pipeline(
         pipeline_name=f"materialize_model_{model_label}",
         destination=destination,
         dataset_name=f"team_{team.pk}_model_{model_label}",
+        refresh="drop_sources",
     )
 
     try:
@@ -497,6 +498,7 @@ def hogql_table(query: str, team: Team, table_name: str, table_columns: dlt_typi
             team,
             settings=settings,
             limit_context=LimitContext.SAVED_QUERY,
+            workload=Workload.OFFLINE,
         )
 
         if not response.columns:
@@ -836,6 +838,7 @@ class RunWorkflow(PostHogWorkflow):
             build_dag_activity,
             build_dag_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
+            heartbeat_timeout=dt.timedelta(minutes=1),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
@@ -862,6 +865,7 @@ class RunWorkflow(PostHogWorkflow):
             run_dag_activity,
             run_model_activity_inputs,
             start_to_close_timeout=dt.timedelta(hours=1),
+            heartbeat_timeout=dt.timedelta(minutes=1),
             retry_policy=temporalio.common.RetryPolicy(
                 maximum_attempts=1,
             ),

@@ -1,3 +1,5 @@
+import './Dashboard.scss'
+
 import { LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { AccessDenied } from 'lib/components/AccessDenied'
@@ -116,38 +118,41 @@ function DashboardScene(): JSX.Element {
                 <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
                 <div>
-                    <div className="flex gap-2 items-start justify-between flex-wrap">
-                        {![
-                            DashboardPlacement.Public,
-                            DashboardPlacement.Export,
-                            DashboardPlacement.FeatureFlag,
-                            DashboardPlacement.Group,
-                        ].includes(placement) &&
-                            dashboard && <DashboardEditBar />}
-                        {[DashboardPlacement.FeatureFlag, DashboardPlacement.Group].includes(placement) &&
-                            dashboard?.id && (
-                                <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
-                                    {placement === DashboardPlacement.Group
-                                        ? 'Edit dashboard template'
-                                        : 'Edit dashboard'}
-                                </LemonButton>
-                            )}
-                        {placement !== DashboardPlacement.Export && (
-                            <div className="flex shrink-0 deprecated-space-x-4 dashoard-items-actions">
-                                <div
-                                    className={`left-item ${
-                                        placement === DashboardPlacement.Public ? 'text-right' : ''
-                                    }`}
-                                >
-                                    {[DashboardPlacement.Public].includes(placement) ? (
-                                        <LastRefreshText />
-                                    ) : !(dashboardMode === DashboardMode.Edit) ? (
-                                        <DashboardReloadAction />
-                                    ) : null}
+                    <div className="Dashboard_filters">
+                        <div className="flex gap-2 items-start justify-between flex-wrap">
+                            {![
+                                DashboardPlacement.Public,
+                                DashboardPlacement.Export,
+                                DashboardPlacement.FeatureFlag,
+                                DashboardPlacement.Group,
+                            ].includes(placement) &&
+                                dashboard && <DashboardEditBar />}
+                            {[DashboardPlacement.FeatureFlag, DashboardPlacement.Group].includes(placement) &&
+                                dashboard?.id && (
+                                    <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
+                                        {placement === DashboardPlacement.Group
+                                            ? 'Edit dashboard template'
+                                            : 'Edit dashboard'}
+                                    </LemonButton>
+                                )}
+                            {placement !== DashboardPlacement.Export && (
+                                <div className="flex shrink-0 deprecated-space-x-4 dashoard-items-actions">
+                                    <div
+                                        className={`left-item ${
+                                            placement === DashboardPlacement.Public ? 'text-right' : ''
+                                        }`}
+                                    >
+                                        {[DashboardPlacement.Public].includes(placement) ? (
+                                            <LastRefreshText />
+                                        ) : !(dashboardMode === DashboardMode.Edit) ? (
+                                            <DashboardReloadAction />
+                                        ) : null}
+                                    </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
+
                     <VariablesForDashboard />
                     <DashboardItems />
                 </div>

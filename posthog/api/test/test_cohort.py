@@ -18,7 +18,12 @@ from posthog.models.async_deletion.async_deletion import AsyncDeletion, Deletion
 from posthog.models.cohort import Cohort
 from posthog.models.team.team import Team
 from posthog.schema import PropertyOperator, PersonsOnEventsMode
-from posthog.tasks.calculate_cohort import calculate_cohort_ch, calculate_cohort_from_list
+from posthog.tasks.calculate_cohort import (
+    calculate_cohort_ch,
+    calculate_cohort_from_list,
+    get_cohort_calculation_candidates_queryset,
+    increment_version_and_enqueue_calculate_cohort,
+)
 from posthog.tasks.tasks import clickhouse_clear_removed_data
 from posthog.test.base import (
     APIBaseTest,
@@ -60,6 +65,38 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         activity: list[dict] = activity_response["results"]
         self.maxDiff = None
         assert activity == expected
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_increment_cohort(self, mock_calculate_cohort_ch):
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="cohort1",
+            pending_version=None,
+            is_static=False,
+            is_calculating=False,
+            deleted=False,
+        )
+
+        assert cohort1 in get_cohort_calculation_candidates_queryset()
+
+        increment_version_and_enqueue_calculate_cohort(cohort1, initiating_user=None)
+        cohort1.refresh_from_db()
+        assert cohort1.pending_version == 1
+        assert cohort1.is_calculating is True
+        assert cohort1 not in get_cohort_calculation_candidates_queryset()
+
+        increment_version_and_enqueue_calculate_cohort(cohort1, initiating_user=None)
+        cohort1.refresh_from_db()
+        assert cohort1.pending_version == 2
+        assert cohort1.is_calculating is True
+        assert cohort1 not in get_cohort_calculation_candidates_queryset()
+
+        increment_version_and_enqueue_calculate_cohort(cohort1, initiating_user=None)
+        cohort1.refresh_from_db()
+        assert cohort1.pending_version == 3
+        assert cohort1.is_calculating is True
+        assert cohort1 not in get_cohort_calculation_candidates_queryset()
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay", side_effect=calculate_cohort_ch)

@@ -59,7 +59,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                 teamId: item.globals.project.id,
                 functionId: item.hogFunction.id,
                 queueName: isLegacyPluginHogFunction(item.hogFunction) ? 'plugin' : 'hog',
-                priority: item.priority,
+                priority: item.queuePriority,
                 vmState: serializeHogFunctionInvocation(item),
             }
         })
@@ -139,7 +139,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                 }
 
                 if (state === HogWatcherState.degraded) {
-                    item.priority = 2
+                    item.queuePriority = 2
                 }
 
                 validInvocations.push(item)
@@ -220,11 +220,11 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                   shards: [
                       {
                           dbUrl: this.hub.CYCLOTRON_DATABASE_URL,
-                          shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
-                          shouldUseBulkCopyJob: this.hub.CDP_CYCLOTRON_USE_BULK_COPY_JOB,
                       },
                   ],
                   shardDepthLimit: this.hub.CYCLOTRON_SHARD_DEPTH_LIMIT ?? 1000000,
+                  shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
+                  shouldUseBulkJobCopy: this.hub.CDP_CYCLOTRON_USE_BULK_COPY_JOB,
               })
             : undefined
 
