@@ -544,14 +544,6 @@ export class IngestionConsumer {
     }
 
     private shouldDropEvent(token?: string, distinctId?: string) {
-        if (distinctId === 'any_user' || distinctId == 'other_user') {
-            console.log(`ELI DEBUG: HUB LIST: ${this.hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID}`)
-            console.log(
-                `ELI DEBUG: TEST BY TOKEN RESULT (${distinctId}): ${
-                    token && this.tokenDistinctIdsToDrop.includes(token)
-                }`
-            )
-        }
         return (
             (token && this.tokenDistinctIdsToDrop.includes(token)) ||
             (token && distinctId && this.tokenDistinctIdsToDrop.includes(`${token}:${distinctId}`))
