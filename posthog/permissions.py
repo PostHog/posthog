@@ -125,7 +125,6 @@ class UserNoOrgMembershipDeletePermission(BasePermission):
 
     def has_object_permission(self, request, view, obj):
         if request.method == "DELETE" and OrganizationMembership.objects.filter(user=obj).exists():
-            # this will render as a 409 Conflict
             raise Conflict(self.message)
         return True
 
