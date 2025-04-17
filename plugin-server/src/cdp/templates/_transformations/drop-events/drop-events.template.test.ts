@@ -3,7 +3,23 @@ import { TemplateTester } from '../../test/test-helpers'
 import { template } from './drop-events.template'
 
 describe('drop-events.template', () => {
-    const tester = new TemplateTester(template)
+    const testTemplate = {
+        ...template,
+        filters: {
+            events: [
+                {
+                    id: '1111',
+                    name: 'All events',
+                    type: 'events' as const,
+                    order: 0,
+                },
+            ],
+            actions: [],
+            bytecode: ['_H', 1, 29, 3, 0, 4, 2],
+        },
+    }
+
+    const tester = new TemplateTester(testTemplate)
     let mockGlobals: HogFunctionInvocationGlobals
 
     beforeEach(async () => {
