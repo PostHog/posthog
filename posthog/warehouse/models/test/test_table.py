@@ -28,6 +28,17 @@ class TestTable(BaseTest):
             columns = table.get_columns()
             assert columns == {"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField", "valid": True}}
 
+    def test_get_columns_with_unknown_field(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
+        )
+
+        with patch("posthog.warehouse.models.table.sync_execute") as sync_execute_results:
+            sync_execute_results.return_value = [["id", "Nothing"]]
+            columns = table.get_columns()
+            assert columns == {"id": {"clickhouse": "Nothing", "hogql": "UnknownDatabaseField", "valid": True}}
+
     def test_get_columns_with_type_args(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
         table = DataWarehouseTable.objects.create(
