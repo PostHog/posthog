@@ -230,6 +230,19 @@ pub const fn stl() -> &'static [(&'static str, NativeFunction)] {
                 )),
             }
         }),
+        ("notEmpty", |vm, args| {
+            assert_argc(&args, 1, "notEmpty")?;
+            let val = &args[0];
+            match val.deref(&vm.heap)? {
+                HogLiteral::Array(a) => Ok(HogLiteral::Boolean(!a.is_empty()).into()),
+                HogLiteral::String(s) => Ok(HogLiteral::Boolean(!s.is_empty()).into()),
+                HogLiteral::Object(o) => Ok(HogLiteral::Boolean(!o.is_empty()).into()),
+                _ => Err(VmError::NativeCallFailed(format!(
+                    "{} not supported by notEmpty",
+                    val.type_name()
+                ))),
+            }
+        }),
     ]
 }
 

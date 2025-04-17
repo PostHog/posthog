@@ -72,6 +72,11 @@ pub fn test_globals() -> Value {
         "a_null": null,
         "a_nested_object": {
             "nested_key": "nested_value"
+        },
+        "inputs": {
+            "propertiesToHash": "email,phone,name",
+            "hashDistinctId": true,
+            "salt": "my-secret-salt",
         }
     })
 }

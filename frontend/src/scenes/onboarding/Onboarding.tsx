@@ -441,5 +441,9 @@ export function Onboarding(): JSX.Element | null {
     }
     const OnboardingView = onboardingViews[productKey as keyof typeof onboardingViews]
 
-    return <OnboardingView />
+    return (
+        <div className="pt-4 pb-10">
+            <OnboardingView />
+        </div>
+    )
 }

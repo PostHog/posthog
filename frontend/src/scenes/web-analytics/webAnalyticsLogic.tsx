@@ -268,6 +268,7 @@ export enum GeographyTab {
     REGIONS = 'REGIONS',
     CITIES = 'CITIES',
     TIMEZONES = 'TIMEZONES',
+    HEATMAP = 'HEATMAP',
     LANGUAGES = 'LANGUAGES',
 }
 
@@ -1731,6 +1732,25 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       'Cities',
                                       WebStatsBreakdown.City
                                   ),
+                                  ...((featureFlags[FEATURE_FLAGS.ACTIVE_HOURS_HEATMAP]
+                                      ? [
+                                            {
+                                                id: GeographyTab.HEATMAP,
+                                                title: 'Active hours',
+                                                linkText: 'Active hours',
+                                                canOpenModal: true,
+                                                query: {
+                                                    kind: NodeKind.WebActiveHoursHeatMapQuery,
+                                                    properties: webAnalyticsFilters,
+                                                    dateRange,
+                                                },
+                                                insightProps: createInsightProps(
+                                                    TileId.GEOGRAPHY,
+                                                    GeographyTab.HEATMAP
+                                                ),
+                                            },
+                                        ]
+                                      : []) as TabsTileTab[]),
                                   createTableTab(
                                       TileId.GEOGRAPHY,
                                       GeographyTab.TIMEZONES,
