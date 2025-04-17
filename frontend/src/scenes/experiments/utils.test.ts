@@ -1,6 +1,7 @@
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 
+import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
 import EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY from '~/mocks/fixtures/api/experiments/_experiment_v3_with_one_metric.json'
 import metricFunnelEventsJson from '~/mocks/fixtures/api/experiments/_metric_funnel_events.json'
 import metricTrendActionJson from '~/mocks/fixtures/api/experiments/_metric_trend_action.json'
@@ -19,6 +20,7 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     ChartDisplayType,
+    Experiment,
     ExperimentMetricMathType,
     FeatureFlagFilters,
     FeatureFlagType,
@@ -34,6 +36,7 @@ import {
     filterToExposureConfig,
     filterToMetricConfig,
     getViewRecordingFilters,
+    hasLegacyMetrics,
     isLegacyExperimentQuery,
     metricToFilter,
     metricToQuery,
@@ -906,5 +909,83 @@ describe('isLegacyExperimentQuery', () => {
     it('returns false for non-object values', () => {
         expect(isLegacyExperimentQuery('string')).toBe(false)
         expect(isLegacyExperimentQuery(123)).toBe(false)
+    })
+})
+
+describe('hasLegacyMetrics', () => {
+    it('returns true if experiment has legacy metrics', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [
+                {
+                    kind: NodeKind.ExperimentTrendsQuery,
+                    count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                },
+            ],
+            metrics_secondary: [],
+            saved_metrics: [],
+        } as unknown as Experiment
+
+        expect(hasLegacyMetrics(experiment)).toBe(true)
+    })
+
+    it('returns true if experiment has legacy secondary metrics', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [],
+            metrics_secondary: [
+                {
+                    kind: NodeKind.ExperimentFunnelsQuery,
+                    funnels_query: { kind: NodeKind.FunnelsQuery, series: [] },
+                },
+            ],
+            saved_metrics: [],
+        } as unknown as Experiment
+
+        expect(hasLegacyMetrics(experiment)).toBe(true)
+    })
+
+    it('returns true if experiment has legacy saved metrics', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [],
+            metrics_secondary: [],
+            saved_metrics: [
+                {
+                    kind: NodeKind.ExperimentTrendsQuery,
+                    count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                },
+            ],
+        } as unknown as Experiment
+
+        expect(hasLegacyMetrics(experiment)).toBe(true)
+    })
+
+    it('returns false if experiment has no legacy metrics', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [
+                {
+                    kind: NodeKind.ExperimentMetric,
+                    metric_type: ExperimentMetricType.MEAN,
+                    source: { kind: NodeKind.EventsNode, event: 'test' },
+                },
+            ],
+            metrics_secondary: [],
+            saved_metrics: [],
+        } as unknown as Experiment
+
+        expect(hasLegacyMetrics(experiment)).toBe(false)
+    })
+
+    it('returns false if experiment has no metrics', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [],
+            metrics_secondary: [],
+            saved_metrics: [],
+        } as unknown as Experiment
+
+        expect(hasLegacyMetrics(experiment)).toBe(false)
     })
 })
