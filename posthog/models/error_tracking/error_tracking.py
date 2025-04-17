@@ -110,8 +110,8 @@ class ErrorTrackingAssignmentRule(UUIDModel):
     user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
     user_group = models.ForeignKey(UserGroup, null=True, on_delete=models.CASCADE)
     order = models.IntegerField(null=False, blank=False)
-    bytecode = models.JSONField(null=False, blank=False)
-    filters = models.JSONField(null=False, blank=False)
+    bytecode = models.JSONField(null=False, blank=False)  # The bytecode of the rule
+    filters = models.JSONField(null=False, blank=False)  # The json object describing the filter rule
 
 
 class ErrorTrackingStackFrame(UUIDModel):

@@ -13,9 +13,9 @@ export type ErrorTrackingAssignmentRule = {
     filters: UniversalFiltersGroup
 }
 
-const validRule = (rule: ErrorTrackingAssignmentRule): boolean => {
-    return rule.assignee !== null && rule.filters.values.length > 0
-}
+// const validRule = (rule: ErrorTrackingAssignmentRule): boolean => {
+//     return rule.assignee !== null && rule.filters.values.length > 0
+// }
 
 export const errorTrackingAutoAssignmentLogic = kea<errorTrackingAutoAssignmentLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingAutoAssignmentLogic']),
@@ -31,7 +31,8 @@ export const errorTrackingAutoAssignmentLogic = kea<errorTrackingAutoAssignmentL
             ] as ErrorTrackingAssignmentRule[],
             {
                 loadRules: async () => {
-                    const rules = await api.errorTracking.assignmentRules()
+                    const res = await api.errorTracking.assignmentRules()
+                    const rules = res.results
                     if (rules.length === 0) {
                         rules.push({
                             id: 'new',
