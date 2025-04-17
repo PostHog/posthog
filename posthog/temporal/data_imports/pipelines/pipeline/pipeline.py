@@ -100,7 +100,11 @@ class PipelineNonDLT:
 
         try:
             # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout
-            if self._job.rows_synced is not None and self._job.rows_synced != 0:
+            if (
+                self._job.rows_synced is not None
+                and self._job.rows_synced != 0
+                and (not self._is_incremental or self._reset_pipeline is True)
+            ):
                 self._job.rows_synced = 0
                 self._job.save()
 

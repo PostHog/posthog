@@ -125,10 +125,14 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
                 }
             },
             submit: async (tablePayload) => {
-                if (props.id && props.id !== 'new') {
-                    actions.updateTable(tablePayload)
-                } else {
-                    actions.createTable(tablePayload)
+                try {
+                    if (props.id && props.id !== 'new') {
+                        actions.updateTable(tablePayload)
+                    } else {
+                        actions.createTable(tablePayload)
+                    }
+                } catch (e: any) {
+                    lemonToast.error(e.data?.message ?? e.message)
                 }
             },
         },
