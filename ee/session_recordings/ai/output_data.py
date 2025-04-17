@@ -144,6 +144,17 @@ def calculate_time_since_start(session_timestamp: str, session_start_time: datet
     return max(0, int((timestamp_datetime - session_start_time).total_seconds() * 1000))
 
 
+def _validate_enriched_summary(data: dict[str, Any], session_id: str) -> SessionSummarySerializer:
+    session_summary = SessionSummarySerializer(data=data)
+    # Validating even when processing incomplete chunks as the `.data` can't be used without validation check
+    if not session_summary.is_valid():
+        # Most of the fields are optional, so failed validation should be reported
+        raise ValidationError(
+            f"Error validating enriched content against the schema when summarizing session_id {session_id}: {session_summary.errors}"
+        )
+    return session_summary
+
+
 def enrich_raw_session_summary_with_events_meta(
     raw_session_summary: RawSessionSummarySerializer,
     simplified_events_mapping: dict[str, list[Any]],
@@ -164,7 +175,8 @@ def enrich_raw_session_summary_with_events_meta(
     key_actions = raw_session_summary.data.get("key_actions", [])
     if not key_actions:
         # If key actions aren't generated yet - return the current state
-        return SessionSummarySerializer(data=raw_session_summary.data)
+        session_summary = _validate_enriched_summary(raw_session_summary.data, session_id)
+        return session_summary
     # Iterate over key actions groups per objective
     for key_action_group in key_actions:
         enriched_events = []
@@ -226,10 +238,5 @@ def enrich_raw_session_summary_with_events_meta(
     # Validate the enriched content against the schema
     summary_to_enrich = dict(raw_session_summary.data)
     summary_to_enrich["key_actions"] = enriched_key_actions
-    session_summary = SessionSummarySerializer(data=summary_to_enrich)
-    if not session_summary.is_valid():
-        # Most of the fields are optional, so failed validation should be reported
-        raise ValidationError(
-            f"Error validating enriched content against the schema when summarizing session_id {session_id}: {session_summary.errors}"
-        )
+    session_summary = _validate_enriched_summary(summary_to_enrich, session_id)
     return session_summary
