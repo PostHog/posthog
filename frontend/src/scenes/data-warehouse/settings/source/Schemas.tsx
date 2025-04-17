@@ -352,7 +352,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                                                 }}
                                                                 status="danger"
                                                             >
-                                                                Drop table and resync
+                                                                Delete table and resync
                                                             </LemonButton>
                                                         </Tooltip>
                                                     )}
