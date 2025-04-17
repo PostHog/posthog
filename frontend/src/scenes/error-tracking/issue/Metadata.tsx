@@ -1,4 +1,4 @@
-import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
@@ -9,13 +9,11 @@ import { match } from 'ts-pattern'
 
 import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
-import { Collapsible } from '../components/Collapsible'
 import { SparklineChart, SparklineDatum, SparklineEvent } from '../components/SparklineChart/SparklineChart'
 import { TimeBoundary } from '../components/TimeBoundary'
 import { useSparklineDataIssueScene } from '../hooks/use-sparkline-data'
 import { useSparklineEvents } from '../hooks/use-sparkline-events'
 import { useSparklineOptions } from '../hooks/use-sparkline-options'
-import { cancelEvent } from '../utils'
 
 type SelectedDataType =
     | {
@@ -29,7 +27,6 @@ type SelectedDataType =
     | null
 
 export const Metadata = (): JSX.Element => {
-    const [isChartExpanded, setIsChartExpanded] = useState(true)
     const { aggregations, summaryLoading, issueLoading, firstSeen, lastSeen } = useValues(errorTrackingIssueSceneLogic)
     const [hoveredDatum, setHoveredDatum] = useState<SelectedDataType>(null)
     const sparklineData = useSparklineDataIssueScene()
@@ -53,8 +50,8 @@ export const Metadata = (): JSX.Element => {
     )
 
     return (
-        <LemonCard className="p-1" hoverEffect={false} onClick={() => setIsChartExpanded(!isChartExpanded)}>
-            <div className="flex justify-between items-center h-[30px] px-2">
+        <>
+            <div className="flex justify-between items-center p-2 flex-wrap h-[36px]">
                 {match(hoveredDatum)
                     .when(
                         (data) => shouldRenderIssueMetrics(data),
@@ -96,17 +93,8 @@ export const Metadata = (): JSX.Element => {
                         .otherwise(() => null)}
                 </div>
             </div>
-            <Collapsible isExpanded={isChartExpanded} minHeight={0} className="p-0 overflow-hidden cursor-default">
-                <div onClick={cancelEvent}>
-                    <SparklineChart
-                        data={sparklineData}
-                        events={sparklineEvents}
-                        options={sparklineOptions}
-                        className="h-full pt-1"
-                    />
-                </div>
-            </Collapsible>
-        </LemonCard>
+            <SparklineChart data={sparklineData} events={sparklineEvents} options={sparklineOptions} className="h-48" />
+        </>
     )
 }
 

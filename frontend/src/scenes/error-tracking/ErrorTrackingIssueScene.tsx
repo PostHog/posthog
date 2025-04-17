@@ -1,15 +1,17 @@
 import './ErrorTracking.scss'
 
-import { LemonCard } from '@posthog/lemon-ui'
+import { IconCollapse, IconExpand } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
+import PanelLayout, { PanelSettings, SettingsToggle } from 'lib/components/PanelLayout/PanelLayout'
 import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { AssigneeSelect } from './AssigneeSelect'
-import { IssueCard } from './components/IssueCard'
+import { ContextDisplay } from './components/ContextDisplay'
+import { StacktraceDisplay } from './components/StacktraceDisplay'
 import { DateRangeFilter, FilterGroup, InternalAccountsFilter } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
@@ -71,20 +73,47 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     </div>
                 }
             />
-            <div className="ErrorTrackingIssue space-y-2">
-                <IssueCard />
-                <div className="flex items-center gap-2 p-0 bg-transparent">
-                    <div className="h-full flex items-center justify-center w-full gap-2">
+            <div className="ErrorTrackingIssue flex flex-col gap-3">
+                <div className="p-1 gap-1 bg-surface-primary border-b">
+                    <div className="flex items-center gap-1">
                         <DateRangeFilter />
                         <FilterGroup />
                         <InternalAccountsFilter />
                     </div>
+                    <Metadata />
                 </div>
-                <Metadata />
-                <LemonCard className="p-0 overflow-hidden" hoverEffect={false}>
-                    <EventsTab />
-                </LemonCard>
+                <div className="flex flex-1 gap-3 px-2 pb-2">
+                    <PanelLayout.Panel primary={false} className="w-1/3">
+                        <EventsTab />
+                    </PanelLayout.Panel>
+                    <ExceptionContent />
+                </div>
             </div>
         </ErrorTrackingSetupPrompt>
+    )
+}
+
+const ExceptionContent = (): JSX.Element => {
+    const { showAllFrames } = useValues(errorTrackingIssueSceneLogic)
+    const { setShowAllFrames } = useActions(errorTrackingIssueSceneLogic)
+
+    return (
+        <PanelLayout column className="flex-1 overflow-y-auto">
+            <PanelLayout.Panel primary={false}>
+                <ContextDisplay />
+            </PanelLayout.Panel>
+            <PanelLayout.Panel primary={false}>
+                <PanelSettings title="Stack" border="bottom">
+                    <SettingsToggle
+                        label="Show all frames"
+                        active={true}
+                        icon={showAllFrames ? <IconCollapse /> : <IconExpand />}
+                        size="xsmall"
+                        onClick={() => setShowAllFrames(!showAllFrames)}
+                    />
+                </PanelSettings>
+                <StacktraceDisplay />
+            </PanelLayout.Panel>
+        </PanelLayout>
     )
 }

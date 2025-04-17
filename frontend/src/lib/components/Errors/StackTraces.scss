@@ -7,4 +7,9 @@
             background-color: var(--bg-surface-primary) !important;
         }
     }
+
+    .LemonCollapse.LemonCollapse--embedded:last-of-type {
+        border-bottom-right-radius: 3px;
+        border-bottom-left-radius: 3px;
+    }
 }

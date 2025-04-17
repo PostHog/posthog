@@ -5,6 +5,7 @@ import api from 'lib/api'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { hasStacktrace } from 'lib/components/Errors/utils'
+import { mightHaveRecording } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils'
 import { posthog } from 'posthog-js'
@@ -21,6 +22,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb } from '~/types'
 
+import { RuntimeIcon } from './components/RuntimeIcon'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingIssueEventsQuery, errorTrackingIssueQuery } from './queries'
@@ -47,20 +49,13 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     connect(() => ({
         values: [
             errorTrackingLogic,
-            ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery', 'showStacktrace', 'showContext'],
+            ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery'],
             stackFrameLogic,
             ['frameOrderReversed', 'showAllFrames'],
         ],
         actions: [
             errorTrackingLogic,
-            [
-                'setDateRange',
-                'setFilterTestAccounts',
-                'setFilterGroup',
-                'setSearchQuery',
-                'setShowStacktrace',
-                'setShowContext',
-            ],
+            ['setDateRange', 'setFilterTestAccounts', 'setFilterGroup', 'setSearchQuery'],
             stackFrameLogic,
             ['setFrameOrderReversed', 'setShowAllFrames'],
         ],
@@ -97,7 +92,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         summary: {},
         properties: {},
         volumeResolution: {
-            setVolumeResolution: (_, { volumeResolution }: { volumeResolution: number }) => volumeResolution,
+            setVolumeResolution: (_, { volumeResolution }) => volumeResolution,
         },
         lastSeen: {
             setLastSeen: (prevLastSeen, { lastSeen }) => {
@@ -110,24 +105,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     }),
 
     selectors({
-        breadcrumbs: [
-            (s) => [s.issue],
-            (issue: ErrorTrackingRelationalIssue | null): Breadcrumb[] => {
-                const exceptionType: string = issue?.name || 'Issue'
-                return [
-                    {
-                        key: Scene.ErrorTracking,
-                        name: 'Error tracking',
-                        path: urls.errorTracking(),
-                    },
-                    {
-                        key: [Scene.ErrorTrackingIssue, exceptionType],
-                        name: exceptionType,
-                    },
-                ]
-            },
-        ],
-
         [SIDE_PANEL_CONTEXT_KEY]: [
             (_, p) => [p.id],
             (issueId): SidePanelSceneContext => {
@@ -174,9 +151,43 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             (attributes: ExceptionAttributes | null) => attributes?.fingerprintRecords,
         ],
         hasStacktrace: [(s) => [s.exceptionList], (excList: ErrorTrackingException[]) => hasStacktrace(excList)],
+        mightHaveRecording: [
+            (s) => [s.properties],
+            (properties: Record<string, string> | null) => (properties ? mightHaveRecording(properties) : false),
+        ],
         sessionId: [
             (s) => [s.properties],
             (properties: Record<string, string> | null) => (properties ? getSessionId(properties) : undefined),
+        ],
+
+        breadcrumbs: [
+            (s) => [s.issue, s.exceptionAttributes],
+            (issue, exceptionAttributes): Breadcrumb[] => {
+                const exceptionType = issue?.name || 'Issue'
+
+                const name =
+                    issue?.name && exceptionAttributes && exceptionAttributes.runtime ? (
+                        <div className="flex gap-2 items-center h-7">
+                            {exceptionAttributes && <RuntimeIcon runtime={exceptionAttributes.runtime} />}
+                            <div className="font-bold text-lg">{issue?.name || 'Unknown'}</div>
+                            {/* TODO: add this back in */}
+                            {/* {part && <FingerprintRecordPartDisplay part={part} />} */}
+                        </div>
+                    ) : (
+                        exceptionType
+                    )
+                return [
+                    {
+                        key: Scene.ErrorTracking,
+                        name: 'Error tracking',
+                        path: urls.errorTracking(),
+                    },
+                    {
+                        key: [Scene.ErrorTrackingIssue, exceptionType],
+                        name,
+                    },
+                ]
+            },
         ],
     }),
 

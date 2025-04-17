@@ -4,8 +4,9 @@ import { LemonBadge, LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { cn } from 'lib/utils/css-classes'
 import { MouseEvent, useEffect, useMemo } from 'react'
-import { match, P } from 'ts-pattern'
+import { match } from 'ts-pattern'
 
 import { CodeLine, getLanguage, Language } from '../CodeSnippet/CodeSnippet'
 import { FingerprintRecordPartDisplay } from './FingerprintRecordPartDisplay'
@@ -23,11 +24,12 @@ export type ExceptionHeaderProps = {
     type: string
     value: string
     part?: FingerprintRecordPart
+    embedded?: boolean
 }
 
-function ExceptionHeader({ type, value, part }: ExceptionHeaderProps): JSX.Element {
+function ExceptionHeader({ type, value, part, embedded }: ExceptionHeaderProps): JSX.Element {
     return (
-        <div className="flex flex-col gap-0.5 mb-2">
+        <div className={cn('flex flex-col gap-0.5 my-2', embedded && 'px-2')}>
             <h3 className="StackTrace__type mb-0" title={type}>
                 {type}
                 {part && <FingerprintRecordPartDisplay className="ml-1" part={part} />}
@@ -44,12 +46,10 @@ type FrameContextClickHandler = (ctx: ErrorTrackingStackFrameContext, e: MouseEv
 export function ChainedStackTraces({
     exceptionList,
     showAllFrames,
-    renderExceptionHeader,
     onFrameContextClick,
     embedded = false,
     fingerprintRecords = [],
 }: {
-    renderExceptionHeader?: (props: ExceptionHeaderProps) => React.ReactNode
     exceptionList: ErrorTrackingException[]
     fingerprintRecords?: FingerprintRecordPart[]
     showAllFrames: boolean
@@ -83,10 +83,7 @@ export function ChainedStackTraces({
                             key={id ?? index}
                             className={clsx('StackTrace flex flex-col', embedded && 'StackTrace--embedded')}
                         >
-                            {match(renderExceptionHeader)
-                                .with(P.nullish, () => <ExceptionHeader {...traceHeaderProps} />)
-                                .with(P.any, () => renderExceptionHeader!(traceHeaderProps))
-                                .exhaustive()}
+                            <ExceptionHeader {...traceHeaderProps} embedded={embedded} />
                             {match([showAllFrames, !hasInAppFrames])
                                 .with([false, true], () => null)
                                 .otherwise(() => (

@@ -27,8 +27,6 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
-        setShowStacktrace: (showStacktrace: boolean) => ({ showStacktrace }),
-        setShowContext: (showContext: boolean) => ({ showContext }),
     }),
     reducers({
         dateRange: [
@@ -62,20 +60,6 @@ export const errorTrackingLogic = kea<errorTrackingLogicType>([
             '' as string,
             {
                 setSearchQuery: (_, { searchQuery }) => searchQuery,
-            },
-        ],
-        showStacktrace: [
-            true,
-            { persist: true },
-            {
-                setShowStacktrace: (_, { showStacktrace }: { showStacktrace: boolean }) => showStacktrace,
-            },
-        ],
-        showContext: [
-            true,
-            { persist: true },
-            {
-                setShowContext: (_, { showContext }: { showContext: boolean }) => showContext,
             },
         ],
     }),
