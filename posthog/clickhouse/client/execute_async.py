@@ -3,7 +3,6 @@ import uuid
 from typing import TYPE_CHECKING, Optional
 
 import orjson as json
-import sentry_sdk
 import structlog
 from prometheus_client import Histogram
 from pydantic import BaseModel
@@ -11,7 +10,7 @@ from rest_framework.exceptions import APIException, NotFound
 
 from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import tag_queries, get_query_tags
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
@@ -156,15 +155,15 @@ def execute_process_query(
     from posthog.models.user import User
 
     team = Team.objects.get(pk=team_id)
-    sentry_sdk.set_tag("team_id", team_id)
+    tag_queries(team_id=team_id)
 
     is_staff_user = False
 
     user = None
     if user_id:
         user = User.objects.only("email", "is_staff").get(pk=user_id)
+        tag_queries(user_email=user.email)
         is_staff_user = user.is_staff
-        sentry_sdk.set_user({"email": user.email, "id": user_id, "username": user.email})
 
     query_status = manager.get_query_status()
 
@@ -214,7 +213,7 @@ def execute_process_query(
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
-        capture_exception(err, properties={team_id: team_id})
+        capture_exception(err, properties=get_query_tags())
         # Do not raise here, the task itself did its job and we cannot recover
     finally:
         query_status.end_time = datetime.datetime.now(datetime.UTC)

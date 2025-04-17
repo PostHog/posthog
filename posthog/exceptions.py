@@ -6,6 +6,7 @@ from django.http.response import JsonResponse
 from rest_framework import status
 from rest_framework.exceptions import APIException
 from posthog.exceptions_capture import capture_exception
+from posthog.clickhouse.query_tagging import get_query_tags
 
 from posthog.cloud_utils import is_cloud
 
@@ -61,8 +62,9 @@ def exception_reporting(exception: Exception, context: ExceptionContext) -> Opti
     Used through drf-exceptions-hog
     """
     if not isinstance(exception, APIException):
-        logger.exception(exception, path=context["request"].path)
-        return capture_exception(exception)
+        tags = get_query_tags()
+        logger.exception(exception, path=context["request"].path, **tags)
+        return capture_exception(exception, properties=tags)
     return None
 
 

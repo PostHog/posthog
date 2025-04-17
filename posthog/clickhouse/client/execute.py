@@ -13,11 +13,10 @@ from cachetools import cached, TTLCache
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
 from prometheus_client import Counter, Gauge
-from sentry_sdk import set_tag
 
 from posthog.clickhouse.client.connection import Workload, get_client_from_pool, get_default_clickhouse_workload_type
 from posthog.clickhouse.client.escape import substitute_params
-from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
+from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value, get_query_tags
 from posthog.cloud_utils import is_cloud
 from posthog.errors import wrap_query_error
 from posthog.settings import TEST
@@ -151,9 +150,8 @@ def sync_execute(
     tags["query_settings"] = core_settings
 
     query_type = tags.get("query_type", "Other")
-    set_tag("query_type", query_type)
     if team_id is not None:
-        set_tag("team_id", team_id)
+        tag_queries(team_id=team_id)
 
     settings = {
         **core_settings,
@@ -183,7 +181,7 @@ def sync_execute(
     except Exception as e:
         err = wrap_query_error(e)
         exception_type = type(err).__name__
-        set_tag("clickhouse_exception_type", exception_type)
+        tag_queries(clickhouse_exception_type=exception_type)
         QUERY_ERROR_COUNTER.labels(
             exception_type=exception_type, query_type=query_type, workload=workload.value, chargeable=chargeable
         ).inc()

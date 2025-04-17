@@ -14,7 +14,6 @@ from rest_framework import status, viewsets
 from rest_framework.exceptions import NotAuthenticated, ValidationError, Throttled
 from rest_framework.request import Request
 from rest_framework.response import Response
-from sentry_sdk import set_tag
 from asgiref.sync import sync_to_async
 from concurrent.futures import ThreadPoolExecutor
 
@@ -36,7 +35,7 @@ from posthog.clickhouse.client.execute_async import (
     get_query_status,
     QueryStatusManager,
 )
-from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value
+from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value, get_query_tags
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import ExposedHogQLError
@@ -139,6 +138,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     )
     @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
+        # raise Exception("This is a test exception")
         data = self.get_model(request.data, QueryRequest)
         with suppress(Exception):
             request_id = structlog.get_context(logger).get("request_id")
@@ -173,7 +173,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             raise Throttled(detail=str(c))
         except Exception as e:
             self.handle_column_ch_error(e)
-            capture_exception(e)
+            capture_exception(e, properties=get_query_tags())
             raise
 
     def auth_for_awaiting(self, request: Request, *args, **kwargs):
@@ -258,7 +258,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return
 
         tag_queries(client_query_id=query_id)
-        set_tag("client_query_id", query_id)
 
 
 MAX_QUERY_TIMEOUT = 600
@@ -344,14 +343,14 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
                     if query_task.cancelled():
                         # Explicitly check for cancellation first
                         yield f"data: {json.dumps({'error': 'Query was cancelled', 'status_code': 499})}\n\n".encode()
-                        capture_exception(Exception("Query was cancelled"))
+                        capture_exception(Exception("Query was cancelled"), properties=get_query_tags())
                         break
                     try:
                         result = query_task.result()
                     except asyncio.CancelledError as e:
                         # Handle the cancellation as an SSE event
                         yield f"data: {json.dumps({'error': 'Query was cancelled', 'status_code': 499})}\n\n".encode()
-                        capture_exception(e)
+                        capture_exception(e, properties=get_query_tags())
                         break
                     except (ExposedHogQLError, ExposedCHQueryError) as e:
                         yield f"data: {json.dumps({'error': str(e), 'status_code': 400})}\n\n".encode()
@@ -360,7 +359,7 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
                         # Include error details for better debugging
                         error_message = str(e)
                         yield f"data: {json.dumps({'error': f'Server error: {error_message}'})}\n\n".encode()
-                        capture_exception(e)
+                        capture_exception(e, properties=get_query_tags())
                         break
 
                     if isinstance(result, BaseModel):
@@ -381,7 +380,7 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
                             last_update_time = current_time
                 # Just ignore errors when getting progress, shouldn't impact users
                 except Exception as e:
-                    capture_exception(e)
+                    capture_exception(e, properties=get_query_tags())
 
                 elapsed_time = time.time() - start_time
                 if elapsed_time < FAST_POLL_DURATION:
