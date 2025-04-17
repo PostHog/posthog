@@ -13,7 +13,7 @@ import {
 } from '../_tests/fixtures'
 import { DESTINATION_PLUGINS_BY_ID } from '../legacy-plugins'
 import { HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
-import { CdpCyclotronWorkerPlugins } from './cdp-cyclotron-plugins-worker.consumer'
+import { CdpCyclotronWorkerPlugins } from './cdp-cyclotron-worker-plugins.consumer'
 
 jest.setTimeout(1000)
 

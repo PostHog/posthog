@@ -284,7 +284,7 @@ def convert_filters_to_recordings_query(playlist: SessionRecordingPlaylist) -> R
     ignore_result=True,
     queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
     # limit how many run per worker instance - if we have 10 workers, this will run 600 times per hour
-    rate_limit="180/h",
+    rate_limit="120/h",
     expires=TASK_EXPIRATION_TIME,
     autoretry_for=(CHQueryErrorTooManySimultaneousQueries,),
     # will retry twice, once after 120 seconds (with jitter)
