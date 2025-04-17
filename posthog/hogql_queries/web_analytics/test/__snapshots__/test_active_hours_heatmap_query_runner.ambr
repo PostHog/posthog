@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: TestActiveHoursHeatMapQueryRunner.test_all_time_range
+# name: TestWebActiveHoursHeatMapQueryRunner.test_all_time_range
   '''
   
   SELECT timestamp
@@ -10,7 +10,7 @@
   limit 1
   '''
 # ---
-# name: TestActiveHoursHeatMapQueryRunner.test_all_time_range.1
+# name: TestWebActiveHoursHeatMapQueryRunner.test_all_time_range.1
   '''
   SELECT toDayOfWeek(toTimeZone(events.timestamp, 'UTC')) AS day,
          toHour(toTimeZone(events.timestamp, 'UTC')) AS hour,
@@ -38,7 +38,7 @@
                      optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
-# name: TestActiveHoursHeatMapQueryRunner.test_basic_active_hours
+# name: TestWebActiveHoursHeatMapQueryRunner.test_basic_active_hours
   '''
   SELECT toDayOfWeek(toTimeZone(events.timestamp, 'UTC')) AS day,
          toHour(toTimeZone(events.timestamp, 'UTC')) AS hour,
@@ -66,7 +66,7 @@
                      optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
-# name: TestActiveHoursHeatMapQueryRunner.test_no_crash_when_no_data
+# name: TestWebActiveHoursHeatMapQueryRunner.test_no_crash_when_no_data
   '''
   SELECT toDayOfWeek(toTimeZone(events.timestamp, 'UTC')) AS day,
          toHour(toTimeZone(events.timestamp, 'UTC')) AS hour,
@@ -94,7 +94,7 @@
                      optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
-# name: TestActiveHoursHeatMapQueryRunner.test_no_data
+# name: TestWebActiveHoursHeatMapQueryRunner.test_no_data
   '''
   SELECT toDayOfWeek(toTimeZone(events.timestamp, 'UTC')) AS day,
          toHour(toTimeZone(events.timestamp, 'UTC')) AS hour,
@@ -122,7 +122,7 @@
                      optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
-# name: TestActiveHoursHeatMapQueryRunner.test_with_properties
+# name: TestWebActiveHoursHeatMapQueryRunner.test_with_properties
   '''
   SELECT toDayOfWeek(toTimeZone(events.timestamp, 'UTC')) AS day,
          toHour(toTimeZone(events.timestamp, 'UTC')) AS hour,

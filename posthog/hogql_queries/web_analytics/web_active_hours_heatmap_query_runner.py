@@ -6,17 +6,17 @@ from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
 )
 from posthog.schema import (
-    CachedActiveHoursHeatMapQueryResponse,
-    ActiveHoursHeatMapQuery,
-    ActiveHoursHeatMapQueryResponse,
+    CachedWebActiveHoursHeatMapQueryResponse,
+    WebActiveHoursHeatMapQuery,
+    WebActiveHoursHeatMapQueryResponse,
     ActiveHoursHeatMapResult,
 )
 
 
-class ActiveHoursHeatMapQueryRunner(WebAnalyticsQueryRunner):
-    query: ActiveHoursHeatMapQuery
-    response: ActiveHoursHeatMapQueryResponse
-    cached_response: CachedActiveHoursHeatMapQueryResponse
+class WebActiveHoursHeatMapQueryRunner(WebAnalyticsQueryRunner):
+    query: WebActiveHoursHeatMapQuery
+    response: WebActiveHoursHeatMapQueryResponse
+    cached_response: CachedWebActiveHoursHeatMapQueryResponse
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -61,7 +61,7 @@ class ActiveHoursHeatMapQueryRunner(WebAnalyticsQueryRunner):
 
         assert results is not None
 
-        return ActiveHoursHeatMapQueryResponse(
+        return WebActiveHoursHeatMapQueryResponse(
             results=results,
             timings=response.timings,
             hogql=response.hogql,

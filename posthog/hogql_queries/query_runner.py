@@ -26,7 +26,7 @@ from posthog.hogql_queries.query_cache import QueryCacheManager
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
 from posthog.schema import (
-    ActiveHoursHeatMapQuery,
+    WebActiveHoursHeatMapQuery,
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
     CacheMissResponse,
@@ -210,11 +210,11 @@ def get_query_runner(
             modifiers=modifiers,
         )
 
-    if kind == "ActiveHoursHeatMapQuery":
-        from .web_analytics.active_hours_heatmap_query_runner import ActiveHoursHeatMapQueryRunner
+    if kind == "WebActiveHoursHeatMapQuery":
+        from .web_analytics.active_hours_heatmap_query_runner import WebActiveHoursHeatMapQueryRunner
 
-        return ActiveHoursHeatMapQueryRunner(
-            query=cast(ActiveHoursHeatMapQuery | dict[str, Any], query),
+        return WebActiveHoursHeatMapQueryRunner(
+            query=cast(WebActiveHoursHeatMapQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

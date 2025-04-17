@@ -33,6 +33,7 @@ from posthog.schema import (
     WebGoalsQuery,
     WebExternalClicksTableQuery,
     WebVitalsPathBreakdownQuery,
+    WebActiveHoursHeatMapQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -43,6 +44,7 @@ WebQueryNode = Union[
     WebExternalClicksTableQuery,
     WebVitalsPathBreakdownQuery,
     WebPageURLSearchQuery,
+    WebActiveHoursHeatMapQuery,
 ]
 
 

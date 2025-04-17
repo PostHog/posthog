@@ -4,7 +4,6 @@ import { dayjs } from 'lib/dayjs'
 
 import {
     ActionsNode,
-    ActiveHoursHeatMapQuery,
     ActorsQuery,
     BreakdownFilter,
     CompareFilter,
@@ -50,6 +49,7 @@ import {
     TracesQuery,
     TrendsFormulaNode,
     TrendsQuery,
+    WebActiveHoursHeatMapQuery,
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
@@ -213,8 +213,8 @@ export function isErrorTrackingQuery(node?: Record<string, any> | null): node is
     return node?.kind === NodeKind.ErrorTrackingQuery
 }
 
-export function isActiveHoursHeatMapQuery(node?: Record<string, any> | null): node is ActiveHoursHeatMapQuery {
-    return node?.kind === NodeKind.ActiveHoursHeatMapQuery
+export function isWebActiveHoursHeatMapQuery(node?: Record<string, any> | null): node is WebActiveHoursHeatMapQuery {
+    return node?.kind === NodeKind.WebActiveHoursHeatMapQuery
 }
 
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {

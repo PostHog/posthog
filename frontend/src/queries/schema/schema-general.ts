@@ -105,7 +105,7 @@ export enum NodeKind {
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
-    ActiveHoursHeatMapQuery = 'ActiveHoursHeatMapQuery',
+    WebActiveHoursHeatMapQuery = 'WebActiveHoursHeatMapQuery',
 
     // Revenue analytics queries
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
@@ -166,7 +166,7 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | VectorSearchQuery
-    | ActiveHoursHeatMapQuery
+    | WebActiveHoursHeatMapQuery
 
 /**
  * @discriminator kind
@@ -204,7 +204,7 @@ export type QuerySchema =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
-    | ActiveHoursHeatMapQuery
+    | WebActiveHoursHeatMapQuery
 
     // Revenue analytics
     | RevenueAnalyticsOverviewQuery
@@ -707,7 +707,7 @@ export interface DataTableNode
                     | WebGoalsQuery
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
-                    | ActiveHoursHeatMapQuery
+                    | WebActiveHoursHeatMapQuery
                     | SessionAttributionExplorerQuery
                     | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsGrowthRateQuery
@@ -737,7 +737,7 @@ export interface DataTableNode
         | WebGoalsQuery
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
-        | ActiveHoursHeatMapQuery
+        | WebActiveHoursHeatMapQuery
         | SessionAttributionExplorerQuery
         | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsGrowthRateQuery
@@ -2898,11 +2898,11 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
 
-export interface ActiveHoursHeatMapQuery extends WebAnalyticsQueryBase<ActiveHoursHeatMapQueryResponse> {
-    kind: NodeKind.ActiveHoursHeatMapQuery
+export interface WebActiveHoursHeatMapQuery extends WebAnalyticsQueryBase<WebActiveHoursHeatMapQueryResponse> {
+    kind: NodeKind.WebActiveHoursHeatMapQuery
 }
 
-export interface ActiveHoursHeatMapQueryResponse extends AnalyticsQueryResponseBase<ActiveHoursHeatMapResult[]> {
+export interface WebActiveHoursHeatMapQueryResponse extends AnalyticsQueryResponseBase<ActiveHoursHeatMapResult[]> {
     hasMore?: boolean
     limit?: integer
 }
@@ -2913,4 +2913,4 @@ export interface ActiveHoursHeatMapResult {
     total: integer
 }
 
-export type CachedActiveHoursHeatMapQueryResponse = CachedQueryResponse<ActiveHoursHeatMapQueryResponse>
+export type CachedWebActiveHoursHeatMapQueryResponse = CachedQueryResponse<WebActiveHoursHeatMapQueryResponse>

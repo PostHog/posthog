@@ -6,14 +6,14 @@ import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
 import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { ActiveHoursHeatMapQuery, ActiveHoursHeatMapResult } from '~/queries/schema/schema-general'
+import { ActiveHoursHeatMapResult, WebActiveHoursHeatMapQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { DaysAbbreviated, HoursAbbreviated, Sum } from './config'
 import { HeatMapCell } from './HeatMapCell'
 
 interface EventsHeatMapProps {
-    query: ActiveHoursHeatMapQuery
+    query: WebActiveHoursHeatMapQuery
     context: QueryContext
 }
 
@@ -32,7 +32,10 @@ export function EventsHeatMap({ query, context }: EventsHeatMapProps): JSX.Eleme
         if (!elementRef || !width) {
             return
         }
+
+        // These numbers are thresholds for the table's width, if we do not update the fontSize, the table overflows horizontally
         if (width < 1007) {
+            // If the width is less than 1007, we virtually hide the text and show the tooltip on hover
             setFontSize(0)
             setShowTooltip(true)
         } else if (width < 1134) {

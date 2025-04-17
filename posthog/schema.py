@@ -1413,7 +1413,7 @@ class NodeKind(StrEnum):
     WEB_VITALS_QUERY = "WebVitalsQuery"
     WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
     WEB_PAGE_URL_SEARCH_QUERY = "WebPageURLSearchQuery"
-    ACTIVE_HOURS_HEAT_MAP_QUERY = "ActiveHoursHeatMapQuery"
+    WEB_ACTIVE_HOURS_HEAT_MAP_QUERY = "WebActiveHoursHeatMapQuery"
     REVENUE_ANALYTICS_OVERVIEW_QUERY = "RevenueAnalyticsOverviewQuery"
     REVENUE_ANALYTICS_GROWTH_RATE_QUERY = "RevenueAnalyticsGrowthRateQuery"
     REVENUE_ANALYTICS_TOP_CUSTOMERS_QUERY = "RevenueAnalyticsTopCustomersQuery"
@@ -1942,6 +1942,14 @@ class VizSpecificOptions(BaseModel):
     RETENTION_1: Optional[RETENTION] = Field(default=None, alias="RETENTION")
 
 
+class Sampling(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    enabled: Optional[bool] = None
+    forceSamplingRate: Optional[SamplingRate] = None
+
+
 class WebAnalyticsOrderByDirection(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
@@ -1958,14 +1966,6 @@ class WebAnalyticsOrderByFields(StrEnum):
     UNIQUE_CONVERSIONS = "UniqueConversions"
     CONVERSION_RATE = "ConversionRate"
     CONVERTING_USERS = "ConvertingUsers"
-
-
-class Sampling(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    enabled: Optional[bool] = None
-    forceSamplingRate: Optional[SamplingRate] = None
 
 
 class WebOverviewItemKind(StrEnum):
@@ -3551,6 +3551,29 @@ class TrendsQueryResponse(BaseModel):
     )
 
 
+class WebActiveHoursHeatMapQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[ActiveHoursHeatMapResult]
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
 class WebExternalClicksTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3706,29 +3729,6 @@ class WebVitalsPathBreakdownResult(BaseModel):
     good: list[WebVitalsPathBreakdownResultItem]
     needs_improvements: list[WebVitalsPathBreakdownResultItem]
     poor: list[WebVitalsPathBreakdownResultItem]
-
-
-class ActiveHoursHeatMapQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hasMore: Optional[bool] = None
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    limit: Optional[int] = None
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: list[ActiveHoursHeatMapResult]
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
 
 
 class ActorsPropertyTaxonomyQueryResponse(BaseModel):
@@ -4237,38 +4237,6 @@ class CacheMissResponse(BaseModel):
     )
     cache_key: Optional[str] = None
     query_status: Optional[QueryStatus] = None
-
-
-class CachedActiveHoursHeatMapQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: Optional[datetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    error: Optional[str] = Field(
-        default=None,
-        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-    )
-    hasMore: Optional[bool] = None
-    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
-    is_cached: bool
-    last_refresh: datetime
-    limit: Optional[int] = None
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    next_allowed_client_refresh: datetime
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    results: list[ActiveHoursHeatMapResult]
-    timezone: str
-    timings: Optional[list[QueryTiming]] = Field(
-        default=None, description="Measured timings for different parts of the query generation process"
-    )
 
 
 class CachedActorsPropertyTaxonomyQueryResponse(BaseModel):
@@ -4982,6 +4950,38 @@ class CachedVectorSearchQueryResponse(BaseModel):
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
     results: list[VectorSearchResponseItem]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class CachedWebActiveHoursHeatMapQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    results: list[ActiveHoursHeatMapResult]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -7656,6 +7656,27 @@ class VisualizationMessage(BaseModel):
     type: Literal["ai/viz"] = "ai/viz"
 
 
+class WebActiveHoursHeatMapQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: Optional[CompareFilter] = None
+    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
+    filterTestAccounts: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
+    kind: Literal["WebActiveHoursHeatMapQuery"] = "WebActiveHoursHeatMapQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
+    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
+    response: Optional[WebActiveHoursHeatMapQueryResponse] = None
+    sampling: Optional[Sampling] = None
+    useSessionsTable: Optional[bool] = None
+
+
 class WebExternalClicksTableQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7890,27 +7911,6 @@ class ActionsNode(BaseModel):
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
     response: Optional[dict[str, Any]] = None
-
-
-class ActiveHoursHeatMapQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    compareFilter: Optional[CompareFilter] = None
-    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
-    dateRange: Optional[DateRange] = None
-    doPathCleaning: Optional[bool] = None
-    filterTestAccounts: Optional[bool] = None
-    includeRevenue: Optional[bool] = None
-    kind: Literal["ActiveHoursHeatMapQuery"] = "ActiveHoursHeatMapQuery"
-    modifiers: Optional[HogQLQueryModifiers] = Field(
-        default=None, description="Modifiers used when performing the query"
-    )
-    orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
-    properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
-    response: Optional[ActiveHoursHeatMapQueryResponse] = None
-    sampling: Optional[Sampling] = None
-    useSessionsTable: Optional[bool] = None
 
 
 class ActorsPropertyTaxonomyQuery(BaseModel):
@@ -9984,7 +9984,7 @@ class DataTableNode(BaseModel):
         WebGoalsQuery,
         WebVitalsQuery,
         WebVitalsPathBreakdownQuery,
-        ActiveHoursHeatMapQuery,
+        WebActiveHoursHeatMapQuery,
         SessionAttributionExplorerQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsGrowthRateQuery,
@@ -10046,7 +10046,7 @@ class HogQLAutocomplete(BaseModel):
             RecordingsQuery,
             TracesQuery,
             VectorSearchQuery,
-            ActiveHoursHeatMapQuery,
+            WebActiveHoursHeatMapQuery,
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
     startPosition: int = Field(..., description="Start position of the editor word")
@@ -10102,7 +10102,7 @@ class HogQLMetadata(BaseModel):
             RecordingsQuery,
             TracesQuery,
             VectorSearchQuery,
-            ActiveHoursHeatMapQuery,
+            WebActiveHoursHeatMapQuery,
         ]
     ] = Field(
         default=None,
@@ -10152,7 +10152,7 @@ class QueryRequest(BaseModel):
         WebVitalsQuery,
         WebVitalsPathBreakdownQuery,
         WebPageURLSearchQuery,
-        ActiveHoursHeatMapQuery,
+        WebActiveHoursHeatMapQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsGrowthRateQuery,
         RevenueAnalyticsTopCustomersQuery,
@@ -10233,7 +10233,7 @@ class QuerySchemaRoot(
             WebVitalsQuery,
             WebVitalsPathBreakdownQuery,
             WebPageURLSearchQuery,
-            ActiveHoursHeatMapQuery,
+            WebActiveHoursHeatMapQuery,
             RevenueAnalyticsOverviewQuery,
             RevenueAnalyticsGrowthRateQuery,
             RevenueAnalyticsTopCustomersQuery,
@@ -10288,7 +10288,7 @@ class QuerySchemaRoot(
         WebVitalsQuery,
         WebVitalsPathBreakdownQuery,
         WebPageURLSearchQuery,
-        ActiveHoursHeatMapQuery,
+        WebActiveHoursHeatMapQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsGrowthRateQuery,
         RevenueAnalyticsTopCustomersQuery,

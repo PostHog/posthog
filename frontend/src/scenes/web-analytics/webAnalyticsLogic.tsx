@@ -1740,7 +1740,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                                 linkText: 'Active hours',
                                                 canOpenModal: true,
                                                 query: {
-                                                    kind: NodeKind.ActiveHoursHeatMapQuery,
+                                                    kind: NodeKind.WebActiveHoursHeatMapQuery,
                                                     properties: webAnalyticsFilters,
                                                     dateRange,
                                                 },

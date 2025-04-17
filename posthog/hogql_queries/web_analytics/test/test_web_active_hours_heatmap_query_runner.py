@@ -2,14 +2,14 @@ from typing import Optional, Union
 
 from freezegun import freeze_time
 
-from posthog.hogql_queries.web_analytics.active_hours_heatmap_query_runner import ActiveHoursHeatMapQueryRunner
+from posthog.hogql_queries.web_analytics.web_active_hours_heatmap_query_runner import WebActiveHoursHeatMapQueryRunner
 from posthog.schema import (
     DateRange,
     SessionTableVersion,
     HogQLQueryModifiers,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
-    ActiveHoursHeatMapQuery,
+    WebActiveHoursHeatMapQuery,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -20,7 +20,7 @@ from posthog.test.base import (
 
 
 # @snapshot_clickhouse_queries
-class TestActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
+class TestWebActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_events(self, data, event="$pageview"):
         person_result = []
         for id, timestamps in data:
@@ -49,7 +49,7 @@ class TestActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
         return person_result
 
-    def _run_active_hours_heatmap_query_runner(
+    def _run_web_active_hours_heatmap_query_runner(
         self,
         date_from,
         date_to,
@@ -59,21 +59,21 @@ class TestActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         order_by: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None,
     ):
         modifiers = HogQLQueryModifiers(sessionTableVersion=session_table_version)
-        query = ActiveHoursHeatMapQuery(
+        query = WebActiveHoursHeatMapQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
             properties=properties or [],
             filterTestAccounts=filter_test_accounts,
             orderBy=order_by,
         )
-        runner = ActiveHoursHeatMapQueryRunner(team=self.team, query=query, modifiers=modifiers)
+        runner = WebActiveHoursHeatMapQueryRunner(team=self.team, query=query, modifiers=modifiers)
         return runner.calculate()
 
     def test_no_crash_when_no_data(self):
-        results = self._run_active_hours_heatmap_query_runner("2023-12-08", "2023-12-15").results
+        results = self._run_web_active_hours_heatmap_query_runner("2023-12-08", "2023-12-15").results
         self.assertEqual([], results)
 
     def test_no_data(self):
-        response = self._run_active_hours_heatmap_query_runner("2023-12-08", "2023-12-15")
+        response = self._run_web_active_hours_heatmap_query_runner("2023-12-08", "2023-12-15")
         self.assertEqual([], response.results)
 
     def test_basic_active_hours(self):
@@ -97,7 +97,7 @@ class TestActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        response = self._run_active_hours_heatmap_query_runner("2023-12-01", "2023-12-04")
+        response = self._run_web_active_hours_heatmap_query_runner("2023-12-01", "2023-12-04")
 
         # Convert results to a dict for easier testing
         results_dict = {(r.day, r.hour): r.total for r in response.results}
@@ -129,12 +129,16 @@ class TestActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         # With test accounts
-        response = self._run_active_hours_heatmap_query_runner("2023-12-01", "2023-12-03", filter_test_accounts=False)
+        response = self._run_web_active_hours_heatmap_query_runner(
+            "2023-12-01", "2023-12-03", filter_test_accounts=False
+        )
         results_dict = {(r.day, r.hour): r.total for r in response.results}
         self.assertEqual(results_dict.get((6, 10)), 2)  # Both users
 
         # Without test accounts
-        response = self._run_active_hours_heatmap_query_runner("2023-12-01", "2023-12-03", filter_test_accounts=True)
+        response = self._run_web_active_hours_heatmap_query_runner(
+            "2023-12-01", "2023-12-03", filter_test_accounts=True
+        )
         results_dict = {(r.day, r.hour): r.total for r in response.results}
         self.assertEqual(results_dict.get((6, 10)), 1)  # Only regular user
 
@@ -151,7 +155,7 @@ class TestActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        response = self._run_active_hours_heatmap_query_runner("all", "2024-01-20")
+        response = self._run_web_active_hours_heatmap_query_runner("all", "2024-01-20")
         results_dict = {(r.day, r.hour): r.total for r in response.results}
 
         self.assertEqual(results_dict.get((6, 10)), 1)  # December visit
@@ -170,7 +174,7 @@ class TestActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        response = self._run_active_hours_heatmap_query_runner(
+        response = self._run_web_active_hours_heatmap_query_runner(
             "2023-12-01",
             "2023-12-03",
             properties=[{"key": "$browser", "value": "Chrome"}],
