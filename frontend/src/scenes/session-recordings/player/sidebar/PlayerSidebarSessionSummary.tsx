@@ -8,7 +8,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { SessionKeyAction } from '../player-meta/types'
+import { SessionKeyAction, SessionObjective, SessionObjectiveKeyActions } from '../player-meta/types'
 
 function formatEventMetaInfo(event: SessionKeyAction): JSX.Element {
     return (
@@ -37,6 +37,59 @@ function formatMsIntoTime(ms: number): string {
 
 const isValidTimestamp = (ms: unknown): ms is number => typeof ms === 'number' && !isNaN(ms) && ms >= 0
 
+interface SessionObjectiveViewProps {
+    objective: SessionObjective
+    keyActions: SessionObjectiveKeyActions[]
+    onSeekToTime: (time: number) => void
+}
+
+function SessionObjectiveView({ objective, keyActions, onSeekToTime }: SessionObjectiveViewProps): JSX.Element {
+    return (
+        <div key={objective.name} className="mb-4">
+            <h3 className="mb-0">{objective.name}</h3>
+            <p>{objective.summary}</p>
+            {keyActions?.map((keyAction) =>
+                keyAction.events?.map((event: SessionKeyAction, eventIndex: number) =>
+                    isValidTimestamp(event.milliseconds_since_start) ? (
+                        <div
+                            key={`${objective.name}-${eventIndex}`}
+                            className={`border-b cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight ${
+                                event.error ? 'bg-danger-highlight' : ''
+                            }`}
+                            onClick={() => {
+                                if (!isValidTimestamp(event.milliseconds_since_start)) {
+                                    return
+                                }
+                                onSeekToTime(event.milliseconds_since_start)
+                            }}
+                        >
+                            <div className="flex flex-row gap-2">
+                                <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
+                                    {formatMsIntoTime(event.milliseconds_since_start)}
+                                    <div className="flex flex-row gap-2 mt-1">
+                                        {event.current_url ? (
+                                            <Link to={event.current_url} target="_blank">
+                                                <Tooltip title={event.current_url} placement="top">
+                                                    <span className="font-mono text-xs text-muted-alt">url</span>
+                                                </Tooltip>
+                                            </Link>
+                                        ) : null}
+                                        <Tooltip title={formatEventMetaInfo(event)} placement="top">
+                                            <span className="font-mono text-xs text-muted-alt">meta</span>
+                                        </Tooltip>
+                                    </div>
+                                </span>
+
+                                <span className="text-xs break-words">{event.description}</span>
+                            </div>
+                        </div>
+                    ) : null
+                )
+            )}
+        </div>
+    )
+}
+
 function SessionSummary(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
@@ -44,7 +97,7 @@ function SessionSummary(): JSX.Element {
     const { sessionSummaryFeedback } = useActions(playerMetaLogic(logicProps))
 
     return (
-        <div className="flex flex-col xl:max-w-96">
+        <div className="flex flex-col">
             {sessionSummary ? (
                 <>
                     <>
@@ -65,69 +118,20 @@ function SessionSummary(): JSX.Element {
                     </>
 
                     <div>
-                        {sessionSummary?.objectives?.map((objective) => (
-                            <div key={objective.name}>
-                                <b>{objective.name}</b>
-                                <p>{objective.summary}</p>
-                            </div>
-                        ))}
-
-                        <>
-                            {sessionSummary?.key_actions?.map((keyAction, keyActionIndex) => (
-                                <>
-                                    <div>{keyAction.objective}</div>
-                                    {keyAction.events?.map((event, eventIndex) => (
-                                        <>
-                                            <div>{event.milliseconds_since_start}</div>
-                                            {isValidTimestamp(event.milliseconds_since_start) ? (
-                                                <div
-                                                    key={`${keyActionIndex}-${eventIndex}`}
-                                                    className={`border-b cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight ${
-                                                        event.error ? 'bg-danger-highlight' : ''
-                                                    }`}
-                                                    onClick={() => {
-                                                        if (!isValidTimestamp(event.milliseconds_since_start)) {
-                                                            return
-                                                        }
-                                                        seekToTime(event.milliseconds_since_start)
-                                                    }}
-                                                >
-                                                    <div className="flex flex-row gap-2">
-                                                        <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
-                                                            {formatMsIntoTime(event.milliseconds_since_start)}
-                                                            <div className="flex flex-row gap-2 mt-1">
-                                                                {event.current_url ? (
-                                                                    <Link to={event.current_url} target="_blank">
-                                                                        <Tooltip
-                                                                            title={event.current_url}
-                                                                            placement="top"
-                                                                        >
-                                                                            <span className="font-mono text-xs text-muted-alt">
-                                                                                url
-                                                                            </span>
-                                                                        </Tooltip>
-                                                                    </Link>
-                                                                ) : null}
-                                                                <Tooltip
-                                                                    title={formatEventMetaInfo(event)}
-                                                                    placement="top"
-                                                                >
-                                                                    <span className="font-mono text-xs text-muted-alt">
-                                                                        meta
-                                                                    </span>
-                                                                </Tooltip>
-                                                            </div>
-                                                        </span>
-
-                                                        <span className="text-xs break-words">{event.description}</span>
-                                                    </div>
-                                                </div>
-                                            ) : null}
-                                        </>
-                                    ))}
-                                </>
-                            ))}
-                        </>
+                        <h2>Objectives:</h2>
+                        {sessionSummary?.objectives?.map((objective) => {
+                            const matchingKeyActions = sessionSummary?.key_actions?.filter(
+                                (keyAction) => keyAction.objective === objective.name
+                            )
+                            return (
+                                <SessionObjectiveView
+                                    key={objective.name}
+                                    objective={objective}
+                                    keyActions={matchingKeyActions || []}
+                                    onSeekToTime={seekToTime}
+                                />
+                            )
+                        })}
                     </div>
 
                     <div className="text-right mb-2 mt-4">

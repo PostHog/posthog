@@ -27,7 +27,3 @@ export interface SessionSummaryContent {
     initial_goal?: string | null
     session_outcome?: string | null
 }
-
-export interface SessionSummaryResponse {
-    content: SessionSummaryContent
-}
