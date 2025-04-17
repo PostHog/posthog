@@ -242,7 +242,7 @@ export class CdpApi {
                                     ],
                                 }
                             } else {
-                                response = await this.fetchExecutor.executeLocally(invocation)
+                                response = await this.fetchExecutor.execute(invocation)
                             }
                         } else {
                             response = this.hogExecutor.execute(invocation)

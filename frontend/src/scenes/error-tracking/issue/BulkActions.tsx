@@ -3,7 +3,8 @@ import { useActions, useValues } from 'kea'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { AssigneeSelect } from '../AssigneeSelect'
+import { AssigneeLabelDisplay } from '../components/Assignee/AssigneeDisplay'
+import { AssigneeSelect } from '../components/Assignee/AssigneeSelect'
 import { errorTrackingDataNodeLogic } from '../errorTrackingDataNodeLogic'
 import { errorTrackingSceneLogic } from '../errorTrackingSceneLogic'
 import { GenericSelect } from './GenericSelect'
@@ -93,15 +94,15 @@ export function BulkActions(): JSX.Element {
                     }
                 }}
             />
-            <AssigneeSelect
-                type="secondary"
-                size="small"
-                showName
-                showIcon={false}
-                unassignedLabel="Assign"
-                assignee={null}
-                onChange={(assignee) => assignIssues(selectedIssueIds, assignee)}
-            />
+            <AssigneeSelect assignee={null} onChange={(assignee) => assignIssues(selectedIssueIds, assignee)}>
+                {(displayAssignee) => {
+                    return (
+                        <LemonButton type="secondary" size="small">
+                            <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Assign" />
+                        </LemonButton>
+                    )
+                }}
+            </AssigneeSelect>
         </>
     ) : (
         <></>
