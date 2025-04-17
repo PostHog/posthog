@@ -828,8 +828,8 @@ def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dash
         x = 6 if index % 2 == 1 else 0
         insight = Insight.objects.create(
             team=dashboard.team,
-            name=configuration["name"],
-            description=configuration["description"],
+            name=str(configuration["name"]),
+            description=str(configuration["description"]),
             is_sample=True,
             query=configuration["query"],
         )
