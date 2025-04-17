@@ -391,10 +391,13 @@ export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunc
         }
     }
 
+    // TRICKY: If this is being converted for the fetch service we don't deserialize the vmstate as it isn't necessary
+    // We cast it to the right type as we would rather things crash if they try to use it
+    // This will be fixed in an upcoming PR
+
     return {
         id: job.id,
-        // TODO: Fix this
-        globals: parsedState?.globals ?? ({} as any),
+        globals: parsedState?.globals ?? ({} as unknown as HogFunctionInvocationGlobalsWithInputs),
         teamId: hogFunction.team_id,
         hogFunction,
         queue: (job.queueName as any) ?? 'hog',
