@@ -34,7 +34,7 @@ from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
 from posthog.api.email_verification import EmailVerifier
-from posthog.api.organization import OrganizationSerializer, OrganizationMembership
+from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.api.utils import (
     ClassicBehaviorBooleanFieldSerializer,
@@ -60,7 +60,7 @@ from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications, ROLE_CHOICES
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
 from posthog.tasks.email import (
@@ -383,13 +383,14 @@ class UserViewSet(
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
     mixins.ListModelMixin,
+    mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
     scope_object = "user"
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, UserNoOrgMembershipDeletePermission]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff"]
     queryset = User.objects.filter(is_active=True)
@@ -420,13 +421,10 @@ class UserViewSet(
             "user_permissions": UserPermissions(cast(User, self.request.user)),
         }
 
-    def delete(self, request, *args, **kwargs):
+    def destroy(self, request, *args, **kwargs):
         user = self.get_object()
 
-        memberships = OrganizationMembership.objects.filter(user=user)
-
-        if memberships.count() > 0:
-            return Response(status=409, data={"detail": "Cannot delete user with organization memberships."})
+        self.check_object_permissions(request, user)
 
         user.delete()
 

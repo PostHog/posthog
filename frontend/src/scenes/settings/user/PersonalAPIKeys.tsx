@@ -314,7 +314,7 @@ function EditKeyModal(): JSX.Element {
 
 type TagListProps = { onMoreClick: () => void; tags: string[] }
 
-function TagList({ tags, onMoreClick }: TagListProps): JSX.Element {
+export function TagList({ tags, onMoreClick }: TagListProps): JSX.Element {
     return (
         <span className="flex flex-wrap gap-1">
             {tags.slice(0, 4).map((x) => (

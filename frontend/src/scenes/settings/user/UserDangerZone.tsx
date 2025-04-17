@@ -1,13 +1,16 @@
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { isNotNil } from 'lib/utils'
+import { humanFriendlyDetailedTime, isNotNil } from 'lib/utils'
+import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { DeleteOrganizationModal } from '../organization/OrganizationDangerZone'
+import { TagList } from './PersonalAPIKeys'
+import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 import { userDangerZoneLogic } from './userDangerZoneLogic'
 
 const DELETE_CONFIRMATION_TEXT = 'permanently delete data'
@@ -26,6 +29,13 @@ export function DeleteUserModal({
     const { organizationToDelete, isUserDeletionConfirmed } = useValues(userDangerZoneLogic)
     const { leaveOrganization, setOrganizationToDelete, setIsUserDeletionConfirmed } = useActions(userDangerZoneLogic)
     const organizations = (user?.organizations ?? []).filter(isNotNil)
+    const { keys } = useValues(personalAPIKeysLogic)
+    const { loadKeys } = useActions(personalAPIKeysLogic)
+
+    useEffect(() => {
+        loadKeys()
+    }, [])
+
     return (
         <>
             <LemonModal
@@ -143,7 +153,47 @@ export function DeleteUserModal({
                         <p>
                             Account deletion <b>cannot be undone</b>. You will lose all your data permanently.
                         </p>
-                        <p>
+
+                        {keys.length > 0 && (
+                            <>
+                                <p className="text-danger font-semibold mt-4">
+                                    The following personal API keys will be deleted
+                                </p>
+                                <LemonTable
+                                    dataSource={keys}
+                                    size="small"
+                                    className="mt-2"
+                                    columns={[
+                                        {
+                                            title: 'Label',
+                                            dataIndex: 'label',
+                                            key: 'label',
+                                            render: (label) => <span className="font-semibold">{String(label)}</span>,
+                                        },
+                                        {
+                                            title: 'Last Used',
+                                            dataIndex: 'last_used_at',
+                                            key: 'lastUsedAt',
+                                            render: (_, key) =>
+                                                humanFriendlyDetailedTime(key.last_used_at, 'MMMM DD, YYYY', 'h A'),
+                                        },
+                                        {
+                                            title: 'Scopes',
+                                            key: 'scopes',
+                                            dataIndex: 'scopes',
+                                            render: (_, key) =>
+                                                key.scopes[0] === '*' ? (
+                                                    <LemonTag type="warning">All access</LemonTag>
+                                                ) : (
+                                                    <TagList tags={key.scopes} onMoreClick={() => {}} />
+                                                ),
+                                        },
+                                    ]}
+                                />
+                            </>
+                        )}
+
+                        <p className="mt-4">
                             Please type <strong className="select-none">{DELETE_CONFIRMATION_TEXT}</strong> to confirm
                             account deletion.
                         </p>

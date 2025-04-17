@@ -17,7 +17,7 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
 )
 from posthog.cloud_utils import is_cloud
-from posthog.exceptions import EnterpriseFeatureException
+from posthog.exceptions import Conflict, EnterpriseFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.scopes import APIScopeObject, APIScopeObjectOrNotSupported
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
@@ -114,6 +114,20 @@ class OrganizationMemberPermissions(BasePermission):
 
         # TODO: Optimize this - we can get it from view.user_access_control
         return OrganizationMembership.objects.filter(user=cast(User, request.user), organization=organization).exists()
+
+
+class UserNoOrgMembershipDeletePermission(BasePermission):
+    """
+    Disallow DELETE on a User if they have any organization memberships.
+    """
+
+    message = "Cannot delete user with organization memberships."
+
+    def has_object_permission(self, request, view, obj):
+        if request.method == "DELETE" and OrganizationMembership.objects.filter(user=obj).exists():
+            # this will render as a 409 Conflict
+            raise Conflict(self.message)
+        return True
 
 
 class OrganizationAdminWritePermissions(BasePermission):
