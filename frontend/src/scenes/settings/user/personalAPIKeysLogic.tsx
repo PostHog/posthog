@@ -31,7 +31,7 @@ export const API_KEY_SCOPE_PRESETS: { value: string; label: string; scopes: stri
     {
         value: 'editor',
         label: 'PostHog Editor',
-        scopes: ['insight:write', 'feature_flag:write', 'project:read', 'organization:read', 'user:read'],
+        scopes: ['feature_flag:write', 'insight:read', 'project:read', 'organization:read', 'user:read'],
         isCloudOnly: true,
     },
     { value: 'all_access', label: 'All access', scopes: ['*'] },
