@@ -306,6 +306,60 @@ def get_resource(name: str, is_incremental: bool) -> EndpointResource:
             },
             "table_format": "delta",
         },
+        "Event": {
+            "name": "Event",
+            "table_name": "event",
+            "primary_key": "Id" if is_incremental else None,
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
+            "endpoint": {
+                "data_selector": "records",
+                "path": "/services/data/v61.0/query",
+                "params": {
+                    "q": {
+                        "type": "incremental",
+                        "cursor_path": "SystemModstamp",
+                        "initial_value": "2000-01-01T00:00:00.000+0000",
+                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Event WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
+                    }
+                    if is_incremental
+                    else "SELECT FIELDS(ALL) FROM Event ORDER BY Id ASC LIMIT 200",
+                },
+                "response_actions": [],
+            },
+            "table_format": "delta",
+        },
+        "Task": {
+            "name": "Task",
+            "table_name": "task",
+            "primary_key": "Id" if is_incremental else None,
+            "write_disposition": {
+                "disposition": "merge",
+                "strategy": "upsert",
+            }
+            if is_incremental
+            else "replace",
+            "endpoint": {
+                "data_selector": "records",
+                "path": "/services/data/v61.0/query",
+                "params": {
+                    "q": {
+                        "type": "incremental",
+                        "cursor_path": "SystemModstamp",
+                        "initial_value": "2000-01-01T00:00:00.000+0000",
+                        "convert": lambda date_str: f"SELECT FIELDS(ALL) FROM Task WHERE SystemModstamp >= {date_str.isoformat() if isinstance(date_str, datetime) else date_str} ORDER BY Id ASC LIMIT 200",
+                    }
+                    if is_incremental
+                    else "SELECT FIELDS(ALL) FROM Task ORDER BY Id ASC LIMIT 200",
+                },
+                "response_actions": [],
+            },
+            "table_format": "delta",
+        },
     }
 
     return resources[name]

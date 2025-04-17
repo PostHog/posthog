@@ -307,13 +307,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.Products]: {
         projectBased: true,
-        hideProjectNotice: true,
-        layout: 'app-raw',
+        name: 'Products',
+        layout: 'plain',
     },
     [Scene.Onboarding]: {
         projectBased: true,
-        hideBillingNotice: true,
-        hideProjectNotice: true,
+        name: 'Onboarding',
+        layout: 'plain',
     },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
@@ -445,6 +445,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Wizard',
         layout: 'plain',
+    },
+    [Scene.StartupProgram]: {
+        name: 'PostHog for Startups',
+        organizationBased: true,
+        layout: 'app-container',
     },
     [Scene.MessagingBroadcasts]: {
         projectBased: true,
@@ -656,5 +661,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
+    [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
+    [urls.startups(true)]: [Scene.StartupProgram, 'startupProgramYC'],
     ...productRoutes,
 }

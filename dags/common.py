@@ -44,6 +44,7 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
                                 ErrorCodes.NETWORK_ERROR,
                                 ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES,
                                 ErrorCodes.NOT_ENOUGH_SPACE,
+                                439,  # CANNOT_SCHEDULE_TASK: "Cannot schedule a task: cannot allocate thread"
                             )
                         )
                         # queries that exceed memory limits can be retried if they were killed due to total server

@@ -1668,7 +1668,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             for (const [key, value] of Object.entries(urlVariables)) {
                 const variable = variables.find((variable: HogQLVariable) => variable.code_name === key)
                 if (variable) {
-                    actions.overrideVariableValue(variable.id, value, variable.isNull ?? false)
+                    actions.overrideVariableValue(variable.id, value, variable.isNull || value === null)
                 }
             }
         },
