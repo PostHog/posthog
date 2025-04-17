@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from posthog.models import MessageTemplate
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 
 
 class MessageTemplateSerializer(serializers.ModelSerializer):
@@ -26,7 +27,7 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "created_by", "updated_at"]
 
 
-class MessageTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class MessageTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "message_template"
     permission_classes = [IsAuthenticated]
 
