@@ -17,6 +17,8 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.storage import object_storage
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.storage.session_recording_v2_object_storage import client as v2_client
+from posthog.clickhouse.client import sync_execute
+from posthog.models import Team
 
 
 def decompress_and_parse_gzipped_json(data: bytes) -> list[Any]:
@@ -137,8 +139,6 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
     )
 
     async with Heartbeater():
-        from posthog.models import Team
-
         team = await sync_to_async(Team.objects.get)(id=inputs.team_id)
         recording = await sync_to_async(SessionRecording.get_or_build)(session_id=inputs.session_id, team=team)
 
@@ -172,7 +172,26 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
         v2_snapshots: list[dict[str, Any]] = []
         blocks = list_blocks(recording)
         if blocks:
+            # Check for unique blocks and log their ranges
+            unique_blocks = {}  # url -> block
             for block in blocks:
+                if block["url"] not in unique_blocks:
+                    unique_blocks[block["url"]] = block
+
+            await logger.ainfo(
+                "V2 blocks info",
+                total_blocks=len(blocks),
+                unique_blocks=len(unique_blocks),
+                time_ranges=[
+                    {
+                        "start": block["start_time"].isoformat() if block.get("start_time") else None,
+                        "end": block["end_time"].isoformat() if block.get("end_time") else None,
+                    }
+                    for block in unique_blocks.values()
+                ],
+            )
+
+            for block in unique_blocks.values():
                 try:
                     decompressed_block = v2_client().fetch_block(block["url"])
                     if decompressed_block:
@@ -185,6 +204,149 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
 
         # Compare snapshots
         snapshot_differences = []
+        v1_click_count = 0
+        v2_click_count = 0
+
+        def is_click(event: dict) -> bool:
+            CLICK_TYPES = [2, 4, 9, 3]  # Click, DblClick, TouchEnd, ContextMenu
+            return (
+                event.get("type") == 3  # RRWebEventType.IncrementalSnapshot
+                and event.get("data", {}).get("source") == 2  # RRWebEventSource.MouseInteraction
+                and event.get("data", {}).get("type") in CLICK_TYPES
+            )
+
+        def is_mouse_activity(event: dict) -> bool:
+            MOUSE_ACTIVITY_SOURCES = [2, 1, 6]  # MouseInteraction, MouseMove, TouchMove
+            return (
+                event.get("type") == 3  # RRWebEventType.IncrementalSnapshot
+                and event.get("data", {}).get("source") in MOUSE_ACTIVITY_SOURCES
+            )
+
+        def is_keypress(event: dict) -> bool:
+            return (
+                event.get("type") == 3  # RRWebEventType.IncrementalSnapshot
+                and event.get("data", {}).get("source") == 5  # RRWebEventSource.Input
+            )
+
+        # Count clicks, mouse activity, and keypresses in v1
+        v1_click_count = 0
+        v1_mouse_activity_count = 0
+        v1_keypress_count = 0
+        for snapshot in v1_snapshots:
+            if is_click(snapshot["data"]):
+                v1_click_count += 1
+            if is_mouse_activity(snapshot["data"]):
+                v1_mouse_activity_count += 1
+            if is_keypress(snapshot["data"]):
+                v1_keypress_count += 1
+
+        # Count clicks, mouse activity, and keypresses in v2
+        v2_click_count = 0
+        v2_mouse_activity_count = 0
+        v2_keypress_count = 0
+        for snapshot in v2_snapshots:
+            if is_click(snapshot["data"]):
+                v2_click_count += 1
+            if is_mouse_activity(snapshot["data"]):
+                v2_mouse_activity_count += 1
+            if is_keypress(snapshot["data"]):
+                v2_keypress_count += 1
+
+        # Get metadata counts
+        def get_metadata_counts(team_id: int, session_id: str, table_name: str) -> dict[str, int]:
+            query = f"""
+                SELECT
+                    session_id,
+                    team_id,
+                    any(distinct_id) as distinct_id,
+                    min(min_first_timestamp) as min_first_timestamp_agg,
+                    max(max_last_timestamp) as max_last_timestamp_agg,
+                    argMinMerge(first_url) as first_url,
+                    groupUniqArrayArray(all_urls) as all_urls,
+                    sum(click_count) as click_count,
+                    sum(keypress_count) as keypress_count,
+                    sum(mouse_activity_count) as mouse_activity_count,
+                    sum(active_milliseconds) as active_milliseconds,
+                    sum(console_log_count) as console_log_count,
+                    sum(console_warn_count) as console_warn_count,
+                    sum(console_error_count) as console_error_count,
+                    sum(event_count) as event_count,
+                    argMinMerge(snapshot_source) as snapshot_source,
+                    argMinMerge(snapshot_library) as snapshot_library
+                FROM {table_name}
+                WHERE team_id = %(team_id)s
+                AND session_id = %(session_id)s
+                GROUP BY session_id, team_id
+                LIMIT 1
+            """
+            result = sync_execute(
+                query,
+                {
+                    "team_id": team_id,
+                    "session_id": session_id,
+                },
+            )
+            if not result:
+                return {"click_count": 0, "mouse_activity_count": 0, "keypress_count": 0, "event_count": 0}
+
+            row = result[0]
+            return {
+                "click_count": row[7],  # click_count index
+                "keypress_count": row[8],  # keypress_count index
+                "mouse_activity_count": row[9],  # mouse_activity_count index
+                "event_count": row[14],  # event_count index
+            }
+
+        v1_metadata = get_metadata_counts(team.pk, recording.session_id, "session_replay_events")
+        v2_metadata = get_metadata_counts(team.pk, recording.session_id, "session_replay_events_v2_test")
+
+        await logger.ainfo(
+            "Total event count comparison",
+            v1_snapshot_count=len(v1_snapshots),
+            v2_snapshot_count=len(v2_snapshots),
+            v1_metadata_count=v1_metadata["event_count"],
+            v2_metadata_count=v2_metadata["event_count"],
+            snapshot_difference=len(v2_snapshots) - len(v1_snapshots),
+            metadata_difference=v2_metadata["event_count"] - v1_metadata["event_count"],
+            snapshot_vs_metadata_v1_difference=len(v1_snapshots) - v1_metadata["event_count"],
+            snapshot_vs_metadata_v2_difference=len(v2_snapshots) - v2_metadata["event_count"],
+        )
+
+        await logger.ainfo(
+            "Click count comparison",
+            v1_snapshot_count=v1_click_count,
+            v2_snapshot_count=v2_click_count,
+            v1_metadata_count=v1_metadata["click_count"],
+            v2_metadata_count=v2_metadata["click_count"],
+            snapshot_difference=v2_click_count - v1_click_count,
+            metadata_difference=v2_metadata["click_count"] - v1_metadata["click_count"],
+            snapshot_vs_metadata_v1_difference=v1_click_count - v1_metadata["click_count"],
+            snapshot_vs_metadata_v2_difference=v2_click_count - v2_metadata["click_count"],
+        )
+
+        await logger.ainfo(
+            "Mouse activity count comparison",
+            v1_snapshot_count=v1_mouse_activity_count,
+            v2_snapshot_count=v2_mouse_activity_count,
+            v1_metadata_count=v1_metadata["mouse_activity_count"],
+            v2_metadata_count=v2_metadata["mouse_activity_count"],
+            snapshot_difference=v2_mouse_activity_count - v1_mouse_activity_count,
+            metadata_difference=v2_metadata["mouse_activity_count"] - v1_metadata["mouse_activity_count"],
+            snapshot_vs_metadata_v1_difference=v1_mouse_activity_count - v1_metadata["mouse_activity_count"],
+            snapshot_vs_metadata_v2_difference=v2_mouse_activity_count - v2_metadata["mouse_activity_count"],
+        )
+
+        await logger.ainfo(
+            "Keypress count comparison",
+            v1_snapshot_count=v1_keypress_count,
+            v2_snapshot_count=v2_keypress_count,
+            v1_metadata_count=v1_metadata["keypress_count"],
+            v2_metadata_count=v2_metadata["keypress_count"],
+            snapshot_difference=v2_keypress_count - v1_keypress_count,
+            metadata_difference=v2_metadata["keypress_count"] - v1_metadata["keypress_count"],
+            snapshot_vs_metadata_v1_difference=v1_keypress_count - v1_metadata["keypress_count"],
+            snapshot_vs_metadata_v2_difference=v2_keypress_count - v2_metadata["keypress_count"],
+        )
 
         # Compare total count
         if len(v1_snapshots) != len(v2_snapshots):
@@ -347,40 +509,40 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
 
             return differences
 
-        def sample_events(events: dict[str, int], size: int) -> list[tuple[str, dict, list[dict]]]:
-            """Sample events and include their differences."""
-            samples = []
-            for event_json, _ in list(events.items())[:size]:
-                window_id, data = json.loads(event_json)
-                # Try to find matching event in other version by window_id
-                matching_event = None
-                if event_json in only_in_v1:
-                    # Look for matching window_id in v2
-                    for v2_json, _ in v2_events.items():
-                        v2_window_id, v2_data = json.loads(v2_json)
-                        if v2_window_id == window_id:
-                            matching_event = v2_data
-                            break
-                else:
-                    # Look for matching window_id in v1
-                    for v1_json, _ in v1_events.items():
-                        v1_window_id, v1_data = json.loads(v1_json)
-                        if v1_window_id == window_id:
-                            matching_event = v1_data
-                            break
+        # def sample_events(events: dict[str, int], size: int) -> list[tuple[str, dict, list[dict]]]:
+        #     """Sample events and include their differences."""
+        #     samples = []
+        #     for event_json, _ in list(events.items())[:size]:
+        #         window_id, data = json.loads(event_json)
+        #         # Try to find matching event in other version by window_id
+        #         matching_event = None
+        #         if event_json in only_in_v1:
+        #             # Look for matching window_id in v2
+        #             for v2_json, _ in v2_events.items():
+        #                 v2_window_id, v2_data = json.loads(v2_json)
+        #                 if v2_window_id == window_id:
+        #                     matching_event = v2_data
+        #                     break
+        #         else:
+        #             # Look for matching window_id in v1
+        #             for v1_json, _ in v1_events.items():
+        #                 v1_window_id, v1_data = json.loads(v1_json)
+        #                 if v1_window_id == window_id:
+        #                     matching_event = v1_data
+        #                     break
 
-                differences = []
-                if matching_event:
-                    differences = find_differences(data, matching_event)
+        #         differences = []
+        #         if matching_event:
+        #             differences = find_differences(data, matching_event)
 
-                samples.append((window_id, data, differences))
-            return samples
+        #         samples.append((window_id, data, differences))
+        #     return samples
 
-        await logger.ainfo(
-            "Sample of differing events",
-            v1_exclusive_samples=sample_events(only_in_v1, inputs.sample_size),
-            v2_exclusive_samples=sample_events(only_in_v2, inputs.sample_size),
-        )
+        # await logger.ainfo(
+        #     "Sample of differing events",
+        #     v1_exclusive_samples=[(window_id, str(data)[:100], differences) for window_id, data, differences in sample_events(only_in_v1, inputs.sample_size)],
+        #     v2_exclusive_samples=[(window_id, str(data)[:100], differences) for window_id, data, differences in sample_events(only_in_v2, inputs.sample_size)],
+        # )
 
         await logger.ainfo(
             "Event type comparison",

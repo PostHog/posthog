@@ -310,7 +310,7 @@ export const elementsLogic = kea<elementsLogicType>([
             (s) => [s.elementsToDisplayRaw],
             (elementsToDisplayRaw) => {
                 return elementsToDisplayRaw
-                    .filter(({ rect, visible }) => rect && rect.width > 0 && rect.height > 0 && visible)
+                    .filter(({ rect }) => rect && (rect.width !== 0 || rect.height !== 0))
                     .map((element) => ({
                         ...element,
                         // being able to hover over elements might rely on their original z-index

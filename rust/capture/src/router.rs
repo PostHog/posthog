@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::future::ready;
 use std::sync::Arc;
 
@@ -33,6 +34,51 @@ pub struct State {
     pub billing_limiter: RedisLimiter,
     pub token_dropper: Arc<TokenDropper>,
     pub event_size_limit: usize,
+    pub historical_cfg: HistoricalConfig,
+}
+
+#[derive(Clone)]
+pub struct HistoricalConfig {
+    pub enable_historical_rerouting: bool,
+    pub historical_rerouting_threshold_days: i64,
+    pub historical_tokens_keys: HashSet<String>,
+}
+
+impl HistoricalConfig {
+    pub fn new(
+        enable_historical_rerouting: bool,
+        historical_rerouting_threshold_days: i64,
+        tokens_keys: Option<String>,
+    ) -> Self {
+        let mut htk = HashSet::new();
+        if let Some(s) = tokens_keys {
+            for entry in s.split(",") {
+                htk.insert(entry.trim().to_string());
+            }
+        }
+
+        HistoricalConfig {
+            enable_historical_rerouting,
+            historical_rerouting_threshold_days,
+            historical_tokens_keys: htk,
+        }
+    }
+
+    // event_key is one of: "token" "token:ip_addr" or "token:distinct_id"
+    // and self.historical_tokens_keys is a set of the same. if the key
+    // matches any entry in the set, the event should be rerouted
+    pub fn should_reroute(&self, event_key: &str) -> bool {
+        // is the event key in the forced_keys list?
+        let key_match = self.historical_tokens_keys.contains(event_key);
+
+        // is the token (first component of the event key) in the forced_keys list?
+        let token_match = match event_key.split(':').next() {
+            Some(token) => !token.is_empty() && self.historical_tokens_keys.contains(token),
+            None => false,
+        };
+
+        key_match || token_match
+    }
 }
 
 async fn index() -> &'static str {
@@ -55,6 +101,9 @@ pub fn router<
     capture_mode: CaptureMode,
     concurrency_limit: Option<usize>,
     event_size_limit: usize,
+    enable_historical_rerouting: bool,
+    historical_rerouting_threshold_days: i64,
+    historical_tokens_keys: Option<String>,
 ) -> Router {
     let state = State {
         sink: Arc::new(sink),
@@ -63,6 +112,11 @@ pub fn router<
         billing_limiter,
         event_size_limit,
         token_dropper: Arc::new(token_dropper),
+        historical_cfg: HistoricalConfig::new(
+            enable_historical_rerouting,
+            historical_rerouting_threshold_days,
+            historical_tokens_keys,
+        ),
     };
 
     // Very permissive CORS policy, as old SDK versions

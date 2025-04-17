@@ -39,6 +39,9 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     overflow_per_second_limit: NonZeroU32::new(10).unwrap(),
     ingestion_force_overflow_by_token_distinct_id: None,
     drop_events_by_token_distinct_id: None,
+    enable_historical_rerouting: false,
+    historical_rerouting_threshold_days: 1_i64,
+    historical_tokens_keys: None,
     kafka: KafkaConfig {
         kafka_producer_linger_ms: 0, // Send messages as soon as possible
         kafka_producer_queue_mib: 10,

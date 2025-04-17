@@ -284,7 +284,7 @@ services:
     temporal:
         restart: on-failure
         environment:
-            - DB=postgresql
+            - DB=postgres12_pgx
             - DB_PORT=5432
             - POSTGRES_USER=posthog
             - POSTGRES_PWD=posthog
@@ -293,7 +293,7 @@ services:
             - ENABLE_ES=true
             - ES_SEEDS=elasticsearch
             - ES_VERSION=v7
-        image: temporalio/auto-setup:1.20.0
+        image: temporalio/auto-setup:1.27
         ports:
             - 7233:7233
         labels:
@@ -309,7 +309,7 @@ services:
     temporal-admin-tools:
         environment:
             - TEMPORAL_CLI_ADDRESS=temporal:7233
-        image: temporalio/admin-tools:1.20.0
+        image: temporalio/admin-tools:1.27
         stdin_open: true
         tty: true
     temporal-ui:
@@ -317,7 +317,7 @@ services:
             - TEMPORAL_ADDRESS=temporal:7233
             - TEMPORAL_CORS_ORIGINS=http://localhost:3000
             - TEMPORAL_CSRF_COOKIE_INSECURE=true
-        image: temporalio/ui:2.31.2
+        image: temporalio/ui:2.37.0
         ports:
             - 8081:8080
     temporal-django-worker:

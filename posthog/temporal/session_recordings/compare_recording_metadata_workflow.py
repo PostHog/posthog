@@ -166,6 +166,9 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
         differing_sessions_count = 0
         active_ms_diffs_percentage: list[float] = []
         field_differences: dict[str, int] = {field: 0 for field in FIELD_NAMES}  # Track per-field differences
+        field_example_sessions: dict[str, list[tuple[str, int, typing.Any, typing.Any]]] = {
+            field: [] for field in FIELD_NAMES
+        }  # Track example sessions per field
 
         for session_key in set(v1_sessions.keys()) & set(v2_sessions.keys()):
             session_id, team_id = session_key
@@ -191,6 +194,9 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
                     diff = {"field": field_name, "v1_value": v1_data[i], "v2_value": v2_data[i]}
                     differences.append(diff)
                     field_differences[field_name] += 1
+                    # Store example session if we haven't stored 3 examples for this field yet
+                    if len(field_example_sessions[field_name]) < 3:
+                        field_example_sessions[field_name].append((session_id, team_id, v1_data[i], v2_data[i]))
                     if field_name != "active_milliseconds":
                         differences_excluding_active_ms.append(diff)
 
@@ -239,6 +245,18 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
                 "started_before": started_before.isoformat(),
             },
         )
+
+        # Log example differences for each field separately
+        for field_name, examples in field_example_sessions.items():
+            if examples:  # Only log fields that have differences
+                await logger.ainfo(
+                    f"Example differences for field: {field_name}",
+                    field=field_name,
+                    examples=[
+                        {"session_id": session_id, "team_id": team_id, "v1_value": v1_value, "v2_value": v2_value}
+                        for session_id, team_id, v1_value, v2_value in examples
+                    ],
+                )
 
         # Log sessions only in v1/v2 if any exist
         if only_in_v1:
