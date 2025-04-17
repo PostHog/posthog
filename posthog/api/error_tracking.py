@@ -29,10 +29,10 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
 from loginas.utils import is_impersonated_session
-from posthog.hogql.compiler.bytecode import to_bytecode
 from posthog.hogql.property import property_to_expr
 
 from posthog.tasks.email import send_error_tracking_issue_assigned
+from posthog.hogql.compiler.bytecode import create_bytecode
 
 ONE_GIGABYTE = 1024 * 1024 * 1024
 JS_DATA_MAGIC = b"posthog_error_tracking"
@@ -443,7 +443,9 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, PropertyMixin, 
         return Response(assignment_rule, status=status.HTTP_201_CREATED)
 
     def generate_byte_code(self):
-        return to_bytecode(property_to_expr(self.property_groups))
+        expr = property_to_expr(self.property_groups, self.team)
+
+        return create_bytecode(expr).bytecode
 
 
 def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple[str, str]:

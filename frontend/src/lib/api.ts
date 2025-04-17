@@ -2287,7 +2287,7 @@ const api = {
             return await new ApiRequest().errorTrackingStackFrames().create({ data: { raw_ids: raw_ids } })
         },
 
-        async assignmentRules(): Promise<ErrorTrackingAssignmentRule[]> {
+        async assignmentRules(): Promise<{ results: ErrorTrackingAssignmentRule[] }> {
             return await new ApiRequest().errorTrackingAssignmentRules().get()
         },
 
