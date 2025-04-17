@@ -189,39 +189,37 @@ export class HogTransformerService {
                         }
                     }
 
-                    // Check if we should apply this transformation based on its filters
-                    if (this.hub.FILTER_TRANSFORMATIONS_ENABLED_TEAMS.includes(event.team_id)) {
-                        const globals = this.createInvocationGlobals(event)
-                        const filterGlobals = convertToHogFunctionFilterGlobal(globals)
+                    const globals = this.createInvocationGlobals(event)
+                    const filterGlobals = convertToHogFunctionFilterGlobal(globals)
 
-                        // Check if function has filters - if not, always apply
-                        if (hogFunction.filters?.bytecode) {
-                            const filterResults = checkHogFunctionFilters({
-                                hogFunction,
-                                filterGlobals,
-                                eventUuid: globals.event?.uuid,
+                    // Check if function has filters - if not, always apply
+                    if (hogFunction.filters?.bytecode) {
+                        const filterResults = checkHogFunctionFilters({
+                            hogFunction,
+                            filterGlobals,
+                            eventUuid: globals.event?.uuid,
+                        })
+
+                        // If filter didn't pass and there was no error, skip this transformation
+                        if (!filterResults.match && !filterResults.error) {
+                            transformationsSkipped.push(transformationIdentifier)
+                            results.push({
+                                invocation: createInvocation(
+                                    {
+                                        ...globals,
+                                        inputs: {}, // Not needed as this is only for a valid return type
+                                    },
+                                    hogFunction
+                                ),
+                                metrics: filterResults.metrics,
+                                logs: filterResults.logs,
+                                error: null,
+                                finished: true,
                             })
-
-                            // If filter didn't pass and there was no error, skip this transformation
-                            if (!filterResults.match && !filterResults.error) {
-                                transformationsSkipped.push(transformationIdentifier)
-                                results.push({
-                                    invocation: createInvocation(
-                                        {
-                                            ...globals,
-                                            inputs: {}, // Not needed as this is only for a valid return type
-                                        },
-                                        hogFunction
-                                    ),
-                                    metrics: filterResults.metrics,
-                                    logs: filterResults.logs,
-                                    error: null,
-                                    finished: true,
-                                })
-                                continue
-                            }
+                            continue
                         }
                     }
+
                     const result = await this.executeHogFunction(hogFunction, this.createInvocationGlobals(event))
 
                     results.push(result)
@@ -237,7 +235,6 @@ export class HogTransformerService {
                     }
 
                     if (!result.execResult) {
-                        logger.warn('⚠️', 'Execution result is null - dropping event')
                         hogTransformationDroppedEvents.inc()
                         transformationsFailed.push(transformationIdentifier)
                         return {
