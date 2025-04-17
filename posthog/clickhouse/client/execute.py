@@ -144,7 +144,6 @@ def sync_execute(
     start_time = perf_counter()
 
     try:
-        repeat = False
         while True:
             prepared_sql, prepared_args, tags = _prepare_query(query=query, args=args, workload=workload)
             query_id = validated_client_query_id()
@@ -189,11 +188,10 @@ def sync_execute(
                 ).inc()
                 if isinstance(err, ClickhouseAtCapacity) and is_personal_api_key and workload == Workload.OFFLINE:
                     workload = Workload.ONLINE
-                    repeat = True
+                    continue
                 else:
                     raise err from e
-            if not repeat:
-                break
+            break
     finally:
         execution_time = perf_counter() - start_time
 
