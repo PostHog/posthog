@@ -123,16 +123,9 @@ export class HogFunctionManagerService {
             return acc
         }, {})
 
-        const teamHogFunctions = await this.lazyLoaderByTeam.getMany(teamIds.map((x) => x.toString()))
-
-        if (!teamHogFunctions) {
-            return result
-        }
-
-        const hogFunctionIds = Object.values(teamHogFunctions).flatMap(
-            (teamFns) => teamFns?.filter((fn) => types.includes(fn.type)).map((fn) => fn.id) ?? []
-        )
-        const hogFunctions = await this.lazyLoader.getMany(hogFunctionIds)
+        const teamHogFunctionIds = await this.getHogFunctionIdsForTeams(teamIds, types)
+        const allHogFunctionIds = Object.values(teamHogFunctionIds).flat()
+        const hogFunctions = await this.lazyLoader.getMany(allHogFunctionIds)
 
         for (const fn of Object.values(hogFunctions)) {
             if (!fn) {
@@ -145,6 +138,31 @@ export class HogFunctionManagerService {
         for (const [teamId, fns] of Object.entries(result)) {
             result[parseInt(teamId)] = sortHogFunctions(fns)
         }
+
+        return result
+    }
+
+    public async getHogFunctionIdsForTeams(
+        teamIds: Team['id'][],
+        types: HogFunctionTypeType[]
+    ): Promise<Record<Team['id'], string[]>> {
+        const result = teamIds.reduce<Record<Team['id'], string[]>>((acc, teamId) => {
+            acc[teamId] = []
+            return acc
+        }, {})
+
+        const teamHogFunctions = await this.lazyLoaderByTeam.getMany(teamIds.map((x) => x.toString()))
+
+        if (!teamHogFunctions) {
+            return result
+        }
+
+        // For each team, filter functions by type and collect their IDs
+        Object.entries(teamHogFunctions).forEach(([teamId, teamFns]) => {
+            if (teamFns) {
+                result[parseInt(teamId)] = teamFns.filter((fn) => types.includes(fn.type)).map((fn) => fn.id)
+            }
+        })
 
         return result
     }

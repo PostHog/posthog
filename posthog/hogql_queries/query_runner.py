@@ -414,12 +414,12 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsChurnRateQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_churn_rate_query_runner import (
-            RevenueAnalyticsChurnRateQueryRunner,
+    if kind == "RevenueAnalyticsTopCustomersQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
+            RevenueAnalyticsTopCustomersQueryRunner,
         )
 
-        return RevenueAnalyticsChurnRateQueryRunner(
+        return RevenueAnalyticsTopCustomersQueryRunner(
             query=query,
             team=team,
             timings=timings,
