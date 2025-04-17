@@ -2,13 +2,19 @@
 // To make this easier this class is designed to abstract the queue as much as possible from
 // the underlying implementation.
 
-import { CyclotronJob, CyclotronWorker } from '@posthog/cyclotron'
-import { Counter, Gauge } from 'prom-client'
+import { CyclotronJob, CyclotronManager, CyclotronWorker } from '@posthog/cyclotron'
+import { chunk } from 'lodash'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { HogFunctionInvocation, HogFunctionInvocationJobQueue, HogFunctionInvocationResult } from '../types'
-import { cyclotronJobToInvocation, invocationToCyclotronJobUpdate } from '../utils'
+import {
+    cyclotronJobToInvocation,
+    invocationToCyclotronJobUpdate,
+    isLegacyPluginHogFunction,
+    serializeHogFunctionInvocation,
+} from '../utils'
 import { HogFunctionManagerService } from './hog-function-manager.service'
 
 const cyclotronBatchUtilizationGauge = new Gauge({
@@ -23,17 +29,33 @@ const counterJobsProcessed = new Counter({
     labelNames: ['queue'],
 })
 
+const histogramCyclotronJobsCreated = new Histogram({
+    name: 'cdp_cyclotron_jobs_created_per_batch',
+    help: 'The number of jobs we are creating in a single batch',
+    buckets: [0, 50, 100, 250, 500, 750, 1000, 1500, 2000, 3000, Infinity],
+})
+
 export class CyclotronJobQueue {
     private implementation: 'cyclotron' | 'kafka' = 'cyclotron'
     private cyclotronWorker?: CyclotronWorker
+    private cyclotronManager?: CyclotronManager
 
     constructor(
         private hub: Hub,
         private queue: HogFunctionInvocationJobQueue,
         private hogFunctionManager: HogFunctionManagerService,
-        private consumeBatch: (invocations: HogFunctionInvocation[]) => Promise<any>
+        private consumeBatch?: (invocations: HogFunctionInvocation[]) => Promise<any>
     ) {
         this.implementation = this.hub.CDP_CYCLOTRON_DELIVERY_MODE
+    }
+
+    /**
+     * Helper to only start the producer related code (e.g. when not a consumer)
+     */
+    public async startAsProducer() {
+        if (this.implementation === 'cyclotron') {
+            await this.startCyclotronManager()
+        }
     }
 
     public async start() {
@@ -54,8 +76,39 @@ export class CyclotronJobQueue {
         return true
     }
 
-    public async queueInvocation(invocation: HogFunctionInvocation) {
+    public async queueInvocations(invocations: HogFunctionInvocation[]) {
         // TODO: Implement
+
+        // For the cyclotron ones we simply create the jobs
+        const cyclotronJobs = invocations.map((item) => {
+            return {
+                teamId: item.globals.project.id,
+                functionId: item.hogFunction.id,
+                queueName: isLegacyPluginHogFunction(item.hogFunction) ? 'plugin' : 'hog',
+                priority: item.queuePriority,
+                vmState: serializeHogFunctionInvocation(item),
+            }
+        })
+
+        try {
+            histogramCyclotronJobsCreated.observe(cyclotronJobs.length)
+            // Cyclotron batches inserts into one big INSERT which can lead to contention writing WAL information hence we chunk into batches
+
+            const chunkedCyclotronJobs = chunk(cyclotronJobs, this.hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
+
+            if (this.hub.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
+                // NOTE: It's not super clear the perf tradeoffs of doing this in parallel hence the config option
+                await Promise.all(chunkedCyclotronJobs.map((jobs) => this.createCyclotronJobs(jobs)))
+            } else {
+                for (const jobs of chunkedCyclotronJobs) {
+                    await this.createCyclotronJobs(jobs)
+                }
+            }
+        } catch (e) {
+            logger.error('⚠️', 'Error creating cyclotron jobs', e)
+            logger.warn('⚠️', 'Failed jobs', { jobs: cyclotronJobs })
+            throw e
+        }
     }
 
     public async queueInvocationResults(invocationResults: HogFunctionInvocationResult[]) {
@@ -81,6 +134,26 @@ export class CyclotronJobQueue {
             shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
         })
         await this.cyclotronWorker.connect((jobs) => this.consumeCyclotronJobs(jobs))
+    }
+
+    private async startCyclotronManager() {
+        if (!this.hub.CYCLOTRON_DATABASE_URL) {
+            throw new Error('Cyclotron database URL not set! This is required for the CDP services to work.')
+        }
+        this.cyclotronManager = this.hub.CYCLOTRON_DATABASE_URL
+            ? new CyclotronManager({
+                  shards: [
+                      {
+                          dbUrl: this.hub.CYCLOTRON_DATABASE_URL,
+                      },
+                  ],
+                  shardDepthLimit: this.hub.CYCLOTRON_SHARD_DEPTH_LIMIT ?? 1000000,
+                  shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
+                  shouldUseBulkJobCopy: this.hub.CDP_CYCLOTRON_USE_BULK_COPY_JOB,
+              })
+            : undefined
+
+        await this.cyclotronManager?.connect()
     }
 
     private getCyclotronWorker(): CyclotronWorker {
@@ -138,15 +211,16 @@ export class CyclotronJobQueue {
     }
 
     private async updateCyclotronJobs(invocationResults: HogFunctionInvocationResult[]) {
+        const worker = this.getCyclotronWorker()
         await Promise.all(
             invocationResults.map(async (item) => {
                 const id = item.invocation.id
                 if (item.error) {
                     logger.debug('⚡️', 'Updating job to failed', id)
-                    this.cyclotronWorker?.updateJob(id, 'failed')
+                    worker.updateJob(id, 'failed')
                 } else if (item.finished) {
                     logger.debug('⚡️', 'Updating job to completed', id)
-                    this.cyclotronWorker?.updateJob(id, 'completed')
+                    worker.updateJob(id, 'completed')
                 } else {
                     logger.debug('⚡️', 'Updating job to available', id)
 
@@ -157,9 +231,9 @@ export class CyclotronJobQueue {
                         updates.vmState = undefined
                     }
 
-                    this.cyclotronWorker?.updateJob(id, 'available', updates)
+                    worker.updateJob(id, 'available', updates)
                 }
-                return this.cyclotronWorker?.releaseJob(id)
+                return worker.releaseJob(id)
             })
         )
     }
