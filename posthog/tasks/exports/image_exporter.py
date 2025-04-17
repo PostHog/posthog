@@ -166,14 +166,16 @@ def _screenshot_asset(
                 capture_exception()
 
         # Get the height of the visualization container specifically
-        height = driver.execute_script("""
+        height = driver.execute_script(
+            """
             const element = document.querySelector('.InsightCard__viz') || document.querySelector('.ExportedInsight__content');
             if (element) {
                 const rect = element.getBoundingClientRect();
                 return Math.max(rect.height, document.body.scrollHeight);
             }
             return document.body.scrollHeight;
-        """)
+        """
+        )
 
         # For example funnels use a table that can get very wide, so try to get its width
         width = driver.execute_script(
@@ -196,14 +198,16 @@ def _screenshot_asset(
         driver.execute_script("return new Promise(resolve => setTimeout(resolve, 500))")
 
         # Get the final height after any dynamic adjustments
-        final_height = driver.execute_script("""
+        final_height = driver.execute_script(
+            """
             const element = document.querySelector('.InsightCard__viz') || document.querySelector('.ExportedInsight__content');
             if (element) {
                 const rect = element.getBoundingClientRect();
                 return Math.max(rect.height, document.body.scrollHeight);
             }
             return document.body.scrollHeight;
-        """)
+        """
+        )
 
         # Set final window size
         driver.set_window_size(width, final_height + HEIGHT_OFFSET)
@@ -261,15 +265,8 @@ def export_image(exported_asset: ExportedAsset) -> None:
                     f"Export to format {exported_asset.export_format} is not supported for insights"
                 )
         except Exception as e:
-            if exported_asset:
-                team_id = str(exported_asset.team.id)
-            else:
-                team_id = "unknown"
-
-            with push_scope() as scope:
-                scope.set_tag("celery_task", "image_export")
-                scope.set_tag("team_id", team_id)
-                capture_exception(e)
+            team_id = str(exported_asset.team.id) if exported_asset else "unknown"
+            capture_exception(e, properties={"celery_task": "image_export", "team_id": team_id})
 
             logger.error("image_exporter.failed", exception=e, exc_info=True)
             EXPORT_FAILED_COUNTER.labels(type="image").inc()

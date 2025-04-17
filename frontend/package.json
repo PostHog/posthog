@@ -84,7 +84,6 @@
         "@radix-ui/react-dropdown-menu": "^2.1.6",
         "@radix-ui/react-slot": "^1.1.2",
         "@react-hook/size": "^2.1.2",
-        "@sentry/react": "7.112.1",
         "@stripe/react-stripe-js": "^2.8.0",
         "@stripe/stripe-js": "^4.5.0",
         "@tailwindcss/cli": "4.0.11",
@@ -192,7 +191,6 @@
     "devDependencies": {
         "@parcel/packager-ts": "2.13.3",
         "@parcel/transformer-typescript-types": "2.13.3",
-        "@sentry/types": "7.112.1",
         "@storybook/addon-actions": "^7.6.4",
         "@storybook/react": "^7.6.4",
         "@storybook/types": "^7.6.4",

@@ -118,12 +118,6 @@ export const userLogic = kea<userLogicType>([
         },
         loadUserSuccess: ({ user }) => {
             if (user && user.uuid) {
-                const Sentry = (window as any).Sentry
-                Sentry?.setUser({
-                    email: user.email,
-                    id: user.uuid,
-                })
-
                 if (posthog) {
                     posthog.identify(user.distinct_id)
                     posthog.people.set({

@@ -270,7 +270,7 @@ export const createSessionReplayEvent = (
             session_id,
             events,
         })
-        // it is safe to throw here as it caught a level up so that we can see this happening in Sentry
+        // it is safe to throw here as it caught a level up so that we can see this happening in error tracking
         throw new Error('ignoring an empty session recording event')
     }
 

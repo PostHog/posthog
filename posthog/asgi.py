@@ -9,7 +9,7 @@ os.environ.setdefault("SERVER_GATEWAY_INTERFACE", "ASGI")
 
 
 # Django doesn't support lifetime requests and raises an exception
-# when it receives them. This creates a lot of noise in sentry so
+# when it receives them. This creates a lot of noise in error tracking so
 # intercept these requests and return a 501 error without raising an exception
 def lifetime_wrapper(func):
     async def inner(scope, receive, send):

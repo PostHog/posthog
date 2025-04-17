@@ -241,7 +241,7 @@ export const instrumentEachBatchKafkaJS = async (
             logger.info('💀', "Probably the batch took longer than the session and we couldn't commit the offset")
         }
         if (error.message) {
-            let logToSentry = true
+            let sendException = true
             const messagesToIgnore = {
                 'The group is rebalancing, so a rejoin is needed': 'group_rebalancing',
                 'Specified group generation id is not valid': 'generation_id_invalid',
@@ -250,10 +250,10 @@ export const instrumentEachBatchKafkaJS = async (
             }
             for (const [msg, _] of Object.entries(messagesToIgnore)) {
                 if (error.message.includes(msg)) {
-                    logToSentry = false
+                    sendException = false
                 }
             }
-            if (logToSentry) {
+            if (sendException) {
                 captureException(error, {
                     extra: { detected_at: `kafka-queue.ts instrumentEachBatch` },
                 })
