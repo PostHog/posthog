@@ -188,6 +188,7 @@ def sync_execute(
                 ).inc()
                 if isinstance(err, ClickhouseAtCapacity) and is_personal_api_key and workload == Workload.OFFLINE:
                     workload = Workload.ONLINE
+                    settings["use_hedged_requests"] = "1"
                     continue
                 raise err from e
             break
