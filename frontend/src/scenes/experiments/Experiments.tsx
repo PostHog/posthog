@@ -1,4 +1,4 @@
-import { LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
@@ -26,6 +26,7 @@ import { experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { StatusTag } from './ExperimentView/components'
 import { Holdouts } from './Holdouts'
 import { SharedMetrics } from './SharedMetrics/SharedMetrics'
+import { hasLegacyMetrics } from './utils'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -64,7 +65,17 @@ export function Experiments(): JSX.Element {
                 return (
                     <LemonTableLink
                         to={experiment.id ? urls.experiment(experiment.id) : undefined}
-                        title={stringWithWBR(experiment.name, 17)}
+                        title={
+                            <>
+                                {stringWithWBR(experiment.name, 17)}
+                                {hasLegacyMetrics(experiment) &&
+                                    featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER] && (
+                                        <LemonTag type="warning" className="ml-1">
+                                            Legacy
+                                        </LemonTag>
+                                    )}
+                            </>
+                        }
                         description={experiment.description}
                     />
                 )
