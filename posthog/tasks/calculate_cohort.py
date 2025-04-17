@@ -17,7 +17,7 @@ from datetime import timedelta
 from posthog.exceptions_capture import capture_exception
 from posthog.api.monitoring import Feature
 from posthog.models import Cohort
-from posthog.models.cohort.util import clear_stale_cohortpeople, get_static_cohort_size
+from posthog.models.cohort.util import get_static_cohort_size
 from posthog.models.user import User
 from posthog.tasks.utils import CeleryQueue
 
@@ -87,12 +87,6 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
     cohort.save(update_fields=update_fields)
     cohort.refresh_from_db()
     calculate_cohort_ch.delay(cohort.id, cohort.pending_version, initiating_user.id if initiating_user else None)
-
-
-@shared_task(ignore_result=True)
-def clear_stale_cohort(cohort_id: int, before_version: int) -> None:
-    cohort: Cohort = Cohort.objects.get(pk=cohort_id)
-    clear_stale_cohortpeople(cohort, before_version)
 
 
 @shared_task(ignore_result=True, max_retries=2, queue=CeleryQueue.LONG_RUNNING.value)
