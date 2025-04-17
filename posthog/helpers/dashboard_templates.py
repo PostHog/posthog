@@ -844,6 +844,7 @@ def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dash
 
     for index, configuration in enumerate(configurations):
         x = 6 if index % 2 == 1 else 0
+        y = 5 * (index // 2)
         insight = Insight.objects.create(
             team=dashboard.team,
             name=str(configuration["name"]),
@@ -855,7 +856,7 @@ def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dash
             insight=insight,
             dashboard=dashboard,
             layouts={
-                "sm": {"h": 5, "w": 6, "x": x, "y": 0, "minH": 1, "minW": 1},
+                "sm": {"h": 5, "w": 6, "x": x, "y": y, "minH": 1, "minW": 1},
                 "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 1, "minW": 1},
             },
             color=None,
@@ -866,7 +867,7 @@ def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dash
                 "i": str(tile.id),
                 "w": 6,
                 "x": x,
-                "y": 0,
+                "y": y,
                 "minH": 1,
                 "minW": 1,
             },
