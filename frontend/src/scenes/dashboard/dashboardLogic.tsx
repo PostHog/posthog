@@ -297,11 +297,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         abortQuery: (payload: { queryId: string; queryStartTime: number }) => payload,
         abortAnyRunningQuery: true,
         updateFiltersAndLayoutsAndVariables: true,
-        overrideVariableValue: (variableId: string, value: any, isNull: boolean) => ({
+        overrideVariableValue: (variableId: string, value: any, isNull: boolean, reload?: boolean) => ({
             variableId,
             value,
             allVariables: values.variables,
             isNull,
+            reload,
         }),
         setLoadLayoutFromServerOnPreview: (loadLayoutFromServerOnPreview: boolean) => ({
             loadLayoutFromServerOnPreview,
@@ -1673,24 +1674,46 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.loadDashboard({ action: 'preview' })
             }
         },
-        overrideVariableValue: () => {
-            if (values.initialVariablesLoaded) {
+        overrideVariableValue: ({ reload }) => {
+            if (reload) {
                 actions.loadDashboard({ action: 'preview' })
             }
         },
-        [variableDataLogic.actionTypes.getVariablesSuccess]: () => {
-            if (!values.initialVariablesLoaded && QUERY_VARIABLES_KEY in router.values.searchParams) {
+        [variableDataLogic.actionTypes.getVariablesSuccess]: ({ variables }) => {
+            // Only run this handler once on startup
+            // This ensures variables are loaded before the dashboard is loaded and insights are refreshed
+            if (values.initialVariablesLoaded) {
+                return
+            }
+
+            // try to convert url variables to variables
+            const urlVariables = values.urlVariables
+
+            for (const [key, value] of Object.entries(urlVariables)) {
+                const variable = variables.find((variable: Variable) => variable.code_name === key)
+                if (variable) {
+                    actions.overrideVariableValue(variable.id, value, variable.isNull || value === null)
+                }
+            }
+
+            if (QUERY_VARIABLES_KEY in router.values.searchParams) {
                 actions.loadDashboard({
                     refresh: 'lazy_async',
                     action: 'initial_load',
                 })
             }
+
             actions.setInitialVariablesLoaded(true)
         },
     })),
 
     subscriptions(({ values, actions }) => ({
+        // This is used after initial variables are loaded in getVariableSuccess
         variables: (variables) => {
+            if (!values.initialVariablesLoaded) {
+                return
+            }
+
             // try to convert url variables to variables
             const urlVariables = values.urlVariables
 
