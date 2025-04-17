@@ -14,7 +14,8 @@ type TreeNodeDisplayIconWrapperProps = {
     defaultNodeIcon?: React.ReactNode
     handleClick: (item: TreeDataItem) => void
     enableMultiSelection: boolean
-    depthOffset: number
+    defaultOffset: number
+    multiSelectionOffset: number
     checkedItemCount?: number
     onItemChecked?: (id: string, checked: boolean) => void
 }
@@ -25,9 +26,10 @@ export const TreeNodeDisplayIconWrapper = ({
     defaultNodeIcon,
     handleClick,
     enableMultiSelection,
-    depthOffset,
     checkedItemCount,
     onItemChecked,
+    defaultOffset,
+    multiSelectionOffset,
 }: TreeNodeDisplayIconWrapperProps): JSX.Element => {
     return (
         <>
@@ -56,7 +58,7 @@ export const TreeNodeDisplayIconWrapper = ({
                             checkedItemCount === 0,
                     })}
                     style={{
-                        left: `${depthOffset + 5}px`,
+                        left: `${defaultOffset}px`,
                     }}
                 />
 
@@ -67,8 +69,8 @@ export const TreeNodeDisplayIconWrapper = ({
                         // If multi-selection is enabled, we need to offset the icon to the right to make space for the checkbox
                         left:
                             enableMultiSelection && !item.disableSelect
-                                ? `${depthOffset + 28}px`
-                                : `${depthOffset + 5}px`,
+                                ? `${multiSelectionOffset}px`
+                                : `${defaultOffset}px`,
                     }}
                     // Since we need to make this element hoverable, we cannot pointer-events: none, so we pass onClick to mimic the sibling button click
                     onClick={() => {
