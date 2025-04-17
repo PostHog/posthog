@@ -3,9 +3,10 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework import status
+from rest_framework import viewsets
 
 
-class MessageSetupViewSet(TeamAndOrgViewSetMixin):
+class MessageSetupViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated]
 
     @action(methods=["POST"], detail=False)
@@ -29,13 +30,13 @@ class MessageSetupViewSet(TeamAndOrgViewSetMixin):
                 "status": "pending",
                 "dns_records": {
                     "dkim": {
-                        "record_name": dkim_record_name,
-                        "record_value": dkim_record_value,
-                        "status": dkim_status,
+                        "record_name": "dkim_record_name",
+                        "record_value": "dkim_record_value",
+                        "status": "dkim_status",
                     },
                     "spf": {
-                        "record_value": spf_record_value,
-                        "status": spf_status,
+                        "record_value": "spf_record_value",
+                        "status": "spf_status",
                     },
                 },
             }
@@ -60,13 +61,13 @@ class MessageSetupViewSet(TeamAndOrgViewSetMixin):
                 "status": "pending",  # pending, verified
                 "dns_records": {
                     "dkim": {
-                        "record_name": dkim_record_name,
-                        "record_value": dkim_record_value,
-                        "status": dkim_status,
+                        "record_name": "dkim_record_name",
+                        "record_value": "dkim_record_value",
+                        "status": "dkim_status",
                     },
                     "spf": {
-                        "record_value": spf_record_value,
-                        "status": spf_status,
+                        "record_value": "spf_record_value",
+                        "status": "spf_status",
                     },
                 },
             }
