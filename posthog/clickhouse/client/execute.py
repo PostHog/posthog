@@ -189,8 +189,7 @@ def sync_execute(
                 if isinstance(err, ClickhouseAtCapacity) and is_personal_api_key and workload == Workload.OFFLINE:
                     workload = Workload.ONLINE
                     continue
-                else:
-                    raise err from e
+                raise err from e
             break
     finally:
         execution_time = perf_counter() - start_time
