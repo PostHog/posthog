@@ -349,15 +349,15 @@ describe('IngestionConsumer', () => {
                     expectDropLogs([[team.api_token, distinct_id_to_drop]])
                 })
 
-                it('should not drop events for team with event key to drop when distinct_id differs', async () => {
-                    const any_distinct_id = 'any_distinct_id'
+                it('should not drop all events for team with event key listed when distinct_id differs in event', async () => {
+                    const unlisted_distinct_id = 'team1_distinct_id_NOT_to_drop'
                     const messages = createKafkaMessages([
                         createEvent({
                             token: team.api_token,
-                            distinct_id: any_distinct_id,
+                            distinct_id: unlisted_distinct_id,
                         }),
                     ])
-                    addMessageHeaders(messages[0], team.api_token, any_distinct_id)
+                    addMessageHeaders(messages[0], team.api_token, unlisted_distinct_id)
                     await ingester.handleKafkaBatch(messages)
                     expect(getProducedKafkaMessagesForTopic('clickhouse_events_json_test')).not.toHaveLength(0)
                     expectDropLogs([])
