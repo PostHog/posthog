@@ -28,6 +28,7 @@ export const userLogic = kea<userLogicType>([
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
         updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean) => ({ productKey, value }),
         switchTeam: (teamId: string | number, destination?: string) => ({ teamId, destination }),
+        deleteUser: true,
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -75,6 +76,20 @@ export const userLogic = kea<userLogicType>([
                         actions.updateUserFailure(error.message)
                         return values.user
                     }
+                },
+                deleteUser: async () => {
+                    return await api
+                        .delete('api/users/@me/')
+                        .then(() => {
+                            actions.deleteUserSuccess(null)
+                            actions.logout()
+                            return null
+                        })
+                        .catch((error) => {
+                            console.error(error)
+                            actions.deleteUserFailure(error.message)
+                            return values.user
+                        })
                 },
                 setUserScenePersonalisation: async ({ scene, dashboard }) => {
                     if (!values.user) {
@@ -173,6 +188,16 @@ export const userLogic = kea<userLogicType>([
         updateUserFailure: () => {
             lemonToast.error(`Error saving preferences`, {
                 toastId: 'updateUser',
+            })
+        },
+        deleteUserSuccess: () => {
+            lemonToast.success('Account deleted', {
+                toastId: 'deleteUser',
+            })
+        },
+        deleteUserFailure: () => {
+            lemonToast.error('Error deleting account', {
+                toastId: 'deleteUser',
             })
         },
         updateCurrentOrganization: async ({ organizationId, destination }, breakpoint) => {
