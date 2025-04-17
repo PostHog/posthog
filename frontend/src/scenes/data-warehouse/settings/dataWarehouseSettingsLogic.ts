@@ -140,7 +140,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 selfManagedTables: DatabaseSchemaDataWarehouseTable[],
                 searchTerm: string
             ): DatabaseSchemaDataWarehouseTable[] => {
-                if (!searchTerm) {
+                if (!searchTerm?.trim()) {
                     return selfManagedTables
                 }
                 const normalizedSearch = searchTerm.toLowerCase()
