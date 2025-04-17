@@ -13,7 +13,7 @@ from temporalio.client import (
 )
 import temporalio
 from temporalio.common import RetryPolicy
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
+from posthog.constants import DATA_MODELING_TASK_QUEUE
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     create_schedule,
@@ -52,7 +52,7 @@ def get_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule
             "data-modeling-run",
             asdict(inputs),
             id=str(saved_query.id),
-            task_queue=str(DATA_WAREHOUSE_TASK_QUEUE),
+            task_queue=str(DATA_MODELING_TASK_QUEUE),
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=10),
                 maximum_interval=timedelta(seconds=60),

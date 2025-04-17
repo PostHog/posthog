@@ -10,7 +10,7 @@ from rest_framework.decorators import action
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
+from posthog.constants import DATA_MODELING_TASK_QUEUE
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
 from posthog.hogql.errors import ExposedHogQLError
@@ -264,7 +264,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             "data-modeling-run",  # type: ignore
             inputs,  # type: ignore
             id=workflow_id,
-            task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+            task_queue=DATA_MODELING_TASK_QUEUE,
         )
 
         return response.Response(status=status.HTTP_200_OK)
