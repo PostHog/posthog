@@ -13,10 +13,13 @@ from django.db import transaction
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.filters.mixins.property import PropertyMixin
+
 from posthog.api.utils import action
 from posthog.models.error_tracking import (
     ErrorTrackingIssue,
     ErrorTrackingSymbolSet,
+    ErrorTrackingAssignmentRule,
     ErrorTrackingStackFrame,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
@@ -26,8 +29,10 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
 from loginas.utils import is_impersonated_session
+from posthog.hogql.property import property_to_expr
 
 from posthog.tasks.email import send_error_tracking_issue_assigned
+from posthog.hogql.compiler.bytecode import create_bytecode
 
 ONE_GIGABYTE = 1024 * 1024 * 1024
 JS_DATA_MAGIC = b"posthog_error_tracking"
@@ -364,6 +369,68 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
 
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
+
+
+class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ErrorTrackingAssignmentRule
+        fields = ["id", "filters"]
+        read_only_fields = ["team_id"]
+
+
+class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
+    id = serializers.SerializerMethodField()
+    type = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ErrorTrackingIssueAssignment
+        fields = ["id", "type"]
+
+    def get_id(self, obj):
+        return obj.user_id or obj.user_group_id
+
+    def get_type(self, obj):
+        return "user_group" if obj.user_group else "user"
+
+
+class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, PropertyMixin, viewsets.ModelViewSet):
+    scope_object = "error_tracking"
+    queryset = ErrorTrackingAssignmentRule.objects.all()
+    serializer_class = ErrorTrackingAssignmentRuleSerializer
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team_id=self.team.id)
+
+    def update(self, request, *args, **kwargs) -> Response:
+        assignment_rule = self.get_object()
+        assignee = request.data.get("assignee", None)
+        filters = request.GET.get("filters")
+
+        assignment_rule.filters = filters
+        assignment_rule.byte_code = self.generate_byte_code(filters)
+        assignment_rule.user_id = None if assignee["type"] == "user_group" else assignee["id"]
+        assignment_rule.user_group_id = None if assignee["type"] == "user" else assignee["id"]
+
+        assignment_rule.save()
+        return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+
+    def create(self, request, *args, **kwargs) -> Response:
+        properties = request.GET.get("properties")
+        assignee = request.data.get("assignee", None)
+
+        assignment_rule = self.queryset.objects.create(
+            properties=properties,
+            byte_code=self.generate_byte_code(),
+            user_id=None if assignee["type"] == "user_group" else assignee["id"],
+            user_group_id=None if assignee["type"] == "user" else assignee["id"],
+        )
+
+        return Response(assignment_rule, status=status.HTTP_201_CREATED)
+
+    def generate_byte_code(self):
+        expr = property_to_expr(self.property_groups, self.team)
+
+        return create_bytecode(expr).bytecode
 
 
 def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple[str, str]:

@@ -1,5 +1,6 @@
 import './PropertyFilters.scss'
 
+import { LemonButtonProps } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import {
@@ -34,6 +35,7 @@ interface PropertyFiltersProps {
     propertyGroupType?: FilterLogicalOperator | null
     addText?: string | null
     buttonText?: string
+    buttonSize?: LemonButtonProps['size']
     hasRowOperator?: boolean
     sendAllKeyUpdates?: boolean
     allowNew?: boolean
@@ -64,6 +66,7 @@ export function PropertyFilters({
     propertyGroupType = null,
     addText = null,
     buttonText = 'Add filter',
+    buttonSize,
     hasRowOperator = true,
     sendAllKeyUpdates = false,
     allowNew = true,
@@ -141,6 +144,7 @@ export function PropertyFilters({
                                             allowRelativeDateOptions={allowRelativeDateOptions}
                                             exactMatchFeatureFlagCohortOperators={exactMatchFeatureFlagCohortOperators}
                                             hideBehavioralCohorts={hideBehavioralCohorts}
+                                            size={buttonSize}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

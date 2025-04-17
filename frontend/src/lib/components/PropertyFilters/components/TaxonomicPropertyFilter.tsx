@@ -49,6 +49,7 @@ export function TaxonomicPropertyFilter({
     propertyGroupType,
     orFiltering,
     addText = 'Add filter',
+    size = 'medium',
     hasRowOperator,
     metadataSource,
     propertyAllowList,
@@ -158,6 +159,7 @@ export function TaxonomicPropertyFilter({
                     onComplete()
                 }
             }}
+            size={size}
             groupTypeIndex={
                 isGroupPropertyFilter(filter) && typeof filter?.group_type_index === 'number'
                     ? (filter?.group_type_index as GroupTypeIndex)
@@ -219,6 +221,7 @@ export function TaxonomicPropertyFilter({
                                 data-attr={'property-select-toggle-' + index}
                                 sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
                                 onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
+                                size={size}
                             >
                                 {filter?.type === 'cohort' ? (
                                     filter.cohort_name || `Cohort #${filter?.value}`
