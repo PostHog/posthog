@@ -3543,12 +3543,38 @@ class TrendsQueryResponse(BaseModel):
     )
 
 
-class WebActiveHoursHeatMapResult(BaseModel):
+class WebActiveHoursHeatMapDayAndHourResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     day: int
     hour: int
+    total: int
+
+
+class WebActiveHoursHeatMapDayResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    day: int
+    total: int
+
+
+class WebActiveHoursHeatMapHourResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hour: int
+    total: int
+
+
+class WebActiveHoursHeatMapStructuredResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dayAndHours: list[WebActiveHoursHeatMapDayAndHourResult]
+    days: list[WebActiveHoursHeatMapDayResult]
+    hours: list[WebActiveHoursHeatMapHourResult]
     total: int
 
 
@@ -4959,7 +4985,7 @@ class CachedWebActiveHoursHeatMapQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[WebActiveHoursHeatMapResult]
+    results: WebActiveHoursHeatMapStructuredResult
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -5367,7 +5393,7 @@ class Response9(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[WebActiveHoursHeatMapResult]
+    results: WebActiveHoursHeatMapStructuredResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -6702,7 +6728,7 @@ class QueryResponseAlternative24(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[WebActiveHoursHeatMapResult]
+    results: WebActiveHoursHeatMapStructuredResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -6950,7 +6976,7 @@ class QueryResponseAlternative37(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[WebActiveHoursHeatMapResult]
+    results: WebActiveHoursHeatMapStructuredResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -7652,7 +7678,7 @@ class WebActiveHoursHeatMapQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[WebActiveHoursHeatMapResult]
+    results: WebActiveHoursHeatMapStructuredResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )

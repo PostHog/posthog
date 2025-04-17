@@ -1,14 +1,6 @@
-import { DaysAbbreviated, HoursAbbreviated, Sum } from './config'
+import { DaysAbbreviated, HoursAbbreviated } from './config'
 
 describe('EventsHeatMap config', () => {
-    describe('Sum aggregation', () => {
-        it('should sum an array of numbers correctly', () => {
-            expect(Sum.fn([1, 2, 3, 4])).toBe(10)
-            expect(Sum.fn([])).toBe(0)
-            expect(Sum.fn([0, -1, 1])).toBe(0)
-        })
-    })
-
     describe('DaysAbbreviated', () => {
         it('should have correct days configuration', () => {
             // we care about the order of the days and the startIndex
