@@ -82,35 +82,8 @@ export class CyclotronJobQueue {
     public async queueInvocations(invocations: HogFunctionInvocation[]) {
         // TODO: Implement
 
-        // For the cyclotron ones we simply create the jobs
-        const cyclotronJobs = invocations.map((item) => {
-            return {
-                teamId: item.globals.project.id,
-                functionId: item.hogFunction.id,
-                queueName: isLegacyPluginHogFunction(item.hogFunction) ? 'plugin' : 'hog',
-                priority: item.queuePriority,
-                vmState: serializeHogFunctionInvocation(item),
-            }
-        })
-
-        try {
-            histogramCyclotronJobsCreated.observe(cyclotronJobs.length)
-            // Cyclotron batches inserts into one big INSERT which can lead to contention writing WAL information hence we chunk into batches
-
-            const chunkedCyclotronJobs = chunk(cyclotronJobs, this.hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
-
-            if (this.hub.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
-                // NOTE: It's not super clear the perf tradeoffs of doing this in parallel hence the config option
-                await Promise.all(chunkedCyclotronJobs.map((jobs) => this.createCyclotronJobs(jobs)))
-            } else {
-                for (const jobs of chunkedCyclotronJobs) {
-                    await this.createCyclotronJobs(jobs)
-                }
-            }
-        } catch (e) {
-            logger.error('⚠️', 'Error creating cyclotron jobs', e)
-            logger.warn('⚠️', 'Failed jobs', { jobs: cyclotronJobs })
-            throw e
+        if (this.implementation === 'cyclotron') {
+            await this.createCyclotronJobs(invocations)
         }
     }
 
@@ -164,6 +137,48 @@ export class CyclotronJobQueue {
             throw new Error('CyclotronWorker not initialized')
         }
         return this.cyclotronWorker
+    }
+
+    private getCyclotronManager(): CyclotronManager {
+        if (!this.cyclotronManager) {
+            throw new Error('CyclotronManager not initialized')
+        }
+        return this.cyclotronManager
+    }
+
+    private async createCyclotronJobs(invocations: HogFunctionInvocation[]) {
+        const cyclotronManager = this.getCyclotronManager()
+
+        // For the cyclotron ones we simply create the jobs
+        const cyclotronJobs = invocations.map((item) => {
+            return {
+                teamId: item.globals.project.id,
+                functionId: item.hogFunction.id,
+                queueName: isLegacyPluginHogFunction(item.hogFunction) ? 'plugin' : 'hog',
+                priority: item.queuePriority,
+                vmState: serializeHogFunctionInvocation(item),
+            }
+        })
+
+        try {
+            histogramCyclotronJobsCreated.observe(cyclotronJobs.length)
+            // Cyclotron batches inserts into one big INSERT which can lead to contention writing WAL information hence we chunk into batches
+
+            const chunkedCyclotronJobs = chunk(cyclotronJobs, this.hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
+
+            if (this.hub.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
+                // NOTE: It's not super clear the perf tradeoffs of doing this in parallel hence the config option
+                await Promise.all(chunkedCyclotronJobs.map((jobs) => cyclotronManager.bulkCreateJobs(jobs)))
+            } else {
+                for (const jobs of chunkedCyclotronJobs) {
+                    await cyclotronManager.bulkCreateJobs(jobs)
+                }
+            }
+        } catch (e) {
+            logger.error('⚠️', 'Error creating cyclotron jobs', e)
+            logger.warn('⚠️', 'Failed jobs', { jobs: cyclotronJobs })
+            throw e
+        }
     }
 
     private async consumeCyclotronJobs(jobs: CyclotronJob[]) {
