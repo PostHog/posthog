@@ -29,10 +29,12 @@ def bigquery_storage_read_client(
             "client_email": client_email,
             "project_id": project_id,
         },
-        scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        scopes=["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"],
     )
 
-    client = bigquery_storage.BigQueryReadClient(credentials=credentials)
+    client = bigquery_storage.BigQueryReadClient(
+        credentials=credentials,
+    )
 
     yield client
 
@@ -149,7 +151,7 @@ def bigquery_source(
 
                 bq_table = bq_client.get_table(destination_table)
 
-            elif bq_table.table_type in ("VIEW", "MATERIALIZED_VIEW"):
+            elif bq_table.table_type in ("VIEW", "MATERIALIZED_VIEW", "EXTERNAL"):
                 # BigQuery storage API does not support reading directly from views or
                 # materialized views. So, similarly to incremental runs, we must copy the
                 # results to a temporary table first. In the case of an incremental sync,

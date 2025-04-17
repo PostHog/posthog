@@ -13,13 +13,13 @@ from cachetools import cached, TTLCache
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
 from prometheus_client import Counter, Gauge
-from sentry_sdk import set_tag
 
 from posthog.clickhouse.client.connection import Workload, get_client_from_pool, get_default_clickhouse_workload_type
 from posthog.clickhouse.client.escape import substitute_params
-from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
+from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value, get_query_tags
 from posthog.cloud_utils import is_cloud
 from posthog.errors import wrap_query_error
+from posthog.exceptions import ClickhouseAtCapacity
 from posthog.settings import TEST
 from posthog.utils import generate_short_id, patchable
 
@@ -119,13 +119,11 @@ def sync_execute(
         except ModuleNotFoundError:  # when we run plugin server tests it tries to run above, ignore
             pass
 
-    if workload == Workload.DEFAULT and (
-        # When someone uses an API key, always put their query to the offline cluster
-        get_query_tag_value("access_method") == "personal_api_key"
-        or
-        # Execute all celery tasks not directly set to be online on the offline cluster
-        get_query_tag_value("kind") == "celery"
-    ):
+    is_personal_api_key = get_query_tag_value("access_method") == "personal_api_key"
+
+    # When someone uses an API key, always put their query to the offline cluster
+    # Execute all celery tasks not directly set to be online on the offline cluster
+    if workload == Workload.DEFAULT and (is_personal_api_key or get_query_tag_value("kind") == "celery"):
         workload = Workload.OFFLINE
 
     # Make sure we always have process_query_task on the online cluster
@@ -145,50 +143,55 @@ def sync_execute(
 
     start_time = perf_counter()
 
-    prepared_sql, prepared_args, tags = _prepare_query(query=query, args=args, workload=workload)
-    query_id = validated_client_query_id()
-    core_settings = {**default_settings(), **(settings or {})}
-    tags["query_settings"] = core_settings
-
-    query_type = tags.get("query_type", "Other")
-    set_tag("query_type", query_type)
-    if team_id is not None:
-        set_tag("team_id", team_id)
-
-    settings = {
-        **core_settings,
-        "log_comment": json.dumps(tags, separators=(",", ":")),
-        "query_id": query_id,
-    }
-
-    if workload == Workload.DEFAULT:
-        workload = get_default_clickhouse_workload_type()
-
-    if workload == Workload.OFFLINE:
-        # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the
-        # online resource pool when the offline resource pool is under heavy load. this comes at the cost of higher and
-        # more variable latency and a higher likelihood of query failures - but offline workloads should be tolerant to
-        # these disruptions
-        settings["use_hedged_requests"] = "0"
-
     try:
-        with sync_client or get_client_from_pool(workload, team_id, readonly) as client:
-            result = client.execute(
-                prepared_sql,
-                params=prepared_args,
-                settings=settings,
-                with_column_types=with_column_types,
-                query_id=query_id,
-            )
-    except Exception as e:
-        err = wrap_query_error(e)
-        exception_type = type(err).__name__
-        set_tag("clickhouse_exception_type", exception_type)
-        QUERY_ERROR_COUNTER.labels(
-            exception_type=exception_type, query_type=query_type, workload=workload.value, chargeable=chargeable
-        ).inc()
+        while True:
+            prepared_sql, prepared_args, tags = _prepare_query(query=query, args=args, workload=workload)
+            query_id = validated_client_query_id()
+            core_settings = {**default_settings(), **(settings or {})}
+            tags["query_settings"] = core_settings
 
-        raise err from e
+            query_type = tags.get("query_type", "Other")
+            if team_id is not None:
+                tag_queries(team_id=team_id)
+
+            settings = {
+                **core_settings,
+                "log_comment": json.dumps(tags, separators=(",", ":")),
+                "query_id": query_id,
+            }
+
+            if workload == Workload.DEFAULT:
+                workload = get_default_clickhouse_workload_type()
+
+            if workload == Workload.OFFLINE:
+                # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the
+                # online resource pool when the offline resource pool is under heavy load. this comes at the cost of higher and
+                # more variable latency and a higher likelihood of query failures - but offline workloads should be tolerant to
+                # these disruptions
+                settings["use_hedged_requests"] = "0"
+
+            try:
+                with sync_client or get_client_from_pool(workload, team_id, readonly) as client:
+                    result = client.execute(
+                        prepared_sql,
+                        params=prepared_args,
+                        settings=settings,
+                        with_column_types=with_column_types,
+                        query_id=query_id,
+                    )
+            except Exception as e:
+                err = wrap_query_error(e)
+                exception_type = type(e).__name__
+                tag_queries(clickhouse_exception_type=exception_type)
+                QUERY_ERROR_COUNTER.labels(
+                    exception_type=exception_type, query_type=query_type, workload=workload.value, chargeable=chargeable
+                ).inc()
+                if isinstance(err, ClickhouseAtCapacity) and is_personal_api_key and workload == Workload.OFFLINE:
+                    workload = Workload.ONLINE
+                    settings["use_hedged_requests"] = "1"
+                    continue
+                raise err from e
+            break
     finally:
         execution_time = perf_counter() - start_time
 

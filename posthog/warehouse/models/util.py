@@ -9,6 +9,7 @@ from posthog.hogql.database.models import (
     StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
+    UnknownDatabaseField,
 )
 
 from django.db.models import Q
@@ -70,6 +71,7 @@ def clean_type(column_type: str) -> str:
 CLICKHOUSE_HOGQL_MAPPING = {
     "UUID": StringDatabaseField,
     "String": StringDatabaseField,
+    "Nothing": UnknownDatabaseField,
     "DateTime64": DateTimeDatabaseField,
     "DateTime32": DateTimeDatabaseField,
     "DateTime": DateTimeDatabaseField,
@@ -104,4 +106,5 @@ STR_TO_HOGQL_MAPPING = {
     "StringArrayDatabaseField": StringArrayDatabaseField,
     "StringDatabaseField": StringDatabaseField,
     "StringJSONDatabaseField": StringJSONDatabaseField,
+    "UnknownDatabaseField": UnknownDatabaseField,
 }

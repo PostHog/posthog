@@ -18,6 +18,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
     ChartDisplayType,
     ExperimentMetricMathType,
     FeatureFlagFilters,
@@ -401,7 +402,7 @@ describe('checkFeatureFlagEligibility', () => {
         can_edit: true,
         tags: [],
         ensure_experience_continuity: null,
-        user_access_level: 'admin',
+        user_access_level: AccessControlLevel.Admin,
         status: 'ACTIVE',
         has_encrypted_payloads: false,
         version: 0,

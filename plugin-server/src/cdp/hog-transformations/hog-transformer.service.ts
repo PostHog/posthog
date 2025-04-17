@@ -200,8 +200,8 @@ export class HogTransformerService {
                             eventUuid: globals.event?.uuid,
                         })
 
-                        // If filter didn't pass and there was no error, skip this transformation
-                        if (!filterResults.match && !filterResults.error) {
+                        // If filter didn't pass skip the actual transformation and add logs and errors from the filterResult
+                        if (!filterResults.match) {
                             transformationsSkipped.push(transformationIdentifier)
                             results.push({
                                 invocation: createInvocation(
@@ -213,7 +213,7 @@ export class HogTransformerService {
                                 ),
                                 metrics: filterResults.metrics,
                                 logs: filterResults.logs,
-                                error: null,
+                                error: filterResults.error,
                                 finished: true,
                             })
                             continue
