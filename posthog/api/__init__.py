@@ -46,6 +46,7 @@ from . import (
     instance_status,
     integration,
     messages,
+    message_setup,
     message_templates,
     notebook,
     organization,
@@ -660,5 +661,12 @@ environments_router.register(
     r"messaging/templates",
     message_templates.MessageTemplateViewSet,
     "project_messaging_templates",
+    ["project_id"],
+)
+
+environments_router.register(
+    r"messaging/setup",
+    message_setup.MessageSetupViewSet,
+    "project_messaging_setup",
     ["project_id"],
 )
