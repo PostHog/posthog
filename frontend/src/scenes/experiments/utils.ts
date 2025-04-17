@@ -26,6 +26,7 @@ import {
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
     ChartDisplayType,
+    Experiment,
     ExperimentMetricMathType,
     FeatureFlagFilters,
     FeatureFlagType,
@@ -37,6 +38,8 @@ import {
     type QueryBasedInsightModel,
     UniversalFiltersGroupValue,
 } from '~/types'
+
+import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
 export function getExperimentInsightColour(variantIndex: number | null): string {
     return variantIndex !== null ? getSeriesColor(variantIndex) : 'var(--muted-3000)'
@@ -657,4 +660,36 @@ export function getAllowedMathTypes(metricType: ExperimentMetricType): Experimen
         default:
             return [ExperimentMetricMathType.TotalCount]
     }
+}
+
+/**
+ * Check if a query is a legacy experiment metric.
+ *
+ * We use `unknown` here because in some cases, the query is not typed.
+ */
+export const isLegacyExperimentQuery = (query: unknown): query is ExperimentTrendsQuery | ExperimentFunnelsQuery => {
+    /**
+     * since query could be an object literal type, we need to check for the kind property
+     */
+    return (
+        !!query &&
+        typeof query === 'object' &&
+        'kind' in query &&
+        (query.kind === NodeKind.ExperimentTrendsQuery || query.kind === NodeKind.ExperimentFunnelsQuery)
+    )
+}
+
+export function hasLegacyMetrics(experiment: Experiment): boolean {
+    const allMetrics = [...experiment.metrics, ...experiment.metrics_secondary, ...experiment.saved_metrics]
+    /**
+     * The legacy query runner uses ExperimentTrendsQuery and ExperimentFunnelsQuery
+     * to run experiments.
+     *
+     * We should remove these legacy metrics once we've migrated all experiments to the new query runner.
+     */
+    return allMetrics.some(isLegacyExperimentQuery)
+}
+
+export function hasLegacySharedMetrics(sharedMetrics: SharedMetric[]): boolean {
+    return sharedMetrics.some((metric) => isLegacyExperimentQuery(metric.query))
 }

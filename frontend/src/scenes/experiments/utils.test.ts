@@ -34,6 +34,7 @@ import {
     filterToExposureConfig,
     filterToMetricConfig,
     getViewRecordingFilters,
+    isLegacyExperimentQuery,
     metricToFilter,
     metricToQuery,
     percentageDistribution,
@@ -859,5 +860,51 @@ describe('metricToQuery', () => {
 
         const query = metricToQuery(metric as ExperimentMetric, false)
         expect(query).toBeUndefined()
+    })
+})
+
+describe('isLegacyExperimentQuery', () => {
+    it('returns true for ExperimentTrendsQuery', () => {
+        const query = {
+            kind: NodeKind.ExperimentTrendsQuery,
+            count_query: {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+            },
+        }
+        expect(isLegacyExperimentQuery(query)).toBe(true)
+    })
+
+    it('returns true for ExperimentFunnelsQuery', () => {
+        const query = {
+            kind: NodeKind.ExperimentFunnelsQuery,
+            funnels_query: {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+            },
+        }
+        expect(isLegacyExperimentQuery(query)).toBe(true)
+    })
+
+    it('returns false for ExperimentMetric', () => {
+        const query = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: 'test',
+            },
+        }
+        expect(isLegacyExperimentQuery(query)).toBe(false)
+    })
+
+    it('returns false for null/undefined', () => {
+        expect(isLegacyExperimentQuery(null)).toBe(false)
+        expect(isLegacyExperimentQuery(undefined)).toBe(false)
+    })
+
+    it('returns false for non-object values', () => {
+        expect(isLegacyExperimentQuery('string')).toBe(false)
+        expect(isLegacyExperimentQuery(123)).toBe(false)
     })
 })
