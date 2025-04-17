@@ -19,8 +19,7 @@ import {
 } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { PipelineTab, ProductKey } from '~/types'
-import { AccessControlLevel } from '~/types'
+import { AccessControlLevel, PipelineTab, ProductKey } from '~/types'
 
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'

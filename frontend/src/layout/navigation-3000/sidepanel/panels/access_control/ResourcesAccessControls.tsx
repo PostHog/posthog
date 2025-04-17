@@ -148,8 +148,8 @@ export function ResourcesAccessControls(): JSX.Element {
 
             {/* Modals for adding access controls */}
             <AddResourceAccessControlModal
-                modelOpen={memberModalOpen}
-                setModelOpen={setMemberModalOpen}
+                modalOpen={memberModalOpen}
+                setModalOpen={setMemberModalOpen}
                 placeholder="Search for team members to add…"
                 onAdd={handleAddMemberAccess}
                 options={addableMembers.map((member) => ({
@@ -161,8 +161,8 @@ export function ResourcesAccessControls(): JSX.Element {
             />
 
             <AddResourceAccessControlModal
-                modelOpen={roleModalOpen}
-                setModelOpen={setRoleModalOpen}
+                modalOpen={roleModalOpen}
+                setModalOpen={setRoleModalOpen}
                 placeholder="Search for roles to add…"
                 onAdd={handleAddRoleAccess}
                 options={addableRoles.map((role) => ({
@@ -366,8 +366,8 @@ function ResourcesAccessControlRoles({
 }
 
 function AddResourceAccessControlModal(props: {
-    modelOpen: boolean
-    setModelOpen: (open: boolean) => void
+    modalOpen: boolean
+    setModalOpen: (open: boolean) => void
     placeholder: string
     onAdd: (
         newValues: string[],
@@ -470,14 +470,14 @@ function AddResourceAccessControlModal(props: {
 
     return (
         <LemonModal
-            isOpen={props.modelOpen || false}
-            onClose={() => props.setModelOpen(false)}
+            isOpen={props.modalOpen || false}
+            onClose={() => props.setModalOpen(false)}
             title={getModalTitle()}
             maxWidth="30rem"
             description={`Set resource access levels for ${props.type === 'member' ? 'members' : 'roles'}`}
             footer={
                 <div className="flex items-center justify-end gap-2">
-                    <LemonButton type="secondary" onClick={() => props.setModelOpen(false)}>
+                    <LemonButton type="secondary" onClick={() => props.setModalOpen(false)}>
                         Cancel
                     </LemonButton>
                     <LemonButton type="primary" onClick={onSubmit} disabledReason={getValidationMessage()}>

@@ -147,7 +147,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
 
                 const accessControls = resourceAccessControls?.access_controls ?? []
 
-                return (sortedMembers || [])
+                return sortedMembers
                     .map((member: OrganizationMemberType) => {
                         const accessControlByResource = accessControls
                             .filter((control: AccessControlType) => control.organization_member === member.id)
@@ -182,7 +182,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
 
                 const accessControls = resourceAccessControls?.access_controls ?? []
 
-                return (roles || [])
+                return roles
                     .map((role: RoleType) => {
                         const accessControlByResource = accessControls
                             .filter((control: AccessControlType) => control.role === role.id)
