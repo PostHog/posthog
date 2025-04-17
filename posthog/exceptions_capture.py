@@ -4,7 +4,8 @@ def capture_exception(error=None, properties=None):
 
     logger = structlog.get_logger(__name__)
 
-    logger.exception(error)
-
     if api_key:
-        posthog_capture_exception(error, properties=properties)
+        _, msg = posthog_capture_exception(error, properties=properties)
+        logger.exception(error, event_id=msg.get("uuid"))
+    else:
+        logger.exception(error)
