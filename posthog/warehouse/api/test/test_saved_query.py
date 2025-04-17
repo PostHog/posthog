@@ -619,3 +619,45 @@ class TestSavedQuery(APIBaseTest):
 
             # Verify get_columns was called
             mock_get_columns.assert_called_once()
+
+    def test_variables_not_supported_in_saved_queries(self):
+        # Try to create a saved query with variables
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "variable_query",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event from events where event = {variables.event}",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("Variables are not supported in saved queries", response.json()["detail"])
+
+        # Create a valid saved query first
+        valid_response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "valid_query",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event from events where event = 'pageview'",
+                },
+            },
+        )
+        self.assertEqual(valid_response.status_code, 201, valid_response.content)
+        saved_query = valid_response.json()
+
+        # Try to update with variables
+        update_response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+            {
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event from events where event = {variables.event}",
+                },
+            },
+        )
+        self.assertEqual(update_response.status_code, 400, update_response.content)
+        self.assertIn("Variables are not supported in saved queries", update_response.json()["detail"])

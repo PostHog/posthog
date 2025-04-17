@@ -196,6 +196,9 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             )
         except Exception as err:
             if isinstance(err, ExposedHogQLError):
+                # special case error for query variables in saved queries
+                if "Unable to resolve field: variables" in str(err):
+                    raise exceptions.ValidationError(detail=f"Variables are not supported in saved queries")
                 error = str(err)
                 raise exceptions.ValidationError(detail=f"Invalid query: {error}")
             elif not settings.DEBUG:
