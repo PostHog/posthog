@@ -307,13 +307,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.Products]: {
         projectBased: true,
-        hideProjectNotice: true,
-        layout: 'app-raw',
+        name: 'Products',
+        layout: 'plain',
     },
     [Scene.Onboarding]: {
         projectBased: true,
-        hideBillingNotice: true,
-        hideProjectNotice: true,
+        name: 'Onboarding',
+        layout: 'plain',
     },
     [Scene.ToolbarLaunch]: {
         projectBased: true,

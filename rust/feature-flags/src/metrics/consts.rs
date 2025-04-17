@@ -15,8 +15,6 @@ pub const PROPERTY_CACHE_HITS_COUNTER: &str = "flags_property_cache_hits_total";
 pub const PROPERTY_CACHE_MISSES_COUNTER: &str = "flags_property_cache_misses_total";
 pub const DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER: &str =
     "flags_db_person_and_group_properties_reads_total";
-pub const DB_PERSON_PROPERTIES_READS_COUNTER: &str = "flags_db_person_properties_reads_total";
-pub const DB_GROUP_PROPERTIES_READS_COUNTER: &str = "flags_db_group_properties_reads_total";
 
 // Timing metrics
 pub const FLAG_EVALUATION_TIME: &str = "flags_evaluation_time";
@@ -27,7 +25,6 @@ pub const FLAG_DB_PROPERTIES_FETCH_TIME: &str = "flags_properties_db_fetch_time"
 pub const FLAG_GROUP_FETCH_TIME: &str = "flags_groups_cache_fetch_time";
 pub const FLAG_GET_MATCH_TIME: &str = "flags_get_match_time";
 pub const FLAG_EVALUATE_ALL_CONDITIONS_TIME: &str = "flags_evaluate_all_conditions_time";
-pub const FLAG_STATIC_COHORT_DB_EVALUATION_TIME: &str = "flags_static_cohort_db_fetch_time";
 pub const FLAG_PERSON_QUERY_TIME: &str = "flags_person_query_time";
 pub const FLAG_PERSON_PROCESSING_TIME: &str = "flags_person_processing_time";
 pub const FLAG_COHORT_QUERY_TIME: &str = "flags_cohort_query_time";
