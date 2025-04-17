@@ -32,10 +32,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 mmdb: true,
                 ingestionV2: true,
             }
-        case PluginServerMode.property_defs:
-            return {
-                propertyDefs: true,
-            }
         case PluginServerMode.recordings_blob_ingestion:
             return {
                 sessionRecordingBlobIngestion: true,

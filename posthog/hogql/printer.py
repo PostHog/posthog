@@ -121,8 +121,12 @@ def prepare_ast_for_printing(
 ) -> _T_AST | None:
     if context.database is None:
         with context.timings.measure("create_hogql_database"):
+            # Passing both `team_id` and `team` because `team` is not always available in the context
             context.database = create_hogql_database(
-                context.team_id, context.modifiers, context.team, timings=context.timings
+                context.team_id,
+                modifiers=context.modifiers,
+                team=context.team,
+                timings=context.timings,
             )
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
@@ -380,6 +384,9 @@ class _Printer(Visitor):
                         else:
                             # Non-unique hidden alias. Skip.
                             column = column.expr
+                    elif isinstance(column, ast.Call):
+                        column_alias = print_prepared_ast(column, self.context, dialect="hogql")
+                        column = ast.Alias(alias=column_alias, expr=column)
                     columns.append(self.visit(column))
             else:
                 columns = [self.visit(column) for column in node.select]
@@ -1283,7 +1290,7 @@ class _Printer(Visitor):
 
             args = [self.visit(arg) for arg in node.args]
 
-            if self.dialect in ("hogql", "clickhouse"):
+            if self.dialect == "clickhouse":
                 if node.name == "hogql_lookupDomainType":
                     return f"coalesce(dictGetOrNull('channel_definition_dict', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('channel_definition_dict', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupPaidSourceType":
@@ -1310,7 +1317,9 @@ class _Printer(Visitor):
                 params_part = f"({', '.join(params)})" if params is not None else ""
                 args_part = f"({', '.join(args)})"
                 return f"{relevant_clickhouse_name}{params_part}{args_part}"
-            raise QueryError(f"Unexpected unresolved HogQL function '{node.name}(...)'")
+
+            # If hogql dialect, just keep it as is
+            return f"{node.name}({', '.join(args)})"
         else:
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
             if len(close_matches) > 0:

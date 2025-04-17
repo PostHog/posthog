@@ -39,10 +39,22 @@ export const urls = {
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
-    revenue: (): string => '/data-management/revenue',
+    revenueSettings: (): string => '/data-management/revenue',
 
-    pipelineNodeNew: (stage: PipelineStage | ':stage', id?: string | number): string => {
-        return `/pipeline/new/${stage}${id ? `/${id}` : ''}`
+    pipelineNodeNew: (
+        stage: PipelineStage | ':stage',
+        { id, kind }: { id?: string | number; kind?: string } = {}
+    ): string => {
+        let base = `/pipeline/new/${stage}`
+        if (id) {
+            base += `/${id}`
+        }
+
+        if (kind) {
+            return `${base}?kind=${kind}`
+        }
+
+        return base
     },
     pipeline: (tab?: PipelineTab | ':tab'): string => `/pipeline/${tab ? tab : PipelineTab.Overview}`,
     /** @param id 'new' for new, uuid for batch exports and numbers for plugins */
@@ -155,12 +167,13 @@ export const urls = {
     messagingBroadcasts: (): string => '/messaging/broadcasts',
     messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
     messagingBroadcast: (id: string): string => `/messaging/broadcasts/${id}`,
-    messagingAutomations: (): string => '/messaging/automations',
-    messagingAutomationNew: (): string => '/messaging/automations/new',
-    messagingAutomation: (id: string): string => `/messaging/automations/${id}`,
+    messagingCampaigns: (): string => '/messaging/campaigns',
+    messagingCampaignNew: (): string => '/messaging/campaigns/new',
+    messagingCampaign: (id: string): string => `/messaging/campaigns/${id}`,
     messagingLibrary: (): string => '/messaging/library',
     messagingLibraryTemplate: (id: string): string => `/messaging/library/template/${id}`,
     messagingLibraryTemplateNew: (): string => '/messaging/library/template/new',
     messagingLibraryMessage: (id: string): string => `/messaging/library/message/${id}`,
     messagingLibraryMessageNew: (): string => '/messaging/library/message/new',
+    startups: (ycProgram?: boolean): string => `/startups${ycProgram ? '/yc' : ''}`,
 }

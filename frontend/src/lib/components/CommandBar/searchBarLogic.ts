@@ -45,7 +45,7 @@ function rankGroups(groups: Group[], query: string): GroupResult[] {
 
 export const searchBarLogic = kea<searchBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'searchBarLogic']),
-    connect({
+    connect(() => ({
         values: [commandBarLogic, ['initialQuery', 'barStatus'], groupsModel, ['groupTypes', 'aggregationLabel']],
         actions: [
             commandBarLogic,
@@ -53,7 +53,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
             eventUsageLogic,
             ['reportCommandBarSearch', 'reportCommandBarSearchResultOpened'],
         ],
-    }),
+    })),
     actions({
         search: true,
         setSearchQuery: (query: string) => ({ query }),

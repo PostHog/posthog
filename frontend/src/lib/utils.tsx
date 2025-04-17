@@ -1,4 +1,3 @@
-import * as Sentry from '@sentry/react'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
@@ -475,11 +474,19 @@ export function slugify(text: string): string {
 export const DEFAULT_DECIMAL_PLACES = 2
 
 /** Format number with comma as the thousands separator. */
-export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIMAL_PLACES): string {
-    if (isNaN(precision) || precision < 0) {
-        precision = DEFAULT_DECIMAL_PLACES
+export function humanFriendlyNumber(
+    d: number,
+    maximumFractionDigits: number = DEFAULT_DECIMAL_PLACES,
+    minimumFractionDigits: number = 0
+): string {
+    if (isNaN(maximumFractionDigits) || maximumFractionDigits < 0) {
+        maximumFractionDigits = DEFAULT_DECIMAL_PLACES
     }
-    return d.toLocaleString('en-US', { maximumFractionDigits: precision })
+    if (isNaN(minimumFractionDigits) || minimumFractionDigits < 0) {
+        minimumFractionDigits = 0
+    }
+
+    return d.toLocaleString('en-US', { maximumFractionDigits, minimumFractionDigits })
 }
 
 export function humanFriendlyLargeNumber(d: number): string {
@@ -1399,6 +1406,49 @@ export function pluralize(count: number, singular: string, plural?: string, incl
     return includeNumber ? `${humanFriendlyNumber(count)} ${form}` : form
 }
 
+const WORD_PLURALIZATION_RULES = [
+    [/s?$/i, 's'],
+    [/([^aeiou]ese)$/i, '$1'],
+    [/(ax|test)is$/i, '$1es'],
+    [/(alias|[^aou]us|t[lm]as|gas|ris)$/i, '$1es'],
+    [/(e[mn]u)s?$/i, '$1s'],
+    [/([^l]ias|[aeiou]las|[ejzr]as|[iu]am)$/i, '$1'],
+    [/(alumn|syllab|vir|radi|nucle|fung|cact|stimul|termin|bacill|foc|uter|loc|strat)(?:us|i)$/i, '$1i'],
+    [/(alumn|alg|vertebr)(?:a|ae)$/i, '$1ae'],
+    [/(seraph|cherub)(?:im)?$/i, '$1im'],
+    [/(her|at|gr)o$/i, '$1oes'],
+    [
+        /(agend|addend|millenni|dat|extrem|bacteri|desiderat|strat|candelabr|errat|ov|symposi|curricul|automat|quor)(?:a|um)$/i,
+        '$1a',
+    ],
+    [/(apheli|hyperbat|periheli|asyndet|noumen|phenomen|criteri|organ|prolegomen|hedr|automat)(?:a|on)$/i, '$1a'],
+    [/sis$/i, 'ses'],
+    [/(?:(kni|wi|li)fe|(ar|l|ea|eo|oa|hoo)f)$/i, '$1$2ves'],
+    [/([^aeiouy]|qu)y$/i, '$1ies'],
+    [/([^ch][ieo][ln])ey$/i, '$1ies'],
+    [/(x|ch|ss|sh|zz)$/i, '$1es'],
+    [/(matr|cod|mur|sil|vert|ind|append)(?:ix|ex)$/i, '$1ices'],
+    [/\b((?:tit)?m|l)(?:ice|ouse)$/i, '$1ice'],
+    [/(pe)(?:rson|ople)$/i, '$1ople'],
+    [/(child)(?:ren)?$/i, '$1ren'],
+    [/eaux$/i, '$0'],
+    [/m[ae]n$/i, 'men'],
+] as [RegExp, string][]
+
+export function wordPluralize(word: string): string {
+    let len = WORD_PLURALIZATION_RULES.length
+
+    // Iterate over the sanitization rules and use the first one to match.
+    while (len--) {
+        const [regex, replacement] = WORD_PLURALIZATION_RULES[len]
+        if (regex.test(word)) {
+            return word.replace(regex, replacement)
+        }
+    }
+
+    return word
+}
+
 const COMPACT_NUMBER_MAGNITUDES = ['', 'K', 'M', 'B', 'T', 'P', 'E', 'Z', 'Y']
 
 /** Return a number in a compact format, with a SI suffix if applicable.
@@ -1461,7 +1511,6 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
         return localeTimeStringParts[localeTimeStringParts.length - 1]
     } catch (e) {
         posthog.captureException(e)
-        Sentry.captureException(e)
         return null
     }
 }

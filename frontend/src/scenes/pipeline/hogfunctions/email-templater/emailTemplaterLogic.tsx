@@ -26,9 +26,9 @@ export interface EmailTemplaterLogicProps {
 
 export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     props({} as EmailTemplaterLogicProps),
-    connect({
+    connect(() => ({
         // values: [teamLogic, ['currentTeam'], groupsModel, ['groupTypes'], userLogic, ['hasAvailableFeature']],
-    }),
+    })),
     path(() => ['scenes', 'pipeline', 'hogfunctions', 'emailTemplaterLogic']),
     actions({
         onSave: true,

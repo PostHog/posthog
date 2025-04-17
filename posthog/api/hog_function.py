@@ -1,6 +1,5 @@
 import json
 from typing import Optional, cast
-from common.hogvm.python.execute import validate_bytecode
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django_filters import BaseInFilter, CharFilter, FilterSet
@@ -68,6 +67,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "type",
+            "kind",
             "name",
             "description",
             "created_at",
@@ -112,6 +112,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         fields = [
             "id",
             "type",
+            "kind",
             "name",
             "description",
             "created_at",
@@ -164,6 +165,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         # Override some default values from the instance that should always be set
         data["type"] = data.get("type", instance.type if instance else "destination")
+        data["kind"] = data.get("kind", instance.kind if instance else None)
         data["template_id"] = instance.template_id if instance else data.get("template_id")
         data["inputs_schema"] = data.get("inputs_schema", instance.inputs_schema if instance else [])
         data["inputs"] = data.get("inputs", instance.inputs if instance else {})
@@ -293,12 +295,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 attrs["bytecode"] = compile_hog(attrs["hog"], hog_type)
                 attrs["transpiled"] = None
 
-                # Test execution to catch memory/execution exceptions only for transformations
-                if hog_type == "transformation":
-                    is_valid, error_message = validate_bytecode(attrs["bytecode"], attrs.get("inputs", {}))
-                    if not is_valid:
-                        raise serializers.ValidationError({"hog": error_message})
-
         if is_create:
             if not attrs.get("hog"):
                 raise serializers.ValidationError({"hog": "Required."})
@@ -328,23 +324,46 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         request = self.context["request"]
         validated_data["created_by"] = request.user
 
-        # Set execution_order for transformation type
+        # Handle execution_order for transformation type
         if validated_data.get("type") == "transformation":
-            # Get the highest execution_order for existing transformations
-            highest_order = (
-                HogFunction.objects.filter(team_id=validated_data["team"].id, type="transformation", deleted=False)
-                .order_by("-execution_order")
-                .values_list("execution_order", flat=True)
-                .first()
-            )
+            requested_order = validated_data.get("execution_order")
 
-            # Set to 1 if no existing transformations, otherwise increment by 1
-            validated_data["execution_order"] = (highest_order or 0) + 1
+            # For transformations, we need to determine the execution_order
+            if requested_order is None:
+                # If no order specified, add at the end
+                highest_order = self._get_highest_execution_order(validated_data["team"].id)
+                validated_data["execution_order"] = highest_order + 1
 
-        hog_function = super().create(validated_data=validated_data)
-        return hog_function
+            # Create the function with the execution_order
+            return super().create(validated_data=validated_data)
+        else:
+            # For non-transformation types, just create normally
+            return super().create(validated_data=validated_data)
+
+    def _get_highest_execution_order(self, team_id: int) -> int:
+        """Get the highest execution_order for transformations in a team."""
+        highest_order = (
+            HogFunction.objects.filter(team_id=team_id, type="transformation", deleted=False)
+            .order_by("-execution_order")
+            .values_list("execution_order", flat=True)
+            .first()
+        )
+        return highest_order or 0
 
     def update(self, instance: HogFunction, validated_data: dict, *args, **kwargs) -> HogFunction:
+        # Handle undeletion or re-enabling by placing at the end when needed
+        if instance.type == "transformation" and (
+            (instance.deleted and validated_data.get("deleted") is False)
+            or (
+                not instance.enabled
+                and validated_data.get("enabled") is True
+                and "execution_order" not in validated_data
+            )
+        ):
+            highest_order = self._get_highest_execution_order(instance.team_id)
+            validated_data["execution_order"] = highest_order + 1
+
+        # Standard update
         res: HogFunction = super().update(instance, validated_data)
 
         if res.enabled and res.status.get("state", 0) >= HogFunctionState.DISABLED_TEMPORARILY.value:
@@ -369,10 +388,12 @@ class CommaSeparatedListFilter(BaseInFilter, CharFilter):
 
 class HogFunctionFilterSet(FilterSet):
     type = CommaSeparatedListFilter(field_name="type", lookup_expr="in")
+    kind = CommaSeparatedListFilter(field_name="kind", lookup_expr="in")
+    exclude_kind = CommaSeparatedListFilter(field_name="kind", lookup_expr="in", exclude=True)
 
     class Meta:
         model = HogFunction
-        fields = ["type", "enabled", "id", "created_by", "created_at", "updated_at"]
+        fields = ["type", "kind", "exclude_kind", "enabled", "id", "created_by", "created_at", "updated_at"]
 
 
 class HogFunctionViewSet(
@@ -394,7 +415,7 @@ class HogFunctionViewSet(
             queryset = queryset.filter(deleted=False)
 
         if self.action == "list":
-            queryset = queryset.order_by("execution_order", "created_at")
+            queryset = queryset.order_by("execution_order", "-updated_at")
 
         if self.request.GET.get("filters"):
             try:

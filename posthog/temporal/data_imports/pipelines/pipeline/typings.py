@@ -1,7 +1,10 @@
 import dataclasses
-from typing import Any, Literal, Optional
 from collections.abc import Iterable
+from typing import Any, Literal, Optional
+
 from dlt.common.data_types.typing import TDataType
+
+SortMode = Literal["asc", "desc"]
 
 
 @dataclasses.dataclass
@@ -12,6 +15,9 @@ class SourceResponse:
     column_hints: dict[str, TDataType | None] | None = None  # Legacy support for DLT sources
     partition_count: Optional[int] = None
     partition_size: Optional[int] = None
+    # our source typically return data in ascending timestamp order, but some (eg Stripe) do not
+    sort_mode: Optional[SortMode] = "asc"
 
 
 PartitionMode = Literal["md5", "numerical", "datetime"]
+PartitionFormat = Literal["month", "day"]

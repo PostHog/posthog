@@ -1,5 +1,6 @@
 import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
+import { TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { cn } from 'lib/utils/css-classes'
 import { useEffect, useRef } from 'react'
 
@@ -10,7 +11,7 @@ import { ProjectTree } from './ProjectTree/ProjectTree'
 import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
 
 const panelLayoutStyles = cva({
-    base: 'gap-0 w-fit relative h-screen z-[var(--z-project-panel-layout)]',
+    base: 'gap-0 w-fit relative h-screen z-[var(--z-layout-panel)]',
     variants: {
         isLayoutNavbarVisibleForMobile: {
             true: 'translate-x-0',
@@ -36,23 +37,29 @@ const panelLayoutStyles = cva({
             true: '',
             false: '',
         },
+        projectTreeMode: {
+            tree: '',
+            table: '',
+        },
     },
     compoundVariants: [
         {
             isMobileLayout: true,
             isLayoutNavbarVisibleForMobile: true,
-            className: 'translate-x-0',
+            className: 'block',
         },
         {
             isMobileLayout: true,
             isLayoutNavbarVisibleForMobile: false,
-            className: 'translate-x-[calc(var(--project-navbar-width)*-1)]',
+            className: 'hidden',
         },
+        // Tree mode
         {
             isMobileLayout: false,
             isLayoutPanelVisible: true,
             isLayoutPanelPinned: true,
             isLayoutNavCollapsed: false,
+            projectTreeMode: 'tree',
             className: 'w-[calc(var(--project-navbar-width)+var(--project-panel-width))]',
         },
         {
@@ -60,8 +67,29 @@ const panelLayoutStyles = cva({
             isLayoutPanelVisible: true,
             isLayoutPanelPinned: true,
             isLayoutNavCollapsed: true,
+            projectTreeMode: 'tree',
             className: 'w-[calc(var(--project-navbar-width-collapsed)+var(--project-panel-width))]',
         },
+        // Table mode
+        {
+            isMobileLayout: false,
+            isLayoutPanelVisible: true,
+            isLayoutPanelPinned: true,
+            isLayoutNavCollapsed: false,
+            projectTreeMode: 'table',
+            // The panel in table mode is positioned absolutely, so we need to set the width to the navbar width
+            className: 'w-[calc(var(--project-navbar-width)+var(--project-panel-width))]',
+        },
+        {
+            isMobileLayout: false,
+            isLayoutPanelVisible: true,
+            isLayoutPanelPinned: true,
+            isLayoutNavCollapsed: true,
+            projectTreeMode: 'table',
+            // The panel in table mode is positioned absolutely, so we need to set the width to the navbar width (collapsed)
+            className: 'w-[calc(var(--project-navbar-width-collapsed)+var(--project-panel-width))]',
+        },
+        // Navbar (collapsed)
         {
             isMobileLayout: false,
             isLayoutPanelVisible: true,
@@ -69,6 +97,7 @@ const panelLayoutStyles = cva({
             isLayoutNavCollapsed: true,
             className: 'w-[var(--project-navbar-width-collapsed)]',
         },
+        // Navbar (default)
         {
             isMobileLayout: false,
             isLayoutPanelVisible: true,
@@ -87,12 +116,12 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
         isLayoutNavbarVisibleForDesktop,
         activePanelIdentifier,
         isLayoutNavCollapsed,
+        isLayoutNavbarVisible,
+        projectTreeMode,
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { showLayoutPanel, showLayoutNavBar, clearActivePanelIdentifier, setMainContentRef } =
+    const { showLayoutPanel, showLayoutNavBar, clearActivePanelIdentifier, setMainContentRef, setProjectTreeMode } =
         useActions(panelLayoutLogic)
-    const showMobileNavbarOverlay = isLayoutNavbarVisibleForMobile
-    const showDesktopNavbarOverlay = isLayoutNavbarVisibleForDesktop && !isLayoutPanelPinned && isLayoutPanelVisible
     useMountedLogic(projectTreeLogic)
 
     const containerRef = useRef<HTMLDivElement | null>(null)
@@ -115,6 +144,7 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                         isLayoutPanelVisible,
                         isMobileLayout,
                         isLayoutNavCollapsed,
+                        projectTreeMode: projectTreeMode as TreeMode,
                     })
                 )}
             >
@@ -124,26 +154,33 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
                 </PanelLayoutNavBar>
             </div>
 
-            {isMobileLayout && showMobileNavbarOverlay && (
+            {isLayoutPanelVisible && !isLayoutPanelPinned && (
                 <div
                     onClick={() => {
-                        // Pinned or not, hide the navbar and panel
+                        showLayoutPanel(false)
+                        clearActivePanelIdentifier()
+                    }}
+                    className="z-[var(--z-layout-panel-overlay)] fixed inset-0 w-screen h-screen"
+                />
+            )}
+            {isMobileLayout && isLayoutNavbarVisible && (
+                <div
+                    onClick={() => {
+                        // On mobile, hide the navbar and panel when the overlay is clicked
                         showLayoutNavBar(false)
                         showLayoutPanel(false)
                         clearActivePanelIdentifier()
                     }}
-                    className="z-[var(--z-project-panel-overlay)] fixed inset-0 w-screen h-screen"
+                    className="z-[var(--z-layout-navbar-overlay)] fixed inset-0 w-screen h-screen"
                 />
             )}
-            {!isMobileLayout && showDesktopNavbarOverlay && (
+            {projectTreeMode === 'table' && (
                 <div
                     onClick={() => {
-                        if (!isLayoutPanelPinned) {
-                            showLayoutPanel(false)
-                            clearActivePanelIdentifier()
-                        }
+                        // Return to tree mode when clicking outside the table view
+                        setProjectTreeMode('tree')
                     }}
-                    className="z-[var(--z-project-panel-overlay)] fixed inset-0 w-screen h-screen"
+                    className="z-[var(--z-layout-navbar-overlay)] fixed inset-0 w-screen h-screen"
                 />
             )}
         </div>

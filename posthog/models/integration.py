@@ -33,6 +33,8 @@ oauth_refresh_counter = Counter(
     "integration_oauth_refresh", "Number of times an oauth refresh has been attempted", labelnames=["kind", "result"]
 )
 
+PRIVATE_CHANNEL_WITHOUT_ACCESS = "PRIVATE_CHANNEL_WITHOUT_ACCESS"
+
 
 def dot_get(d: Any, path: str, default: Any = None) -> Any:
     if path in d and d[path] is not None:
@@ -59,6 +61,7 @@ class Integration(models.Model):
         LINKEDIN_ADS = "linkedin-ads"
         INTERCOM = "intercom"
         EMAIL = "email"
+        LINEAR = "linear"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -120,12 +123,22 @@ class OauthConfig:
     id_path: str
     name_path: str
     token_info_url: Optional[str] = None
+    token_info_graphql_query: Optional[str] = None
     token_info_config_fields: Optional[list[str]] = None
     additional_authorize_params: Optional[dict[str, str]] = None
 
 
 class OauthIntegration:
-    supported_kinds = ["slack", "salesforce", "hubspot", "google-ads", "snapchat", "linkedin-ads", "intercom"]
+    supported_kinds = [
+        "slack",
+        "salesforce",
+        "hubspot",
+        "google-ads",
+        "snapchat",
+        "linkedin-ads",
+        "intercom",
+        "linear",
+    ]
     integration: Integration
 
     def __str__(self) -> str:
@@ -252,6 +265,23 @@ class OauthIntegration:
                 id_path="id",
                 name_path="email",
             )
+        elif kind == "linear":
+            if not settings.LINEAR_APP_CLIENT_ID or not settings.LINEAR_APP_CLIENT_SECRET:
+                raise NotImplementedError("Linear app not configured")
+
+            return OauthConfig(
+                authorize_url="https://linear.app/oauth/authorize",
+                additional_authorize_params={"actor": "application"},
+                token_url="https://api.linear.app/oauth/token",
+                token_info_url="https://api.linear.app/graphql",
+                token_info_graphql_query="{ viewer { organization { id name } } }",
+                token_info_config_fields=["data.viewer.organization.id", "data.viewer.organization.name"],
+                client_id=settings.LINEAR_APP_CLIENT_ID,
+                client_secret=settings.LINEAR_APP_CLIENT_SECRET,
+                scope="read issues:create",
+                id_path="data.viewer.organization.id",
+                name_path="data.viewer.organization.name",
+            )
 
         raise NotImplementedError(f"Oauth config for kind {kind} not implemented")
 
@@ -299,10 +329,17 @@ class OauthIntegration:
 
         if oauth_config.token_info_url:
             # If token info url is given we call it and check the integration id from there
-            token_info_res = requests.get(
-                oauth_config.token_info_url.replace(":access_token", config["access_token"]),
-                headers={"Authorization": f"Bearer {config['access_token']}"},
-            )
+            if oauth_config.token_info_graphql_query:
+                token_info_res = requests.post(
+                    oauth_config.token_info_url,
+                    headers={"Authorization": f"Bearer {config['access_token']}"},
+                    json={"query": oauth_config.token_info_graphql_query},
+                )
+            else:
+                token_info_res = requests.get(
+                    oauth_config.token_info_url.replace(":access_token", config["access_token"]),
+                    headers={"Authorization": f"Bearer {config['access_token']}"},
+                )
 
             if token_info_res.status_code == 200:
                 data = token_info_res.json()
@@ -409,32 +446,48 @@ class SlackIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
-    def list_channels(self, authed_user) -> list[dict]:
+    def list_channels(self, should_include_private_channels: bool, authed_user: str) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
         # We load public and private channels separately as when mixed, the Slack API pagination is buggy
-        public_channels = self._list_channels_by_type("public_channel", authed_user)
-        private_channels = self._list_channels_by_type("private_channel", authed_user)
+        public_channels = self._list_channels_by_type("public_channel")
+        private_channels = self._list_channels_by_type("private_channel", should_include_private_channels, authed_user)
         channels = public_channels + private_channels
 
         return sorted(channels, key=lambda x: x["name"])
 
-    def get_channel_by_id(self, channel_id: str) -> Optional[dict]:
+    def get_channel_by_id(
+        self, channel_id: str, should_include_private_channels: bool = False, authed_user: str | None = None
+    ) -> Optional[dict]:
         try:
-            response = self.client.conversations_info(channel=channel_id)
+            response = self.client.conversations_info(channel=channel_id, include_num_members=True)
             channel = response["channel"]
+            members_response = self.client.conversations_members(channel=channel_id, limit=channel["num_members"] + 1)
+            isMember = authed_user in members_response["members"]
+
+            if not isMember:
+                return None
+
+            isPrivateWithoutAccess = channel["is_private"] and not should_include_private_channels
+
             return {
                 "id": channel["id"],
-                "name": channel["name"],
+                "name": PRIVATE_CHANNEL_WITHOUT_ACCESS if isPrivateWithoutAccess else channel["name"],
                 "is_private": channel["is_private"],
                 "is_member": channel.get("is_member", True),
                 "is_ext_shared": channel["is_ext_shared"],
+                "is_private_without_access": isPrivateWithoutAccess,
             }
         except SlackApiError as e:
             if e.response["error"] == "channel_not_found":
                 return None
             raise
 
-    def _list_channels_by_type(self, type: Literal["public_channel", "private_channel"], authed_user) -> list[dict]:
+    def _list_channels_by_type(
+        self,
+        type: Literal["public_channel", "private_channel"],
+        should_include_private_channels: bool = False,
+        authed_user: str | None = None,
+    ) -> list[dict]:
         max_page = 50
         channels = []
         cursor = None
@@ -447,6 +500,11 @@ class SlackIntegration:
                 res = self.client.users_conversations(
                     exclude_archived=True, types=type, limit=200, cursor=cursor, user=authed_user
                 )
+
+                for channel in res["channels"]:
+                    if channel["is_private"] and not should_include_private_channels:
+                        channel["name"] = PRIVATE_CHANNEL_WITHOUT_ACCESS
+                        channel["is_private_without_access"] = True
 
             channels.extend(res["channels"])
             cursor = res["response_metadata"]["next_cursor"]
@@ -766,3 +824,25 @@ class MailIntegration:
             integration.save()
 
         return integration
+
+
+class LinearIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "linear":
+            raise Exception("LinearIntegration init called with Integration with wrong 'kind'")
+
+        self.integration = integration
+
+    def list_teams(self) -> list[dict]:
+        query = f"{{ teams {{ nodes {{ id name }} }} }}"
+
+        response = requests.post(
+            "https://api.linear.app/graphql",
+            headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
+            json={"query": query},
+        )
+
+        teams = dot_get(response.json(), "data.teams.nodes")
+        return teams

@@ -9,9 +9,9 @@ import { Theme, themes } from './themes'
 
 export const themeLogic = kea<themeLogicType>([
     path(['layout', 'navigation-3000', 'themeLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['themeMode'], featureFlagLogic, ['featureFlags']],
-    }),
+    })),
     actions({
         syncDarkModePreference: (darkModePreference: boolean) => ({ darkModePreference }),
         setTheme: (theme: string | null) => ({ theme }),

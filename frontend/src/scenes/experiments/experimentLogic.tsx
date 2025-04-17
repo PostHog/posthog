@@ -28,6 +28,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery, QUERY_TIMEOUT_ERROR_MESSAGE } from '~/queries/query'
@@ -72,12 +73,7 @@ import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
-import {
-    featureFlagEligibleForExperiment,
-    getMinimumDetectableEffect,
-    percentageDistribution,
-    transformFiltersForWinningVariant,
-} from './utils'
+import { featureFlagEligibleForExperiment, percentageDistribution, transformFiltersForWinningVariant } from './utils'
 
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
@@ -101,6 +97,8 @@ const NEW_EXPERIMENT: Experiment = {
     updated_at: null,
     holdout_id: null,
 }
+
+export const DEFAULT_MDE = 30
 
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
@@ -883,6 +881,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
             if (response?.id) {
                 const experimentId = response.id
+                refreshTreeItem('experiment', String(experimentId))
                 router.actions.push(urls.experiment(experimentId))
                 actions.addToExperiments(response)
                 lemonToast.success(`Experiment ${isUpdate ? 'updated' : 'created'}`, {
@@ -1368,6 +1367,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                     update
                 )
+                refreshTreeItem('experiment', String(values.experimentId))
                 actions.setUnmodifiedExperiment(structuredClone(response))
                 return response
             },
@@ -1515,14 +1515,9 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         minimumDetectableEffect: [
-            (s) => [s.experiment, s.getInsightType, s.conversionMetrics, s.trendResults, s.firstPrimaryMetric],
-            (newExperiment, getInsightType, conversionMetrics, trendResults, firstPrimaryMetric): number => {
-                return (
-                    newExperiment?.parameters?.minimum_detectable_effect ||
-                    // :KLUDGE: extracted the method due to difficulties with logic tests
-                    getMinimumDetectableEffect(getInsightType(firstPrimaryMetric), conversionMetrics, trendResults) ||
-                    0
-                )
+            (s) => [s.experiment],
+            (newExperiment): number => {
+                return newExperiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE
             },
         ],
         minimumSampleSizePerVariant: [
@@ -2189,11 +2184,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 return true
             },
         ],
-        exposureCriteriaLabel: [
-            () => [],
-            (): string => {
-                // TODO: Implement exposure criteria label
-                return 'Default ($feature_flag_called)'
+        exposureCriteria: [
+            (s) => [s.experiment],
+            (experiment: Experiment): ExperimentExposureCriteria | undefined => {
+                return experiment.exposure_criteria
             },
         ],
     }),

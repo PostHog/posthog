@@ -75,7 +75,7 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/hog_functions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/dashboard_templates': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/dashboard_templates/repository/': [],
-        '/api/projects/:team_id/external_data_sources/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/external_data_sources/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/notebooks': () => {
             // this was matching on `?contains=query` but that made MSW unhappy and seems unnecessary
             return [
@@ -104,9 +104,9 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/feature_flags/:feature_flag_id/role_access': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/experiments/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/explicit_members/': [],
-        '/api/projects/:team_id/warehouse_view_link/': EMPTY_PAGINATED_RESPONSE,
-        '/api/projects/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
-        '/api/projects/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/warehouse_view_link/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/warehouse_saved_queries/': EMPTY_PAGINATED_RESPONSE,
+        '/api/environments/:team_id/warehouse_tables/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/@current/': (): MockSignature => [
             200,
             { ...MOCK_DEFAULT_ORGANIZATION, available_product_features: getAvailableProductFeatures() },

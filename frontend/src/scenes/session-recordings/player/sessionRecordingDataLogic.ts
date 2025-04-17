@@ -1,6 +1,5 @@
 import posthogEE from '@posthog/ee/exports'
 import { customEvent, EventType, eventWithTime } from '@posthog/rrweb-types'
-import { captureException } from '@sentry/react'
 import {
     actions,
     afterMount,
@@ -64,7 +63,8 @@ import { throttleCapture } from './snapshot-processing/throttle-capturing'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
-const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for.
+const TWENTY_FOUR_HOURS_IN_MS = 24 * 60 * 60 * 1000 // +- before and after start and end of a recording to query for session linked events.
+const FIVE_MINUTES_IN_MS = 5 * 60 * 1000 // +- before and after start and end of a recording to query for events related by person.
 const DEFAULT_REALTIME_POLLING_MILLIS = 3000
 const DEFAULT_V2_POLLING_INTERVAL_MS = 10000
 
@@ -232,10 +232,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'sessionRecordingDataLogic', key]),
     props({} as SessionRecordingDataLogicProps),
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
-    connect({
+    connect(() => ({
         logic: [eventUsageLogic],
         values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam']],
-    }),
+    })),
     defaults({
         sessionPlayerMetaData: null as SessionRecordingType | null,
     }),
@@ -355,12 +355,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     if (breakpointLength) {
                         await breakpoint(breakpointLength)
                     }
-                    const response = await api.recordings.listSnapshotSources(props.sessionRecordingId)
+                    const blob_v2 = values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY]
+                    const response = await api.recordings.listSnapshotSources(props.sessionRecordingId, {
+                        blob_v2,
+                    })
                     if (!response.sources) {
                         return []
                     }
                     const anyBlobV2 = response.sources.some((s) => s.source === SnapshotSourceType.blob_v2)
-                    if (values.featureFlags[FEATURE_FLAGS.RECORDINGS_BLOBBY_V2_REPLAY] && anyBlobV2) {
+                    if (anyBlobV2) {
                         return response.sources.filter((s) => s.source === SnapshotSourceType.blob_v2)
                     }
                     return response.sources.filter((s) => s.source !== SnapshotSourceType.blob_v2)
@@ -427,7 +430,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
 
                     const sessionEventsQuery = hogql`
-                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height
+                            SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name
                             FROM events
                             WHERE timestamp > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
                               AND timestamp < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
@@ -439,8 +442,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     let relatedEventsQuery = hogql`
                             SELECT uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
                             FROM events
-                            WHERE timestamp > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
-                              AND timestamp < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
+                            WHERE timestamp > ${start.subtract(FIVE_MINUTES_IN_MS, 'ms')}
+                              AND timestamp < ${end.add(FIVE_MINUTES_IN_MS, 'ms')}
                               AND (empty($session_id) OR isNull($session_id)) AND properties.$lib != 'web'
                         `
                     if (person?.uuid) {
@@ -503,6 +506,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                     $pathname: pathname,
                                     $viewport_width: viewportWidth,
                                     $viewport_height: viewportHeight,
+                                    $screen_name: event.length > 9 ? event[9] : undefined,
                                 },
                                 playerTime: +dayjs(event[2]) - +start,
                                 fullyLoaded: false,
@@ -563,9 +567,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     } catch (e) {
                         // NOTE: This is not ideal but should happen so rarely that it is tolerable.
                         existingEvents.forEach((e) => (e.fullyLoaded = true))
-                        captureException(e, {
-                            tags: { feature: 'session-recording-load-full-event-data' },
-                        })
+                        posthog.captureException(e, { feature: 'session-recording-load-full-event-data' })
                     }
 
                     // here we map the events list because we want the result to be a new instance to trigger downstream recalculation

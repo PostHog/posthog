@@ -41,7 +41,7 @@ async def create_sync_vectors_schedule(client: Client):
 async def create_run_quota_limiting_schedule(client: Client):
     """Create or update the schedule for the RunQuotaLimitingWorkflow.
 
-    This schedule runs every 30 minutes at the 15th and 45th minute of every hour.
+    This schedule runs every 20 minutes at the 10th, 30th, and 50th minute of every hour.
     """
     run_quota_limiting_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -51,7 +51,7 @@ async def create_run_quota_limiting_schedule(client: Client):
             task_queue=GENERAL_PURPOSE_TASK_QUEUE,
         ),
         spec=ScheduleSpec(
-            cron_expressions=["15,45 * * * *"]  # Run at minutes 15 and 45 of every hour
+            cron_expressions=["10,30,50 * * * *"]  # Run at minutes 10, 30, and 50 of every hour
         ),
     )
 

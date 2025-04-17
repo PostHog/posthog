@@ -1,14 +1,16 @@
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { urls } from 'scenes/urls'
 
-import { NotebookNodeType, PropertyDefinitionType } from '~/types'
+import { ActivityTab, NotebookNodeType, PropertyDefinitionType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { asDisplay } from './person-utils'
 import { personLogic } from './personLogic'
@@ -31,6 +33,15 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
 
     // NOTE: This can happen if the Person was deleted or the events associated with the distinct_id had person processing disabled
     if (!person) {
+        const eventsQuery = getDefaultEventsSceneQuery([
+            {
+                type: PropertyFilterType.EventMetadata,
+                key: 'distinct_id',
+                value: props.distinctId,
+                operator: PropertyOperator.Exact,
+            },
+        ])
+        const eventsUrl = combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: eventsQuery }).url
         return (
             <div className="p-2 max-w-160">
                 <h4>No profile associated with this ID</h4>
@@ -39,6 +50,16 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
                     devices, and more. To create person profiles, see{' '}
                     <Link to="https://posthog.com/docs/data/persons#capturing-person-profiles">here.</Link>
                 </p>
+                <div className="flex justify-center mt-2 w-fit">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        to={eventsUrl}
+                        tooltip={`View events matching distinct_id=${props.distinctId}`}
+                    >
+                        View events
+                    </LemonButton>
+                </div>
             </div>
         )
     }
