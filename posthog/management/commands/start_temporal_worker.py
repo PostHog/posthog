@@ -162,13 +162,13 @@ class Command(BaseCommand):
 
         def shutdown_worker_on_signal(worker: Worker, sig: signal.Signals, runner: asyncio.Runner):
             """Shutdown Temporal worker on receiving signal."""
-            logger.info("%s received", sig)
+            logger.info("Signal %s received", sig)
 
             if worker.is_shutdown:
-                logger.info("Temporal worker already shut down", sig)
+                logger.info("Temporal worker already shut down")
                 return
 
-            logger.info("Initiating Temporal worker shutdown", sig)
+            logger.info("Initiating Temporal worker shutdown")
             runner.run(worker.shutdown())
             logger.info("Finished Temporal worker shutdown")
 
