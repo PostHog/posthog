@@ -160,8 +160,12 @@ class Command(BaseCommand):
 
         metrics_port = int(options["metrics_port"])
 
-        def shutdown_worker_on_signal(worker: Worker, sig: signal.Signals, runner: asyncio.Runner):
+        shutdown_task = None
+
+        def shutdown_worker_on_signal(worker: Worker, sig: signal.Signals, loop: asyncio.events.AbstractEventLoop):
             """Shutdown Temporal worker on receiving signal."""
+            nonlocal shutdown_task
+
             logger.info("Signal %s received", sig)
 
             if worker.is_shutdown:
@@ -169,7 +173,7 @@ class Command(BaseCommand):
                 return
 
             logger.info("Initiating Temporal worker shutdown")
-            runner.run(worker.shutdown())
+            shutdown_task = loop.create_task(worker.shutdown())
             logger.info("Finished Temporal worker shutdown")
 
         with asyncio.Runner() as runner:
@@ -197,11 +201,14 @@ class Command(BaseCommand):
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.add_signal_handler(
                     sig,
-                    functools.partial(shutdown_worker_on_signal, worker=worker, sig=sig, runner=runner),
+                    functools.partial(shutdown_worker_on_signal, worker=worker, sig=sig, loop=loop),
                 )
                 loop.add_signal_handler(
                     sig,
-                    functools.partial(shutdown_worker_on_signal, worker=worker, sig=sig, runner=runner),
+                    functools.partial(shutdown_worker_on_signal, worker=worker, sig=sig, loop=loop),
                 )
 
             runner.run(worker.run())
+
+            if shutdown_task:
+                _ = runner.run(asyncio.wait([shutdown_task]))
