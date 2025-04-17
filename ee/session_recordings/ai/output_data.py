@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Any
+from jsonschema import ValidationError
 from rest_framework import serializers
 import yaml
 
@@ -89,11 +90,11 @@ def load_raw_session_summary_from_llm_content(
         # TODO Work on a more robust solution
         json_content: dict = yaml.safe_load(raw_content.strip("```yaml\n").strip("```").strip())  # noqa: B005
     except Exception as e:
-        raise ValueError(f"Error loading YAML content into JSON when summarizing session_id {session_id}: {e}")
+        raise ValidationError(f"Error loading YAML content into JSON when summarizing session_id {session_id}: {e}")
     # Validate the LLM output against the schema
     raw_session_summary = RawSessionSummarySerializer(data=json_content)
     if not raw_session_summary.is_valid():
-        raise ValueError(
+        raise ValidationError(
             f"Error validating LLM output against the schema when summarizing session_id {session_id}: {raw_session_summary.errors}"
         )
     objectives = raw_session_summary.data.get("objectives")
@@ -108,8 +109,8 @@ def load_raw_session_summary_from_llm_content(
     for key_action_group in key_actions:
         key_group_objective = key_action_group.get("objective")
         if not key_group_objective:
-            # If key group objective isn't generated yet - return the current state
-            return raw_session_summary
+            # If key group objective isn't generated yet - skip this group
+            continue
         # Ensure that LLM didn't hallucinate objectives
         if key_group_objective not in objectives_names:
             raise ValueError(
@@ -117,14 +118,14 @@ def load_raw_session_summary_from_llm_content(
             )
         key_group_events = key_action_group.get("events")
         if not key_group_events:
-            # If key group events aren't generated yet - return the current state
-            return raw_session_summary
+            # If key group events aren't generated yet - skip this group
+            continue
         for event in key_group_events:
             # Ensure that LLM didn't hallucinate events
             event_id = event.get("event_id")
             if not event_id:
-                # If event ID isn't generated yet - return the current state
-                return raw_session_summary
+                # If event ID isn't generated yet - skip this event
+                continue
             # TODO: Allow skipping some events (even if not too many to speed up the process
             if event_id not in allowed_event_ids:
                 raise ValueError(
@@ -158,22 +159,34 @@ def enrich_raw_session_summary_with_events_meta(
     event_index = get_column_index(simplified_events_columns, "event")
     event_type_index = get_column_index(simplified_events_columns, "$event_type")
     event_index_index = get_column_index(simplified_events_columns, "event_index")
-
     # Enrich LLM events with metadata
     enriched_key_actions = []
-    for key_action_group in raw_session_summary.data["key_actions"]:
+    key_actions = raw_session_summary.data.get("key_actions", [])
+    if not key_actions:
+        # If key actions aren't generated yet - return the current state
+        return SessionSummarySerializer(data=raw_session_summary.data)
+    # Iterate over key actions groups per objective
+    for key_action_group in key_actions:
         enriched_events = []
-        for event in key_action_group["events"]:
+        objective = key_action_group.get("objective")
+        if not objective:
+            # If objective isn't generated yet - skip this group
+            continue
+        events = key_action_group.get("events", [])
+        if not events:
+            # If events aren't generated yet - skip this group
+            continue
+        for event in events:
             enriched_event = dict(event)
             event_id: str | None = event.get("event_id")
             if not event_id:
-                raise ValueError(
-                    f"LLM returned event without event_id when summarizing session_id {session_id}: {raw_session_summary}"
-                )
+                # If event_id isn't generated yet - skip this event
+                continue
             event_mapping_data = simplified_events_mapping.get(event_id)
             if not event_mapping_data:
+                # If event id is found, but not in mapping, it's a hallucination
                 raise ValueError(
-                    f"Mapping data for event_id {event_id} not found when summarizing session_id {session_id}: {raw_session_summary}"
+                    f"Mapping data for event_id {event_id} not found when summarizing session_id {session_id} (probably a hallucination): {raw_session_summary}"
                 )
             enriched_event["event"] = event_mapping_data[event_index]
             # Calculate time to jump to the right place in the player
@@ -184,18 +197,22 @@ def enrich_raw_session_summary_with_events_meta(
                 enriched_event["milliseconds_since_start"] = ms_since_start
             # Add full URL of the event page
             current_url = event_mapping_data[current_url_index]
-            if not current_url:
+            full_current_url = url_mapping_reversed.get(current_url)
+            if not full_current_url:
+                # Each processed event should have a full URL stored in the mapping
                 raise ValueError(
-                    f"Current URL not found for event_id {event_id} when summarizing session_id {session_id}: {event_mapping_data}"
+                    f"Full URL not found for event_id {event_id} when summarizing session_id {session_id}: {event_mapping_data}"
                 )
-            full_current_url = current_url and url_mapping_reversed.get(current_url)
-            if full_current_url:
-                enriched_event["current_url"] = full_current_url
+            enriched_event["current_url"] = full_current_url
             # Add window ID of the event
             window_id = event_mapping_data[window_id_index]
-            full_window_id = window_id and window_mapping_reversed.get(window_id)
-            if full_window_id:
-                enriched_event["window_id"] = full_window_id
+            full_window_id = window_mapping_reversed.get(window_id)
+            if not full_window_id:
+                # Each processed event should have a full window ID stored in the mapping
+                raise ValueError(
+                    f"Full window ID not found for event_id {event_id} when summarizing session_id {session_id}: {event_mapping_data}"
+                )
+            enriched_event["window_id"] = full_window_id
             # Add event type (if applicable)
             event_type = event_mapping_data[event_type_index]
             if event_type:
@@ -204,15 +221,15 @@ def enrich_raw_session_summary_with_events_meta(
             enriched_event["event_index"] = event_mapping_data[event_index_index]
             enriched_events.append(enriched_event)
         # Ensure chronological order of the events
-        enriched_events.sort(key=lambda x: x["milliseconds_since_start"])
-        enriched_key_actions.append({"objective": key_action_group["objective"], "events": enriched_events})
-
+        enriched_events.sort(key=lambda x: x.get("milliseconds_since_start", 0))
+        enriched_key_actions.append({"objective": objective, "events": enriched_events})
     # Validate the enriched content against the schema
     summary_to_enrich = dict(raw_session_summary.data)
     summary_to_enrich["key_actions"] = enriched_key_actions
     session_summary = SessionSummarySerializer(data=summary_to_enrich)
     if not session_summary.is_valid():
-        raise ValueError(
+        # Most of the fields are optional, so failed validation should be reported
+        raise ValidationError(
             f"Error validating enriched content against the schema when summarizing session_id {session_id}: {session_summary.errors}"
         )
     return session_summary

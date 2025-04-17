@@ -3,7 +3,7 @@ from pathlib import Path
 
 import structlog
 from ee.hogai.utils.asgi import SyncIterableToAsync
-from ee.session_recordings.ai.llm import stream_raw_llm_session_summary
+from ee.session_recordings.ai.llm.consume import stream_llm_session_summary
 from ee.session_recordings.ai.prompt_data import SessionSummaryPromptData
 from ee.session_recordings.session_summary.base_summarizer import BaseReplaySummarizer
 from ee.session_recordings.session_summary.utils import load_custom_template, shorten_url
@@ -96,23 +96,17 @@ class ReplaySummarizer(BaseReplaySummarizer):
         #         system_prompt=system_prompt,
         #     )
 
-        # Enrich the session summary with events metadata
-        # session_summary = enrich_raw_session_summary_with_events_meta(
-        #     raw_session_summary=raw_session_summary,
-        #     simplified_events_mapping=simplified_events_mapping,
-        #     simplified_events_columns=prompt_data.columns,
-        #     url_mapping_reversed=url_mapping_reversed,
-        #     window_mapping_reversed=window_mapping_reversed,
-        #     session_start_time=prompt_data.metadata.start_time,
-        #     session_id=self.recording.session_id,
-        # )
-
         # TODO: Would it make sense to stream initial goal and outcome at the very start? Check if it makes a quality difference.
-        session_summary_generator = stream_raw_llm_session_summary(
+        session_summary_generator = stream_llm_session_summary(
             summary_prompt=summary_prompt,
             user=self.user,
             allowed_event_ids=list(simplified_events_mapping.keys()),
             session_id=self.recording.session_id,
+            simplified_events_mapping=simplified_events_mapping,
+            simplified_events_columns=prompt_data.columns,
+            url_mapping_reversed=url_mapping_reversed,
+            window_mapping_reversed=window_mapping_reversed,
+            session_start_time=prompt_data.metadata.start_time,
             system_prompt=system_prompt,
         )
         return session_summary_generator
