@@ -1,36 +1,36 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { hogFunctionUrl } from 'scenes/pipeline/hogfunctions/urls'
+import { urls } from 'scenes/urls'
 
-import { Message } from './messagesLogic'
-import { templatesLogic } from './templatesLogic'
+import { MessageTemplate, templatesLogic } from './templatesLogic'
 
 export function TemplatesTable(): JSX.Element {
+    useMountedLogic(templatesLogic)
     const { templates, templatesLoading } = useValues(templatesLogic)
     const { deleteTemplate } = useActions(templatesLogic)
 
-    const columns: LemonTableColumns<Message> = [
+    const columns: LemonTableColumns<MessageTemplate> = [
         {
             title: 'Name',
             render: (_, item) => {
                 return (
                     <LemonTableLink
-                        to={hogFunctionUrl(item.type, item.id, item.template_id, item.kind)}
+                        to={urls.messagingLibraryTemplate(item.id)}
                         title={item.name}
                         description={item.description}
                     />
                 )
             },
         },
-        createdByColumn<Message>() as LemonTableColumn<Message, keyof Message | undefined>,
-        createdAtColumn<Message>() as LemonTableColumn<Message, keyof Message | undefined>,
+        createdByColumn<MessageTemplate>() as LemonTableColumn<MessageTemplate, keyof MessageTemplate | undefined>,
+        createdAtColumn<MessageTemplate>() as LemonTableColumn<MessageTemplate, keyof MessageTemplate | undefined>,
         {
             width: 0,
-            render: function Render(_, message: Message) {
+            render: function Render(_, message: MessageTemplate) {
                 return (
                     <More
                         overlay={

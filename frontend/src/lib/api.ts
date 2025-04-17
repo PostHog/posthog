@@ -7,7 +7,7 @@ import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { Message } from 'products/messaging/frontend/library/messagesLogic'
-import { MessageTemplate } from 'products/messaging/frontend/library/templatesLogic'
+import { MessageTemplate } from 'products/messaging/frontend/library/templateLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SessionSummaryResponse } from 'scenes/session-recordings/player/player-meta/types'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -3092,6 +3092,15 @@ const api = {
         },
         async getTemplate(templateId: MessageTemplate['id']): Promise<MessageTemplate> {
             return await new ApiRequest().messagingTemplate(templateId).get()
+        },
+        async createTemplate(data: Partial<MessageTemplate>): Promise<MessageTemplate> {
+            return await new ApiRequest().messagingTemplates().create({ data })
+        },
+        async updateTemplate(
+            templateId: MessageTemplate['id'],
+            data: Partial<MessageTemplate>
+        ): Promise<MessageTemplate> {
+            return await new ApiRequest().messagingTemplate(templateId).update({ data })
         },
     },
 

@@ -44,7 +44,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     MessagingCampaigns: () => import('../../products/messaging/frontend/Campaigns'),
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
     MessagingLibrary: () => import('../../products/messaging/frontend/library/Library'),
-    MessagingLibraryTemplate: () => import('../../products/messaging/frontend/library/LibraryTemplate'),
+    MessagingLibraryTemplate: () => import('../../products/messaging/frontend/library/Template'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
 }
 
@@ -66,6 +66,11 @@ export const productRoutes: Record<string, [string, string]> = {
     '/messaging/broadcasts/new': ['MessagingBroadcasts', 'messagingBroadcastNew'],
     '/messaging/library': ['MessagingLibrary', 'messagingLibrary'],
     '/messaging/library/templates/:id': ['MessagingLibraryTemplate', 'messagingLibraryTemplate'],
+    '/messaging/library/templates/new': ['MessagingLibraryTemplate', 'messagingLibraryTemplate'],
+    '/messaging/library/templates/new?messageId=:messageId': [
+        'MessagingLibraryTemplate',
+        'messagingLibraryTemplateFromMessage',
+    ],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
 }
 
@@ -182,8 +187,7 @@ export const productUrls = {
     messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
     messagingLibrary: (): string => '/messaging/library',
     messagingLibraryTemplate: (id?: string): string => `/messaging/library/templates/${id}`,
-    messagingLibraryTemplateFromMessage: (configuration?: object): string =>
-        `/messaging/library/templates/new?#configuration=${encodeURIComponent(JSON.stringify(configuration))}`,
+    messagingLibraryTemplateFromMessage: (id?: string): string => `/messaging/library/templates/new?messageId=${id}`,
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,

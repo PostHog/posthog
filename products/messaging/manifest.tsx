@@ -23,7 +23,7 @@ export const manifest: ProductManifest = {
             projectBased: true,
         },
         MessagingLibraryTemplate: {
-            import: () => import('./frontend/library/LibraryTemplate'),
+            import: () => import('./frontend/library/Template'),
             name: 'Messaging',
             projectBased: true,
         },
@@ -38,6 +38,11 @@ export const manifest: ProductManifest = {
         '/messaging/broadcasts/new': ['MessagingBroadcasts', 'messagingBroadcastNew'],
         '/messaging/library': ['MessagingLibrary', 'messagingLibrary'],
         '/messaging/library/templates/:id': ['MessagingLibraryTemplate', 'messagingLibraryTemplate'],
+        '/messaging/library/templates/new': ['MessagingLibraryTemplate', 'messagingLibraryTemplate'],
+        '/messaging/library/templates/new?messageId=:messageId': [
+            'MessagingLibraryTemplate',
+            'messagingLibraryTemplateFromMessage',
+        ],
     },
     redirects: {
         '/messaging': '/messaging/broadcasts',
@@ -51,8 +56,8 @@ export const manifest: ProductManifest = {
         messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
         messagingLibrary: (): string => '/messaging/library',
         messagingLibraryTemplate: (id?: string): string => `/messaging/library/templates/${id}`,
-        messagingLibraryTemplateFromMessage: (configuration?: object): string =>
-            `/messaging/library/templates/new?#configuration=${encodeURIComponent(JSON.stringify(configuration))}`,
+        messagingLibraryTemplateFromMessage: (id?: string): string =>
+            `/messaging/library/templates/new?messageId=${id}`,
     },
     fileSystemTypes: {
         'hog_function/broadcast': {

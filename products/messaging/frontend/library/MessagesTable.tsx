@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -11,6 +11,7 @@ import { Message } from './messagesLogic'
 import { messagesLogic } from './messagesLogic'
 
 export function MessagesTable(): JSX.Element {
+    useMountedLogic(messagesLogic)
     const { messages, messagesLoading } = useValues(messagesLogic)
 
     const columns: LemonTableColumns<Message> = [
@@ -45,13 +46,7 @@ export function MessagesTable(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    to={urls.messagingLibraryTemplateFromMessage({
-                                        name: message.name,
-                                        description: message.description,
-                                        inputs: {
-                                            email_template: message.content,
-                                        },
-                                    })}
+                                    to={urls.messagingLibraryTemplateFromMessage(message.id)}
                                     data-attr="new-template-from-message"
                                     fullWidth
                                 >

@@ -1,6 +1,8 @@
-import { actions, connect, kea, listeners, LogicWrapper, path, props, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, LogicWrapper, path, props, reducers } from 'kea'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { MessageTemplate, templatesLogic } from 'products/messaging/frontend/library/templatesLogic'
+import { MessageTemplate } from 'products/messaging/frontend/library/templatesLogic'
 import { EditorRef as _EditorRef } from 'react-email-editor'
 
 import type { emailTemplaterLogicType } from './emailTemplaterLogicType'
@@ -28,9 +30,6 @@ export interface EmailTemplaterLogicProps {
 
 export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     props({} as EmailTemplaterLogicProps),
-    connect(() => ({
-        values: [templatesLogic, ['templates', 'templatesLoading']],
-    })),
     path(() => ['scenes', 'pipeline', 'hogfunctions', 'emailTemplaterLogic']),
     actions({
         onSave: true,
@@ -104,7 +103,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
             const pathParts = props.formFieldsPrefix ? props.formFieldsPrefix.split('.') : []
 
-            const emailTemplateContent = template.content.value
+            const emailTemplateContent = template.content.email
 
             if (emailTemplateContent) {
                 if (emailTemplateContent.html) {
@@ -127,6 +126,20 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             actions.setAppliedTemplate(template)
         },
     })),
+    loaders(() => ({
+        templates: [
+            [] as MessageTemplate[],
+            {
+                loadTemplates: async () => {
+                    const response = await api.messaging.getTemplates()
+                    return response.results
+                },
+            },
+        ],
+    })),
+    afterMount(({ actions }) => {
+        actions.loadTemplates()
+    }),
 ])
 
 function escapeHTMLStringCurlies(htmlString: string): string {

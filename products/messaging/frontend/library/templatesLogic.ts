@@ -1,31 +1,33 @@
-import { afterMount, connect, kea, path } from 'kea'
+import { afterMount, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { projectLogic } from 'scenes/projectLogic'
 
-import { HogFunctionKind, HogFunctionTypeType, UserBasicType } from '~/types'
+import { UserBasicType } from '~/types'
 
 import type { templatesLogicType } from './templatesLogicType'
 
 export interface MessageTemplate {
     id: string
-    created_by: UserBasicType | null
-    created_at: string | null
     name: string
     description: string
-    content: Record<string, any>
-    created_by_id: string
-    template_id: string
-    type: HogFunctionTypeType
-    kind: HogFunctionKind
+    content: {
+        email: {
+            from: string
+            subject: string
+            html: string
+            design: any
+            text: string
+        }
+    }
+    created_at: string | null
+    updated_at: string | null
+    created_by: UserBasicType | null
 }
 
 export const templatesLogic = kea<templatesLogicType>([
     path(['products', 'messaging', 'frontend', 'library', 'templatesLogic']),
-    connect(() => ({
-        values: [projectLogic, ['currentProjectId']],
-    })),
     loaders(({ values, actions }) => ({
         templates: [
             [] as MessageTemplate[],
@@ -36,7 +38,7 @@ export const templatesLogic = kea<templatesLogicType>([
                 },
                 deleteTemplate: async (template: MessageTemplate) => {
                     await deleteWithUndo({
-                        endpoint: `projects/${values.currentProjectId}/hog_functions`,
+                        endpoint: `environments/@current/messaging/templates`,
                         object: {
                             id: template.id,
                             name: template.name,
@@ -48,6 +50,34 @@ export const templatesLogic = kea<templatesLogicType>([
                         },
                     })
                     return values.templates.filter((t: MessageTemplate) => t.id !== template.id)
+                },
+                createTemplate: async ({ template }: { template: Partial<MessageTemplate> }) => {
+                    try {
+                        await api.messaging.createTemplate(template)
+                        lemonToast.success('Template created successfully')
+                        actions.loadTemplates()
+                        return values.templates
+                    } catch (error) {
+                        lemonToast.error('Failed to create template')
+                        return values.templates
+                    }
+                },
+                updateTemplate: async ({
+                    templateId,
+                    template,
+                }: {
+                    templateId: string
+                    template: Partial<MessageTemplate>
+                }) => {
+                    try {
+                        await api.messaging.updateTemplate(templateId, template)
+                        lemonToast.success('Template updated successfully')
+                        actions.loadTemplates()
+                        return values.templates
+                    } catch (error) {
+                        lemonToast.error('Failed to update template')
+                        return values.templates
+                    }
                 },
             },
         ],

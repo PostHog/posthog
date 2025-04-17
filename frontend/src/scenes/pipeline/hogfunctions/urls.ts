@@ -20,8 +20,6 @@ export function hogFunctionUrl(
         return id ? urls.messagingBroadcast(id) : urls.messagingBroadcasts()
     } else if (kind === 'messaging_campaign') {
         return id ? urls.messagingCampaign(id) : urls.messagingCampaigns()
-    } else if (kind === 'messaging_template') {
-        return id ? urls.messagingLibraryTemplate(id) : urls.messagingLibrary()
     } else if (type === 'internal_destination' && template?.includes('error-tracking')) {
         return id ? urls.errorTrackingAlert(id) : urls.errorTrackingConfiguration()
     }

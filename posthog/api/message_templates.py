@@ -1,42 +1,37 @@
-from rest_framework import serializers, viewsets, status
+from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from posthog.models import HogFunction
+from posthog.models import MessageTemplate
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from typing import Any
 from posthog.api.shared import UserBasicSerializer
 
 
 class MessageTemplateSerializer(serializers.ModelSerializer):
-    content = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
-    def get_content(self, obj: HogFunction) -> dict[str, Any]:
-        return obj.inputs.get("email_template", {})
-
     class Meta:
-        model = HogFunction
+        model = MessageTemplate
         fields = [
             "id",
             "name",
             "description",
             "created_at",
+            "updated_at",
             "content",
-            "template_id",
             "created_by",
             "type",
-            "kind",
+            "deleted",
         ]
-        read_only_fields = fields
+        read_only_fields = ["id", "created_at", "created_by", "updated_at"]
 
 
-class MessageTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
-    scope_object = "hog_function"
+class MessageTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "message_template"
     permission_classes = [IsAuthenticated]
 
     serializer_class = MessageTemplateSerializer
-    queryset = HogFunction.objects.all()
+    queryset = MessageTemplate.objects.all()
 
     def safely_get_queryset(self, queryset):
         return (
@@ -49,15 +44,10 @@ class MessageTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
         )
 
     def list(self, request: Request, *args, **kwargs):
-        queryset = self.safely_get_queryset(self.get_queryset()).filter(kind="messaging_template")
+        queryset = self.safely_get_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
-
-    def retrieve(self, request: Request, *args, **kwargs):
-        if self.get_object().kind != "messaging_template":
-            return Response(status=status.HTTP_404_NOT_FOUND)
-        return Response(self.get_serializer(self.get_object()).data)

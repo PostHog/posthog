@@ -1,4 +1,5 @@
 import { IconPlusSmall } from '@posthog/icons'
+import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -8,7 +9,15 @@ import { urls } from 'scenes/urls'
 import { MessagingTabs } from '../MessagingTabs'
 import { libraryLogic } from './libraryLogic'
 import { MessagesTable } from './MessagesTable'
+import { templatesLogic } from './templatesLogic'
 import { TemplatesTable } from './TemplatesTable'
+
+// Wrapper component to ensure templatesLogic is unmounted when component unmounts
+function TemplatesSection(): JSX.Element {
+    // This will mount the logic when component mounts and unmount when component unmounts
+    useValues(templatesLogic)
+    return <TemplatesTable />
+}
 
 export function Library(): JSX.Element {
     return (
@@ -29,7 +38,7 @@ export function Library(): JSX.Element {
                 }
             />
 
-            <TemplatesTable />
+            <TemplatesSection />
 
             <LemonDivider />
 

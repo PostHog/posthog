@@ -24,7 +24,7 @@ function EmailTemplaterForm({
         <>
             {templates.length > 0 && (
                 <LemonSelect
-                    placeholder="Load content from template"
+                    placeholder="Start from a template (optional)"
                     loading={templatesLoading}
                     value={appliedTemplate?.id}
                     options={templates.map((template) => ({
