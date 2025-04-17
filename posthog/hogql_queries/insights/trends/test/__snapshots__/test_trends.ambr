@@ -686,6 +686,7 @@
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action.2
   '''
+  /* cohort_calculation: */
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
@@ -1415,7 +1416,7 @@
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort.2
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -1435,6 +1436,7 @@
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort.4
   '''
+  /* cohort_calculation: */
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2019-12-26 00:00:00', 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2019-12-26 00:00:00', 'UTC'))), toStartOfDay(assumeNotNull(toDateTime('2020-01-02 23:59:59', 'UTC'))))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
@@ -1500,7 +1502,7 @@
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.2
   '''
-  
+  /* cohort_calculation: */
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
@@ -1520,6 +1522,7 @@
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.4
   '''
+  /* cohort_calculation: */
   SELECT arrayMap(number -> plus(toStartOfDay(assumeNotNull(toDateTime('2019-12-26 00:00:00', 'UTC'))), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfDay(assumeNotNull(toDateTime('2019-12-26 00:00:00', 'UTC'))), toStartOfDay(assumeNotNull(toDateTime('2020-01-02 23:59:59', 'UTC'))))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
@@ -2052,6 +2055,7 @@
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action.2
   '''
+  /* cohort_calculation: */
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
@@ -2174,6 +2178,7 @@
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2.2
   '''
+  /* cohort_calculation: */
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
