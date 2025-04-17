@@ -42,6 +42,8 @@ PropertyType = Literal[
     "hogql",
     "data_warehouse",
     "data_warehouse_person_property",
+    "error_tracking_issue",
+    "error_tracking_issue_property",
 ]
 
 PropertyName = str
@@ -90,6 +92,8 @@ VALIDATE_PROP_TYPES = {
     "person": ["key", "value"],
     "data_warehouse": ["key", "value"],
     "data_warehouse_person_property": ["key", "value"],
+    "error_tracking_issue": ["key", "value"],
+    "error_tracking_issue_property": ["key", "value"],
     "cohort": ["key", "value"],
     "element": ["key", "value"],
     "static-cohort": ["key", "value"],

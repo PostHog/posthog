@@ -105,6 +105,14 @@ pub struct Config {
     #[envconfig(default = "10000")]
     pub max_team_cache_size: u64,
 
+    #[envconfig(default = "300")]
+    pub assignment_rule_cache_ttl_secs: u64,
+
+    #[envconfig(default = "100_000")]
+    // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
+    // This is very granular, but gives us vey good control over memory usage.
+    pub max_assignment_rule_cache_size: u64,
+
     #[envconfig(from = "MAXMIND_DB_PATH")]
     pub maxmind_db_path: PathBuf,
 

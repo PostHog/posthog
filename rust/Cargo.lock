@@ -1793,6 +1793,7 @@ dependencies = [
  "common-types",
  "envconfig",
  "health",
+ "hogvm",
  "httpmock",
  "limiters",
  "metrics",

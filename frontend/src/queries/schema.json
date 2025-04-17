@@ -517,6 +517,12 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehousePersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingIssueFilter"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingIssuePropertyFilter"
                 }
             ]
         },
@@ -7628,6 +7634,52 @@
             "required": ["type", "id"],
             "type": "object"
         },
+        "ErrorTrackingIssueFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "error_tracking_issue",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
+        "ErrorTrackingIssuePropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "error_tracking_issue_property",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "ErrorTrackingQuery": {
             "additionalProperties": false,
             "properties": {
@@ -12169,7 +12221,9 @@
                 "group",
                 "hogql",
                 "data_warehouse",
-                "data_warehouse_person_property"
+                "data_warehouse_person_property",
+                "error_tracking_issue",
+                "error_tracking_issue_property"
             ],
             "type": "string"
         },
@@ -12186,6 +12240,9 @@
                         "type": ["string", "number"]
                     },
                     "type": "array"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingIssueAssignee"
                 },
                 {
                     "type": "null"
@@ -17180,6 +17237,8 @@
                 "hogql_expression",
                 "notebooks",
                 "log_entries",
+                "error_tracking_issues",
+                "error_tracking_issue_properties",
                 "replay"
             ],
             "type": "string"

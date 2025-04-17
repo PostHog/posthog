@@ -30,6 +30,7 @@ pub struct Issue {
     pub status: IssueStatus,
     pub name: Option<String>,
     pub description: Option<String>,
+    pub eligible_for_assignment: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -42,16 +43,6 @@ pub enum IssueStatus {
 }
 
 impl Issue {
-    pub fn new(team_id: i32, name: String, description: String) -> Self {
-        Self {
-            id: Uuid::new_v4(),
-            team_id,
-            status: IssueStatus::Active,
-            name: Some(name),
-            description: Some(description),
-        }
-    }
-
     pub async fn load_by_fingerprint<'c, E>(
         executor: E,
         team_id: i32,
@@ -63,7 +54,9 @@ impl Issue {
         let res = sqlx::query_as!(
             Issue,
             r#"
-            SELECT i.id, i.team_id, i.status, i.name, i.description
+            -- the "eligible_for_assignment!" forces sqlx to assume not null, which is correct in this case, but
+            -- generally a risky override of sqlx's normal type checking
+            SELECT i.id, i.team_id, i.status, i.name, i.description, false as "eligible_for_assignment!"
             FROM posthog_errortrackingissue i
             JOIN posthog_errortrackingissuefingerprintv2 f ON i.id = f.issue_id
             WHERE f.team_id = $1 AND f.fingerprint = $2
@@ -88,7 +81,7 @@ impl Issue {
         let res = sqlx::query_as!(
             Issue,
             r#"
-            SELECT id, team_id, status, name, description FROM posthog_errortrackingissue
+            SELECT id, team_id, status, name, description, false as "eligible_for_assignment!" FROM posthog_errortrackingissue
             WHERE team_id = $1 AND id = $2
             "#,
             team_id,
@@ -100,39 +93,43 @@ impl Issue {
         Ok(res)
     }
 
-    pub async fn insert<'c, E>(&self, executor: E) -> Result<bool, UnhandledError>
+    pub async fn insert_new<'c, E>(
+        team_id: i32,
+        name: String,
+        description: String,
+        executor: E,
+    ) -> Result<Issue, UnhandledError>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
-        let did_insert = sqlx::query_scalar!(
+        let issue = Self {
+            id: Uuid::now_v7(),
+            team_id,
+            status: IssueStatus::Active,
+            name: Some(name),
+            description: Some(description),
+            eligible_for_assignment: true,
+        };
+
+        sqlx::query!(
             r#"
             INSERT INTO posthog_errortrackingissue (id, team_id, status, name, description, created_at)
             VALUES ($1, $2, $3, $4, $5, NOW())
-            ON CONFLICT (id) DO UPDATE SET team_id = EXCLUDED.team_id -- a no-op update to force a returned row
-            RETURNING (xmax = 0) AS was_inserted
             "#,
-            self.id,
-            self.team_id,
-            self.status.to_string(),
-            self.name,
-            self.description
+            issue.id,
+            issue.team_id,
+            issue.status.to_string(),
+            issue.name,
+            issue.description
         )
-        .fetch_one(executor)
-        .await.expect("Got at least one row back")
-        // TODO - I'm fairly sure the Option here is a bug in sqlx, so the unwrap will
-        // never be hit, but nonetheless I'm not 100% sure the "no rows" case actually
-        // means the insert was not done.
-        .unwrap_or(false);
+        .execute(executor)
+        .await?;
 
-        if did_insert {
-            metrics::counter!(ISSUE_CREATED).increment(1);
-        }
-
-        Ok(did_insert)
+        Ok(issue)
     }
 
     pub async fn maybe_reopen<'c, E>(
-        &self,
+        &mut self,
         executor: E,
         context: &AppContext,
     ) -> Result<(), UnhandledError>
@@ -156,8 +153,10 @@ impl Issue {
         .fetch_all(executor)
         .await?;
 
+        self.eligible_for_assignment = !res.is_empty(); // We actually updated a row
+
         // If we actually updated a row
-        if !res.is_empty() {
+        if self.eligible_for_assignment {
             metrics::counter!(ISSUE_REOPENED).increment(1);
             capture_issue_reopened(self.team_id, self.id);
             send_issue_reopened_alert(context, self).await?;
@@ -232,7 +231,7 @@ pub async fn resolve_issue(
 
     // Fast path - just fetch the issue directly, and then reopen it if needed
     let existing_issue = Issue::load_by_fingerprint(&mut *conn, team_id, fingerprint).await?;
-    if let Some(issue) = existing_issue {
+    if let Some(mut issue) = existing_issue {
         issue.maybe_reopen(&mut *conn, context).await?;
         return Ok(issue);
     }
@@ -244,10 +243,14 @@ pub async fn resolve_issue(
     // Start a transaction, so we can roll it back on override insert failure
     let mut txn = conn.begin().await?;
     // Insert a new issue
-    let issue = Issue::new(team_id, name.to_string(), description.to_string());
-    // We don't actually care if we insert the issue here or not - conflicts aren't possible at
-    // this stage.
-    issue.insert(&mut *txn).await?;
+    let issue = Issue::insert_new(
+        team_id,
+        name.to_string(),
+        description.to_string(),
+        &mut *txn,
+    )
+    .await?;
+
     // Insert the fingerprint override
     let issue_override = IssueFingerprintOverride::create_or_load(
         &mut *txn,
@@ -262,9 +265,14 @@ pub async fn resolve_issue(
     // saving both the issue and the override. Otherwise, rollback the transaction, and
     // use the retrieved issue override.
     let was_created = issue_override.issue_id == issue.id;
+    let mut issue = issue;
     if !was_created {
+        // It wasn't actually created new, so it's not eligible for assignment based
+        // on it being new - maybe_reopen will handle eligibility of the existing issue
+        issue.eligible_for_assignment = false;
         txn.rollback().await?;
     } else {
+        metrics::counter!(ISSUE_CREATED).increment(1);
         send_issue_created_alert(context, &issue).await?;
         txn.commit().await?;
         capture_issue_created(team_id, issue_override.issue_id);
@@ -272,11 +280,10 @@ pub async fn resolve_issue(
 
     // This being None is /almost/ impossible, unless between the transaction above finishing and
     // this point, someone merged the issue and deleted the old one, but if that happens,
-    // we don't care about this reopen failing (since this issue is irrelevant anyway). IT would be
-    // more efficient to fetch the entire Issue struct above along with the fingerprint, but we're
-    // in the slow path anyway, so one extra DB hit is not a big deal.
-    if let Some(issue) = Issue::load(&mut *conn, team_id, issue_override.issue_id).await? {
-        issue.maybe_reopen(&mut *conn, context).await?;
+    // we don't care about this reopen failing (since this issue is irrelevant anyway).
+    if let Some(mut loaded) = Issue::load(&mut *conn, team_id, issue_override.issue_id).await? {
+        loaded.maybe_reopen(&mut *conn, context).await?;
+        issue = loaded;
     }
 
     Ok(issue)
