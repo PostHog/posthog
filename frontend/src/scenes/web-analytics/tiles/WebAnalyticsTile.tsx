@@ -49,6 +49,7 @@ import { InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
 
 import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
 import { ReplayButton } from '../CrossSellButtons/ReplayButton'
+import { pageReportsLogic } from '../pageReportsLogic'
 
 const toUtcOffsetFormat = (value: number): string => {
     if (value === 0) {
@@ -459,16 +460,7 @@ export const WebStatsTrendTile = ({
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center">
                         <span className="mr-2">Group by</span>
-                        <IntervalFilterStandalone
-                            interval={interval}
-                            onIntervalChange={setInterval}
-                            options={[
-                                { value: 'hour', label: 'Hour' },
-                                { value: 'day', label: 'Day' },
-                                { value: 'week', label: 'Week' },
-                                { value: 'month', label: 'Month' },
-                            ]}
-                        />
+                        <IntervalFilterStandalone interval={interval} onIntervalChange={setInterval} />
                     </div>
                 </div>
             )}
@@ -636,20 +628,25 @@ export const WebExternalClicksTile = ({
     query,
     insightProps,
 }: QueryWithInsightProps<DataTableNode>): JSX.Element | null => {
-    const { shouldStripQueryParams } = useValues(webAnalyticsLogic)
+    const { productTab, shouldStripQueryParams } = useValues(webAnalyticsLogic)
     const { setShouldStripQueryParams } = useActions(webAnalyticsLogic)
+
+    const isPageReportsPage = productTab === ProductTab.PAGE_REPORTS
+
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
-            <div className="flex flex-row items-center justify-end m-2 mr-4">
-                <div className="flex flex-row items-center deprecated-space-x-2">
-                    <LemonSwitch
-                        label="Strip query parameters"
-                        checked={shouldStripQueryParams}
-                        onChange={setShouldStripQueryParams}
-                        className="h-full"
-                    />
+            {!isPageReportsPage && (
+                <div className="flex flex-row items-center justify-end m-2 mr-4">
+                    <div className="flex flex-row items-center deprecated-space-x-2">
+                        <LemonSwitch
+                            label="Strip query parameters"
+                            checked={shouldStripQueryParams}
+                            onChange={setShouldStripQueryParams}
+                            className="h-full"
+                        />
+                    </div>
                 </div>
-            </div>
+            )}
             <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
         </div>
     )
@@ -696,6 +693,9 @@ export const WebQuery = ({
     control?: JSX.Element
     tileId: TileId
 }): JSX.Element => {
+    const { productTab, shouldStripQueryParams: stripQueryParamsDashboard } = useValues(webAnalyticsLogic)
+    const { stripQueryParams: stripQueryParamsPageReports } = useValues(pageReportsLogic)
+
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
         return (
             <WebStatsTableTile
@@ -709,7 +709,17 @@ export const WebQuery = ({
     }
 
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebExternalClicksTableQuery) {
-        return <WebExternalClicksTile query={query} insightProps={insightProps} />
+        const effectiveStripQueryParams =
+            productTab === ProductTab.PAGE_REPORTS ? stripQueryParamsPageReports : stripQueryParamsDashboard
+
+        const adjustedQuery = {
+            ...query,
+            source: {
+                ...query.source,
+                stripQueryParams: effectiveStripQueryParams,
+            },
+        }
+        return <WebExternalClicksTile query={adjustedQuery} insightProps={insightProps} />
     }
 
     if (query.kind === NodeKind.InsightVizNode) {

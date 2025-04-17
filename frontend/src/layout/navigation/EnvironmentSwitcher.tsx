@@ -74,13 +74,14 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                 label: 'New environment in project',
                 onClick: () => {
                     onClickInside?.()
-                    guardAvailableFeature(AvailableFeature.MULTIPLE_ENVIRONMENTS, showCreateEnvironmentModal, {
+                    guardAvailableFeature(AvailableFeature.ENVIRONMENTS, showCreateEnvironmentModal, {
                         currentUsage: currentOrganization?.teams?.filter(
                             (team) => team.project_id === currentTeam.project_id
                         ).length,
                     })
                 },
-                disabledReason: projectCreationForbiddenReason?.replace('project', 'environment'),
+                disabledReason:
+                    "We're temporarily pausing new environments as we make some improvements! Stay tuned for more. In the meantime, you can create new projects.",
                 'data-attr': 'new-environment-button',
             })
         }

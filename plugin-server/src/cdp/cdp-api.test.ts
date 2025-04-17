@@ -85,7 +85,7 @@ describe('CDP API', () => {
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
         const item = await _insertHogFunction(hub.postgres, team.id, hogFunction)
         // Trigger the reload that django would do
-        await api['hogFunctionManager'].reloadAllHogFunctions()
+        api['hogFunctionManager']['onHogFunctionsReloaded'](team.id, [item.id])
         return item
     }
 
@@ -96,7 +96,6 @@ describe('CDP API', () => {
         team = await getFirstTeam(hub)
 
         api = new CdpApi(hub)
-        await api.start()
         app = express()
         app.use(express.json())
         app.use('/', api.router())
@@ -112,7 +111,6 @@ describe('CDP API', () => {
 
     afterEach(async () => {
         jest.setTimeout(10000)
-        await api.stop()
         await closeHub(hub)
     })
 
@@ -484,7 +482,6 @@ describe('CDP API', () => {
                   "now": "",
                   "properties": {
                     "$lib_version": "1.0.0",
-                    "$transformations_failed": [],
                     "$transformations_succeeded": [
                       "Filter Out Plugin (<REPLACED-UUID-1>)",
                     ],

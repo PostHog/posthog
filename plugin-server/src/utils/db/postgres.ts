@@ -153,6 +153,12 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
             ) {
                 throw new DependencyUnavailableError(error.message, 'Postgres', error)
             }
+
+            logger.error('🔴', 'Postgres query error', {
+                query: queryConfig.text,
+                error,
+                stack: error.stack,
+            })
             throw error
         }
     })

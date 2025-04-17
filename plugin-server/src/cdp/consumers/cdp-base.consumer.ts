@@ -13,7 +13,6 @@ import { FetchExecutorService } from '../services/fetch-executor.service'
 import { GroupsManagerService } from '../services/groups-manager.service'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
-import { HogFunctionManagerLazyService } from '../services/hog-function-manager-lazy.service'
 import { HogFunctionMonitoringService } from '../services/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/hog-masker.service'
 import { HogWatcherService } from '../services/hog-watcher.service'
@@ -46,7 +45,6 @@ export interface TeamIDWithConfig {
 export abstract class CdpConsumerBase {
     batchConsumer?: BatchConsumer
     hogFunctionManager: HogFunctionManagerService
-    hogFunctionManagerLazy: HogFunctionManagerLazyService
     fetchExecutor: FetchExecutorService
     hogExecutor: HogExecutorService
     hogWatcher: HogWatcherService
@@ -65,7 +63,6 @@ export abstract class CdpConsumerBase {
     constructor(protected hub: Hub) {
         this.redis = createCdpRedisPool(hub)
         this.hogFunctionManager = new HogFunctionManagerService(hub)
-        this.hogFunctionManagerLazy = new HogFunctionManagerLazyService(hub)
         this.hogWatcher = new HogWatcherService(hub, this.redis)
         this.hogMasker = new HogMaskerService(this.redis)
         this.hogExecutor = new HogExecutorService(this.hub)
@@ -163,8 +160,7 @@ export abstract class CdpConsumerBase {
     public async start(): Promise<void> {
         // NOTE: This is only for starting shared services
         await Promise.all([
-            this.hogFunctionManager.start(this.hogTypes),
-            this.hogFunctionManagerLazy.start(),
+            this.hogFunctionManager.start(),
             KafkaProducerWrapper.create(this.hub).then((producer) => {
                 this.kafkaProducer = producer
                 this.kafkaProducer.producer.connect()
@@ -181,8 +177,8 @@ export abstract class CdpConsumerBase {
         await this.batchConsumer?.stop()
         logger.info('🔁', `${this.name} - stopping kafka producer`)
         await this.kafkaProducer?.disconnect()
-        logger.info('🔁', `${this.name} - stopping hog function manager and hog watcher`)
-        await Promise.all([this.hogFunctionManager.stop()])
+        logger.info('🔁', `${this.name} - stopping hog function manager`)
+        await this.hogFunctionManager.stop()
 
         logger.info('👍', `${this.name} - stopped!`)
     }

@@ -102,7 +102,9 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent
@@ -208,7 +210,9 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent
@@ -314,7 +318,9 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter
@@ -408,12 +414,12 @@
                          (SELECT person.id AS id,
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
                           FROM person
-                          WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                               (SELECT person.id AS id, max(person.version) AS version
-                                                                                FROM person
-                                                                                WHERE equals(person.team_id, 99999)
-                                                                                GROUP BY person.id
-                                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                          WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                                        (SELECT person.id AS id, max(person.version) AS version
+                                                                         FROM person
+                                                                         WHERE equals(person.team_id, 99999)
+                                                                         GROUP BY person.id
+                                                                         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                        WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview', 'purchase')), ifNull(notILike(toString(e__person.properties___email), '%@posthog.com%'), 1)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
@@ -430,7 +436,9 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent
@@ -524,12 +532,12 @@
                          (SELECT person.id AS id,
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
                           FROM person
-                          WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                               (SELECT person.id AS id, max(person.version) AS version
-                                                                                FROM person
-                                                                                WHERE equals(person.team_id, 99999)
-                                                                                GROUP BY person.id
-                                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                          WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                                        (SELECT person.id AS id, max(person.version) AS version
+                                                                         FROM person
+                                                                         WHERE equals(person.team_id, 99999)
+                                                                         GROUP BY person.id
+                                                                         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                        WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview', 'purchase')), ifNull(notILike(toString(e__person.properties___email), '%@earlierevent.com%'), 1)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
@@ -546,7 +554,9 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent
@@ -640,12 +650,12 @@
                          (SELECT person.id AS id,
                                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
                           FROM person
-                          WHERE and(equals(person.team_id, 99999), ifNull(in(tuple(person.id, person.version),
-                                                                               (SELECT person.id AS id, max(person.version) AS version
-                                                                                FROM person
-                                                                                WHERE equals(person.team_id, 99999)
-                                                                                GROUP BY person.id
-                                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
+                          WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                                        (SELECT person.id AS id, max(person.version) AS version
+                                                                         FROM person
+                                                                         WHERE equals(person.team_id, 99999)
+                                                                         GROUP BY person.id
+                                                                         HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.id)
                        WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('$pageview', 'purchase')), ifNull(notILike(toString(e__person.properties___email), '%@laterevent.com%'), 1)), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
@@ -662,7 +672,9 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter
@@ -761,7 +773,9 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent
@@ -860,7 +874,9 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent
@@ -959,6 +975,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=23622320128,
-                    allow_experimental_analyzer=1
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---

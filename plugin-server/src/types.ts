@@ -27,6 +27,7 @@ import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
 import { ObjectStorage } from './utils/object_storage'
+import { TeamManagerLazy } from './utils/team-manager-lazy'
 import { UUID } from './utils/utils'
 import { ActionManager } from './worker/ingestion/action-manager'
 import { ActionMatcher } from './worker/ingestion/action-matcher'
@@ -65,7 +66,6 @@ export enum KafkaSaslMechanism {
 
 export enum PluginServerMode {
     ingestion_v2 = 'ingestion-v2',
-    property_defs = 'property-defs',
     async_onevent = 'async-onevent',
     async_webhooks = 'async-webhooks',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
@@ -110,12 +110,13 @@ export type CdpConfig = {
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
+    CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
+    CDP_CYCLOTRON_USE_BULK_COPY_JOB: boolean
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
-    CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED: boolean
 }
 
 export type IngestionConsumerConfig = {
@@ -134,6 +135,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
     INGESTION_BATCH_SIZE: number // kafka consumer batch size
     INGESTION_OVERFLOW_ENABLED: boolean // whether or not overflow rerouting is enabled (only used by analytics-ingestion)
+    INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: string // comma-separated list of either tokens or token:distinct_id combinations to force events to route to overflow
     INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether or not Kafka message keys should be preserved or discarded when messages are rerouted to overflow
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
@@ -256,8 +258,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     PIPELINE_STEP_STALLED_LOG_TIMEOUT: number
     CAPTURE_CONFIG_REDIS_HOST: string | null // Redis cluster to use to coordinate with capture (overflow, routing)
-    USE_SIMD_JSON_PARSE: boolean
-    USE_SIMD_JSON_PARSE_FOR_COMPARISON: boolean
     LAZY_LOADER_DEFAULT_BUFFER_MS: number
     // dump profiles to disk, covering the first N seconds of runtime
     STARTUP_PROFILE_DURATION_SECONDS: number
@@ -313,7 +313,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     POSTHOG_API_KEY: string
     POSTHOG_HOST_URL: string
 
-    // cookieless
+    // cookieless, should match the values in rust/feature-flags/src/config.rs
     COOKIELESS_DISABLED: boolean
     COOKIELESS_FORCE_STATELESS_MODE: boolean
     COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS: number
@@ -332,6 +332,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: string
     SESSION_RECORDING_V2_S3_TIMEOUT_MS: number
     SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: string
+    SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: number
 
     // Destination Migration Diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -340,6 +341,10 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: string
     PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: string
     PROPERTY_DEFS_WRITE_DISABLED: boolean
+
+    CDP_HOG_WATCHER_SAMPLE_RATE: number
+    LAZY_TEAM_MANAGER_COMPARISON: boolean
+    USE_LAZY_TEAM_MANAGER: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -364,6 +369,7 @@ export interface Hub extends PluginsServerConfig {
     pluginConfigSecretLookup: Map<string, PluginConfigId>
     // tools
     teamManager: TeamManager
+    teamManagerLazy: TeamManagerLazy
     organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
@@ -392,7 +398,6 @@ export interface PluginServerCapabilities {
     // and the shouldSetupPluginInServer() test accordingly.
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
-    propertyDefs?: boolean
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
@@ -662,6 +667,9 @@ export interface Team {
         | null
     cookieless_server_hash_mode: CookielessServerHashMode | null
     timezone: string
+
+    // NOTE: Currently only created on the lazy loader
+    available_features?: string[]
 }
 
 /** Properties shared by RawEventMessage and EventMessage. */
@@ -822,7 +830,9 @@ export type PropertiesLastOperation = Record<string, PropertyUpdateOperation>
 
 /** Properties shared by RawPerson and Person. */
 export interface BasePerson {
-    id: number
+    // NOTE: id is a bigint in the DB, which pg lib returns as a string
+    // We leave it as a string as dealing with the bigint type is tricky and we don't need any of its features
+    id: string
     team_id: number
     properties: Properties
     is_user_id: number
@@ -1118,16 +1128,6 @@ export interface JobsConsumerControl {
 export type IngestEventResponse =
     | { success: true; actionMatches: Action[]; preIngestionEvent: PreIngestionEvent | null }
     | { success: false; error: string }
-
-export interface EventDefinitionType {
-    id: string
-    name: string
-    volume_30_day: number | null
-    query_usage_30_day: number | null
-    team_id: number
-    project_id: number | null
-    created_at: string // DateTime
-}
 
 export enum UnixTimestampPropertyTypeFormat {
     UNIX_TIMESTAMP = 'unix_timestamp',

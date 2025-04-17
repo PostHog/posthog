@@ -52,7 +52,7 @@ jobs:
 
     deploy_preview:
         name: Deploy preview environment
-        uses: ./.github/workflows/pr-deploy.yml
+        uses: ./.github/workflows/pr-preview-deploy.yml
         needs: [posthog_build]
         secrets: inherit
         if: ${{ contains(github.event.pull_request.labels.*.name, 'deploy') }}

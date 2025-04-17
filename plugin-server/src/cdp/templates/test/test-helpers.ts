@@ -114,9 +114,7 @@ export class TemplateTester {
     async invoke(_inputs: Record<string, any>, _globals?: DeepPartialHogFunctionInvocationGlobals) {
         const defaultInputs = this.template.inputs_schema.reduce((acc, input) => {
             if (typeof input.default !== 'undefined') {
-                acc[input.key] = {
-                    value: input.default,
-                }
+                acc[input.key] = input.default
             }
             return acc
         }, {} as Record<string, HogFunctionInputType>)

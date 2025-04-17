@@ -4,6 +4,7 @@ use crate::flags::flag_models::FeatureFlag;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub enum FlagsResponseCode {
@@ -31,6 +32,7 @@ pub struct FlagsResponse {
     pub flags: HashMap<String, FlagDetails>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>, // list of quota limited resources
+    pub request_id: Uuid,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -41,6 +43,7 @@ pub struct LegacyFlagsResponse {
     pub feature_flag_payloads: HashMap<String, Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quota_limited: Option<Vec<String>>, // list of quota limited resources
+    pub request_id: Uuid,
 }
 
 impl LegacyFlagsResponse {
@@ -55,14 +58,15 @@ impl LegacyFlagsResponse {
             feature_flag_payloads: response
                 .flags
                 .iter()
-                .map(|(key, flag)| {
-                    (
-                        key.clone(),
-                        flag.metadata.payload.clone().unwrap_or(Value::Null),
-                    )
+                .filter_map(|(key, flag)| {
+                    flag.metadata
+                        .payload
+                        .clone()
+                        .map(|payload| (key.clone(), payload))
                 })
                 .collect(),
             quota_limited: response.quota_limited,
+            request_id: response.request_id,
         }
     }
 }
@@ -72,11 +76,13 @@ impl FlagsResponse {
         errors_while_computing_flags: bool,
         flags: HashMap<String, FlagDetails>,
         quota_limited: Option<Vec<String>>,
+        request_id: Uuid,
     ) -> Self {
         Self {
             errors_while_computing_flags,
             flags,
             quota_limited,
+            request_id,
         }
     }
 }
@@ -90,15 +96,15 @@ pub struct FlagsOptionsResponse {
 pub struct FlagDetails {
     pub key: String,
     pub enabled: bool,
-    pub variant: String,
+    pub variant: Option<String>,
     pub reason: FlagEvaluationReason,
     pub metadata: FlagDetailsMetadata,
 }
 
 impl FlagDetails {
     pub fn to_value(&self) -> FlagValue {
-        if !self.variant.is_empty() {
-            FlagValue::String(self.variant.clone())
+        if let Some(variant) = &self.variant {
+            FlagValue::String(variant.clone())
         } else {
             FlagValue::Boolean(self.enabled)
         }
@@ -132,7 +138,7 @@ impl FromFeatureAndMatch for FlagDetails {
         FlagDetails {
             key: flag.key.clone(),
             enabled: flag_match.matches,
-            variant: flag_match.variant.clone().unwrap_or_default(),
+            variant: flag_match.variant.clone(),
             reason: FlagEvaluationReason {
                 code: flag_match.reason.to_string(),
                 condition_index: flag_match.condition_index.map(|i| i as i32),
@@ -151,7 +157,7 @@ impl FromFeatureAndMatch for FlagDetails {
         FlagDetails {
             key: flag.key.clone(),
             enabled: false,
-            variant: "".to_string(),
+            variant: None,
             reason: FlagEvaluationReason {
                 code: error_reason.to_string(),
                 condition_index: None,
@@ -180,6 +186,9 @@ impl FromFeatureAndMatch for FlagDetails {
             FeatureFlagMatchReason::SuperConditionValue => {
                 Some("Super condition value".to_string())
             }
+            FeatureFlagMatchReason::HoldoutConditionValue => {
+                Some("Holdout condition value".to_string())
+            }
         }
     }
 }
@@ -190,6 +199,7 @@ mod tests {
     use crate::flags::flag_match_reason::FeatureFlagMatchReason;
     use crate::flags::flag_matching::FeatureFlagMatch;
     use rstest::rstest;
+    use serde_json::json;
 
     #[rstest]
     #[case::condition_match(
@@ -252,6 +262,16 @@ mod tests {
         },
         Some("Super condition value".to_string())
     )]
+    #[case::holdout_condition(
+        FeatureFlagMatch {
+            matches: true,
+            variant: None,
+            reason: FeatureFlagMatchReason::HoldoutConditionValue,
+            condition_index: None,
+            payload: None,
+        },
+        Some("Holdout condition value".to_string())
+    )]
     fn test_get_reason_description(
         #[case] flag_match: FeatureFlagMatch,
         #[case] expected_description: Option<String>,
@@ -260,5 +280,105 @@ mod tests {
             FlagDetails::get_reason_description(&flag_match),
             expected_description
         );
+    }
+
+    #[test]
+    fn test_flags_response_only_includes_non_null_payloads() {
+        // Create a response with multiple flags, some with payloads and some without
+        let mut flags = HashMap::new();
+
+        // Flag with payload
+        flags.insert(
+            "flag_with_payload".to_string(),
+            FlagDetails {
+                key: "flag_with_payload".to_string(),
+                enabled: true,
+                variant: None,
+                reason: FlagEvaluationReason {
+                    code: "condition_match".to_string(),
+                    condition_index: Some(0),
+                    description: None,
+                },
+                metadata: FlagDetailsMetadata {
+                    id: 1,
+                    version: 1,
+                    description: None,
+                    payload: Some(json!({"key": "value"})),
+                },
+            },
+        );
+
+        // Flag without payload
+        flags.insert(
+            "flag2".to_string(),
+            FlagDetails {
+                key: "flag2".to_string(),
+                enabled: true,
+                variant: None,
+                reason: FlagEvaluationReason {
+                    code: "condition_match".to_string(),
+                    condition_index: Some(0),
+                    description: None,
+                },
+                metadata: FlagDetailsMetadata {
+                    id: 2,
+                    version: 1,
+                    description: None,
+                    payload: None,
+                },
+            },
+        );
+
+        // Flag with null payload, which should not be filtered out; since Some(Value::Null) is not None
+        flags.insert(
+            "flag_with_null_payload".to_string(),
+            FlagDetails {
+                key: "flag_with_null_payload".to_string(),
+                enabled: true,
+                variant: None,
+                reason: FlagEvaluationReason {
+                    code: "condition_match".to_string(),
+                    condition_index: Some(0),
+                    description: None,
+                },
+                metadata: FlagDetailsMetadata {
+                    id: 3,
+                    version: 1,
+                    description: None,
+                    payload: Some(Value::Null),
+                },
+            },
+        );
+
+        let request_id = Uuid::new_v4();
+        let response = FlagsResponse::new(false, flags, None, request_id);
+        let legacy_response = LegacyFlagsResponse::from_response(response);
+
+        // Check that only flag1 with actual payload is included
+        assert_eq!(legacy_response.feature_flag_payloads.len(), 2);
+        assert!(legacy_response
+            .feature_flag_payloads
+            .contains_key("flag_with_payload"));
+        assert!(!legacy_response.feature_flag_payloads.contains_key("flag2"));
+        assert!(legacy_response
+            .feature_flag_payloads
+            .contains_key("flag_with_null_payload"));
+
+        // Verify the payload value
+        assert_eq!(
+            legacy_response
+                .feature_flag_payloads
+                .get("flag_with_payload"),
+            Some(&json!({"key": "value"}))
+        );
+        assert_eq!(
+            legacy_response
+                .feature_flag_payloads
+                .get("flag_with_null_payload"),
+            Some(&json!(null))
+        );
+
+        // Check that the request_id is included
+        assert_eq!(legacy_response.request_id, request_id);
     }
 }

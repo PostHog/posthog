@@ -91,6 +91,49 @@ Example: `https://posthog.com/?__posthog_debug=true`
 
 If you ever need more logs, please create a PR and add them.
 
+### Cache Consistency Issues
+
+When surveys are not loaded in the SDKs (/decide returns surveys: false), it could be caused by cache inconsistencies in the team settings.
+
+#### What is `surveys_opt_in` and why it matters
+
+The `surveys_opt_in` field on the Team model is a critical flag that determines whether surveys functionality is enabled for a team. During the `/decide` API call (which the SDK makes on initialization), this value is checked to determine if survey functionality should be loaded.
+
+How it works:
+
+-   The `/decide` endpoint includes `"surveys": surveys_opt_in` in its response
+-   The RemoteConfig system also includes this value in its cached configuration
+-   When the JS SDK initializes, it checks this value to determine if it should load survey functionality
+-   If `surveys_opt_in` is `false` in the cache but `true` in the database (or vice versa), surveys may not work correctly
+
+If cache inconsistencies occur, customers may report that their surveys aren't appearing despite being properly configured, or surveys may continue to appear after being disabled.
+
+When to use:
+
+-   When the /decide API response shows surveys_opt_in as false, but surveys are configured and should be active in the app.
+
+```python
+# In Django shell (python manage.py shell_plus)
+from posthog.models.surveys.debug import (
+    check_team_cache_consistency,
+    fix_team_cache_consistency,
+    find_teams_with_cache_inconsistencies,
+    fix_all_teams_cache_consistency
+)
+
+# Check single team
+check_team_cache_consistency("team_id_or_token")
+
+# Fix single team
+fix_team_cache_consistency("team_id_or_token")
+
+# Find all teams with issues (only active survey teams)
+find_teams_with_cache_inconsistencies()
+
+# Fix all teams with issues
+fix_all_teams_cache_consistency()
+```
+
 ### Database debugging
 
 Access the database via Django admin, you can do so by opening:
@@ -99,8 +142,8 @@ https://{eu|us}.posthog.com/admin/posthog/survey/{survey_id}/change/
 
 Access the database via Metabase, you can do so by opening:
 
-- [EU](https://metabase.prod-eu.posthog.dev/browse/databases/34-posthog-postgres-prod-eu) - Posthog Survey
-- [US](https://metabase.prod-us.posthog.dev/browse/databases/34-posthog-postgres-prod-us-aurora) - Posthog Survey
+-   [EU](https://metabase.prod-eu.posthog.dev/browse/databases/34-posthog-postgres-prod-eu) - Posthog Survey
+-   [US](https://metabase.prod-us.posthog.dev/browse/databases/34-posthog-postgres-prod-us-aurora) - Posthog Survey
 
 You can execute SQL queries directly in Metabase.
 

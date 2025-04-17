@@ -12,8 +12,8 @@ const REDIS_TIMEOUT_MILLISECS: u64 = 10;
 pub enum CustomRedisError {
     #[error("Not found in redis")]
     NotFound,
-    #[error("Pickle error: {0}")]
-    PickleError(String),
+    #[error("Parse error: {0}")]
+    ParseError(String),
     #[error("Redis error: {0}")]
     Other(String),
     #[error("Timeout error")]
@@ -22,7 +22,7 @@ pub enum CustomRedisError {
 
 impl From<serde_pickle::Error> for CustomRedisError {
     fn from(err: serde_pickle::Error) -> Self {
-        CustomRedisError::PickleError(err.to_string())
+        CustomRedisError::ParseError(err.to_string())
     }
 }
 
@@ -35,6 +35,24 @@ impl From<RedisError> for CustomRedisError {
 impl From<tokio::time::error::Elapsed> for CustomRedisError {
     fn from(_: tokio::time::error::Elapsed) -> Self {
         CustomRedisError::Timeout
+    }
+}
+
+impl From<std::string::FromUtf8Error> for CustomRedisError {
+    fn from(err: std::string::FromUtf8Error) -> Self {
+        CustomRedisError::ParseError(err.to_string())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RedisValueFormat {
+    Pickle,
+    Utf8,
+}
+
+impl Default for RedisValueFormat {
+    fn default() -> Self {
+        Self::Pickle
     }
 }
 
@@ -55,9 +73,27 @@ pub trait Client {
     ) -> Result<(), CustomRedisError>;
 
     async fn get(&self, k: String) -> Result<String, CustomRedisError>;
+    async fn get_with_format(
+        &self,
+        k: String,
+        format: RedisValueFormat,
+    ) -> Result<String, CustomRedisError>;
     async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError>;
+    async fn set_with_format(
+        &self,
+        k: String,
+        v: String,
+        format: RedisValueFormat,
+    ) -> Result<(), CustomRedisError>;
     async fn set_nx_ex(&self, k: String, v: String, seconds: u64)
         -> Result<bool, CustomRedisError>;
+    async fn set_nx_ex_with_format(
+        &self,
+        k: String,
+        v: String,
+        seconds: u64,
+        format: RedisValueFormat,
+    ) -> Result<bool, CustomRedisError>;
     async fn del(&self, k: String) -> Result<(), CustomRedisError>;
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError>;
 }
@@ -101,6 +137,14 @@ impl Client for RedisClient {
     }
 
     async fn get(&self, k: String) -> Result<String, CustomRedisError> {
+        self.get_with_format(k, RedisValueFormat::Pickle).await
+    }
+
+    async fn get_with_format(
+        &self,
+        k: String,
+        format: RedisValueFormat,
+    ) -> Result<String, CustomRedisError> {
         let mut conn = self.client.get_async_connection().await?;
         let results = conn.get(k);
         let fut: Result<Vec<u8>, RedisError> =
@@ -112,12 +156,34 @@ impl Client for RedisClient {
         }
 
         let raw_bytes = fut?;
-        let string_response: String = serde_pickle::from_slice(&raw_bytes, Default::default())?;
-        Ok(string_response)
+
+        match format {
+            RedisValueFormat::Pickle => {
+                let string_response: String =
+                    serde_pickle::from_slice(&raw_bytes, Default::default())?;
+                Ok(string_response)
+            }
+            RedisValueFormat::Utf8 => {
+                let string_response = String::from_utf8(raw_bytes)?;
+                Ok(string_response)
+            }
+        }
     }
 
     async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError> {
-        let bytes = serde_pickle::to_vec(&v, Default::default())?;
+        self.set_with_format(k, v, RedisValueFormat::Pickle).await
+    }
+
+    async fn set_with_format(
+        &self,
+        k: String,
+        v: String,
+        format: RedisValueFormat,
+    ) -> Result<(), CustomRedisError> {
+        let bytes = match format {
+            RedisValueFormat::Pickle => serde_pickle::to_vec(&v, Default::default())?,
+            RedisValueFormat::Utf8 => v.into_bytes(),
+        };
         let mut conn = self.client.get_async_connection().await?;
         let results = conn.set(k, bytes);
         let fut = timeout(Duration::from_millis(REDIS_TIMEOUT_MILLISECS), results).await?;
@@ -130,7 +196,21 @@ impl Client for RedisClient {
         v: String,
         seconds: u64,
     ) -> Result<bool, CustomRedisError> {
-        let bytes = serde_pickle::to_vec(&v, Default::default())?;
+        self.set_nx_ex_with_format(k, v, seconds, RedisValueFormat::Pickle)
+            .await
+    }
+
+    async fn set_nx_ex_with_format(
+        &self,
+        k: String,
+        v: String,
+        seconds: u64,
+        format: RedisValueFormat,
+    ) -> Result<bool, CustomRedisError> {
+        let bytes = match format {
+            RedisValueFormat::Pickle => serde_pickle::to_vec(&v, Default::default())?,
+            RedisValueFormat::Utf8 => v.into_bytes(),
+        };
         let mut conn = self.client.get_async_connection().await?;
         let seconds_usize = seconds as usize;
 
@@ -255,6 +335,28 @@ impl MockRedisClient {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum MockRedisValue {
+    None,
+    Error(CustomRedisError),
+    String(String),
+    StringWithTTL(String, u64),
+    VecString(Vec<String>),
+    I32(i32),
+    I64(i64),
+    MinMax(String, String),
+    StringWithFormat(String, RedisValueFormat),
+    StringWithTTLAndFormat(String, u64, RedisValueFormat),
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct MockRedisCall {
+    op: String,
+    key: String,
+    value: MockRedisValue,
+}
+
 #[async_trait]
 impl Client for MockRedisClient {
     async fn zrangebyscore(
@@ -315,6 +417,23 @@ impl Client for MockRedisClient {
         }
     }
 
+    async fn get_with_format(
+        &self,
+        key: String,
+        format: RedisValueFormat,
+    ) -> Result<String, CustomRedisError> {
+        self.lock_calls().push(MockRedisCall {
+            op: "get_with_format".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::StringWithFormat("".to_string(), format),
+        });
+
+        self.get_ret
+            .get(&key)
+            .cloned()
+            .unwrap_or(Err(CustomRedisError::NotFound))
+    }
+
     async fn set(&self, key: String, value: String) -> Result<(), CustomRedisError> {
         // Record the call
         let mut calls = self.lock_calls();
@@ -328,6 +447,21 @@ impl Client for MockRedisClient {
             Some(result) => result.clone(),
             None => Err(CustomRedisError::NotFound),
         }
+    }
+
+    async fn set_with_format(
+        &self,
+        key: String,
+        value: String,
+        format: RedisValueFormat,
+    ) -> Result<(), CustomRedisError> {
+        self.lock_calls().push(MockRedisCall {
+            op: "set_with_format".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::StringWithFormat(value.clone(), format),
+        });
+
+        self.set_ret.get(&key).cloned().unwrap_or(Ok(()))
     }
 
     async fn set_nx_ex(
@@ -348,6 +482,25 @@ impl Client for MockRedisClient {
             Some(result) => result.clone(),
             None => Err(CustomRedisError::NotFound),
         }
+    }
+
+    async fn set_nx_ex_with_format(
+        &self,
+        key: String,
+        value: String,
+        seconds: u64,
+        format: RedisValueFormat,
+    ) -> Result<bool, CustomRedisError> {
+        self.lock_calls().push(MockRedisCall {
+            op: "set_nx_ex_with_format".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::StringWithTTLAndFormat(value.clone(), seconds, format),
+        });
+
+        self.set_nx_ex_ret
+            .get(&key)
+            .cloned()
+            .unwrap_or(Err(CustomRedisError::NotFound))
     }
 
     async fn del(&self, key: String) -> Result<(), CustomRedisError> {
@@ -379,24 +532,4 @@ impl Client for MockRedisClient {
             None => Err(CustomRedisError::NotFound),
         }
     }
-}
-
-#[derive(Clone)]
-pub enum MockRedisValue {
-    None,
-    Error(CustomRedisError),
-    String(String),
-    StringWithTTL(String, u64),
-    VecString(Vec<String>),
-    I32(i32),
-    I64(i64),
-    MinMax(String, String),
-}
-
-#[derive(Clone)]
-#[allow(dead_code)]
-pub struct MockRedisCall {
-    op: String,
-    key: String,
-    value: MockRedisValue,
 }

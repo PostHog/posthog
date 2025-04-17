@@ -1,11 +1,11 @@
 use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use common_redis::RedisClient;
 use health::{ComponentStatus, HealthRegistry};
 use limiters::redis::ServiceName;
-use time::Duration;
 use tokio::net::TcpListener;
 
 use crate::config::CaptureMode;
@@ -33,7 +33,7 @@ async fn create_sink(
     if config.print_sink {
         // Print sink is only used for local debug, don't allow a container with it to run on prod
         liveness
-            .register("print_sink".to_string(), Duration::seconds(30))
+            .register("print_sink".to_string(), Duration::from_secs(30))
             .await
             .report_status(ComponentStatus::Unhealthy)
             .await;
@@ -41,7 +41,7 @@ async fn create_sink(
         Ok(Box::new(PrintSink {}))
     } else {
         let sink_liveness = liveness
-            .register("rdkafka".to_string(), Duration::seconds(30))
+            .register("rdkafka".to_string(), Duration::from_secs(30))
             .await;
 
         let partition = match config.overflow_enabled {
@@ -50,7 +50,7 @@ async fn create_sink(
                 let partition = OverflowLimiter::new(
                     config.overflow_per_second_limit,
                     config.overflow_burst_limit,
-                    config.overflow_forced_keys.clone(),
+                    config.ingestion_force_overflow_by_token_distinct_id.clone(),
                 );
                 if config.export_prometheus {
                     let partition = partition.clone();
@@ -72,7 +72,7 @@ async fn create_sink(
         let replay_overflow_limiter = match config.capture_mode {
             CaptureMode::Recordings => Some(
                 RedisLimiter::new(
-                    Duration::seconds(5),
+                    Duration::from_secs(5),
                     redis_client.clone(),
                     OVERFLOW_LIMITER_CACHE_KEY.to_string(),
                     config.redis_key_prefix.clone(),
@@ -95,7 +95,7 @@ async fn create_sink(
 
         if config.s3_fallback_enabled {
             let sink_liveness = liveness
-                .register("s3".to_string(), Duration::seconds(30))
+                .register("s3".to_string(), Duration::from_secs(30))
                 .await;
 
             let s3_sink = S3Sink::new(
@@ -134,7 +134,7 @@ where
     );
 
     let billing_limiter = RedisLimiter::new(
-        Duration::seconds(5),
+        Duration::from_secs(5),
         redis_client.clone(),
         QUOTA_LIMITER_CACHE_KEY.to_string(),
         config.redis_key_prefix.clone(),
@@ -147,7 +147,7 @@ where
     .expect("failed to create billing limiter");
 
     let token_dropper = config
-        .dropped_keys
+        .drop_events_by_token_distinct_id
         .clone()
         .map(|k| TokenDropper::new(&k))
         .unwrap_or_default();
@@ -177,6 +177,9 @@ where
         config.capture_mode,
         config.concurrency_limit,
         event_max_bytes,
+        config.enable_historical_rerouting,
+        config.historical_rerouting_threshold_days,
+        config.historical_tokens_keys,
     );
 
     // run our app with hyper

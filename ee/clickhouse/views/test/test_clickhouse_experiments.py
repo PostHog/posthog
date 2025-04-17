@@ -827,6 +827,104 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "This field may not be null.")
 
+    def test_experiment_date_validation(self):
+        ff_key = "a-b-tests"
+
+        # Test 1: End date same as start date
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2024-02-10T00:00:00Z",
+                "end_date": "2024-02-10T00:00:00Z",
+                "feature_flag_key": ff_key,
+                "parameters": {},
+                "filters": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "End date must be after start date")
+
+        # Test 2: End date before start date
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2024-02-10T00:00:00Z",
+                "end_date": "2024-02-09T00:00:00Z",
+                "feature_flag_key": ff_key,
+                "parameters": {},
+                "filters": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "End date must be after start date")
+
+        # Test 3: Valid dates
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2024-02-10T00:00:00Z",
+                "end_date": "2024-02-11T00:00:00Z",
+                "feature_flag_key": ff_key,
+                "parameters": {},
+                "filters": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["start_date"], "2024-02-10T00:00:00Z")
+        self.assertEqual(response.json()["end_date"], "2024-02-11T00:00:00Z")
+
+        # Test 4: Update with invalid dates
+        experiment_id = response.json()["id"]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {
+                "start_date": "2024-02-15T00:00:00Z",
+                "end_date": "2024-02-14T00:00:00Z",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "End date must be after start date")
+
+        # Test 5: Only start date provided (should be valid)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": "2024-02-10T00:00:00Z",
+                "end_date": None,
+                "feature_flag_key": ff_key + "_2",
+                "parameters": {},
+                "filters": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["start_date"], "2024-02-10T00:00:00Z")
+        self.assertIsNone(response.json()["end_date"])
+
+        # Test 6: Only end date provided (should be valid)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": "2024-02-11T00:00:00Z",
+                "feature_flag_key": ff_key + "_3",
+                "parameters": {},
+                "filters": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(response.json()["start_date"])
+        self.assertEqual(response.json()["end_date"], "2024-02-11T00:00:00Z")
+
     def test_invalid_update(self):
         # Draft experiment
         ff_key = "a-b-tests"
@@ -1932,6 +2030,62 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["feature_flag"]["id"], feature_flag.id)
+
+    def test_create_multiple_experiments_with_same_feature_flag(self):
+        # Create a feature flag with proper structure for experiments
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Shared feature flag",
+            key="shared-feature-flag",
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+            created_by=self.user,
+        )
+
+        # Create first experiment with this feature flag
+        first_experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "First experiment",
+                "feature_flag_key": feature_flag.key,
+                "parameters": {},
+            },
+        )
+
+        self.assertEqual(first_experiment_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(first_experiment_response.json()["feature_flag"]["id"], feature_flag.id)
+
+        # Create second experiment with the same feature flag - this would have previously failed
+        second_experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Second experiment",
+                "feature_flag_key": feature_flag.key,
+                "parameters": {},
+            },
+        )
+
+        # Assert that the second experiment is created successfully
+        self.assertEqual(second_experiment_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second_experiment_response.json()["feature_flag"]["id"], feature_flag.id)
+
+        # Verify both experiments exist and point to the same feature flag
+        first_experiment_id = first_experiment_response.json()["id"]
+        second_experiment_id = second_experiment_response.json()["id"]
+
+        # Ensure both experiments exist in the database
+        first_experiment = Experiment.objects.get(id=first_experiment_id)
+        second_experiment = Experiment.objects.get(id=second_experiment_id)
+
+        # Verify both experiments use the same feature flag
+        self.assertEqual(first_experiment.feature_flag_id, feature_flag.id)
+        self.assertEqual(second_experiment.feature_flag_id, feature_flag.id)
 
     def test_feature_flag_and_experiment_sync(self):
         # Create an experiment with control and test variants

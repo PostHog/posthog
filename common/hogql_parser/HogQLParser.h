@@ -2222,7 +2222,7 @@ public:
   public:
     TableIdentifierContext(antlr4::ParserRuleContext *parent, size_t invokingState);
     virtual size_t getRuleIndex() const override;
-    IdentifierContext *identifier();
+    NestedIdentifierContext *nestedIdentifier();
     DatabaseIdentifierContext *databaseIdentifier();
     antlr4::tree::TerminalNode *DOT();
 

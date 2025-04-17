@@ -52,6 +52,38 @@ function cloneTimeToDate(targetDate: dayjs.Dayjs, timeSource: dayjs.Dayjs): dayj
     return targetDate.clone().hour(timeSource.hour()).minute(timeSource.minute())
 }
 
+function getDateDisabledReason(
+    selectionPeriod: 'past' | 'upcoming',
+    date: dayjs.Dayjs,
+    today: dayjs.Dayjs,
+    selectionPeriodLimit?: dayjs.Dayjs | null
+): string | undefined {
+    if (!selectionPeriod) {
+        return undefined
+    }
+
+    // select future dates
+    if (selectionPeriod === 'upcoming' && date.isBefore(today)) {
+        return 'Cannot select dates in the past'
+    }
+
+    // select future dates after a limit
+    if (selectionPeriod === 'upcoming' && selectionPeriodLimit && date.isAfter(selectionPeriodLimit, 'day')) {
+        return 'Cannot select dates after the limit'
+    }
+
+    if (selectionPeriod === 'past' && date.isAfter(today)) {
+        return 'Cannot select dates in the future'
+    }
+
+    // select past dates before a limit
+    if (selectionPeriod === 'past' && selectionPeriodLimit && date.isBefore(selectionPeriodLimit, 'day')) {
+        return 'Cannot select dates before the limit'
+    }
+
+    return undefined
+}
+
 export interface LemonCalendarSelectProps {
     value?: dayjs.Dayjs | null
     onChange?: (date: dayjs.Dayjs) => void
@@ -59,6 +91,7 @@ export interface LemonCalendarSelectProps {
     onClose?: () => void
     granularity?: LemonCalendarProps['granularity']
     selectionPeriod?: 'past' | 'upcoming'
+    selectionPeriodLimit?: dayjs.Dayjs | null
     showTimeToggle?: boolean
     onToggleTime?: (value: boolean) => void
 }
@@ -70,6 +103,7 @@ export function LemonCalendarSelect({
     onClose,
     granularity = 'day',
     selectionPeriod,
+    selectionPeriodLimit,
     showTimeToggle,
     onToggleTime,
 }: LemonCalendarSelectProps): JSX.Element {
@@ -137,11 +171,16 @@ export function LemonCalendarSelect({
                     if (selectionPeriod) {
                         const isToday = date.isSame(today, 'date')
 
-                        if (selectionPeriod === 'upcoming' && date.isBefore(today)) {
-                            modifiedProps.disabledReason = 'Cannot select dates in the past'
-                        } else if (selectionPeriod === 'past' && date.isAfter(today)) {
-                            modifiedProps.disabledReason = 'Cannot select dates in the future'
-                        } else if (selectValue && isToday) {
+                        modifiedProps.disabledReason = getDateDisabledReason(
+                            selectionPeriod,
+                            date,
+                            today,
+                            selectionPeriodLimit
+                        )
+
+                        // select date disabled reason
+                        if (selectValue && isToday) {
+                            // select time disabled reason
                             const selectedTimeOnDate = cloneTimeToDate(date, selectValue)
 
                             if (selectionPeriod === 'upcoming' && selectedTimeOnDate.isBefore(now)) {

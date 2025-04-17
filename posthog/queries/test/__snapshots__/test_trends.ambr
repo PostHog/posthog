@@ -34,7 +34,7 @@
 # ---
 # name: TestTrends.test_action_filtering_with_cohort.3
   '''
-  /* cohort_calculation: */
+  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM
@@ -125,7 +125,7 @@
 # ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.3
   '''
-  /* cohort_calculation: */
+  
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
   FROM

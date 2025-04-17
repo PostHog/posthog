@@ -1,7 +1,6 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -308,14 +307,4 @@ export const userLogic = kea<userLogicType>([
             actions.loadUser()
         }
     }),
-    urlToAction(({ values }) => ({
-        '/year_in_posthog/2023': () => {
-            if (window.POSTHOG_APP_CONTEXT?.year_in_hog_url) {
-                window.location.href = `${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`
-            }
-            if (values.user?.uuid) {
-                window.location.href = `${window.location.origin}/year_in_posthog/2023/${values.user?.uuid}`
-            }
-        },
-    })),
 ])

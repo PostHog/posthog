@@ -2,20 +2,23 @@ import json
 import threading
 import types
 from collections.abc import Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from functools import lru_cache
 from time import perf_counter
 from typing import Any, Optional, Union
 
+import posthoganalytics
 import sqlparse
+from cachetools import cached, TTLCache
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
 from prometheus_client import Counter, Gauge
 from sentry_sdk import set_tag
 
-from posthog.clickhouse.client.connection import Workload, get_client_from_pool
+from posthog.clickhouse.client.connection import Workload, get_client_from_pool, get_default_clickhouse_workload_type
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
+from posthog.cloud_utils import is_cloud
 from posthog.errors import wrap_query_error
 from posthog.settings import TEST
 from posthog.utils import generate_short_id, patchable
@@ -23,13 +26,13 @@ from posthog.utils import generate_short_id, patchable
 QUERY_ERROR_COUNTER = Counter(
     "clickhouse_query_failure",
     "Query execution failure signal is dispatched when a query fails.",
-    labelnames=["exception_type", "query_type"],
+    labelnames=["exception_type", "query_type", "workload", "chargeable"],
 )
 
 QUERY_EXECUTION_TIME_GAUGE = Gauge(
     "clickhouse_query_execution_time",
     "Clickhouse query execution time",
-    labelnames=["query_type"],
+    labelnames=["query_type", "workload", "chargeable"],
 )
 
 InsertParams = Union[list, tuple, types.GeneratorType]
@@ -87,6 +90,14 @@ def validated_client_query_id() -> Optional[str]:
     return f"{client_query_team_id}_{client_query_id}_{random_id}"
 
 
+@cached(cache=TTLCache(maxsize=1, ttl=600))
+def get_api_queries_online_allow_list() -> set[int]:
+    with suppress(Exception):
+        cfg = json.loads(posthoganalytics.get_remote_config_payload("api-queries-on-online-cluster"))
+        return set(cfg.get("allowed_team_id", [])) if cfg else set[int]()
+    return set[int]()
+
+
 @patchable
 def sync_execute(
     query,
@@ -121,6 +132,17 @@ def sync_execute(
     if get_query_tag_value("id") == "posthog.tasks.tasks.process_query_task":
         workload = Workload.ONLINE
 
+    chargeable = get_query_tag_value("chargeable") or 0
+    # Customer is paying for API
+    if (
+        team_id
+        and workload == Workload.OFFLINE
+        and chargeable
+        and is_cloud()
+        and team_id in get_api_queries_online_allow_list()
+    ):
+        workload = Workload.ONLINE
+
     start_time = perf_counter()
 
     prepared_sql, prepared_args, tags = _prepare_query(query=query, args=args, workload=workload)
@@ -139,6 +161,16 @@ def sync_execute(
         "query_id": query_id,
     }
 
+    if workload == Workload.DEFAULT:
+        workload = get_default_clickhouse_workload_type()
+
+    if workload == Workload.OFFLINE:
+        # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the
+        # online resource pool when the offline resource pool is under heavy load. this comes at the cost of higher and
+        # more variable latency and a higher likelihood of query failures - but offline workloads should be tolerant to
+        # these disruptions
+        settings["use_hedged_requests"] = "0"
+
     try:
         with sync_client or get_client_from_pool(workload, team_id, readonly) as client:
             result = client.execute(
@@ -152,13 +184,17 @@ def sync_execute(
         err = wrap_query_error(e)
         exception_type = type(err).__name__
         set_tag("clickhouse_exception_type", exception_type)
-        QUERY_ERROR_COUNTER.labels(exception_type=exception_type, query_type=query_type).inc()
+        QUERY_ERROR_COUNTER.labels(
+            exception_type=exception_type, query_type=query_type, workload=workload.value, chargeable=chargeable
+        ).inc()
 
         raise err from e
     finally:
         execution_time = perf_counter() - start_time
 
-        QUERY_EXECUTION_TIME_GAUGE.labels(query_type=query_type).set(execution_time * 1000.0)
+        QUERY_EXECUTION_TIME_GAUGE.labels(query_type=query_type, workload=workload.value, chargeable=chargeable).set(
+            execution_time * 1000.0
+        )
 
         if query_counter := getattr(thread_local_storage, "query_counter", None):
             query_counter.total_query_time += execution_time

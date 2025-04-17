@@ -21,8 +21,8 @@ from posthog.test.base import (
     _create_person,
     also_test_with_materialized_columns,
     flush_persons_and_events,
-    snapshot_clickhouse_queries,
     override_settings,
+    snapshot_clickhouse_queries,
 )
 
 
@@ -1018,6 +1018,44 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         activity: list[dict] = activity_response["results"]
         self.maxDiff = None
         self.assertCountEqual(activity, expected)
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_delete_events_only(self):
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["person_1", "anonymous_id"],
+            properties={"$os": "Chrome"},
+            immediate=True,
+        )
+        _create_event(event="test", team=self.team, distinct_id="person_1")
+        _create_event(event="test", team=self.team, distinct_id="anonymous_id")
+        _create_event(event="test", team=self.team, distinct_id="someone_else")
+
+        flush_persons_and_events()
+
+        response = self.client.post(f"/api/person/{person.uuid}/delete_events/")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        assert response.content == b""  # Empty response
+
+        # Person still exists
+        self.assertEqual(Person.objects.filter(team=self.team).count(), 1)
+
+        # async deletion scheduled
+        async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team_id=self.team.id).first())
+        assert async_deletion.deletion_type == DeletionType.Person
+        assert async_deletion.key == str(person.uuid)
+        assert async_deletion.delete_verified_at is None
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_delete_person_events_not_found(self):
+        # Use a valid UUID that doesn't exist in the database
+        non_existent_uuid = "11111111-1111-1111-1111-111111111111"
+
+        response = self.client.post(f"/api/person/{non_existent_uuid}/delete_events/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["detail"] == "Not found."
 
 
 class TestPersonFromClickhouse(TestPerson):

@@ -15,7 +15,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.errors import ResolutionError
 
-GROUPS_TABLE_FIELDS = {
+GROUPS_TABLE_FIELDS: dict[str, FieldOrTable] = {
     "index": IntegerDatabaseField(name="group_type_index", nullable=False),
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
     "key": StringDatabaseField(name="group_key", nullable=False),

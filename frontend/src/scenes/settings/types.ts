@@ -43,6 +43,7 @@ export type SettingSectionId =
     | 'organization-details'
     | 'organization-members'
     | 'organization-billing'
+    | 'organization-startup-program'
     | 'organization-authentication'
     | 'organization-roles'
     | 'organization-proxy'
@@ -83,8 +84,10 @@ export type SettingId =
     | 'error-tracking-user-groups'
     | 'error-tracking-symbol-sets'
     | 'error-tracking-alerting'
+    | 'error-tracking-integrations'
     | 'integration-webhooks'
     | 'integration-slack'
+    | 'integration-error-tracking'
     | 'integration-other'
     | 'integration-ip-allowlist'
     | 'environment-access-control'
@@ -126,6 +129,7 @@ export type SettingId =
     | 'user-delete'
     | 'web-revenue-events'
     | 'core-memory'
+    | 'customization-irl'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

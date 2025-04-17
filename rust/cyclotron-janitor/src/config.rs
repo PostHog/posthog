@@ -51,6 +51,9 @@ pub struct Config {
 
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
+
+    #[envconfig(default = "false")]
+    pub should_compress_vm_state: bool, // Defaults to "false" (for now!)
 }
 
 #[allow(dead_code)]

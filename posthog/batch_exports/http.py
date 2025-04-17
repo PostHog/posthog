@@ -40,7 +40,6 @@ from posthog.hogql import ast, errors
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-from posthog.hogql.visitor import clone_expr
 from posthog.models import (
     BatchExport,
     BatchExportBackfill,
@@ -49,6 +48,7 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 from posthog.temporal.batch_exports.destination_tests import get_destination_test
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
@@ -212,8 +212,14 @@ class HogQLSelectQueryField(serializers.Field):
                 ast.SelectQuery,
                 prepare_ast_for_printing(
                     parsed_query,
-                    context=HogQLContext(team_id=self.context["team_id"], enable_select_queries=True),
-                    dialect="hogql",
+                    context=HogQLContext(
+                        team_id=self.context["team_id"],
+                        enable_select_queries=True,
+                        modifiers=HogQLQueryModifiers(
+                            personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+                        ),
+                    ),
+                    dialect="clickhouse",
                 ),
             )
         except errors.ExposedHogQLError as e:
@@ -283,11 +289,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
             config = destination_attrs["config"]
             # for updates, get the existing config
             self.instance: BatchExport | None
+            view = self.context.get("view")
+
             if self.instance is not None:
                 existing_config = self.instance.destination.config
+            elif view is not None and "pk" in view.kwargs:
+                # Running validation for a `detail=True` action.
+                instance = view.get_object()
+                existing_config = instance.destination.config
             else:
                 existing_config = {}
             merged_config = {**existing_config, **config}
+
             if config.get("authentication_type") == "password" and merged_config.get("password") is None:
                 raise serializers.ValidationError("Password is required if authentication type is password")
             if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
@@ -356,8 +369,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 team_id=self.context["team_id"],
                 enable_select_queries=True,
                 limit_top_select=False,
+                modifiers=HogQLQueryModifiers(
+                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+                ),
             )
-            print_prepared_ast(clone_expr(hogql_query), context=context, dialect="clickhouse")
+            print_prepared_ast(hogql_query, context=context, dialect="clickhouse")
 
             # Recreate the context
             context = HogQLContext(

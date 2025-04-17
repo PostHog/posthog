@@ -13,7 +13,6 @@ import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { getFilterLabel } from 'lib/taxonomy'
 import { useMemo } from 'react'
 import { definitionLogic, DefinitionLogicProps } from 'scenes/data-management/definition/definitionLogic'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
@@ -24,6 +23,7 @@ import { urls } from 'scenes/urls'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
+import { getFilterLabel } from '~/taxonomy/helpers'
 import { FilterLogicalOperator, PropertyDefinition, PropertyDefinitionVerificationStatus, ReplayTabs } from '~/types'
 
 export const scene: SceneExport = {
@@ -74,19 +74,28 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
         useValues(logic)
     const { deleteDefinition } = useActions(logic)
 
-    const memoizedQuery = useMemo(
-        () => ({
+    const memoizedQuery = useMemo(() => {
+        const columnsToUse =
+            'default_columns' in definition && !!definition.default_columns?.length
+                ? definition.default_columns
+                : defaultDataTableColumns(NodeKind.EventsQuery)
+
+        return {
             kind: NodeKind.DataTableNode,
             source: {
                 kind: NodeKind.EventsQuery,
-                select: defaultDataTableColumns(NodeKind.EventsQuery),
+                select: columnsToUse,
                 event: definition.name,
             },
             full: true,
             showEventFilter: false,
-        }),
-        [definition.name]
-    )
+            showPersistentColumnConfigurator: true,
+            context: {
+                type: 'event_definition',
+                eventDefinitionId: definition.id,
+            },
+        }
+    }, [definition])
 
     if (definitionLoading) {
         return <SpinnerOverlay sceneLevel />

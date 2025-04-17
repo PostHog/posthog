@@ -8,7 +8,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { urls } from 'scenes/urls'
 
 import { DataTableNode } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, DataWarehouseTable } from '~/types'
+import { AnyPropertyFilter, DataWarehouseTable, PipelineTab } from '~/types'
 
 import type { dataWarehouseTableLogicType } from './dataWarehouseTableLogicType'
 
@@ -66,13 +66,13 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
         createTableSuccess: async ({ table }) => {
             lemonToast.success(<>Table {table.name} created</>)
             actions.loadDatabase()
-            router.actions.replace(urls.dataWarehouse())
+            router.actions.replace(urls.pipeline(PipelineTab.Sources))
         },
         updateTableSuccess: async ({ table }) => {
             lemonToast.success(<>Table {table.name} updated</>)
             actions.editingTable(false)
             actions.loadDatabase()
-            router.actions.replace(urls.dataWarehouse())
+            router.actions.replace(urls.pipeline(PipelineTab.Sources))
         },
     })),
     reducers({
@@ -125,10 +125,14 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
                 }
             },
             submit: async (tablePayload) => {
-                if (props.id && props.id !== 'new') {
-                    actions.updateTable(tablePayload)
-                } else {
-                    actions.createTable(tablePayload)
+                try {
+                    if (props.id && props.id !== 'new') {
+                        actions.updateTable(tablePayload)
+                    } else {
+                        actions.createTable(tablePayload)
+                    }
+                } catch (e: any) {
+                    lemonToast.error(e.data?.message ?? e.message)
                 }
             },
         },

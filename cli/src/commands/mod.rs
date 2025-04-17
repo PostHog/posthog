@@ -21,7 +21,8 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Authenticate with PostHog, storing a personal API token locally
+    /// Interactively authenticate with PostHog, storing a personal API token locally. You can also use the
+    /// environment variables `POSTHOG_CLI_TOKEN` and `POSTHOG_CLI_ENV_ID`
     Login,
 
     /// Run a SQL query against any data you have in posthog. This is mostly for fun, and subject to change

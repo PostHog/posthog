@@ -117,7 +117,8 @@ export class SessionRecordingIngester {
         const metadataStore = new SessionMetadataStore(producer)
         const consoleLogStore = new SessionConsoleLogStore(
             producer,
-            this.config.SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC
+            this.config.SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC,
+            { messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT }
         )
         this.fileStorage = s3Client
             ? new S3SessionBatchFileStorage(

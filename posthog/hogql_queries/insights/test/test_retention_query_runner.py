@@ -97,7 +97,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         runner = RetentionQueryRunner(team=self.team, query=query)
         return runner.calculate().model_dump()["results"]
 
-    def run_actors_query(self, interval, query, select=None, search=None):
+    def run_actors_query(self, interval, query, select=None, search=None, breakdown=None):
         query["kind"] = "RetentionQuery"
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
@@ -111,6 +111,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                     "kind": "InsightActorsQuery",
                     "interval": interval,
                     "source": query,
+                    "breakdown": breakdown,
                 },
             },
         )
@@ -787,17 +788,17 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             pluck(result, "date"),
             [
-                datetime(2020, 6, 10, 6, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 7, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 8, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 9, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 10, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 11, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 12, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 13, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 14, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 15, tzinfo=ZoneInfo("UTC")),
-                datetime(2020, 6, 10, 16, tzinfo=ZoneInfo("UTC")),
+                datetime(2020, 6, 10, 6, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 7, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 8, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 9, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 10, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 11, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 12, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 13, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 14, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 15, tzinfo=ZoneInfo("US/Pacific")),
+                datetime(2020, 6, 10, 16, tzinfo=ZoneInfo("US/Pacific")),
             ],
         )
 
@@ -2435,6 +2436,582 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                     [0, 0, 0],
                     [0, 0],
                     [0],
+                ]
+            ),
+        )
+
+    def test_retention_with_breakdown_with_person_properties(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"country": "US"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"country": "UK"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"country": "US"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"], properties={"country": "Germany"})
+
+        _create_events(
+            self.team,
+            [
+                # US cohort
+                ("person1", _date(0)),  # Day 0
+                ("person1", _date(1)),  # Day 1
+                ("person1", _date(3)),  # Day 3
+                ("person3", _date(0)),  # Day 0
+                ("person3", _date(2)),  # Day 2
+                # UK cohort
+                ("person2", _date(0)),  # Day 0
+                ("person2", _date(1)),  # Day 1
+                ("person2", _date(4)),  # Day 4
+                # Germany cohort
+                ("person4", _date(0)),  # Day 0
+                ("person4", _date(5)),  # Day 5
+            ],
+        )
+
+        # Run query with breakdown by country
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "country", "type": "person"}]},
+            }
+        )
+
+        # Verify we have results for each country
+        breakdown_values = {c.get("breakdown_value") for c in result}
+
+        self.assertEqual(breakdown_values, {"Germany", "UK", "US"})
+
+        # Verify US cohort data
+        us_cohorts = pluck([c for c in result if c.get("breakdown_value") == "US"], "values", "count")
+
+        self.assertEqual(
+            us_cohorts,
+            pad(
+                [
+                    [2, 1, 1, 1, 0, 0],
+                    [1, 0, 1, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                ]
+            ),
+        )
+
+        uk_cohorts = pluck([c for c in result if c.get("breakdown_value") == "UK"], "values", "count")
+        self.assertEqual(
+            uk_cohorts,
+            pad(
+                [
+                    [1, 1, 0, 0, 1, 0],
+                    [1, 0, 0, 1, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                ]
+            ),
+        )
+
+        germany_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Germany"], "values", "count")
+        self.assertEqual(
+            germany_cohorts,
+            pad(
+                [
+                    [1, 0, 0, 0, 0, 1],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                ]
+            ),
+        )
+
+    def test_retention_actor_query_with_breakdown(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"country": "US"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"country": "UK"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"country": "US"})
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0)),
+                ("person1", _date(1)),
+                ("person1", _date(2)),
+                ("person2", _date(0)),
+                ("person2", _date(1)),
+                ("person2", _date(2)),
+                ("person3", _date(0)),
+                ("person3", _date(1)),
+            ],
+        )
+
+        result = self.run_actors_query(
+            interval=0,
+            query={
+                "dateRange": {"date_to": _date(2, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 3,
+                    "period": "Day",
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "country", "type": "person"}]},
+            },
+            breakdown=["US"],
+        )
+
+        # Should only return the US persons
+        self.assertEqual(len(result), 2)
+
+        person1_us = next(r for r in result if "person1" in r[0]["distinct_ids"])
+        person3_us = next(r for r in result if "person3" in r[0]["distinct_ids"])
+
+        # counts are index 1
+        self.assertEqual(person1_us[1], [0, 1, 2])
+        self.assertEqual(person3_us[1], [0, 1])
+
+        result = self.run_actors_query(
+            interval=1,
+            query={
+                "dateRange": {"date_to": _date(2, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 3,
+                    "period": "Day",
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "country", "type": "person"}]},
+            },
+            breakdown=["UK"],
+        )
+
+        person2_uk = next(r for r in result if "person2" in r[0]["distinct_ids"])
+        self.assertEqual(person2_uk[1], [0, 1])
+
+    def test_retention_with_breakdown_event_properties(self):
+        """Test retention with breakdown by event properties"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+
+        # Create events with different browser properties
+        _create_events(
+            self.team,
+            [
+                # Chrome cohort
+                ("person1", _date(0), {"browser": "Chrome"}),  # Day 0
+                ("person1", _date(1), {"browser": "Chrome"}),  # Day 1
+                ("person1", _date(3), {"browser": "Chrome"}),  # Day 3
+                ("person3", _date(0), {"browser": "Chrome"}),  # Day 0
+                ("person3", _date(2), {"browser": "Chrome"}),  # Day 2
+                # Safari cohort
+                ("person2", _date(0), {"browser": "Safari"}),  # Day 0
+                ("person2", _date(1), {"browser": "Safari"}),  # Day 1
+                ("person2", _date(4), {"browser": "Safari"}),  # Day 4
+                # Firefox cohort
+                ("person4", _date(0), {"browser": "Firefox"}),  # Day 0
+                ("person4", _date(5), {"browser": "Firefox"}),  # Day 5
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "browser", "type": "event"}]},
+            }
+        )
+
+        breakdown_values = {c.get("breakdown_value") for c in result}
+        self.assertEqual(breakdown_values, {"Chrome", "Safari", "Firefox"})
+
+        chrome_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Chrome"], "values", "count")
+
+        self.assertEqual(
+            chrome_cohorts,
+            pad(
+                [
+                    [2, 1, 1, 1, 0, 0],
+                    [1, 0, 1, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                ]
+            ),
+        )
+
+        safari_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Safari"], "values", "count")
+        self.assertEqual(
+            safari_cohorts,
+            pad(
+                [
+                    [1, 1, 0, 0, 1, 0],
+                    [1, 0, 0, 1, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                ]
+            ),
+        )
+
+        firefox_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Firefox"], "values", "count")
+        self.assertEqual(
+            firefox_cohorts,
+            pad(
+                [
+                    [1, 0, 0, 0, 0, 1],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                ]
+            ),
+        )
+
+    def test_retention_actor_query_with_event_property_breakdown(self):
+        """Test actor query with event property breakdown filter"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0), {"browser": "Chrome"}),
+                ("person1", _date(1), {"browser": "Chrome"}),
+                ("person1", _date(2), {"browser": "Chrome"}),
+                ("person2", _date(0), {"browser": "Safari"}),
+                ("person2", _date(1), {"browser": "Safari"}),
+                ("person2", _date(2), {"browser": "Safari"}),
+                ("person3", _date(0), {"browser": "Chrome"}),
+                ("person3", _date(1), {"browser": "Chrome"}),
+            ],
+        )
+
+        # Test Chrome breakdown
+        result = self.run_actors_query(
+            interval=0,
+            query={
+                "dateRange": {"date_to": _date(2, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 3,
+                    "period": "Day",
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "browser", "type": "event"}]},
+            },
+            breakdown=["Chrome"],
+        )
+
+        # Should only return the Chrome people
+        self.assertEqual(len(result), 2)
+
+        person1_chrome = next(r for r in result if "person1" in r[0]["distinct_ids"])
+        person3_chrome = next(r for r in result if "person3" in r[0]["distinct_ids"])
+
+        # counts are index 1
+        self.assertEqual(person1_chrome[1], [0, 1, 2])
+        self.assertEqual(person3_chrome[1], [0, 1])
+
+        result = self.run_actors_query(
+            interval=0,
+            query={
+                "dateRange": {"date_to": _date(2, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 3,
+                    "period": "Day",
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "browser", "type": "event"}]},
+            },
+            breakdown=["Safari"],
+        )
+
+        self.assertEqual(len(result), 1)
+
+        person2_safari = next(r for r in result if "person2" in r[0]["distinct_ids"])
+
+        self.assertEqual(person2_safari[1], [0, 1, 2])
+
+    def test_retention_with_breakdown_different_entities(self):
+        """Test retention with breakdown by event properties where target and returning entities are different"""
+        # Create people
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+
+        # Create signup events (target entity)
+        _create_events(
+            self.team,
+            [
+                # Clothing category
+                ("person1", _date(0), {"category": "clothing", "$event_type": "signup"}),
+                ("person2", _date(0), {"category": "clothing", "$event_type": "signup"}),
+                # Electronics category
+                ("person3", _date(0), {"category": "electronics", "$event_type": "signup"}),
+                ("person4", _date(1), {"category": "electronics", "$event_type": "signup"}),
+            ],
+            event="signup",
+        )
+
+        # Create purchase events (returning entity)
+        _create_events(
+            self.team,
+            [
+                # Person1 makes purchases on day 1, 3, 5
+                ("person1", _date(1), {"category": "clothing", "$event_type": "purchase"}),
+                # this event ignored as doesn't have same breakdown value as start event
+                ("person1", _date(3), {"$event_type": "purchase"}),
+                # this event ignored as doesn't have same breakdown value as start event
+                ("person1", _date(5), {"category": "electronics", "$event_type": "purchase"}),
+                # Person2 makes purchase on day 2
+                ("person2", _date(2), {"category": "clothing", "$event_type": "purchase"}),
+                # Person3 makes purchases on day 1, 4
+                ("person3", _date(1), {"category": "electronics", "$event_type": "purchase"}),
+                ("person3", _date(4), {"category": "electronics", "$event_type": "purchase"}),
+                # Person4 makes purchases on day 1, 4
+                # this event ignored as on same day as signup
+                ("person4", _date(1), {"category": "electronics", "$event_type": "purchase"}),
+                ("person4", _date(2), {"category": "electronics", "$event_type": "purchase"}),
+                # this event ignored as doesn't have same breakdown value as start event
+                ("person4", _date(3), {"category": "clothing", "$event_type": "purchase"}),
+            ],
+            event="purchase",
+        )
+
+        # Define entities
+        target_entity = {"id": "signup", "type": "events"}
+        returning_entity = {"id": "purchase", "type": "events"}
+
+        # Run query with breakdown by category
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                    "targetEntity": target_entity,
+                    "returningEntity": returning_entity,
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "category", "type": "event"}]},
+            }
+        )
+
+        # Verify we have results for each category
+        breakdown_values = {c.get("breakdown_value") for c in result}
+        self.assertEqual(breakdown_values, {"clothing", "electronics"})
+
+        clothing_cohorts = pluck([c for c in result if c.get("breakdown_value") == "clothing"], "values", "count")
+        self.assertEqual(
+            clothing_cohorts,
+            pad(
+                [
+                    [2, 1, 1, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                ]
+            ),
+        )
+
+        electronics_cohorts = pluck([c for c in result if c.get("breakdown_value") == "electronics"], "values", "count")
+        self.assertEqual(
+            electronics_cohorts,
+            pad(
+                [
+                    [1, 1, 0, 0, 1, 0],
+                    [1, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                ]
+            ),
+        )
+
+        result = self.run_actors_query(
+            interval=1,
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                    "targetEntity": target_entity,
+                    "returningEntity": returning_entity,
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "category", "type": "event"}]},
+            },
+            breakdown=["electronics"],
+        )
+
+        person4_electronics = next(r for r in result if "person4" in r[0]["distinct_ids"])
+        self.assertEqual(person4_electronics[1], [0, 1])
+
+        result = self.run_actors_query(
+            interval=0,
+            query={
+                "dateRange": {"date_to": _date(5, hour=10)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                    "targetEntity": target_entity,
+                    "returningEntity": returning_entity,
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "category", "type": "event"}]},
+            },
+            breakdown=["clothing"],
+        )
+
+        person1_clothing = next(r for r in result if "person1" in r[0]["distinct_ids"])
+        self.assertEqual(person1_clothing[1], [0, 1])
+
+        person2_clothing = next(r for r in result if "person2" in r[0]["distinct_ids"])
+        self.assertEqual(person2_clothing[1], [0, 2])
+
+    def test_retention_with_breakdown_event_metadata(self):
+        """Test retention with breakdown by event metadata"""
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+
+        GroupTypeMapping.objects.create(
+            team_id=self.team.pk,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+
+        # Create events with different groups
+        _create_events(
+            self.team,
+            [
+                # Apple cohort
+                ("person1", _date(0), {"$group_0": "Apple"}),  # Day 0
+                ("person1", _date(1), {"$group_0": "Apple"}),  # Day 1
+                ("person1", _date(3), {"$group_0": "Apple"}),  # Day 3
+                ("person3", _date(0), {"$group_0": "Apple"}),  # Day 0
+                ("person3", _date(2), {"$group_0": "Apple"}),  # Day 2
+                # Google cohort
+                ("person2", _date(0), {"$group_0": "Google"}),  # Day 0
+                ("person2", _date(1), {"$group_0": "Google"}),  # Day 1
+                ("person2", _date(4), {"$group_0": "Google"}),  # Day 4
+                # Stripe cohort
+                ("person4", _date(0), {"$group_0": "Stripe"}),  # Day 0
+                ("person4", _date(5), {"$group_0": "Stripe"}),  # Day 5
+            ],
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "$group_0", "type": "event_metadata"}]},
+            }
+        )
+
+        breakdown_values = {c.get("breakdown_value") for c in result}
+        self.assertEqual(breakdown_values, {"Apple", "Google", "Stripe"})
+
+        apple_cohorts = pluck([c for c in result if c.get("breakdown_value") == "Apple"], "values", "count")
+
+        self.assertEqual(
+            apple_cohorts,
+            pad(
+                [
+                    [2, 1, 1, 1, 0, 0],
+                    [1, 0, 1, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                ]
+            ),
+        )
+
+    def test_retention_with_breakdown_on_start_event(self):
+        """Test retention with breakdown by event properties where target and returning entities are different"""
+        # Create people
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"])
+
+        # Create signup events (target entity)
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0), {"category": "clothing", "$event_type": "signup"}),
+                ("person2", _date(0), {"category": "clothing", "$event_type": "signup"}),
+                ("person3", _date(0), {"category": "electronics", "$event_type": "signup"}),
+            ],
+            event="signup",
+        )
+
+        # Create purchase events (returning entity)
+        _create_events(
+            self.team,
+            [
+                # Person1 makes purchases on day 1, 3, 5
+                ("person1", _date(1), {"$event_type": "purchase"}),
+                ("person1", _date(3), {"$event_type": "purchase"}),
+                ("person1", _date(5), {"$event_type": "purchase"}),
+                # Person2 makes purchase on day 2
+                ("person2", _date(2), {"$event_type": "purchase"}),
+                # Person3 makes purchases on day 1, 4
+                ("person3", _date(1), {"$event_type": "purchase"}),
+                ("person3", _date(4), {"$event_type": "purchase"}),
+                # Person4 makes purchases on day 1, 4
+                ("person4", _date(1), {"$event_type": "purchase"}),
+                ("person4", _date(4), {"$event_type": "purchase"}),
+            ],
+            event="purchase",
+        )
+
+        # Define entities
+        target_entity = {"id": "signup", "type": "events"}
+        returning_entity = {"id": "purchase", "type": "events"}
+
+        # Run query with breakdown by category
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                    "targetEntity": target_entity,
+                    "returningEntity": returning_entity,
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "category", "type": "event"}]},
+            }
+        )
+
+        # Verify we have results for each category
+        breakdown_values = {c.get("breakdown_value") for c in result}
+        self.assertEqual(breakdown_values, {"clothing", "electronics"})
+
+        # none of the return events have the same breakdown value so
+        # they won't get counted
+        clothing_cohorts = pluck([c for c in result if c.get("breakdown_value") == "clothing"], "values", "count")
+        self.assertEqual(
+            clothing_cohorts,
+            pad(
+                [
+                    [2, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0],
                 ]
             ),
         )

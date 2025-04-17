@@ -1,5 +1,6 @@
 import { IconFlag, IconQuestion, IconX } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonDivider,
     LemonInput,
@@ -17,7 +18,6 @@ import { router } from 'kea-router'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -74,7 +74,6 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     } = useActions(earlyAccessFeatureLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
-    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
 
     if (earlyAccessFeatureMissing) {
         return <NotFound object="early access feature" />
@@ -85,7 +84,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     }
 
     const destinationFilters: HogFunctionFiltersType | null =
-        !isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && showLinkedHogFunctions
+        !isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature
             ? {
                   events: [
                       {
@@ -247,6 +246,17 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         </LemonField>
                     )}
 
+                    {earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && !isEditingFeature && (
+                        <LemonBanner type="info">
+                            The{' '}
+                            <LemonTag type="default" className="uppercase">
+                                Concept
+                            </LemonTag>{' '}
+                            stage assigns the feature flag to the user. Gate your code behind a different feature flag
+                            if you'd like to keep it hidden, and then switch your code to this feature flag when you're
+                            ready to release to your early access users.
+                        </LemonBanner>
+                    )}
                     <div className="flex flex-wrap items-start gap-4">
                         <div className="flex-1 min-w-[20rem]">
                             {'feature_flag' in earlyAccessFeature ? (
@@ -441,7 +451,7 @@ interface PersonListProps {
     earlyAccessFeature: EarlyAccessFeatureType
 }
 
-function featureFlagEnrolmentFilter(
+function featureFlagRecordingEnrollmentFilter(
     earlyAccessFeature: EarlyAccessFeatureType,
     optedIn: boolean
 ): Partial<RecordingUniversalFilters> {
@@ -480,10 +490,8 @@ function featureFlagEnrolmentFilter(
 }
 
 export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
-    const { activeTab } = useValues(earlyAccessFeatureLogic)
+    const { activeTab, optedInCount, optedOutCount, featureEnrollmentKey } = useValues(earlyAccessFeatureLogic)
     const { setActiveTab } = useActions(earlyAccessFeatureLogic)
-
-    const key = '$feature_enrollment/' + earlyAccessFeature.feature_flag.key
 
     return (
         <>
@@ -493,14 +501,14 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                 tabs={[
                     {
                         key: EarlyAccessFeatureTabs.OptedIn,
-                        label: 'Opted-In Users',
+                        label: optedInCount !== null ? `Opted-In Users (${optedInCount})` : 'Opted-In Users',
                         content: (
                             <>
                                 <PersonsTableByFilter
-                                    recordingsFilters={featureFlagEnrolmentFilter(earlyAccessFeature, true)}
+                                    recordingsFilters={featureFlagRecordingEnrollmentFilter(earlyAccessFeature, true)}
                                     properties={[
                                         {
-                                            key: key,
+                                            key: featureEnrollmentKey,
                                             type: PropertyFilterType.Person,
                                             operator: PropertyOperator.Exact,
                                             value: ['true'],
@@ -512,13 +520,13 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                     },
                     {
                         key: EarlyAccessFeatureTabs.OptedOut,
-                        label: 'Opted-Out Users',
+                        label: optedOutCount !== null ? `Opted-Out Users (${optedOutCount})` : 'Opted-Out Users',
                         content: (
                             <PersonsTableByFilter
-                                recordingsFilters={featureFlagEnrolmentFilter(earlyAccessFeature, false)}
+                                recordingsFilters={featureFlagRecordingEnrollmentFilter(earlyAccessFeature, false)}
                                 properties={[
                                     {
-                                        key: key,
+                                        key: featureEnrollmentKey,
                                         type: PropertyFilterType.Person,
                                         operator: PropertyOperator.Exact,
                                         value: ['false'],

@@ -11,7 +11,7 @@ from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 from typing import Optional
 
-from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
+from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX, get_surveys_count, get_surveys_opt_in
 from posthog.api.utils import (
     get_project_id,
     get_token,
@@ -93,6 +93,8 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
 
     REMOTE_CONFIG_CACHE_COUNTER.labels(result=use_remote_config).inc()
 
+    surveys_opt_in = get_surveys_opt_in(team) and get_surveys_count(team) > 0
+
     if use_remote_config:
         response = RemoteConfig.get_config_via_token(token, request=request)
 
@@ -100,7 +102,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
         response["isAuthenticated"] = False
         response["toolbarParams"] = {}
         response["config"] = {"enable_collect_everything": True}
-        response["surveys"] = True if len(response["surveys"]) > 0 else False
+        response["surveys"] = surveys_opt_in
 
         # Remove some stuff that is specific to the new RemoteConfig
         del response["hasFeatureFlags"]
@@ -168,7 +170,7 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
             response["quotaLimited"] = ["recordings"]
             response["sessionRecording"] = False
 
-    response["surveys"] = True if team.surveys_opt_in else False
+    response["surveys"] = surveys_opt_in
     response["heatmaps"] = True if team.heatmaps_opt_in else False
     response["flagsPersistenceDefault"] = True if team.flags_persistence_default else False
     response["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
@@ -562,6 +564,7 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> Unio
                 "urlTriggers": team.session_recording_url_trigger_config,
                 "urlBlocklist": team.session_recording_url_blocklist_config,
                 "eventTriggers": team.session_recording_event_trigger_config,
+                "triggerMatchType": team.session_recording_trigger_match_type_config,
                 "scriptConfig": rrweb_script_config,
             }
 

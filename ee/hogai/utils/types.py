@@ -131,8 +131,18 @@ class AssistantNodeName(StrEnum):
     RETENTION_PLANNER_TOOLS = "retention_planner_tools"
     RETENTION_GENERATOR = "retention_generator"
     RETENTION_GENERATOR_TOOLS = "retention_generator_tools"
+    SQL_PLANNER = "sql_planner"
+    SQL_PLANNER_TOOLS = "sql_planner_tools"
+    SQL_GENERATOR = "sql_generator"
+    SQL_GENERATOR_TOOLS = "sql_generator_tools"
     QUERY_EXECUTOR = "query_executor"
     MEMORY_COLLECTOR = "memory_collector"
     MEMORY_COLLECTOR_TOOLS = "memory_collector_tools"
     INKEEP_DOCS = "inkeep_docs"
     INSIGHT_RAG_CONTEXT = "insight_rag_context"
+    INSIGHTS_SUBGRAPH = "insights_subgraph"
+
+
+class AssistantMode(StrEnum):
+    ASSISTANT = "assistant"
+    INSIGHTS_TOOL = "insights_tool"

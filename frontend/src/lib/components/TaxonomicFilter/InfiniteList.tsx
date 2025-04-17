@@ -52,19 +52,21 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
             title={
                 <>
                     This property has not been seen on{' '}
-                    {eventNames ? (
-                        <>
-                            the event{eventNames.length > 1 ? 's' : ''}{' '}
-                            {eventNames.map((e, index) => (
-                                <>
-                                    {index === 0 ? '' : index === eventNames.length - 1 ? ' and ' : ', '}
-                                    <strong>"{e}"</strong>
-                                </>
-                            ))}
-                        </>
-                    ) : (
-                        'this event'
-                    )}
+                    <span>
+                        {eventNames ? (
+                            <>
+                                the event{eventNames.length > 1 ? 's' : ''}{' '}
+                                {eventNames.map((e, index) => (
+                                    <>
+                                        {index === 0 ? '' : index === eventNames.length - 1 ? ' and ' : ', '}
+                                        <strong>"{e}"</strong>
+                                    </>
+                                ))}
+                            </>
+                        ) : (
+                            'this event'
+                        )}
+                    </span>
                     , but has been seen on other events.
                 </>
             }
@@ -157,6 +159,7 @@ const selectedItemHasPopover = (
             TaxonomicFilterGroupType.CustomEvents,
             TaxonomicFilterGroupType.EventProperties,
             TaxonomicFilterGroupType.EventFeatureFlags,
+            TaxonomicFilterGroupType.EventMetadata,
             TaxonomicFilterGroupType.NumericalEventProperties,
             TaxonomicFilterGroupType.PersonProperties,
             TaxonomicFilterGroupType.Cohorts,
@@ -189,6 +192,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
         totalListCount,
         expandedCount,
         showPopover,
+        items,
         hasRemoteDataSource,
     } = useValues(infiniteListLogic)
     const { onRowsRendered, setIndex, expand, updateRemoteItem } = useActions(infiniteListLogic)
@@ -232,7 +236,10 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                     {...commonDivProps}
                     data-attr={`prop-filter-${listGroupType}-${rowIndex}`}
                     onClick={() => {
-                        return canSelectItem(listGroupType) && selectItem(group, itemValue ?? null, item)
+                        return (
+                            canSelectItem(listGroupType) &&
+                            selectItem(group, itemValue ?? null, item, items.originalQuery)
+                        )
                     }}
                 >
                     {renderItemContents({

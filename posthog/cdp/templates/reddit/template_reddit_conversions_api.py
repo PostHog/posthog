@@ -116,6 +116,9 @@ if (res.status >= 400) {
             "label": "User parameters",
             "default": {
                 "email": "{person.properties.email}",
+                "screen_dimensions": "{{'width': person.properties.$screen_width, 'height': person.properties.$screen_height}}",
+                "user_agent": "{person.properties.$raw_user_agent}",
+                "ip": "{sha256Hex(event.properties.$ip)}",  # use event properties here, as $ip is not a person property
             },
             "secret": False,
             "required": False,

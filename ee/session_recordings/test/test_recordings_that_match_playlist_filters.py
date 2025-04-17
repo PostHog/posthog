@@ -2,7 +2,6 @@ from datetime import datetime, timedelta
 import json
 from unittest import mock
 from unittest.mock import MagicMock, patch
-from django.test import override_settings
 from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
     DEFAULT_RECORDING_FILTERS,
     count_recordings_that_match_playlist_filters,
@@ -265,17 +264,16 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
             team=self.team, name="test4", filters={"date_from": "-21d"}, last_counted_at=None
         )
 
-        with override_settings(PLAYLIST_COUNTER_PROCESSING_MAX_ALLOWED_TEAM_ID=self.team.id + 1):
-            enqueue_recordings_that_match_playlist_filters()
-            mock_capture_exception.assert_not_called()
+        enqueue_recordings_that_match_playlist_filters()
+        mock_capture_exception.assert_not_called()
 
-            assert mock_count_task.delay.call_count == 3
+        assert mock_count_task.delay.call_count == 3
 
-            assert mock_count_task.delay.call_args_list == [
-                call(playlist4.id),
-                call(playlist1.id),
-                call(playlist2.id),
-            ]
+        assert mock_count_task.delay.call_args_list == [
+            call(playlist4.id),
+            call(playlist1.id),
+            call(playlist2.id),
+        ]
 
     @patch("posthoganalytics.capture_exception")
     @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")

@@ -1,13 +1,4 @@
-import {
-    IconActivity,
-    IconArrowRight,
-    IconClock,
-    IconFunnels,
-    IconGraph,
-    IconMinus,
-    IconPencil,
-    IconTrending,
-} from '@posthog/icons'
+import { IconActivity, IconClock, IconGraph, IconMinus, IconTrending } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -17,7 +8,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { InsightType, TrendExperimentVariant } from '~/types'
 
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from '../constants'
@@ -25,16 +16,8 @@ import { experimentLogic } from '../experimentLogic'
 import { ExploreButton, ResultsQuery, VariantTag } from '../ExperimentView/components'
 import { SignificanceText, WinningVariantText } from '../ExperimentView/Overview'
 import { SummaryTable } from '../ExperimentView/SummaryTable'
+import { MetricHeader } from './MetricHeader'
 import { NoResultEmptyState } from './NoResultEmptyState'
-import { getMetricTag } from './utils'
-export function getDefaultMetricTitle(metric: ExperimentMetric): string {
-    if (metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig) {
-        return metric.metric_config.event
-    } else if (metric.metric_config.kind === NodeKind.ExperimentActionMetricConfig) {
-        return metric.metric_config.name || `Action ${metric.metric_config.action}`
-    }
-    return 'Untitled metric'
-}
 
 function formatTickValue(value: number): string {
     if (value === 0) {
@@ -56,38 +39,6 @@ function formatTickValue(value: number): string {
     }
 
     return `${(value * 100).toFixed(decimals)}%`
-}
-export const getMetricTitle = (metric: any, metricType?: InsightType): JSX.Element => {
-    if (metric.name) {
-        return <span className="truncate">{metric.name}</span>
-    }
-
-    if (metric.kind === NodeKind.ExperimentMetric) {
-        return <span className="truncate">{getDefaultMetricTitle(metric)}</span>
-    }
-
-    if (metricType === InsightType.TRENDS && metric.count_query?.series?.[0]?.name) {
-        return <span className="truncate">{metric.count_query.series[0].name}</span>
-    }
-
-    if (metricType === InsightType.FUNNELS && metric.funnels_query?.series) {
-        const series = metric.funnels_query.series
-        if (series.length > 0) {
-            const firstStep = series[0]?.name
-            const lastStep = series[series.length - 1]?.name
-
-            return (
-                <span className="inline-flex items-center gap-1 min-w-0">
-                    <IconFunnels className="text-secondary flex-shrink-0" fontSize="14" />
-                    <span className="truncate">{firstStep}</span>
-                    <IconArrowRight className="text-secondary flex-shrink-0" fontSize="14" />
-                    <span className="truncate">{lastStep}</span>
-                </span>
-            )
-        }
-    }
-
-    return <span className="text-secondary truncate">Untitled metric</span>
 }
 
 export function generateViolinPath(x1: number, x2: number, y: number, height: number, deltaX: number): string {
@@ -178,12 +129,13 @@ export function DeltaChart({
     } = useValues(experimentLogic)
 
     const {
-        openPrimaryMetricModal,
-        openSecondaryMetricModal,
-        openPrimarySharedMetricModal,
-        openSecondarySharedMetricModal,
+        // openPrimaryMetricModal,
+        // openSecondaryMetricModal,
+        // openPrimarySharedMetricModal,
+        // openSecondarySharedMetricModal,
         openVariantDeltaTimeseriesModal,
     } = useActions(experimentLogic)
+
     const [tooltipData, setTooltipData] = useState<{ x: number; y: number; variant: string } | null>(null)
     const [emptyStateTooltipVisible, setEmptyStateTooltipVisible] = useState(true)
     const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
@@ -288,47 +240,14 @@ export function DeltaChart({
                 <div
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ height: `${chartSvgHeight}px`, borderRight: `1px solid ${COLORS.BOUNDARY_LINES}` }}
-                    className="p-2 overflow-auto"
+                    className="p-2"
                 >
-                    <div className="text-xs font-semibold whitespace-nowrap overflow-hidden">
-                        <div className="deprecated-space-y-1">
-                            <div className="flex items-center gap-2">
-                                <div className="cursor-default text-xs font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-grow flex items-center">
-                                    <span className="mr-1">{metricIndex + 1}.</span>
-                                    {getMetricTitle(metric, metricType)}
-                                </div>
-                                <LemonButton
-                                    className="flex-shrink-0"
-                                    type="secondary"
-                                    size="xsmall"
-                                    icon={<IconPencil fontSize="12" />}
-                                    onClick={() => {
-                                        if (metric.isSharedMetric) {
-                                            if (isSecondary) {
-                                                openSecondarySharedMetricModal(metric.sharedMetricId)
-                                            } else {
-                                                openPrimarySharedMetricModal(metric.sharedMetricId)
-                                            }
-                                            return
-                                        }
-                                        isSecondary
-                                            ? openSecondaryMetricModal(metricIndex)
-                                            : openPrimaryMetricModal(metricIndex)
-                                    }}
-                                />
-                            </div>
-                            <div className="deprecated-space-x-1">
-                                <LemonTag type="muted" size="small">
-                                    {getMetricTag(metric)}
-                                </LemonTag>
-                                {metric.isSharedMetric && (
-                                    <LemonTag type="option" size="small">
-                                        Shared
-                                    </LemonTag>
-                                )}
-                            </div>
-                        </div>
-                    </div>
+                    <MetricHeader
+                        metricIndex={metricIndex}
+                        metric={metric}
+                        metricType={metricType}
+                        isPrimaryMetric={!isSecondary}
+                    />
                 </div>
             </div>
             {/* SVGs container */}

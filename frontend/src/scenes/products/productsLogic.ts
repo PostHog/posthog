@@ -1,6 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { router } from 'kea-router'
 import { ProductIntentContext } from 'lib/utils/product-intents'
+import { OnboardingStepKey } from 'scenes/onboarding/onboardingLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -10,9 +11,9 @@ import type { productsLogicType } from './productsLogicType'
 
 export const productsLogic = kea<productsLogicType>([
     path(['scenes', 'products', 'productsLogic']),
-    connect({
+    connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
-    }),
+    })),
     actions(() => ({
         toggleSelectedProduct: (productKey: ProductKey) => ({ productKey }),
         setFirstProductOnboarding: (productKey: ProductKey) => ({ productKey }),
@@ -39,7 +40,12 @@ export const productsLogic = kea<productsLogicType>([
                 return
             }
 
-            router.actions.push(urls.onboarding(values.firstProductOnboarding))
+            const stepKey =
+                values.firstProductOnboarding === ProductKey.DATA_WAREHOUSE
+                    ? OnboardingStepKey.LINK_DATA
+                    : OnboardingStepKey.INSTALL
+
+            router.actions.push(urls.onboarding(values.firstProductOnboarding, stepKey))
             values.selectedProducts.forEach((productKey) => {
                 actions.addProductIntent({
                     product_type: productKey as ProductKey,

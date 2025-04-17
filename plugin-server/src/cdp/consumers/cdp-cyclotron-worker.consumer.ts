@@ -104,19 +104,11 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             hogFunctionIds.push(job.functionId)
         }
 
-        if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED && hogFunctionIds.length > 0) {
-            const hogFunctions = await this.hogFunctionManagerLazy.getHogFunctions(hogFunctionIds)
-            if (Object.keys(hogFunctions).length !== hogFunctionIds.length) {
-                logger.warn('Lazy loaded different number of functions', {
-                    lazy: Object.keys(hogFunctions).length,
-                    eager: hogFunctionIds.length,
-                })
-            }
-        }
+        const hogFunctions = await this.hogFunctionManager.getHogFunctions(hogFunctionIds)
 
         for (const job of jobs) {
             // NOTE: This is all a bit messy and might be better to refactor into a helper
-            const hogFunction = this.hogFunctionManager.getHogFunction(job.functionId!)
+            const hogFunction = hogFunctions[job.functionId!]
 
             if (!hogFunction) {
                 // Here we need to mark the job as failed
@@ -142,12 +134,15 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         await super.start()
 
         this.cyclotronWorker = new CyclotronWorker({
-            pool: { dbUrl: this.hub.CYCLOTRON_DATABASE_URL },
+            pool: {
+                dbUrl: this.hub.CYCLOTRON_DATABASE_URL,
+            },
             queueName: this.queue,
             includeVmState: true,
             batchMaxSize: this.hub.CDP_CYCLOTRON_BATCH_SIZE,
             pollDelayMs: this.hub.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
+            shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
         })
         await this.cyclotronWorker.connect((jobs) => this.handleJobBatch(jobs))
     }

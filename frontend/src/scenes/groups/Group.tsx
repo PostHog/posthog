@@ -14,9 +14,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { GroupDashboard } from 'scenes/groups/GroupDashboard'
 import { groupLogic, GroupLogicProps } from 'scenes/groups/groupLogic'
-import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -26,8 +24,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
+import type { ActionFilter, Group } from '~/types'
 import {
-    ActionFilter,
     ActivityScope,
     FilterLogicalOperator,
     Group as IGroup,
@@ -37,6 +35,9 @@ import {
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
+
+import { GroupOverview } from './GroupOverview'
+import { RelatedGroups } from './RelatedGroups'
 
 interface GroupSceneProps {
     groupTypeIndex?: string
@@ -77,16 +78,8 @@ export function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; 
 }
 
 export function Group(): JSX.Element {
-    const {
-        logicProps,
-        groupData,
-        groupDataLoading,
-        groupTypeName,
-        groupType,
-        groupTab,
-        groupEventsQuery,
-        showCustomerSuccessDashboards,
-    } = useValues(groupLogic)
+    const { logicProps, groupData, groupDataLoading, groupTypeName, groupType, groupTab, groupEventsQuery } =
+        useValues(groupLogic)
     const { groupKey, groupTypeIndex } = logicProps
     const { setGroupEventsQuery, editProperty, deleteProperty } = useActions(groupLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -116,9 +109,14 @@ export function Group(): JSX.Element {
                 }
             />
             <LemonTabs
-                activeKey={groupTab ?? PersonsTabType.PROPERTIES}
+                activeKey={groupTab ?? 'overview'}
                 onChange={(tab) => router.actions.push(urls.group(String(groupTypeIndex), groupKey, true, tab))}
                 tabs={[
+                    {
+                        key: 'overview',
+                        label: <span data-attr="groups-overview-tab">Overview</span>,
+                        content: <GroupOverview groupData={groupData} />,
+                    },
                     {
                         key: PersonsTabType.PROPERTIES,
                         label: <span data-attr="groups-properties-tab">Properties</span>,
@@ -127,12 +125,8 @@ export function Group(): JSX.Element {
                                 type={PropertyDefinitionType.Group}
                                 properties={groupData.group_properties || {}}
                                 embedded={false}
-                                onEdit={featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] ? editProperty : undefined}
-                                onDelete={
-                                    featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]
-                                        ? (key) => deleteProperty(key)
-                                        : undefined
-                                }
+                                onEdit={editProperty}
+                                onDelete={deleteProperty}
                                 searchable
                             />
                         ),
@@ -144,7 +138,7 @@ export function Group(): JSX.Element {
                             <Query
                                 query={groupEventsQuery}
                                 setQuery={setGroupEventsQuery}
-                                context={{ refresh: true }}
+                                context={{ refresh: 'force_blocking' }}
                             />
                         ) : (
                             <Spinner />
@@ -243,31 +237,22 @@ export function Group(): JSX.Element {
                             />
                         ),
                     },
-                    featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]
-                        ? {
-                              key: PersonsTabType.HISTORY,
-                              label: 'History',
-                              content: (
-                                  <ActivityLog
-                                      scope={ActivityScope.GROUP}
-                                      id={`${groupTypeIndex}-${groupKey}`}
-                                      caption={
-                                          <LemonBanner type="info">
-                                              This page only shows changes made by users in the PostHog site. Automatic
-                                              changes from the API aren't shown here.
-                                          </LemonBanner>
-                                      }
-                                  />
-                              ),
-                          }
-                        : null,
-                    showCustomerSuccessDashboards
-                        ? {
-                              key: PersonsTabType.DASHBOARD,
-                              label: 'Dashboard',
-                              content: <GroupDashboard groupData={groupData} />,
-                          }
-                        : null,
+                    {
+                        key: PersonsTabType.HISTORY,
+                        label: 'History',
+                        content: (
+                            <ActivityLog
+                                scope={ActivityScope.GROUP}
+                                id={`${groupTypeIndex}-${groupKey}`}
+                                caption={
+                                    <LemonBanner type="info">
+                                        This page only shows changes made by users in the PostHog site. Automatic
+                                        changes from the API aren't shown here.
+                                    </LemonBanner>
+                                }
+                            />
+                        ),
+                    },
                 ]}
             />
         </>

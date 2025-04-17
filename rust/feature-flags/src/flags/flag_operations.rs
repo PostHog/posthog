@@ -1,6 +1,6 @@
 use crate::api::errors::FlagError;
 use crate::client::database::Client as DatabaseClient;
-use crate::cohort::cohort_models::CohortId;
+use crate::cohorts::cohort_models::CohortId;
 use crate::flags::flag_models::*;
 use crate::properties::property_models::PropertyFilter;
 use common_redis::Client as RedisClient;
@@ -49,12 +49,18 @@ impl FeatureFlag {
 }
 
 impl FeatureFlagList {
-    /// Returns feature flags from redis given a team_id
+    /// Returns feature flags from redis given a project_id
     #[instrument(skip_all)]
     pub async fn from_redis(
         client: Arc<dyn RedisClient + Send + Sync>,
         project_id: i64,
     ) -> Result<FeatureFlagList, FlagError> {
+        tracing::info!(
+            "Attempting to read flags from Redis at key '{}{}'",
+            TEAM_FLAGS_CACHE_PREFIX,
+            project_id
+        );
+
         let serialized_flags = client
             .get(format!("{TEAM_FLAGS_CACHE_PREFIX}{}", project_id))
             .await?;
@@ -62,15 +68,20 @@ impl FeatureFlagList {
         let flags_list: Vec<FeatureFlag> =
             serde_json::from_str(&serialized_flags).map_err(|e| {
                 tracing::error!("failed to parse data to flags list: {}", e);
-                println!("failed to parse data: {}", e);
-
                 FlagError::RedisDataParsingError
             })?;
+
+        tracing::info!(
+            "Successfully read {} flags from Redis at key '{}{}'",
+            flags_list.len(),
+            TEAM_FLAGS_CACHE_PREFIX,
+            project_id
+        );
 
         Ok(FeatureFlagList { flags: flags_list })
     }
 
-    /// Returns feature flags from postgres given a team_id
+    /// Returns feature flags from postgres given a project_id
     #[instrument(skip_all)]
     pub async fn from_pg(
         client: Arc<dyn DatabaseClient + Send + Sync>,
@@ -95,6 +106,7 @@ impl FeatureFlagList {
               JOIN posthog_team AS t ON (f.team_id = t.id)
             WHERE t.project_id = $1
               AND f.deleted = false
+              AND f.active = true
         "#;
         let flags_row = sqlx::query_as::<_, FeatureFlagRow>(query)
             .bind(project_id)
@@ -110,7 +122,7 @@ impl FeatureFlagList {
             .map(|row| {
                 let filters = serde_json::from_value(row.filters).map_err(|e| {
                     tracing::error!("Failed to deserialize filters for flag {}: {}", row.key, e);
-                    FlagError::RedisDataParsingError
+                    FlagError::DeserializeFiltersError
                 })?;
 
                 Ok(FeatureFlag {
@@ -139,6 +151,13 @@ impl FeatureFlagList {
             tracing::error!("Failed to serialize flags: {}", e);
             FlagError::RedisDataParsingError
         })?;
+
+        tracing::info!(
+            "Writing flags to Redis at key '{}{}': {} flags",
+            TEAM_FLAGS_CACHE_PREFIX,
+            project_id,
+            flags.flags.len()
+        );
 
         client
             .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{}", project_id), payload)
@@ -1009,12 +1028,9 @@ mod tests {
             .await
             .expect("Failed to fetch flags from Postgres");
 
-        assert_eq!(pg_flags.flags.len(), 1);
+        assert_eq!(pg_flags.flags.len(), 0);
         assert!(!pg_flags.flags.iter().any(|f| f.deleted)); // no deleted flags
-        assert!(pg_flags
-            .flags
-            .iter()
-            .any(|f| f.key == "inactive_flag" && !f.active)); // only inactive flag is left
+        assert!(!pg_flags.flags.iter().any(|f| f.active)); // no inactive flags
     }
 
     #[tokio::test]

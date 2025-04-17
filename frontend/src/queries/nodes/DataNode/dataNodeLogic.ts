@@ -54,6 +54,7 @@ import {
     isErrorTrackingQuery,
     isEventsQuery,
     isGroupsQuery,
+    isHogQLQuery,
     isInsightActorsQuery,
     isInsightQueryNode,
     isPersonsNode,
@@ -133,15 +134,29 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
         if (hasQueryChanged && queryStatus?.complete === false) {
             // If there is an incomplete query, load the data with the same query_id which should return its status
-            actions.loadData(queryVarsHaveChanged, queryStatus.id)
+            // We need to force a refresh in this case
+            const refreshType =
+                isInsightQueryNode(props.query) || isHogQLQuery(props.query) ? 'force_async' : 'force_blocking'
+            actions.loadData(refreshType, queryStatus.id)
         } else if (
             hasQueryChanged &&
             props.autoLoad &&
             !(props.cachedResults && props.key.includes('dashboard')) && // Don't load data on dashboard if cached results are available
             (!props.cachedResults ||
-                (isInsightQueryNode(props.query) && !props.cachedResults['result'] && !props.cachedResults['results']))
+                (isInsightQueryNode(props.query) &&
+                    typeof props.cachedResults === 'object' &&
+                    !('result' in props.cachedResults) &&
+                    !('results' in props.cachedResults)))
         ) {
-            actions.loadData(queryVarsHaveChanged)
+            // For normal loads, use appropriate refresh type
+            const refreshType = queryVarsHaveChanged
+                ? isInsightQueryNode(props.query) || isHogQLQuery(props.query)
+                    ? 'force_async'
+                    : 'force_blocking'
+                : isInsightQueryNode(props.query) || isHogQLQuery(props.query)
+                ? 'async'
+                : 'blocking'
+            actions.loadData(refreshType)
         } else if (props.cachedResults) {
             // Use cached results if available, otherwise this logic will load the data again
             actions.setResponse(props.cachedResults)
@@ -180,15 +195,25 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 clearResponse: () => null,
                 loadData: async ({ refresh: refreshArg, queryId, pollOnly, overrideQuery }, breakpoint) => {
                     const query = overrideQuery ?? props.query
-                    const refresh = refreshArg ?? props.refresh ?? false
+                    // Use the explicit refresh type passed, or determine it based on query type
+                    // Default to non-force variants
+                    const refresh = refreshArg ?? (isInsightQueryNode(query) ? 'async' : 'blocking')
 
                     if (props.doNotLoad) {
                         return props.cachedResults
                     }
 
                     const queryStatus = (props.cachedResults?.query_status || null) as QueryStatus | null
-                    if (props.cachedResults && !refresh && queryStatus?.complete !== false) {
-                        if (props.cachedResults['result'] || props.cachedResults['results']) {
+                    if (
+                        props.cachedResults &&
+                        refresh !== 'force_async' &&
+                        refresh !== 'force_blocking' &&
+                        queryStatus?.complete !== false
+                    ) {
+                        if (
+                            typeof props.cachedResults === 'object' &&
+                            ('result' in props.cachedResults || 'results' in props.cachedResults)
+                        ) {
                             return props.cachedResults
                         }
                     }
@@ -220,7 +245,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     cache.abortController = abortController
                     const methodOptions: ApiMethodOptions = {
                         signal: cache.abortController.signal,
-                        async: refresh === 'blocking' || refresh === 'force_blocking' ? false : true,
                     }
                     try {
                         const response = await concurrencyController.run({
@@ -809,7 +833,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             // and if we never change the props, the cached results will never be used.
             actions.setResponse(props.cachedResults)
         } else if (props.autoLoad && Object.keys(props.query || {}).length > 0) {
-            actions.loadData()
+            // Initial load should use non-force variant
+            const refreshType = isInsightQueryNode(props.query) ? 'async' : 'blocking'
+            actions.loadData(refreshType)
         }
 
         actions.mountDataNode(props.key, {

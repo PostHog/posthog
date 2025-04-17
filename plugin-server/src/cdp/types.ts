@@ -70,7 +70,7 @@ export type HogFunctionInvocationGlobals = {
         uuid: string
         event: string
         distinct_id: string
-        properties: Record<string, any>
+        properties: Record<string, unknown>
         elements_chain: string
         timestamp: string
 
@@ -287,6 +287,8 @@ export type HogFunctionTypeType =
     | 'alert'
     | 'broadcast'
 
+export type HogFunctionKind = 'messaging_campaign' | null
+
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType> | null
@@ -296,6 +298,7 @@ export interface HogFunctionMappingType {
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
+    kind?: HogFunctionKind
     team_id: number
     name: string
     enabled: boolean

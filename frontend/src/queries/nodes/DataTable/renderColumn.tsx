@@ -41,6 +41,7 @@ export function renderColumn(
     value: any,
     record: Record<string, any> | any[],
     recordIndex: number,
+    rowCount: number,
     query: DataTableNode,
     setQuery?: (query: DataTableNode) => void,
     context?: QueryContext<DataTableNode>
@@ -61,12 +62,20 @@ export function renderColumn(
                 value={value}
                 query={query}
                 recordIndex={recordIndex}
+                rowCount={rowCount}
             />
         )
     } else if (context?.columns?.[key] && context?.columns?.[key].render) {
         const Component = context?.columns?.[key]?.render
         return Component ? (
-            <Component record={record} columnName={key} value={value} query={query} recordIndex={recordIndex} />
+            <Component
+                record={record}
+                columnName={key}
+                value={value}
+                query={query}
+                recordIndex={recordIndex}
+                rowCount={rowCount}
+            />
         ) : (
             String(value)
         )
@@ -267,7 +276,14 @@ export function renderColumn(
         const columnName = trimQuotes(key.substring(16)) // 16 = "context.columns.".length
         const Component = context?.columns?.[columnName]?.render
         return Component ? (
-            <Component record={record} columnName={columnName} value={value} query={query} recordIndex={recordIndex} />
+            <Component
+                record={record}
+                columnName={columnName}
+                value={value}
+                query={query}
+                recordIndex={recordIndex}
+                rowCount={rowCount}
+            />
         ) : (
             String(value)
         )
@@ -275,7 +291,7 @@ export function renderColumn(
         return (
             <CopyToClipboardInline
                 explicitValue={String(value)}
-                iconStyle={{ color: 'var(--accent-primary)' }}
+                iconStyle={{ color: 'var(--accent)' }}
                 description="person id"
             >
                 {String(value)}
@@ -285,7 +301,7 @@ export function renderColumn(
         return (
             <CopyToClipboardInline
                 explicitValue={String(value)}
-                iconStyle={{ color: 'var(--accent-primary)' }}
+                iconStyle={{ color: 'var(--accent)' }}
                 description="group id"
             >
                 {String(value)}
@@ -293,7 +309,7 @@ export function renderColumn(
         )
     } else if (key === 'group_name' && isGroupsQuery(query.source)) {
         const key = (record as any[])[1] // 'key' is the second column in the groups query
-        return <Link to={urls.group(query.source.group_type_index, key, false)}>{value}</Link>
+        return <Link to={urls.group(query.source.group_type_index, key, true)}>{value}</Link>
     }
     if (typeof value === 'object') {
         return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />

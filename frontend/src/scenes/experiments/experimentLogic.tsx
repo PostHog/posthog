@@ -12,11 +12,11 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import {
+    featureFlagLogic as sceneFeatureFlagLogic,
     indexToVariantKeyFeatureFlagPayloads,
     validateFeatureFlagKey,
     variantKeyToIndexFeatureFlagPayloads,
 } from 'scenes/feature-flags/featureFlagLogic'
-import { featureFlagLogic as sceneFeatureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -28,6 +28,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery, QUERY_TIMEOUT_ERROR_MESSAGE } from '~/queries/query'
@@ -60,6 +61,7 @@ import {
     InsightType,
     MultivariateFlagVariant,
     ProductKey,
+    ProjectTreeRef,
     PropertyMathType,
     TrendExperimentVariant,
     TrendResult,
@@ -71,12 +73,7 @@ import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
-import {
-    featureFlagEligibleForExperiment,
-    getMinimumDetectableEffect,
-    percentageDistribution,
-    transformFiltersForWinningVariant,
-} from './utils'
+import { featureFlagEligibleForExperiment, percentageDistribution, transformFiltersForWinningVariant } from './utils'
 
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
@@ -100,6 +97,8 @@ const NEW_EXPERIMENT: Experiment = {
     updated_at: null,
     holdout_id: null,
 }
+
+export const DEFAULT_MDE = 30
 
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
@@ -154,7 +153,7 @@ const loadMetrics = async ({
                         experiment_id: experimentId,
                     }
                 }
-                const response = await performQuery(queryWithExperimentId, undefined, refresh)
+                const response = await performQuery(queryWithExperimentId, undefined, refresh ? 'force_async' : 'async')
 
                 results[index] = {
                     ...response,
@@ -253,6 +252,7 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentCollectionGoal: true,
         updateExposureCriteria: true,
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
+        changeExperimentEndDate: (endDate: string) => ({ endDate }),
         setExperimentStatsVersion: (version: number) => ({ version }),
         launchExperiment: true,
         endExperiment: true,
@@ -881,6 +881,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
             if (response?.id) {
                 const experimentId = response.id
+                refreshTreeItem('experiment', String(experimentId))
                 router.actions.push(urls.experiment(experimentId))
                 actions.addToExperiments(response)
                 lemonToast.success(`Experiment ${isUpdate ? 'updated' : 'created'}`, {
@@ -913,6 +914,10 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentStartDate: async ({ startDate }) => {
             actions.updateExperiment({ start_date: startDate })
             values.experiment && eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
+        },
+        changeExperimentEndDate: async ({ endDate }) => {
+            actions.updateExperiment({ end_date: endDate })
+            values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
         },
         setExperimentStatsVersion: async ({ version }, breakpoint) => {
             actions.updateExperiment({ stats_config: { version } })
@@ -1362,6 +1367,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                     update
                 )
+                refreshTreeItem('experiment', String(values.experimentId))
                 actions.setUnmodifiedExperiment(structuredClone(response))
                 return response
             },
@@ -1405,7 +1411,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         kind: NodeKind.ExperimentExposureQuery,
                         experiment_id: props.experimentId,
                     }
-                    return await performQuery(query, undefined, refresh)
+                    return await performQuery(query, undefined, refresh ? 'force_async' : 'async')
                 },
             },
         ],
@@ -1472,6 +1478,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 },
             ],
         ],
+        projectTreeRef: [
+            () => [(_, props: ExperimentLogicProps) => props.experimentId],
+            (experimentId): ProjectTreeRef => ({ type: 'experiment', ref: String(experimentId) }),
+        ],
         variants: [
             (s) => [s.experiment],
             (experiment): MultivariateFlagVariant[] => {
@@ -1505,14 +1515,9 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         minimumDetectableEffect: [
-            (s) => [s.experiment, s.getInsightType, s.conversionMetrics, s.trendResults, s.firstPrimaryMetric],
-            (newExperiment, getInsightType, conversionMetrics, trendResults, firstPrimaryMetric): number => {
-                return (
-                    newExperiment?.parameters?.minimum_detectable_effect ||
-                    // :KLUDGE: extracted the method due to difficulties with logic tests
-                    getMinimumDetectableEffect(getInsightType(firstPrimaryMetric), conversionMetrics, trendResults) ||
-                    0
-                )
+            (s) => [s.experiment],
+            (newExperiment): number => {
+                return newExperiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE
             },
         ],
         minimumSampleSizePerVariant: [
@@ -2179,11 +2184,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 return true
             },
         ],
-        exposureCriteriaLabel: [
-            () => [],
-            (): string => {
-                // TODO: Implement exposure criteria label
-                return 'Default ($feature_flag_called)'
+        exposureCriteria: [
+            (s) => [s.experiment],
+            (experiment: Experiment): ExperimentExposureCriteria | undefined => {
+                return experiment.exposure_criteria
             },
         ],
     }),

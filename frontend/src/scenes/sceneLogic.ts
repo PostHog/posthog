@@ -2,7 +2,7 @@ import { actions, BuiltLogic, connect, kea, listeners, path, props, reducers, se
 import { router, urlToAction } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import posthog from 'posthog-js'
@@ -10,7 +10,7 @@ import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfiguratio
 import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/types'
+import { PipelineTab, ProductKey } from '~/types'
 
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
@@ -28,7 +28,7 @@ export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
     [ProductKey.FEATURE_FLAGS]: [urls.featureFlags(), urls.earlyAccessFeatures(), urls.experiments()],
     [ProductKey.SURVEYS]: [urls.surveys()],
     [ProductKey.PRODUCT_ANALYTICS]: [urls.insights()],
-    [ProductKey.DATA_WAREHOUSE]: [urls.dataWarehouse()],
+    [ProductKey.DATA_WAREHOUSE]: [urls.sqlEditor(), urls.pipeline(PipelineTab.Sources)],
     [ProductKey.WEB_ANALYTICS]: [urls.webAnalytics()],
 }
 
@@ -107,9 +107,9 @@ export const sceneLogic = kea<sceneLogicType>([
                 setScene: (state, { scene, params }) =>
                     scene in state
                         ? {
-                              ...state,
-                              [scene]: { ...state[scene], sceneParams: params, lastTouch: new Date().valueOf() },
-                          }
+                            ...state,
+                            [scene]: { ...state[scene], sceneParams: params, lastTouch: new Date().valueOf() },
+                        }
                         : state,
                 setLoadedScene: (state, { loadedScene }) => ({
                     ...state,
@@ -247,10 +247,13 @@ export const sceneLogic = kea<sceneLogicType>([
                     } else if (
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&
-                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.onboarding('')) &&
-                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.products()) &&
-                        !removeProjectIdIfPresent(location.pathname).startsWith('/settings') &&
-                        !removeProjectIdIfPresent(location.pathname).startsWith(urls.organizationBilling())
+                        ![
+                            urls.onboarding(''),
+                            urls.products(),
+                            '/settings',
+                            urls.organizationBilling(),
+                            urls.wizard(),
+                        ].some((path) => removeProjectIdIfPresent(location.pathname).startsWith(path))
                     ) {
                         const allProductUrls = Object.values(productUrlMapping).flat()
                         if (
@@ -283,7 +286,7 @@ export const sceneLogic = kea<sceneLogicType>([
                                 )
 
                                 if (
-                                    scene === Scene.DataWarehouseTable &&
+                                    scene === Scene.PipelineNodeNew &&
                                     params.searchParams.kind == 'hubspot' &&
                                     params.searchParams.code
                                 ) {
@@ -297,7 +300,7 @@ export const sceneLogic = kea<sceneLogicType>([
                                     )
                                 } else {
                                     router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.PRODUCT_INTRO)
+                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL)
                                     )
                                 }
                                 return
@@ -426,7 +429,7 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
     })),
-    urlToAction(({ actions }) => {
+    urlToAction(({ actions, values }) => {
         const mapping: Record<
             string,
             (
@@ -448,8 +451,17 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         }
         for (const [path, [scene, sceneKey]] of Object.entries(routes)) {
-            mapping[path] = (params, searchParams, hashParams, { method }) =>
-                actions.openScene(scene, sceneKey, { params, searchParams, hashParams }, method)
+            if (
+                values.featureFlags[FEATURE_FLAGS.B2B_ANALYTICS] &&
+                scene === Scene.PersonsManagement &&
+                path === urls.groups(':groupTypeIndex')
+            ) {
+                mapping[path] = (params, searchParams, hashParams, { method }) =>
+                    actions.openScene(Scene.Groups, 'groups', { params, searchParams, hashParams }, method)
+            } else {
+                mapping[path] = (params, searchParams, hashParams, { method }) =>
+                    actions.openScene(scene, sceneKey, { params, searchParams, hashParams }, method)
+            }
         }
 
         mapping['/*'] = (_, __, { method }) => {

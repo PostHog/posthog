@@ -7,7 +7,7 @@ import { FlagImplementationSnippet } from './flagImplementationSnippet'
 export function FeatureFlagsNextJSInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallNextJSInstructions />
+            <SDKInstallNextJSInstructions hideWizard />
             <h3>Client-side rendering</h3>
             <FlagImplementationSnippet sdkKey={SDKKey.REACT} />
             <h3>Server-side rendering</h3>

@@ -70,6 +70,7 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
         "scriptConfig": None,
         "sampleRate": None,
         "eventTriggers": [],
+        "triggerMatchType": None,
         **overrides,
     }
 
@@ -192,6 +193,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     def test_user_on_evil_site(self, *args):
         user = self.organization.members.first()
+        assert user is not None
         user.toolbar_mode = "toolbar"
         user.save()
 
@@ -395,6 +397,56 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide(origin="capacitor://localhost:8000/home").json()
         assert response["sessionRecording"] == make_session_recording_decide_response(
             {"eventTriggers": ["$pageview", "$exception"]}
+        )
+
+    def test_session_recording_trigger_match_type_can_be_all(self, *args):
+        self._update_team(
+            {
+                "session_recording_trigger_match_type_config": "all",
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide(origin="capacitor://localhost:8000/home").json()
+        assert response["sessionRecording"] == make_session_recording_decide_response({"triggerMatchType": "all"})
+
+    def test_session_recording_trigger_match_type_can_be_any(self, *args):
+        self._update_team(
+            {
+                "session_recording_trigger_match_type_config": "any",
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide(origin="capacitor://localhost:8000/home").json()
+        assert response["sessionRecording"] == make_session_recording_decide_response({"triggerMatchType": "any"})
+
+    def test_session_recording_trigger_match_type_default_is_absent(self, *args):
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+            }
+        )
+
+        response = self._post_decide(origin="capacitor://localhost:8000/home").json()
+        assert response["sessionRecording"] == make_session_recording_decide_response({"triggerMatchType": None})
+
+    def test_session_recording_trigger_match_type_cannot_be_empty_string(self, *args):
+        self._update_team(
+            {
+                "session_recording_trigger_match_type_config": "",
+                "session_recording_opt_in": True,
+            },
+            expected_status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    def test_session_recording_trigger_match_type_cannot_be_unknown_string(self, *args):
+        self._update_team(
+            {
+                "session_recording_trigger_match_type_config": "unknown",
+                "session_recording_opt_in": True,
+            },
+            expected_status_code=status.HTTP_400_BAD_REQUEST,
         )
 
     def test_session_recording_network_payload_capture_config(self, *args):
@@ -821,76 +873,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # caching flag definitions in the above query mean fewer queries
         response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"}, assert_num_queries=4)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["featureFlags"], ["default-flag"])
-
-    def test_feature_flags_across_multiple_environments(self, *args):
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-        second_team_in_project = Team.objects.create(
-            organization=self.organization, project=self.project, name="Second Team"
-        )
-        self.client.logout()
-        Person.objects.create(
-            team=second_team_in_project,  # Person is in second team, but flags are in first!
-            distinct_ids=["example_id"],
-            properties={"email": "tim@posthog.com"},
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            rollout_percentage=50,
-            name="Beta feature",
-            key="beta-feature",
-            created_by=self.user,
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
-            name="This is a feature flag with default params, no filters.",
-            key="default-flag",
-            created_by=self.user,
-        )  # Should be enabled for everyone
-
-        # Test number of queries with multiple property filter feature flags
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}]},
-            rollout_percentage=50,
-            name="Filter by property",
-            key="filer-by-property",
-            created_by=self.user,
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={
-                "groups": [
-                    {
-                        "properties": [
-                            {
-                                "key": "email",
-                                "value": "tim@posthog.com",
-                                "type": "person",
-                            }
-                        ]
-                    }
-                ]
-            },
-            name="Filter by property 2",
-            key="filer-by-property-2",
-            created_by=self.user,
-        )
-
-        response = self._post_decide(
-            {"token": second_team_in_project.api_token, "distinct_id": "example_id"}, assert_num_queries=4
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("default-flag", response.json()["featureFlags"])
-        self.assertIn("beta-feature", response.json()["featureFlags"])
-        self.assertIn("filer-by-property-2", response.json()["featureFlags"])
-
-        response = self._post_decide(
-            {"token": second_team_in_project.api_token, "distinct_id": "another_id"}, assert_num_queries=4
-        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["featureFlags"], ["default-flag"])
 
@@ -2415,6 +2397,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # More in-depth tests in posthog/api/test/test_feature_flag.py
 
         self.team.app_urls = ["https://example.com"]
+        assert self.team is not None
         self.team.save()
         self.client.logout()
         GroupTypeMapping.objects.create(
@@ -2526,6 +2509,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     def test_flag_with_invalid_cohort_filter_condition(self, *args):
         self.team.app_urls = ["https://example.com"]
+        assert self.team is not None
         self.team.save()
         self.client.logout()
 
@@ -2892,11 +2876,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=6)
+        response = self._post_decide(api_version=3, distinct_id="example_id_1", assert_num_queries=5)
         self.assertEqual(response.json()["featureFlags"], {})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 
-        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=6)
+        response = self._post_decide(api_version=3, distinct_id="another_id", assert_num_queries=5)
         self.assertEqual(response.json()["featureFlags"], {})
         self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 

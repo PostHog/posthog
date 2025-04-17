@@ -416,6 +416,103 @@ describe('SessionBatchRecorder', () => {
                 ['window1', messages[3].message.eventsByWindowId.window1[0]],
             ])
         })
+
+        it('should handle same session id with different teams as separate sessions', async () => {
+            const messages = [
+                createMessage(
+                    'same_session_id',
+                    [
+                        {
+                            type: EventType.FullSnapshot,
+                            timestamp: 1000,
+                            data: { source: 1 },
+                        },
+                    ],
+                    {},
+                    1,
+                    'user1'
+                ),
+                createMessage(
+                    'same_session_id',
+                    [
+                        {
+                            type: EventType.Meta,
+                            timestamp: 1100,
+                            data: { href: 'https://example.com' },
+                        },
+                    ],
+                    {},
+                    2,
+                    'user2'
+                ),
+                createMessage(
+                    'same_session_id',
+                    [
+                        {
+                            type: EventType.IncrementalSnapshot,
+                            timestamp: 2000,
+                            data: { source: 2 },
+                        },
+                    ],
+                    {},
+                    1,
+                    'user1'
+                ),
+                createMessage(
+                    'same_session_id',
+                    [
+                        {
+                            type: EventType.Custom,
+                            timestamp: 2100,
+                            data: { tag: 'click' },
+                        },
+                    ],
+                    {},
+                    2,
+                    'user2'
+                ),
+            ]
+
+            for (const message of messages) {
+                await recorder.record(message)
+            }
+            await recorder.flush()
+
+            expect(mockWriter.finish).toHaveBeenCalledTimes(1)
+            expect(mockOffsetManager.commit).toHaveBeenCalledTimes(1)
+
+            const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
+            const lines1 = parseLines(writtenData[0])
+            const lines2 = parseLines(writtenData[1])
+
+            // Events should be grouped by team ID despite having same session ID
+            expect(lines1).toEqual([
+                // All team 1 events
+                ['window1', messages[0].message.eventsByWindowId.window1[0]],
+                ['window1', messages[2].message.eventsByWindowId.window1[0]],
+            ])
+            expect(lines2).toEqual([
+                // All team 2 events
+                ['window1', messages[1].message.eventsByWindowId.window1[0]],
+                ['window1', messages[3].message.eventsByWindowId.window1[0]],
+            ])
+
+            // Verify metadata store received separate session blocks for each team
+            expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        sessionId: 'same_session_id',
+                        teamId: 1,
+                        distinctId: 'user1',
+                    }),
+                    expect.objectContaining({
+                        sessionId: 'same_session_id',
+                        teamId: 2,
+                        distinctId: 'user2',
+                    }),
+                ])
+            )
+        })
     })
 
     describe('console log recording', () => {
@@ -438,7 +535,7 @@ describe('SessionBatchRecorder', () => {
                 mockConsoleLogStore
             )
             expect(jest.mocked(SessionConsoleLogRecorder).mock.results[0].value.recordMessage).toHaveBeenCalledWith(
-                message.message
+                message
             )
         })
 
@@ -474,8 +571,8 @@ describe('SessionBatchRecorder', () => {
             )
             const mockRecorder = jest.mocked(SessionConsoleLogRecorder).mock.results[0].value
             expect(mockRecorder.recordMessage).toHaveBeenCalledTimes(2)
-            expect(mockRecorder.recordMessage).toHaveBeenNthCalledWith(1, messages[0].message)
-            expect(mockRecorder.recordMessage).toHaveBeenNthCalledWith(2, messages[1].message)
+            expect(mockRecorder.recordMessage).toHaveBeenNthCalledWith(1, messages[0])
+            expect(mockRecorder.recordMessage).toHaveBeenNthCalledWith(2, messages[1])
         })
 
         it('should create separate console log recorders for different sessions', async () => {
@@ -514,10 +611,10 @@ describe('SessionBatchRecorder', () => {
                 mockConsoleLogStore
             )
             expect(jest.mocked(SessionConsoleLogRecorder).mock.results[0].value.recordMessage).toHaveBeenCalledWith(
-                messages[0].message
+                messages[0]
             )
             expect(jest.mocked(SessionConsoleLogRecorder).mock.results[1].value.recordMessage).toHaveBeenCalledWith(
-                messages[1].message
+                messages[1]
             )
         })
 
@@ -626,17 +723,17 @@ describe('SessionBatchRecorder', () => {
 
             // Verify session1 recorder calls
             expect(session1Recorder.recordMessage).toHaveBeenCalledTimes(2)
-            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[0].message)
-            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[2].message)
+            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[0])
+            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[2])
 
             // Verify session2 recorder calls
             expect(session2Recorder.recordMessage).toHaveBeenCalledTimes(2)
-            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[1].message)
-            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[4].message)
+            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[1])
+            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[4])
 
             // Verify session3 recorder calls
             expect(session3Recorder.recordMessage).toHaveBeenCalledTimes(1)
-            expect(session3Recorder.recordMessage).toHaveBeenCalledWith(messages[3].message)
+            expect(session3Recorder.recordMessage).toHaveBeenCalledWith(messages[3])
         })
 
         it('should handle messages with different team IDs', async () => {
@@ -674,12 +771,12 @@ describe('SessionBatchRecorder', () => {
 
             // Verify correct message recording for each team
             expect(session1Recorder.recordMessage).toHaveBeenCalledTimes(2)
-            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[0].message)
-            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[1].message)
+            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[0])
+            expect(session1Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[1])
 
             expect(session2Recorder.recordMessage).toHaveBeenCalledTimes(2)
-            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[2].message)
-            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[3].message)
+            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(1, messages[2])
+            expect(session2Recorder.recordMessage).toHaveBeenNthCalledWith(2, messages[3])
         })
     })
 
@@ -1332,7 +1429,7 @@ describe('SessionBatchRecorder', () => {
 
             // All sessions should have the same batch ID
             const batchId = storedBlocks[0].batchId
-            expect(batchId).toBeDefined()
+            expect(batchId).toBeTruthy()
             expect(typeof batchId).toBe('string')
             expect(storedBlocks[1].batchId).toBe(batchId)
         })

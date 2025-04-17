@@ -270,7 +270,7 @@ def redshift_config():
         user = os.environ["REDSHIFT_USER"]
         password = os.environ["REDSHIFT_PASSWORD"]
         host = os.environ["REDSHIFT_HOST"]
-        port = os.environ.get("REDSHIFT_PORT", "5439")
+        port = int(os.environ.get("REDSHIFT_PORT", "5439"))
 
     return {
         "user": user,
@@ -278,7 +278,7 @@ def redshift_config():
         "database": "posthog_batch_exports_test_2",
         "schema": "exports_test_schema",
         "host": host,
-        "port": int(port),
+        "port": port,
     }
 
 

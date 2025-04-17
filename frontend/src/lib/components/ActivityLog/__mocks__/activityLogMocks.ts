@@ -949,7 +949,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
                     type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'derived_name',
-                    before: 'from HogQL into a data table.',
+                    before: 'from SQL into a data table.',
                     after: "Pageview unique sessions by person's $email",
                 },
                 {

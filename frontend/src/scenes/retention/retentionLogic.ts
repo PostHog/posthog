@@ -1,13 +1,14 @@
-import { connect, kea, key, path, props, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { formatDateRange } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { ProcessedRetentionPayload } from 'scenes/retention/types'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { RetentionFilter, RetentionResult } from '~/queries/schema/schema-general'
-import { isRetentionQuery } from '~/queries/utils'
+import { isRetentionQuery, isValidBreakdown } from '~/queries/utils'
 import { DateMappingOption, InsightLogicProps, RetentionPeriod } from '~/types'
 
 import type { retentionLogicType } from './retentionLogicType'
@@ -21,18 +22,33 @@ export const retentionLogic = kea<retentionLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
-            ['insightQuery', 'insightData', 'querySource', 'dateRange', 'retentionFilter'],
+            ['breakdownFilter', 'dateRange', 'insightQuery', 'insightData', 'querySource', 'retentionFilter'],
+            teamLogic,
+            ['timezone'],
         ],
         actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateDateRange']],
     })),
+    actions({
+        setSelectedBreakdownValue: (value: string | number | boolean | null) => ({ value }),
+    }),
+    reducers({
+        selectedBreakdownValue: [
+            null as string | number | boolean | null,
+            {
+                setSelectedBreakdownValue: (_, { value }) => value,
+            },
+        ],
+    }),
     selectors({
+        hasValidBreakdown: [(s) => [s.breakdownFilter], (breakdownFilter) => isValidBreakdown(breakdownFilter)],
         results: [
-            (s) => [s.insightQuery, s.insightData, s.retentionFilter],
-            (insightQuery, insightData, retentionFilter): ProcessedRetentionPayload[] => {
+            (s) => [s.insightQuery, s.insightData, s.retentionFilter, s.timezone],
+            (insightQuery, insightData, retentionFilter, timezone): ProcessedRetentionPayload[] => {
                 const rawResults = isRetentionQuery(insightQuery) ? insightData?.result ?? [] : []
 
                 const results: ProcessedRetentionPayload[] = rawResults.map((result: RetentionResult) => ({
                     ...result,
+
                     values: result.values.map((value, index) => {
                         const totalCount = result.values[0]['count']
                         const previousCount = index > 0 ? result.values[index - 1]['count'] : totalCount
@@ -43,8 +59,8 @@ export const retentionLogic = kea<retentionLogicType>([
                         const periodUnit = (
                             retentionFilter?.period ?? RetentionPeriod.Day
                         ).toLowerCase() as dayjs.UnitTypeLong
-                        const cellDate = dayjs.utc(result.date).add(index, periodUnit)
-                        const now = dayjs.utc()
+                        const cellDate = dayjs(result.date).tz(timezone).add(index, periodUnit)
+                        const now = dayjs().tz(timezone)
 
                         return {
                             ...value,
@@ -59,6 +75,7 @@ export const retentionLogic = kea<retentionLogicType>([
                 // Filter out future values for now
                 return results.map((result) => ({
                     ...result,
+                    date: dayjs(result.date).tz(timezone),
                     values: result.values.filter((value) => !value.isFuture),
                 }))
             },
@@ -100,6 +117,20 @@ export const retentionLogic = kea<retentionLogicType>([
                         defaultInterval: 'month',
                     },
                 ]
+            },
+        ],
+        breakdownValues: [
+            (s) => [s.results],
+            (results) => {
+                if (!results || results.length === 0) {
+                    return []
+                }
+                // Extract unique breakdown values from results
+                const valueSet = new Set(
+                    results.filter((result) => 'breakdown_value' in result).map((result) => result.breakdown_value)
+                )
+
+                return Array.from(valueSet)
             },
         ],
     }),

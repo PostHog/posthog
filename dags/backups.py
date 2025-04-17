@@ -1,14 +1,15 @@
 from dataclasses import dataclass
 from datetime import datetime, UTC
-from functools import partial
 import re
 import time
-from typing import Optional
+from typing import Any, Optional
+from collections.abc import Callable
 from clickhouse_driver import Client
 import dagster
 from django.conf import settings
 import pydantic
 from dags.common import JobOwners
+from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 
 from dagster_aws.s3 import S3Resource
@@ -21,7 +22,6 @@ SHARDED_TABLES = [
     "sharded_heatmaps",
     "sharded_ingestion_warnings",
     "sharded_performance_events",
-    "sharded_person_distinct_id",
     "sharded_raw_sessions",
     "sharded_session_replay_embeddings",
     "sharded_session_replay_events",
@@ -40,7 +40,6 @@ NON_SHARDED_TABLES = [
     "exchange_rate",
     "groups",
     "infi_clickhouse_orm_migrations",
-    "infi_clickhouse_orm_migrations_tmp",
     "log_entries",
     "metrics_query_log",
     "metrics_time_to_see_data",
@@ -49,7 +48,6 @@ NON_SHARDED_TABLES = [
     "person_collapsing",
     "person_distinct_id",
     "person_distinct_id2",
-    "person_distinct_id_backup",
     "person_distinct_id_overrides",
     "person_overrides",
     "person_static_cohort",
@@ -63,6 +61,7 @@ NON_SHARDED_TABLES = [
 class BackupStatus:
     hostname: str
     status: str
+    event_time_microseconds: datetime
     error: Optional[str] = None
 
 
@@ -87,6 +86,9 @@ class Backup:
 
         return f"{base_path}/{shard_path}/{self.date}"
 
+    def _bucket_base_path(self, bucket: str):
+        return f"https://{bucket}.s3.amazonaws.com"
+
     @classmethod
     def from_s3_path(cls, path: str) -> "Backup":
         path_regex = re.compile(
@@ -109,17 +111,17 @@ class Backup:
             "async": "1",
         }
         if self.base_backup:
-            backup_settings["base_backup"] = "S3('https://{bucket}.s3.amazonaws.com/{path}')".format(
-                bucket=settings.CLICKHOUSE_BACKUPS_BUCKET,
+            backup_settings["base_backup"] = "S3('{bucket_base_path}/{path}')".format(
+                bucket_base_path=self._bucket_base_path(settings.CLICKHOUSE_BACKUPS_BUCKET),
                 path=self.base_backup.path,
             )
 
         query = """
         BACKUP {object} {name}
-        TO S3('https://{bucket}.s3.amazonaws.com/{path}')
+        TO S3('{bucket_base_path}/{path}')
         SETTINGS {settings}
         """.format(
-            bucket=settings.CLICKHOUSE_BACKUPS_BUCKET,
+            bucket_base_path=self._bucket_base_path(settings.CLICKHOUSE_BACKUPS_BUCKET),
             path=self.path,
             object="TABLE" if self.table else "DATABASE",
             name=self.table if self.table else self.database,
@@ -128,25 +130,30 @@ class Backup:
 
         client.execute(query, query_id=f"{self.id}-{self.shard if self.shard else 'noshard'}")
 
-    def status(self, client: Client) -> "BackupStatus":
+    def status(self, client: Client) -> Optional["BackupStatus"]:
+        """
+        Get the status of the backup from the backup_log table. If a same backup is found
+        more than once, it will return the most recent one.
+
+        Returns None if the backup is not found.
+        """
         rows = client.execute(
             f"""
-            SELECT hostname(), argMax(status, event_time_microseconds), argMax(left(error, 400), event_time_microseconds)
+            SELECT hostname(), argMax(status, event_time_microseconds), argMax(left(error, 400), event_time_microseconds), max(event_time_microseconds)
             FROM system.backup_log
             WHERE (start_time >= (now() - toIntervalDay(7))) AND name LIKE '%{self.path}%'
             GROUP BY hostname()
             """
         )
 
-        (hostname, status, error) = rows[0] if rows else (None, None, None)
+        if len(rows) > 0:
+            (hostname, status, error, event_time_microseconds) = rows[0]
 
-        return BackupStatus(hostname=hostname, status=status, error=error) if rows else None
-
-    def throw_on_error(self, client: Client) -> None:
-        status = self.status(client)
-        if status and status.status != "BACKUP_CREATED":
-            raise ValueError(
-                f"The backup {self.path} finished in status {status.status} in host {status.hostname} with an error: {status.error}"
+            return BackupStatus(
+                hostname=hostname,
+                status=status,
+                error=error,
+                event_time_microseconds=event_time_microseconds,
             )
 
     def is_done(self, client: Client) -> bool:
@@ -173,8 +180,6 @@ class Backup:
         while not self.is_done(client):
             time.sleep(120)
 
-        self.throw_on_error(client)
-
 
 class BackupConfig(dagster.Config):
     incremental: bool = pydantic.Field(
@@ -195,6 +200,19 @@ class BackupConfig(dagster.Config):
         pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$",
         validate_default=True,
     )
+
+
+def get_most_recent_status(statuses: list[BackupStatus]) -> Optional[BackupStatus]:
+    """
+    Since we can retry backups and we only can identify them by their name (or path to S3),
+    in case we retry several times, we can have the same backup failed in one node and
+    succeeded in another one.
+
+    This function will raise an error only if the most recent one didn't succeed
+    """
+    statuses = [status for status in statuses if status is not None]
+    if statuses:
+        return max(statuses, key=lambda x: x.event_time_microseconds)
 
 
 @dagster.op(out=dagster.DynamicOut())
@@ -243,21 +261,22 @@ def check_latest_backup_status(
         context.log.info("No latest backup found. Skipping status check.")
         return
 
-    map_hosts = (
-        partial(cluster.map_all_hosts_in_shard, shard=latest_backup.shard)
-        if latest_backup.shard
-        else cluster.map_all_hosts
-    )
+    def map_hosts(func: Callable[[Client], Any]):
+        if latest_backup.shard:
+            return cluster.map_hosts_in_shard_by_role(
+                fn=func, shard_num=latest_backup.shard, node_role=NodeRole.DATA, workload=Workload.ONLINE
+            )
+        return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=Workload.ONLINE)
 
     is_done = map_hosts(latest_backup.is_done).result().values()
     if not all(is_done):
         context.log.info(f"Latest backup {latest_backup.path} is still in progress, waiting for it to finish")
         map_hosts(latest_backup.wait).result()
     else:
-        status = next(filter(lambda x: x is not None, map_hosts(latest_backup.status).result().values()))
-        if status.status != "BACKUP_CREATED":
+        most_recent_status = get_most_recent_status(map_hosts(latest_backup.status).result().values())
+        if most_recent_status and most_recent_status.status != "BACKUP_CREATED":
             raise ValueError(
-                f"Latest backup {latest_backup.path} finished with an unexpected status: {status.status} on the host {status.hostname}. Please clean it from S3 before running a new backup."
+                f"Latest backup {latest_backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please clean it from S3 before running a new backup."
             )
         else:
             context.log.info(f"Latest backup {latest_backup.path} finished successfully")
@@ -296,9 +315,17 @@ def run_backup(
         return
 
     if backup.shard:
-        cluster.map_any_host_in_shards({backup.shard: backup.create}).result()
+        cluster.map_any_host_in_shards_by_role(
+            {backup.shard: backup.create},
+            node_role=NodeRole.DATA,
+            workload=Workload.ONLINE,
+        ).result()
     else:
-        cluster.any_host(backup.create).result()
+        cluster.any_host_by_role(
+            backup.create,
+            node_role=NodeRole.DATA,
+            workload=Workload.ONLINE,
+        ).result()
 
     return backup
 
@@ -312,11 +339,21 @@ def wait_for_backup(
     """
     Wait for a backup to finish.
     """
-    if backup:
+
+    def map_hosts(func: Callable[[Client], Any]):
         if backup.shard:
-            cluster.map_all_hosts_in_shard(backup.shard, backup.wait).result()
-        else:
-            cluster.map_all_hosts(backup.wait).result()
+            return cluster.map_hosts_in_shard_by_role(
+                fn=func, shard_num=backup.shard, node_role=NodeRole.DATA, workload=Workload.ONLINE
+            )
+        return cluster.map_hosts_by_role(fn=func, node_role=NodeRole.DATA, workload=Workload.ONLINE)
+
+    if backup:
+        map_hosts(backup.wait).result().values()
+        most_recent_status = get_most_recent_status(map_hosts(backup.status).result().values())
+        if most_recent_status and most_recent_status.status != "BACKUP_CREATED":
+            raise ValueError(
+                f"Latest backup {backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Please clean it from S3 before running a new backup."
+            )
     else:
         context.log.info("No backup to wait for")
 
@@ -326,7 +363,11 @@ def wait_for_backup(
 )
 def sharded_backup():
     """
-    Backup ClickHouse database / table to S3 once per shard
+    Backup ClickHouse database / table to S3 once per shard.
+
+    The job, under the hood, will dynamically launch the same backup for each shard (running the ops once per shard). Shards are dynamically loaded from the ClickHouse cluster.
+
+    For each backup, the logic is exactly the same as the described in the `non_sharded_backup` job.
     """
 
     def run_backup_for_shard(shard: int):
@@ -344,6 +385,19 @@ def sharded_backup():
 def non_sharded_backup():
     """
     Backup ClickHouse database / table to S3 once (chooses a random shard)
+
+    First, it will get the latest backup metadata from S3. This will be useful to check if the requested backup was already done, is in progress or it failed.
+    If it failed, it will raise an error. If it is in progress, it will wait for it to finish.
+
+    Then, it will run the backup. If the requested backup is the same as the latest backup, it will skip the run.
+    Otherwise, if the requested backup is incremental, it will use the latest backup as the base backup for this new one.
+
+    Finally, it will wait for the backup to complete.
+
+    If the backup fails, it will raise an error.
+
+    Since we don't want to keep the state about which host was selected to run the backup, we always search backups by their name in every node.
+    When we find it in one of the nodes, we keep waiting on it only in that node. This is handy when we retry the job and a backup is in progress in any node, as we'll always wait for it to finish.
     """
     latest_backup = get_latest_backup()
     new_backup = run_backup(check_latest_backup_status(latest_backup))
@@ -359,7 +413,7 @@ def run_backup_request(table: str, incremental: bool) -> dagster.RunRequest:
         incremental=incremental,
     )
     return dagster.RunRequest(
-        run_key=timestamp,
+        run_key=f"{timestamp}-{table}",
         run_config={
             "ops": {
                 "get_latest_backup": {"config": config.model_dump()},

@@ -693,6 +693,74 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
     )
 
 
+def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dashboard:
+    singular = group_type_mapping.name_singular or group_type_mapping.group_type
+    plural = group_type_mapping.name_plural or group_type_mapping.group_type + "s"
+
+    dashboard = Dashboard.objects.create(
+        name=f"Template dashboard for {singular} overview",
+        description=f"This dashboard template powers the Overview page for all {plural}. Any insights will automatically filter to the selected {singular}.",
+        team=group_type_mapping.team,
+        created_by=user,
+        creation_mode="template",
+    )
+
+    insight = Insight.objects.create(
+        team=dashboard.team,
+        name="Weekly active users",
+        description=f"Shows the number of unique users from this {singular} in the last 90 days",
+        is_sample=True,
+        query={
+            "kind": "InsightVizNode",
+            "source": {
+                "dateRange": {"date_from": "-90d", "explicitDate": False},
+                "filterTestAccounts": False,
+                "interval": "week",
+                "kind": "TrendsQuery",
+                "properties": [],
+                "series": [{"event": None, "kind": "EventsNode", "math": "dau"}],
+                "trendsFilter": {
+                    "aggregationAxisFormat": "numeric",
+                    "display": "ActionsLineGraph",
+                    "showAlertThresholdLines": False,
+                    "showLegend": False,
+                    "showPercentStackView": False,
+                    "showValuesOnSeries": False,
+                    "smoothingIntervals": 1,
+                    "yAxisScaleType": "linear",
+                },
+            },
+        },
+    )
+    tile = DashboardTile.objects.create(
+        insight=insight,
+        dashboard=dashboard,
+        layouts={
+            "sm": {"h": 5, "w": 12, "x": 0, "y": 0, "minH": 1, "minW": 1, "moved": False, "static": False},
+            "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 1, "minW": 1},
+        },
+        color=None,
+    )
+    tile.layouts = {
+        "sm": {
+            "h": 5,
+            "i": str(tile.id),
+            "w": 12,
+            "x": 0,
+            "y": 0,
+            "minH": 1,
+            "minW": 1,
+            "moved": False,
+            "static": False,
+        },
+        "xs": {"h": 5, "i": str(tile.id), "w": 1, "x": 0, "y": 0, "minH": 1, "minW": 1},
+    }
+    tile.last_refresh = None
+    tile.save()
+
+    return dashboard
+
+
 def _get_feature_flag_total_volume_insight_description(feature_flag_key: str) -> str:
     return f"Shows the number of total calls made on feature flag with key: {feature_flag_key}"
 
