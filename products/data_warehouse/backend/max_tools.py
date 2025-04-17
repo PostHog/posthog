@@ -96,4 +96,6 @@ class HogQLGeneratorTool(MaxTool):
                 # The "no viable alternative" ANTLR error is horribly unhelpful, both for humans and LLMs
                 err_msg = f'This is not valid parsable SQL! The last 5 characters where we tripped up were "{result.query[-5:]}".'
             raise PydanticOutputParserException(llm_output=result.query, validation_message=err_msg)
+        except Exception as e:
+            raise PydanticOutputParserException(llm_output=result.query, validation_message=str(e))
         return result.query
