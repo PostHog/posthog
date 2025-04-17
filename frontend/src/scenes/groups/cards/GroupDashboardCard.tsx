@@ -224,9 +224,9 @@ export function GroupDashboardCard(): JSX.Element {
                     description={`Shows the number of users from this ${groupTypeName} who returned seven days after their first visit`}
                     query={
                         {
-                            kind: 'InsightVizNode',
+                            kind: NodeKind.InsightVizNode,
                             source: {
-                                kind: 'RetentionQuery',
+                                kind: NodeKind.RetentionQuery,
                                 retentionFilter: {
                                     period: 'Day',
                                     targetEntity: {
