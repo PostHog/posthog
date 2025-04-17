@@ -1,11 +1,10 @@
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, viewsets, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from posthog.models import MessageTemplate
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.forbid_destroy_model import ForbidDestroyModel
 
 
 class MessageTemplateSerializer(serializers.ModelSerializer):
@@ -22,12 +21,11 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
             "content",
             "created_by",
             "type",
-            "deleted",
         ]
         read_only_fields = ["id", "created_at", "created_by", "updated_at"]
 
 
-class MessageTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class MessageTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "message_template"
     permission_classes = [IsAuthenticated]
 
@@ -52,3 +50,9 @@ class MessageTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewset
             return self.get_paginated_response(serializer.data)
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+    def create(self, request: Request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(team_id=self.team_id, created_by=self.request.user)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
