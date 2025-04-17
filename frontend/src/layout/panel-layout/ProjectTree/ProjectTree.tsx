@@ -316,48 +316,50 @@ export function ProjectTree(): JSX.Element {
                 </>
             }
             panelFilters={
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <ButtonPrimitive
-                            className="max-w-[210px]"
-                            iconOnly
-                            tooltip={
-                                sortMethod === 'created_at'
-                                    ? 'Currently sorted by creation date'
-                                    : 'Currently sorted alphabetically'
-                            }
-                            aria-label={
-                                sortMethod === 'created_at'
-                                    ? 'Currently sorted by creation date'
-                                    : 'Currently sorted alphabetically'
-                            }
-                        >
-                            <IconSort className="text-tertiary" />
-                        </ButtonPrimitive>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent loop align="end" className="w-[180px]">
-                        <DropdownMenuLabel inset>Sort by</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuRadioGroup
-                            value={sortMethod}
-                            onValueChange={(value) => setSortMethod(value as ProjectTreeSortMethod)}
-                        >
-                            <DropdownMenuRadioItem value="created_at" asChild>
-                                <ButtonPrimitive menuItem>
-                                    <DropdownMenuItemIndicator intent="radio" />
-                                    Creation date
-                                </ButtonPrimitive>
-                            </DropdownMenuRadioItem>
+                <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW_WITH_SORTING}>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <ButtonPrimitive
+                                className="max-w-[210px]"
+                                iconOnly
+                                tooltip={
+                                    sortMethod === 'created_at'
+                                        ? 'Currently sorted by creation date'
+                                        : 'Currently sorted alphabetically'
+                                }
+                                aria-label={
+                                    sortMethod === 'created_at'
+                                        ? 'Currently sorted by creation date'
+                                        : 'Currently sorted alphabetically'
+                                }
+                            >
+                                <IconSort className="text-tertiary" />
+                            </ButtonPrimitive>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent loop align="end" className="w-[180px]">
+                            <DropdownMenuLabel inset>Sort by</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuRadioGroup
+                                value={sortMethod}
+                                onValueChange={(value) => setSortMethod(value as ProjectTreeSortMethod)}
+                            >
+                                <DropdownMenuRadioItem value="created_at" asChild>
+                                    <ButtonPrimitive menuItem>
+                                        <DropdownMenuItemIndicator intent="radio" />
+                                        Creation date
+                                    </ButtonPrimitive>
+                                </DropdownMenuRadioItem>
 
-                            <DropdownMenuRadioItem value="alphabetical" asChild>
-                                <ButtonPrimitive menuItem>
-                                    <DropdownMenuItemIndicator intent="radio" />
-                                    Alphabetical
-                                </ButtonPrimitive>
-                            </DropdownMenuRadioItem>
-                        </DropdownMenuRadioGroup>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                                <DropdownMenuRadioItem value="alphabetical" asChild>
+                                    <ButtonPrimitive menuItem>
+                                        <DropdownMenuItemIndicator intent="radio" />
+                                        Alphabetical
+                                    </ButtonPrimitive>
+                                </DropdownMenuRadioItem>
+                            </DropdownMenuRadioGroup>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </FlaggedFeature>
             }
         >
             <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW_TABLE_MODE}>
