@@ -68,8 +68,8 @@ export function Experiments(): JSX.Element {
                         title={
                             <>
                                 {stringWithWBR(experiment.name, 17)}
-                                {hasLegacyMetrics(experiment) &&
-                                    featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER] && (
+                                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER] &&
+                                    hasLegacyMetrics(experiment) && (
                                         <LemonTag type="warning" className="ml-1">
                                             Legacy
                                         </LemonTag>

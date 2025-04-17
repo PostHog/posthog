@@ -1,11 +1,12 @@
 import { IconArrowLeft, IconPencil } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -14,9 +15,9 @@ import { userLogic } from 'scenes/userLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { AvailableFeature } from '~/types'
 
+import { hasLegacySharedMetrics } from '../utils'
 import { SharedMetric } from './sharedMetricLogic'
 import { sharedMetricsLogic } from './sharedMetricsLogic'
-
 export const scene: SceneExport = {
     component: SharedMetrics,
     logic: sharedMetricsLogic,
@@ -26,6 +27,7 @@ export function SharedMetrics(): JSX.Element {
     const { sharedMetrics, sharedMetricsLoading } = useValues(sharedMetricsLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const columns: LemonTableColumns<SharedMetric> = [
         {
@@ -35,7 +37,17 @@ export function SharedMetrics(): JSX.Element {
                 return (
                     <LemonTableLink
                         to={sharedMetric.id ? urls.experimentsSharedMetric(sharedMetric.id) : undefined}
-                        title={stringWithWBR(sharedMetric.name, 17)}
+                        title={
+                            <>
+                                {stringWithWBR(sharedMetric.name, 17)}
+                                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER] &&
+                                    hasLegacySharedMetrics(sharedMetric) && (
+                                        <LemonTag type="warning" className="ml-1">
+                                            Legacy
+                                        </LemonTag>
+                                    )}
+                            </>
+                        }
                     />
                 )
             },

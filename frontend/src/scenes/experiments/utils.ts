@@ -690,6 +690,6 @@ export function hasLegacyMetrics(experiment: Experiment): boolean {
     return allMetrics.some(isLegacyExperimentQuery)
 }
 
-export function hasLegacySharedMetrics(sharedMetrics: SharedMetric[]): boolean {
-    return sharedMetrics.some((metric) => isLegacyExperimentQuery(metric.query))
+export function hasLegacySharedMetrics(sharedMetric: SharedMetric): boolean {
+    return isLegacyExperimentQuery(sharedMetric.query)
 }

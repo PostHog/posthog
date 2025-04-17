@@ -994,33 +994,29 @@ describe('hasLegacyMetrics', () => {
 
 describe('hasLegacySharedMetrics', () => {
     it('returns true if shared metrics contain legacy query', () => {
-        const sharedMetrics = [
-            {
-                query: {
-                    kind: NodeKind.ExperimentTrendsQuery,
-                    count_query: { kind: NodeKind.TrendsQuery, series: [] },
-                },
-            } as unknown as SharedMetric,
-        ]
+        const sharedMetric = {
+            query: {
+                kind: NodeKind.ExperimentTrendsQuery,
+                count_query: { kind: NodeKind.TrendsQuery, series: [] },
+            },
+        } as unknown as SharedMetric
 
-        expect(hasLegacySharedMetrics(sharedMetrics)).toBe(true)
+        expect(hasLegacySharedMetrics(sharedMetric)).toBe(true)
     })
 
     it('returns false if shared metrics contain no legacy queries', () => {
-        const sharedMetrics = [
-            {
-                query: {
-                    kind: NodeKind.ExperimentMetric,
-                    metric_type: ExperimentMetricType.MEAN,
-                    source: { kind: NodeKind.EventsNode, event: 'test' },
-                },
-            } as unknown as SharedMetric,
-        ]
+        const sharedMetric = {
+            query: {
+                kind: NodeKind.ExperimentMetric,
+                metric_type: ExperimentMetricType.MEAN,
+                source: { kind: NodeKind.EventsNode, event: 'test' },
+            },
+        } as unknown as SharedMetric
 
-        expect(hasLegacySharedMetrics(sharedMetrics)).toBe(false)
+        expect(hasLegacySharedMetrics(sharedMetric)).toBe(false)
     })
 
     it('returns false for empty shared metrics array', () => {
-        expect(hasLegacySharedMetrics([])).toBe(false)
+        expect(hasLegacySharedMetrics({} as SharedMetric)).toBe(false)
     })
 })
