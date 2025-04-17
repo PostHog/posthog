@@ -18,7 +18,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_event_property_filter.1
@@ -40,7 +41,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_event_property_filter.2
@@ -62,7 +64,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_event_property_filter_materialized
@@ -84,7 +87,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_event_property_filter_materialized.1
@@ -106,7 +110,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_event_property_filter_materialized.2
@@ -128,7 +133,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_events_query_all_time_date
@@ -146,7 +152,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_events_query_all_time_date.1
@@ -164,7 +171,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_events_query_all_time_date.2
@@ -182,7 +190,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_full_hogql_query
@@ -202,7 +211,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_full_hogql_query_materialized
@@ -222,7 +232,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_full_hogql_query_view
@@ -242,7 +253,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_full_hogql_query_view.1
@@ -266,7 +278,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter
@@ -288,7 +301,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter.1
@@ -310,7 +324,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter.2
@@ -332,7 +347,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter.3
@@ -354,7 +370,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter_materialized
@@ -376,7 +393,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter_materialized.1
@@ -398,7 +416,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter_materialized.2
@@ -420,7 +439,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_hogql_property_filter_materialized.3
@@ -442,7 +462,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_person_property_filter
@@ -481,7 +502,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_person_property_filter_materialized
@@ -520,7 +542,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_property_filter_aggregations
@@ -540,7 +563,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_property_filter_aggregations.1
@@ -561,7 +585,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_property_filter_aggregations_materialized
@@ -581,7 +606,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_property_filter_aggregations_materialized.1
@@ -602,7 +628,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_select_event_person
@@ -622,7 +649,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_select_hogql_expressions
@@ -643,7 +671,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_select_hogql_expressions.1
@@ -662,7 +691,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_select_hogql_expressions.2
@@ -682,7 +712,8 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestQuery.test_select_hogql_expressions.3
@@ -702,6 +733,7 @@
                     max_ast_elements=4000000,
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
-                    transform_null_in=1
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---

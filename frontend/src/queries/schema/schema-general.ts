@@ -104,6 +104,12 @@ export enum NodeKind {
     WebGoalsQuery = 'WebGoalsQuery',
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
+    WebPageURLSearchQuery = 'WebPageURLSearchQuery',
+
+    // Revenue analytics queries
+    RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
+    RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
+    RevenueAnalyticsTopCustomersQuery = 'RevenueAnalyticsTopCustomersQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -140,12 +146,16 @@ export type AnyDataNode =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
+    | RevenueAnalyticsOverviewQuery
+    | RevenueAnalyticsGrowthRateQuery
+    | RevenueAnalyticsTopCustomersQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
+    | WebPageURLSearchQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
@@ -191,6 +201,12 @@ export type QuerySchema =
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
+    | WebPageURLSearchQuery
+
+    // Revenue analytics
+    | RevenueAnalyticsOverviewQuery
+    | RevenueAnalyticsGrowthRateQuery
+    | RevenueAnalyticsTopCustomersQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -689,6 +705,9 @@ export interface DataTableNode
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
+                    | RevenueAnalyticsOverviewQuery
+                    | RevenueAnalyticsGrowthRateQuery
+                    | RevenueAnalyticsTopCustomersQuery
                     | RevenueExampleEventsQuery
                     | RevenueExampleDataWarehouseTablesQuery
                     | ErrorTrackingQuery
@@ -715,6 +734,9 @@ export interface DataTableNode
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
+        | RevenueAnalyticsOverviewQuery
+        | RevenueAnalyticsGrowthRateQuery
+        | RevenueAnalyticsTopCustomersQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
         | ErrorTrackingQuery
@@ -1085,6 +1107,7 @@ export type FunnelsFilter = {
     breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
     breakdownAttributionValue?: integer
     funnelAggregateByHogQL?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
+    /** To select the range of steps for trends & time to convert funnels, 0-indexed */
     funnelToStep?: integer
     funnelFromStep?: integer
     /** @default ordered */
@@ -1157,6 +1180,7 @@ export type RetentionFilter = {
 
 export interface RetentionValue {
     count: integer
+    label?: string
 }
 
 export interface RetentionResult {
@@ -1794,6 +1818,49 @@ export interface RevenueExampleDataWarehouseTablesQueryResponse extends Analytic
 export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
     CachedQueryResponse<RevenueExampleDataWarehouseTablesQueryResponse>
 
+/*
+ * Revenue Analytics Queries
+ */
+export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extends DataNode<R> {
+    dateRange?: DateRange
+}
+
+export interface RevenueAnalyticsOverviewQuery
+    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsOverviewQuery
+}
+
+export type RevenueAnalyticsOverviewItemKey = 'revenue' | 'paying_customer_count' | 'avg_revenue_per_customer'
+export interface RevenueAnalyticsOverviewItem {
+    key: RevenueAnalyticsOverviewItemKey
+    value: number
+}
+
+export interface RevenueAnalyticsOverviewQueryResponse
+    extends AnalyticsQueryResponseBase<RevenueAnalyticsOverviewItem[]> {}
+export type CachedRevenueAnalyticsOverviewQueryResponse = CachedQueryResponse<RevenueAnalyticsOverviewQueryResponse>
+
+export interface RevenueAnalyticsGrowthRateQuery
+    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsGrowthRateQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsGrowthRateQuery
+}
+
+export interface RevenueAnalyticsGrowthRateQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    columns?: string[]
+}
+export type CachedRevenueAnalyticsGrowthRateQueryResponse = CachedQueryResponse<RevenueAnalyticsGrowthRateQueryResponse>
+
+export interface RevenueAnalyticsTopCustomersQuery
+    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsTopCustomersQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsTopCustomersQuery
+}
+
+export interface RevenueAnalyticsTopCustomersQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    columns?: string[]
+}
+export type CachedRevenueAnalyticsTopCustomersQueryResponse =
+    CachedQueryResponse<RevenueAnalyticsTopCustomersQueryResponse>
+
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     issueId?: ErrorTrackingIssue['id']
@@ -1867,6 +1934,8 @@ export interface FileSystemEntry {
     meta?: Record<string, any>
     /** Timestamp when file was added. Used to check persistence */
     created_at?: string
+    /** Whether this is a shortcut or the actual item */
+    shortcut?: boolean
     /** Used to indicate pending actions, frontend only */
     _loading?: boolean
 }
@@ -1978,6 +2047,11 @@ export type ExperimentMetricBaseProperties = {
     conversion_window_unit?: FunnelConversionWindowTimeUnit
 }
 
+export type ExperimentMetricOutlierHandling = {
+    lower_bound_percentile?: number
+    upper_bound_percentile?: number
+}
+
 export interface ExperimentDataWarehouseNode extends EntityNode {
     kind: NodeKind.ExperimentDataWarehouseNode
     table_name: string
@@ -1990,10 +2064,11 @@ export type ExperimentMetricSource = EventsNode | ActionsNode | ExperimentDataWa
 
 export type ExperimentFunnelMetricStep = EventsNode | ActionsNode // ExperimentDataWarehouseNode is not supported yet
 
-export type ExperimentMeanMetric = ExperimentMetricBaseProperties & {
-    metric_type: ExperimentMetricType.MEAN
-    source: ExperimentMetricSource
-}
+export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
+    ExperimentMetricOutlierHandling & {
+        metric_type: ExperimentMetricType.MEAN
+        source: ExperimentMetricSource
+    }
 
 export const isExperimentMeanMetric = (metric: ExperimentMetric): metric is ExperimentMeanMetric =>
     metric.metric_type === ExperimentMetricType.MEAN
@@ -2254,7 +2329,7 @@ export interface DatabaseSchemaField {
 }
 
 export interface DatabaseSchemaTableCommon {
-    type: 'posthog' | 'data_warehouse' | 'view' | 'batch_export' | 'materialized_view'
+    type: 'posthog' | 'data_warehouse' | 'view' | 'batch_export' | 'materialized_view' | 'managed_view'
     id: string
     name: string
     fields: Record<string, DatabaseSchemaField>
@@ -2262,6 +2337,11 @@ export interface DatabaseSchemaTableCommon {
 
 export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
     type: 'view'
+    query: HogQLQuery
+}
+
+export interface DatabaseSchemaManagedViewTable extends DatabaseSchemaTableCommon {
+    type: 'managed_view'
     query: HogQLQuery
 }
 
@@ -2292,6 +2372,7 @@ export type DatabaseSchemaTable =
     | DatabaseSchemaPostHogTable
     | DatabaseSchemaDataWarehouseTable
     | DatabaseSchemaViewTable
+    | DatabaseSchemaManagedViewTable
     | DatabaseSchemaBatchExportTable
     | DatabaseSchemaMaterializedViewTable
 
@@ -2792,3 +2873,22 @@ export interface RevenueTrackingConfig {
      */
     events: RevenueTrackingEventItem[]
 }
+
+export interface PageURL {
+    url: string
+    count: number
+}
+
+export interface WebPageURLSearchQuery extends WebAnalyticsQueryBase<WebPageURLSearchQueryResponse> {
+    kind: NodeKind.WebPageURLSearchQuery
+    searchTerm?: string
+    stripQueryParams?: boolean
+    limit?: integer
+}
+
+export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBase<PageURL[]> {
+    hasMore?: boolean
+    limit?: integer
+}
+
+export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>

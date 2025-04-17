@@ -23,6 +23,7 @@ from dlt.sources import DltResource
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.typings import (
+    PartitionFormat,
     PartitionMode,
     SourceResponse,
 )
@@ -289,17 +290,18 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
 
     for column_name in table.column_names:
         normalized_column_name = normalize_column_name(column_name)
+        temp_name = normalized_column_name
 
-        if normalized_column_name in used_names or normalized_column_name in table.column_names:
-            continue
+        if temp_name != column_name:
+            while temp_name in used_names or temp_name in table.column_names:
+                temp_name = "_" + temp_name
 
-        if normalized_column_name != column_name:
             table = table.set_column(
                 table.schema.get_field_index(column_name),
-                normalized_column_name,
+                temp_name,
                 table.column(column_name),  # type: ignore
             )
-            used_names.add(normalized_column_name)
+            used_names.add(temp_name)
 
     return table
 
@@ -310,6 +312,7 @@ def append_partition_key_to_table(
     partition_size: int,
     partition_keys: list[str],
     partition_mode: PartitionMode | None,
+    partition_format: PartitionFormat | None,
     logger: FilteringBoundLogger,
 ) -> tuple[pa.Table, PartitionMode, list[str]]:
     normalized_partition_keys = [normalize_column_name(key) for key in partition_keys]
@@ -352,11 +355,17 @@ def append_partition_key_to_table(
             elif mode == "datetime":
                 key = normalized_partition_keys[0]
                 date = row[key]
+
+                if partition_format == "day":
+                    date_format = "%Y-%m-%d"
+                else:
+                    date_format = "%Y-%m"
+
                 if isinstance(date, int):
                     date = datetime.datetime.fromtimestamp(date)
-                    partition_array.append(date.strftime("%Y-%m"))
+                    partition_array.append(date.strftime(date_format))
                 elif isinstance(date, datetime.datetime):
-                    partition_array.append(date.strftime("%Y-%m"))
+                    partition_array.append(date.strftime(date_format))
                 else:
                     partition_array.append("1970-01")
             else:
@@ -587,6 +596,15 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
             # Remove any binary columns
             if pa.types.is_binary(field.type):
                 drop_column_names.add(field_name)
+
+            # Ensure duration columns have the correct arrow type
+            col = columnar_table_data[field_name]
+            if (
+                isinstance(col, pa.Array)
+                and pa.types.is_duration(col.type)
+                and not pa.types.is_duration(arrow_schema.field(field_index).type)
+            ):
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(col.type))
 
         # Convert UUIDs to strings
         if issubclass(py_type, uuid.UUID):

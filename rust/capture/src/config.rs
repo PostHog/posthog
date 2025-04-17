@@ -41,8 +41,17 @@ pub struct Config {
     #[envconfig(default = "1000")]
     pub overflow_burst_limit: NonZeroU32,
 
-    pub overflow_forced_keys: Option<String>, // Coma-delimited keys
-    pub dropped_keys: Option<String>, // "<token>:<distinct_id or *>,<distinct_id or *>;<token>..."
+    pub ingestion_force_overflow_by_token_distinct_id: Option<String>, // Comma-delimited keys
+
+    pub drop_events_by_token_distinct_id: Option<String>, // "<token>:<distinct_id or *>,<distinct_id or *>;<token>..."
+
+    #[envconfig(default = "false")]
+    pub enable_historical_rerouting: bool,
+
+    #[envconfig(default = "1")]
+    pub historical_rerouting_threshold_days: i64,
+
+    pub historical_tokens_keys: Option<String>, // "<token>:<distinct_id or *>,<distinct_id or *>;<token>..."
 
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
@@ -90,6 +99,8 @@ pub struct KafkaConfig {
     pub kafka_hosts: String,
     #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_topic: String,
+    #[envconfig(default = "events_plugin_ingestion_overflow")]
+    pub kafka_overflow_topic: String,
     #[envconfig(default = "events_plugin_ingestion_historical")]
     pub kafka_historical_topic: String,
     #[envconfig(default = "events_plugin_ingestion")]

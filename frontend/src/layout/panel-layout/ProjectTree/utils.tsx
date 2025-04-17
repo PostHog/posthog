@@ -1,4 +1,4 @@
-import { IconPlus } from '@posthog/icons'
+import { IconArrowUpRight, IconPlus } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -15,6 +15,20 @@ export interface ConvertProps {
     checkedItems: Record<string, boolean>
     root: string
     searchTerm?: string
+    disableFolderSelect?: boolean
+}
+
+export function wrapWithShortutIcon(item: FileSystemImport | FileSystemEntry, icon: JSX.Element): JSX.Element {
+    if (item.shortcut) {
+        return (
+            <div className="relative">
+                {icon}
+                <IconArrowUpRight className="absolute bottom-[-0.25rem] left-[-0.25rem] scale-75 bg-white border border-black" />
+            </div>
+        )
+    }
+
+    return icon
 }
 
 export function convertFileSystemEntryToTreeDataItem({
@@ -23,6 +37,7 @@ export function convertFileSystemEntryToTreeDataItem({
     checkedItems,
     root,
     searchTerm,
+    disableFolderSelect,
 }: ConvertProps): TreeDataItem[] {
     // The top-level nodes for our project tree
     const rootNodes: TreeDataItem[] = []
@@ -53,6 +68,9 @@ export function convertFileSystemEntryToTreeDataItem({
                 record: { type: 'folder', id: null, path: fullPath },
                 children: [],
                 checked: checkedItems[id],
+            }
+            if (disableFolderSelect) {
+                folderNode.disableSelect = true
             }
             allFolderNodes.push(folderNode)
             nodes.push(folderNode)
@@ -93,7 +111,7 @@ export function convertFileSystemEntryToTreeDataItem({
                 node.record?.path === item.path && node.record?.type === 'folder'
             const existingFolder = currentLevel.find(folderMatch)
             if (existingFolder) {
-                if (existingFolder.id) {
+                if (existingFolder.record?.id) {
                     continue
                 } else {
                     // We have a folder without an id, but the incoming one has an id. Remove the current one
@@ -111,7 +129,11 @@ export function convertFileSystemEntryToTreeDataItem({
             id: nodeId,
             name: itemName,
             displayName: <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />,
-            icon: item._loading ? <Spinner /> : ('icon' in item && item.icon) || iconForType(item.type),
+            icon: item._loading ? (
+                <Spinner />
+            ) : (
+                wrapWithShortutIcon(item, ('icon' in item && item.icon) || iconForType(item.type))
+            ),
             record: item,
             checked: checkedItems[nodeId],
             onClick: () => {
@@ -120,7 +142,11 @@ export function convertFileSystemEntryToTreeDataItem({
                 }
             },
         }
-        if (checkedItems[nodeId]) {
+        if (disableFolderSelect) {
+            if (item.type === 'folder') {
+                node.disableSelect = true
+            }
+        } else if (checkedItems[nodeId]) {
             markIndeterminateFolders(joinPath(splitPath(item.path).slice(0, -1)))
         }
 
@@ -184,7 +210,7 @@ export function convertFileSystemEntryToTreeDataItem({
             folderNode.children.push({
                 id: `${root}-folder-empty/${folderNode.id}`,
                 name: 'Empty folder',
-                displayName: <span className="italic text-tertiary pl-2">Empty folder</span>,
+                displayName: <>Empty folder</>,
                 disableSelect: true,
                 type: 'empty-folder',
             })

@@ -5,7 +5,7 @@ use moka::sync::{Cache, CacheBuilder};
 
 use crate::{
     app_context::AppContext, config::Config, error::UnhandledError, pipeline::IncomingEvent,
-    WithIndices,
+    sanitize_string, WithIndices,
 };
 
 pub struct TeamManager {
@@ -60,7 +60,7 @@ pub async fn do_team_lookups(
             continue;
         }
 
-        let token = event.token.clone();
+        let token = sanitize_string(event.token.clone());
 
         let m_ctx = context.clone();
         let m_token = token.clone();

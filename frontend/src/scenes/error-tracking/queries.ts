@@ -6,16 +6,7 @@ import {
     InsightVizNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import {
-    AnyPropertyFilter,
-    BaseMathType,
-    ChartDisplayType,
-    EventPropertyFilter,
-    PropertyFilterType,
-    PropertyGroupFilter,
-    PropertyOperator,
-    UniversalFiltersGroup,
-} from '~/types'
+import { AnyPropertyFilter, BaseMathType, ChartDisplayType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
 import { resolveDateRange, SEARCHABLE_EXCEPTION_PROPERTIES } from './utils'
 
@@ -63,17 +54,25 @@ export const errorTrackingQuery = ({
 export const errorTrackingIssueQuery = ({
     issueId,
     dateRange,
-    volumeResolution,
+    filterGroup,
+    filterTestAccounts,
+    searchQuery,
+    volumeResolution = 0,
 }: {
     issueId: string
     dateRange: DateRange
-    volumeResolution: number
+    filterGroup?: UniversalFiltersGroup
+    filterTestAccounts: boolean
+    searchQuery?: string
+    volumeResolution?: number
 }): ErrorTrackingQuery => {
     return {
         kind: NodeKind.ErrorTrackingQuery,
         issueId,
         dateRange: resolveDateRange(dateRange).toDateRange(),
-        filterTestAccounts: false,
+        filterGroup: filterGroup as PropertyGroupFilter,
+        filterTestAccounts,
+        searchQuery,
         volumeResolution,
     }
 }
@@ -104,20 +103,20 @@ export const errorTrackingIssueEventsQuery = ({
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = [...group.values] as AnyPropertyFilter[]
 
+    let where_string = `'${issueId}' == issue_id`
     if (searchQuery) {
-        properties.push(
-            ...SEARCHABLE_EXCEPTION_PROPERTIES.map(
-                (prop): EventPropertyFilter => ({
-                    type: PropertyFilterType.Event,
-                    operator: PropertyOperator.IContains,
-                    key: prop,
-                    value: searchQuery,
-                })
-            )
-        )
+        // This is an ugly hack for the fact I don't think we support nested property filters in
+        // the eventsquery
+        where_string += ' AND ('
+        const chunks: string[] = []
+        SEARCHABLE_EXCEPTION_PROPERTIES.forEach((prop) => {
+            chunks.push(`ilike(toString(properties.${prop}), '%${searchQuery}%')`)
+        })
+        where_string += chunks.join(' OR ')
+        where_string += ')'
     }
 
-    const where = [`'${issueId}' == issue_id`]
+    const where = [where_string]
 
     const eventsQuery: EventsQuery = {
         kind: NodeKind.EventsQuery,
