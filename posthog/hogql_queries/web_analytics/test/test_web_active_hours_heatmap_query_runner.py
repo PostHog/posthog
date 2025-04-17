@@ -22,22 +22,18 @@ from posthog.test.base import (
 # @snapshot_clickhouse_queries
 class TestWebActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_events(self, data, event="$pageview"):
-        person_result = []
         for id, timestamps in data:
             with freeze_time(timestamps[0][0]):
-                person_result.append(
-                    _create_person(
-                        team_id=self.team.pk,
-                        distinct_ids=[id],
-                        properties={
-                            "name": id,
-                            **({"email": "test@posthog.com"} if id == "test" else {}),
-                        },
-                    )
+                _create_person(
+                    team_id=self.team.pk,
+                    distinct_ids=[id],
+                    properties={
+                        "name": id,
+                        **({"email": "test@posthog.com"} if id == "test" else {}),
+                    },
                 )
             for timestamp, *rest in timestamps:
                 properties = rest[0] if rest else {}
-
                 _create_event(
                     team=self.team,
                     event=event,
@@ -47,7 +43,6 @@ class TestWebActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         **properties,
                     },
                 )
-        return person_result
 
     def _run_web_active_hours_heatmap_query_runner(
         self,
