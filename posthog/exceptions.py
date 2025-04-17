@@ -43,6 +43,11 @@ class Conflict(APIException):
     default_code = "conflict"
 
 
+class ClickhouseAtCapacity(APIException):
+    status_code = 500
+    default_detail = "Clickhouse cluster is at capacity. Please try this query again later."
+
+
 class EstimatedQueryExecutionTimeTooLong(APIException):
     status_code = 512  # Custom error code
     default_detail = "Estimated query execution time is too long. Try reducing its scope by changing the time range."
