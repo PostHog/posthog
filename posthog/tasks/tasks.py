@@ -1,7 +1,6 @@
 import time
 from typing import Optional
 from uuid import UUID
-import posthoganalytics
 
 import requests
 from celery import shared_task
@@ -22,6 +21,7 @@ from posthog.ph_client import get_ph_client
 from posthog.redis import get_client
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue
+from posthog.exceptions_capture import capture_exception
 
 logger = get_logger(__name__)
 
@@ -908,7 +908,7 @@ def ee_count_items_in_playlists() -> None:
             enqueue_recordings_that_match_playlist_filters,
         )
     except ImportError as ie:
-        posthoganalytics.capture_exception(ie, properties={"posthog_feature": "session_replay_playlist_counters"})
+        capture_exception(ie, additional_properties={"posthog_feature": "session_replay_playlist_counters"})
         logger.exception("Failed to import task to count items in playlists", error=ie)
     else:
         enqueue_recordings_that_match_playlist_filters()

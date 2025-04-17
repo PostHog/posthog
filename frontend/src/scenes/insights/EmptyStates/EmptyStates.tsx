@@ -13,6 +13,7 @@ import {
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -23,6 +24,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber, humanizeBytes, inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { getAppContext } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -37,7 +39,13 @@ import { urls } from 'scenes/urls'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { FunnelsQuery, Node, QueryStatus } from '~/queries/schema/schema-general'
-import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    FilterType,
+    InsightLogicProps,
+    SavedInsightsTabs,
+} from '~/types'
 
 import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -685,14 +693,19 @@ export function SavedInsightsEmptyState(): JSX.Element {
             {tab !== SavedInsightsTabs.Favorites && (
                 <div className="flex justify-center">
                     <Link to={urls.insightNew()}>
-                        <LemonButton
+                        <AccessControlledLemonButton
                             type="primary"
                             data-attr="add-insight-button-empty-state"
                             icon={<IconPlusSmall />}
                             className="add-insight-button"
+                            resourceType={AccessControlResourceType.Insight}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]
+                            }
                         >
                             New insight
-                        </LemonButton>
+                        </AccessControlledLemonButton>
                     </Link>
                 </div>
             )}

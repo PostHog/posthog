@@ -8,7 +8,7 @@ import {
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
-import { LemonInput, LemonInputProps } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonInput, LemonInputPropsText } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { forwardRef, useEffect, useMemo, useRef } from 'react'
 
@@ -121,10 +121,22 @@ export const TaxonomicFilterSearchInput = forwardRef<
     {
         searchInputRef: React.Ref<HTMLInputElement> | null
         onClose: TaxonomicFilterProps['onClose']
-    } & Pick<LemonInputProps, 'onClick' | 'size' | 'prefix' | 'fullWidth'>
->(function UniversalSearchInput({ searchInputRef, onClose, ...props }, ref): JSX.Element {
+    } & Pick<LemonInputPropsText, 'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange'>
+>(function UniversalSearchInput({ searchInputRef, onClose, onChange, ...props }, ref): JSX.Element {
     const { searchQuery, searchPlaceholder } = useValues(taxonomicFilterLogic)
-    const { setSearchQuery, moveUp, moveDown, tabLeft, tabRight, selectSelected } = useActions(taxonomicFilterLogic)
+    const {
+        setSearchQuery: setTaxonomicSearchQuery,
+        moveUp,
+        moveDown,
+        tabLeft,
+        tabRight,
+        selectSelected,
+    } = useActions(taxonomicFilterLogic)
+
+    const _onChange = (query: string): void => {
+        setTaxonomicSearchQuery(query)
+        onChange?.(query)
+    }
 
     return (
         <LemonInput
@@ -168,7 +180,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
                         selectSelected()
                         break
                     case 'Escape':
-                        setSearchQuery('')
+                        _onChange('')
                         onClose?.()
                         break
                     default:
@@ -179,7 +191,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
                 }
             }}
             inputRef={searchInputRef}
-            onChange={setSearchQuery}
+            onChange={_onChange}
         />
     )
 })
