@@ -108,6 +108,15 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 )
             )
 
+        exprs.append(
+            ast.Alias(
+                alias="library",
+                expr=ast.Call(
+                    name="argMax", args=[ast.Field(chain=["properties", "$lib"]), ast.Field(chain=["timestamp"])]
+                ),
+            )
+        )
+
         return exprs
 
     def select_sparkline_array(self, alias: str, opts: VolumeOptions):
@@ -390,6 +399,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
                         issue
                         | {
                             "last_seen": result_dict.get("last_seen"),
+                            "library": result_dict.get("library"),
                             "earliest": result_dict.get("earliest") if self.query.issueId else None,
                             "aggregations": self.extract_aggregations(result_dict),
                         }

@@ -7690,6 +7690,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "library": {
+                    "type": ["string", "null"]
+                },
                 "name": {
                     "type": ["string", "null"]
                 },
@@ -7698,7 +7701,17 @@
                     "type": "string"
                 }
             },
-            "required": ["aggregations", "assignee", "description", "first_seen", "id", "last_seen", "name", "status"],
+            "required": [
+                "aggregations",
+                "assignee",
+                "description",
+                "first_seen",
+                "id",
+                "last_seen",
+                "library",
+                "name",
+                "status"
+            ],
             "type": "object"
         },
         "ErrorTrackingIssueAggregations": {
