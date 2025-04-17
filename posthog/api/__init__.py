@@ -652,13 +652,13 @@ environments_router.register(r"max_tools", MaxToolsViewSet, "environment_max_too
 environments_router.register(
     r"messaging/messages",
     messages.MessageViewSet,
-    "project_messaging",
-    ["project_id"],
+    "environment_messaging",
+    ["team_id"],
 )
 
 environments_router.register(
     r"messaging/templates",
     message_templates.MessageTemplateViewSet,
-    "project_messaging_templates",
-    ["project_id"],
+    "environment_messaging_templates",
+    ["team_id"],
 )
