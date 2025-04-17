@@ -27,7 +27,10 @@ export async function compileHog(hog: string): Promise<HogBytecode> {
     CACHE = CACHE ?? {}
 
     if (CACHE[hog]) {
+        console.log('cache hit', hog.slice(0, 100))
         return CACHE[hog]
+    } else {
+        console.log('cache miss', hog.slice(0, 100))
     }
 
     // We invoke the ./bin/hog from the root of the directory like bin/hoge <file.hog> [output.hoge]
