@@ -16,7 +16,7 @@ import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
-import { ResolvedAssigneeIconDisplay, ResolvedAssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
+import { AssigneeIconDisplay, AssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import { DateRangeFilter, ErrorTrackingFilters, FilterGroup, InternalAccountsFilter } from './ErrorTrackingFilters'
@@ -168,15 +168,15 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                         assignee={record.assignee}
                         onChange={(assignee) => assignIssue(record.id, assignee)}
                     >
-                        {(resolvedAssignee) => {
+                        {(anyAssignee) => {
                             return (
                                 <div
                                     className="flex items-center hover:bg-fill-button-tertiary-hover p-[0.1rem] rounded cursor-pointer"
                                     role="button"
                                 >
-                                    <ResolvedAssigneeIconDisplay assignee={resolvedAssignee} size="xsmall" />
-                                    <ResolvedAssigneeLabelDisplay
-                                        assignee={resolvedAssignee}
+                                    <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />
+                                    <AssigneeLabelDisplay
+                                        assignee={anyAssignee}
                                         className="ml-1 text-xs text-secondary"
                                         size="xsmall"
                                     />

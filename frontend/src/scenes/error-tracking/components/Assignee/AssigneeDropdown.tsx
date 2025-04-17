@@ -5,8 +5,8 @@ import { urls } from 'scenes/urls'
 
 import { ErrorTrackingIssue, ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
 
-import { ResolvedAssigneeIconDisplay, ResolvedAssigneeLabelDisplay } from './AssigneeDisplay'
-import { assigneeSelectLogic, ResolvedAssignee } from './assigneeSelectLogic'
+import { AssigneeIconDisplay, AssigneeLabelDisplay } from './AssigneeDisplay'
+import { Assignee, assigneeSelectLogic } from './assigneeSelectLogic'
 
 export interface AssigneeDropdownProps {
     assignee: ErrorTrackingIssueAssignee | null
@@ -91,7 +91,7 @@ const Section = ({
     loading: boolean
     search: boolean
     type: ErrorTrackingIssueAssignee['type']
-    items: ResolvedAssignee[]
+    items: Assignee[]
     onSelect: (value: ErrorTrackingIssue['assignee']) => void
     activeId?: string | number
     emptyState?: JSX.Element
@@ -106,11 +106,11 @@ const Section = ({
                             fullWidth
                             role="menuitem"
                             size="small"
-                            icon={<ResolvedAssigneeIconDisplay assignee={item} />}
+                            icon={<AssigneeIconDisplay assignee={item} />}
                             onClick={() => item?.id && onSelect(activeId === item.id ? null : { type, id: item.id })}
                             active={activeId === item?.id}
                         >
-                            <ResolvedAssigneeLabelDisplay assignee={item} />
+                            <AssigneeLabelDisplay assignee={item} />
                         </LemonButton>
                     </li>
                 ))}

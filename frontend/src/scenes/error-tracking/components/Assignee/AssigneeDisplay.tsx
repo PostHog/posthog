@@ -8,25 +8,25 @@ import { match } from 'ts-pattern'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { assigneeSelectLogic, ResolvedAssignee } from './assigneeSelectLogic'
+import { Assignee, assigneeSelectLogic } from './assigneeSelectLogic'
 
 export interface AssigneeAnyDisplayProps {
-    assignee: ResolvedAssignee
+    assignee: Assignee
 }
 
-export interface AssigneeDisplayProps {
-    children: (props: { resolvedAssignee: ResolvedAssignee }) => React.ReactElement
+export interface AssigneeResolverProps {
+    children: (props: { assignee: Assignee }) => React.ReactElement
     assignee: ErrorTrackingIssue['assignee']
 }
 
-export const AssigneeResolver = ({ children, assignee }: AssigneeDisplayProps): React.ReactElement => {
+export const AssigneeResolver = ({ children, assignee }: AssigneeResolverProps): React.ReactElement => {
     const { resolveAssignee } = useValues(assigneeSelectLogic)
     const resolvedAssignee = useMemo(() => resolveAssignee(assignee), [assignee, resolveAssignee])
-    return children({ resolvedAssignee })
+    return children({ assignee: resolvedAssignee })
 }
 
 export interface AssigneeBaseDisplayProps {
-    assignee: ResolvedAssignee
+    assignee: Assignee
     size?: 'xsmall' | 'small' | 'medium' | 'large'
 }
 
@@ -47,7 +47,7 @@ function getIconClassname(size: 'xsmall' | 'small' | 'medium' | 'large' = 'mediu
     }
 }
 
-export const ResolvedAssigneeIconDisplay = ({ assignee, size }: AssigneeIconDisplayProps): JSX.Element => {
+export const AssigneeIconDisplay = ({ assignee, size }: AssigneeIconDisplayProps): JSX.Element => {
     return match(assignee)
         .with({ type: 'group' }, ({ group }) => (
             // The ideal way would be to use a Lettermark component here
@@ -74,7 +74,7 @@ export interface AssigneeLabelDisplayProps extends AssigneeBaseDisplayProps {
     className?: string
 }
 
-export const ResolvedAssigneeLabelDisplay = ({
+export const AssigneeLabelDisplay = ({
     assignee,
     className,
     size,
@@ -97,7 +97,7 @@ export const ResolvedAssigneeLabelDisplay = ({
     )
 }
 
-interface ResolvedAssigneeDisplayProps
+interface AssigneeDisplayProps
     extends AssigneeBaseDisplayProps,
         Omit<AssigneeLabelDisplayProps, 'className'>,
         AssigneeIconDisplayProps {
@@ -105,17 +105,17 @@ interface ResolvedAssigneeDisplayProps
     labelClassname?: string
 }
 
-export const ResolvedAssigneeDisplay = ({
+export const AssigneeDisplay = ({
     assignee,
     placeholder,
     className,
     labelClassname,
     size,
-}: ResolvedAssigneeDisplayProps): JSX.Element => {
+}: AssigneeDisplayProps): JSX.Element => {
     return (
         <div className={cn('flex justify-start items-center gap-1', className)}>
-            <ResolvedAssigneeIconDisplay assignee={assignee} size={size} />
-            <ResolvedAssigneeLabelDisplay
+            <AssigneeIconDisplay assignee={assignee} size={size} />
+            <AssigneeLabelDisplay
                 className={labelClassname}
                 size={size}
                 assignee={assignee}

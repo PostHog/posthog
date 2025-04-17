@@ -8,7 +8,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { ResolvedAssigneeIconDisplay, ResolvedAssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
+import { AssigneeIconDisplay, AssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
 import { IssueCard } from './components/IssueCard'
 import { DateRangeFilter, FilterGroup, InternalAccountsFilter } from './ErrorTrackingFilters'
@@ -55,12 +55,9 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     return (
                                         <LemonButton
                                             type="secondary"
-                                            icon={<ResolvedAssigneeIconDisplay assignee={displayAssignee} />}
+                                            icon={<AssigneeIconDisplay assignee={displayAssignee} />}
                                         >
-                                            <ResolvedAssigneeLabelDisplay
-                                                assignee={displayAssignee}
-                                                placeholder="Unassigned"
-                                            />
+                                            <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Unassigned" />
                                         </LemonButton>
                                     )
                                 }}

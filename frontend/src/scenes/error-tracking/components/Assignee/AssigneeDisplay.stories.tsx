@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 
-import { AssigneeIconDisplayProps, ResolvedAssigneeDisplay } from './AssigneeDisplay'
+import { AssigneeDisplay, AssigneeIconDisplayProps } from './AssigneeDisplay'
 
 const meta: Meta = {
     title: 'ErrorTracking/AssigneeDisplay',
@@ -23,7 +23,7 @@ export const UnassignedDisplays = ({ sizes }: SizedComponentProps): JSX.Element 
     return (
         <div className="space-y-4">
             {sizes.map((size) => (
-                <ResolvedAssigneeDisplay key={size} size={size} assignee={null} />
+                <AssigneeDisplay key={size} size={size} assignee={null} />
             ))}
         </div>
     )
@@ -33,7 +33,7 @@ export const UserDisplays = ({ sizes }: SizedComponentProps): JSX.Element => {
     return (
         <div className="space-y-4">
             {sizes.map((size) => (
-                <ResolvedAssigneeDisplay
+                <AssigneeDisplay
                     key={size}
                     size={size}
                     assignee={{
@@ -58,7 +58,7 @@ export const GroupDisplays = ({ sizes }: SizedComponentProps): JSX.Element => {
     return (
         <div className="space-y-4">
             {sizes.map((size) => (
-                <ResolvedAssigneeDisplay
+                <AssigneeDisplay
                     key={size}
                     size={size}
                     assignee={{

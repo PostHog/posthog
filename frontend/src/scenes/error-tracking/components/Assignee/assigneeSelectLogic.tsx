@@ -23,7 +23,7 @@ export type GroupAssignee = {
     group: UserGroup
 }
 
-export type ResolvedAssignee = UserAssignee | GroupAssignee | null
+export type Assignee = UserAssignee | GroupAssignee | null
 
 export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
     path(['scenes', 'error-tracking', 'assigneeSelectLogic']),
@@ -72,7 +72,7 @@ export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
 
         resolveAssignee: [
             (s) => [s.userGroups, s.meFirstMembers],
-            (groups, members): ((assignee: ErrorTrackingIssue['assignee']) => ResolvedAssignee) => {
+            (groups, members): ((assignee: ErrorTrackingIssue['assignee']) => Assignee) => {
                 return (assignee: ErrorTrackingIssue['assignee']) => {
                     if (assignee) {
                         if (assignee.type === 'user_group') {

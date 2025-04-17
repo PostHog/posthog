@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { ResolvedAssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
+import { AssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
@@ -95,10 +95,7 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
                                 {(displayAssignee) => {
                                     return (
                                         <LemonButton type="secondary" size="small">
-                                            <ResolvedAssigneeLabelDisplay
-                                                assignee={displayAssignee}
-                                                placeholder="Any user"
-                                            />
+                                            <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Any user" />
                                         </LemonButton>
                                     )
                                 }}

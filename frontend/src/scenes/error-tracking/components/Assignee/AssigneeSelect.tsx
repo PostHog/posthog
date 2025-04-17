@@ -6,7 +6,7 @@ import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { AssigneeResolver } from './AssigneeDisplay'
 import { AssigneeDropdown } from './AssigneeDropdown'
-import { assigneeSelectLogic, ResolvedAssignee } from './assigneeSelectLogic'
+import { Assignee, assigneeSelectLogic } from './assigneeSelectLogic'
 
 export const AssigneeSelect = ({
     assignee,
@@ -15,7 +15,7 @@ export const AssigneeSelect = ({
 }: {
     assignee: ErrorTrackingIssue['assignee']
     onChange: (assignee: ErrorTrackingIssue['assignee']) => void
-    children: (assignee: ResolvedAssignee) => JSX.Element
+    children: (assignee: Assignee) => JSX.Element
 }): JSX.Element => {
     const { setSearch, ensureAssigneeTypesLoaded } = useActions(assigneeSelectLogic)
     const [showPopover, setShowPopover] = useState(false)
@@ -40,7 +40,7 @@ export const AssigneeSelect = ({
         >
             <div>
                 <AssigneeResolver assignee={assignee}>
-                    {({ resolvedAssignee }) => children(resolvedAssignee)}
+                    {({ assignee: resolvedAssignee }) => children(resolvedAssignee)}
                 </AssigneeResolver>
             </div>
         </LemonDropdown>
