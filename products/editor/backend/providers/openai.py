@@ -5,7 +5,6 @@ import openai
 from anthropic.types import MessageParam
 from openai.types import ReasoningEffort, CompletionUsage
 from openai.types.chat import (
-    ChatCompletionUserMessageParam,
     ChatCompletionDeveloperMessageParam,
     ChatCompletionSystemMessageParam,
 )
@@ -18,14 +17,16 @@ logger = logging.getLogger(__name__)
 
 class OpenAIConfig:
     # these are hardcoded for now, we might experiment with different values
-    O3_REASONING_EFFORT: ReasoningEffort = "medium"
+    REASONING_EFFORT: ReasoningEffort = "medium"
     TEMPERATURE: float = 0
 
     SUPPORTED_MODELS: list[str] = [
         "gpt-4.1",
         "gpt-4.1-mini",
         "gpt-4.1-nano",
+        "o4-mini",
         "o3-mini",
+        "o3",
         "o1",
         "o1-mini",
         "gpt-4o",
@@ -33,16 +34,14 @@ class OpenAIConfig:
         "chatgpt-4o-latest",
     ]
 
-    O1_MODELS: list[str] = [
+    SUPPORTED_MODELS_WITH_THINKING: list[str] = [
+        "o3",
+        "o4-mini",
+        "o3-mini",
         "o1",
         "o1-mini",
         "o1-preview",
     ]
-
-    O3_MODELS: list[str] = [
-        "o3-mini",
-    ]
-    SUPPORTED_MODELS_WITH_THINKING = O3_MODELS
 
 
 class OpenAIProvider:
@@ -89,64 +88,45 @@ class OpenAIProvider:
             reasoning_on = False
 
         try:
-            if self.model_id in OpenAIConfig.O1_MODELS:
-                # o1 models don't support streaming, system prompt, and temperature
-                response = self.client.chat.completions.create(
+            if self.model_id in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING:
+                stream = self.client.chat.completions.create(
                     model=self.model_id,
                     messages=[
-                        ChatCompletionUserMessageParam(
+                        ChatCompletionDeveloperMessageParam(
                             {
-                                "role": "user",
+                                "role": "developer",
                                 "content": system,
                             }
                         ),
                         *convert_to_openai_messages(messages),
                     ],
+                    stream=True,
+                    stream_options={"include_usage": True},
+                    reasoning_effort=OpenAIConfig.REASONING_EFFORT if reasoning_on else None,
                 )
-                yield f"data: {json.dumps({'type': 'text', 'text': response.choices[0].message.content or ''})}\n\n"
-                if response.usage:
-                    yield from self.yield_usage(response.usage)
-
             else:
-                if self.model_id in OpenAIConfig.O3_MODELS:
-                    stream = self.client.chat.completions.create(
-                        model=self.model_id,
-                        messages=[
-                            ChatCompletionDeveloperMessageParam(
-                                {
-                                    "role": "developer",
-                                    "content": system,
-                                }
-                            ),
-                            *convert_to_openai_messages(messages),
-                        ],
-                        stream=True,
-                        stream_options={"include_usage": True},
-                        reasoning_effort=OpenAIConfig.O3_REASONING_EFFORT if reasoning_on else None,
-                    )
-                else:
-                    stream = self.client.chat.completions.create(
-                        model=self.model_id,
-                        messages=[
-                            ChatCompletionSystemMessageParam(
-                                {
-                                    "role": "system",
-                                    "content": system,
-                                }
-                            ),
-                            *convert_to_openai_messages(messages),
-                        ],
-                        stream=True,
-                        stream_options={"include_usage": True},
-                        temperature=OpenAIConfig.TEMPERATURE,
-                    )
+                stream = self.client.chat.completions.create(
+                    model=self.model_id,
+                    messages=[
+                        ChatCompletionSystemMessageParam(
+                            {
+                                "role": "system",
+                                "content": system,
+                            }
+                        ),
+                        *convert_to_openai_messages(messages),
+                    ],
+                    stream=True,
+                    stream_options={"include_usage": True},
+                    temperature=OpenAIConfig.TEMPERATURE,
+                )
 
-                for chunk in stream:
-                    if len(chunk.choices) > 0:
-                        if chunk.choices[0].delta.content:
-                            yield f"data: {json.dumps({'type': 'text', 'text': chunk.choices[0].delta.content})}\n\n"
-                    if chunk.usage:
-                        yield from self.yield_usage(chunk.usage)
+            for chunk in stream:
+                if len(chunk.choices) > 0:
+                    if chunk.choices[0].delta.content:
+                        yield f"data: {json.dumps({'type': 'text', 'text': chunk.choices[0].delta.content})}\n\n"
+                if chunk.usage:
+                    yield from self.yield_usage(chunk.usage)
 
         except openai.APIError as e:
             logger.exception(f"OpenAI API error: {e}")
