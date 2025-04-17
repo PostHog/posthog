@@ -14,13 +14,15 @@ import { CdpConsumerBase } from './cdp-base.consumer'
 export class CdpCyclotronWorker extends CdpConsumerBase {
     protected name = 'CdpCyclotronWorker'
     private cyclotronJobQueue: CyclotronJobQueue
-    protected queue: HogFunctionInvocationJobQueue = 'hog'
     protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal_destination']
+    private queue: HogFunctionInvocationJobQueue
 
-    constructor(hub: Hub) {
+    constructor(hub: Hub, queue: HogFunctionInvocationJobQueue = 'hog') {
         super(hub)
-
-        this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, this.hogFunctionManager, this.processBatch)
+        this.queue = queue
+        this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, this.hogFunctionManager, (batch) =>
+            this.processBatch(batch)
+        )
     }
 
     public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {

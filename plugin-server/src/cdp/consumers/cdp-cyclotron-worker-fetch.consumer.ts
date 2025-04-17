@@ -6,12 +6,10 @@ import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
 export class CdpCyclotronWorkerFetch extends CdpCyclotronWorker {
     protected name = 'CdpCyclotronWorkerFetch'
-    protected queue = 'fetch' as const
-
     private fetchExecutor: FetchExecutorService
 
     constructor(hub: Hub) {
-        super(hub)
+        super(hub, 'fetch')
         this.fetchExecutor = new FetchExecutorService(this.hub)
     }
 
