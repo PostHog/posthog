@@ -68,11 +68,7 @@ class TestWebActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = WebActiveHoursHeatMapQueryRunner(team=self.team, query=query, modifiers=modifiers)
         return runner.calculate()
 
-    def test_no_crash_when_no_data(self):
-        results = self._run_web_active_hours_heatmap_query_runner("2023-12-08", "2023-12-15").results
-        self.assertEqual([], results)
-
-    def test_no_data(self):
+    def test_empty_results_when_no_data(self):
         response = self._run_web_active_hours_heatmap_query_runner("2023-12-08", "2023-12-15")
         self.assertEqual([], response.results)
 

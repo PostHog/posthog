@@ -36,7 +36,7 @@ class WebActiveHoursHeatMapQueryRunner(WebAnalyticsQueryRunner):
             )
             GROUP BY day, hour
             ORDER BY day, hour
-            LIMIT 168
+            LIMIT 168 -- 24 hours * 7 days
             """,
             placeholders={
                 "all_properties": self._all_properties(),

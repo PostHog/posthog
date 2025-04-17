@@ -6,7 +6,7 @@ import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
 import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { ActiveHoursHeatMapResult, WebActiveHoursHeatMapQuery } from '~/queries/schema/schema-general'
+import { WebActiveHoursHeatMapQuery, WebActiveHoursHeatMapResult } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { DaysAbbreviated, HoursAbbreviated, Sum } from './config'
@@ -24,7 +24,7 @@ export function EventsHeatMap({ query, context }: EventsHeatMapProps): JSX.Eleme
 
     const heatmapColor = theme?.['preset-1'] ?? '#000000' // Default to black if no color found
     const aggregationColor = theme?.['preset-2'] ?? '#000000' // Default to black if no color found
-    const backgroundColorOverall = theme?.['preset-3'] || '#000000' // Default to black if no color found
+    const backgroundColorOverall = theme?.['preset-3'] ?? '#000000' // Default to black if no color found
     const [fontSize, setFontSize] = useState(13)
     const [showTooltip, setShowTooltip] = useState(false)
 
@@ -126,7 +126,7 @@ export function EventsHeatMap({ query, context }: EventsHeatMapProps): JSX.Eleme
     )
 }
 
-function processData(results: ActiveHoursHeatMapResult[]): {
+function processData(results: WebActiveHoursHeatMapResult[]): {
     matrix: { [key: number]: { [key: number]: number } }
     maxValue: number
     xAggregations: { [key: number]: number }
@@ -198,7 +198,7 @@ function renderOverallCell(
                 showTooltip={showTooltip}
                 fontSize={fontSize}
                 value={overallValue}
-                maxValue={1}
+                maxValue={overallValue}
                 backgroundColor={backgroundColorOverall}
                 dayAndTime={Sum.label}
             />
