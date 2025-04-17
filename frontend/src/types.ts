@@ -882,6 +882,16 @@ export interface DataWarehousePersonPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface ErrorTrackingIssueFilter extends BasePropertyFilter {
+    type: PropertyFilterType.ErrorTrackingIssue
+    operator: PropertyOperator
+}
+
+export interface ErrorTrackingIssuePropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.ErrorTrackingIssueProperty
+    operator: PropertyOperator
+}
+
 /** Sync with plugin-server/src/types.ts */
 export interface ElementPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Element
@@ -944,6 +954,8 @@ export type AnyPropertyFilter =
     | EmptyPropertyFilter
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
+    | ErrorTrackingIssueFilter
+    | ErrorTrackingIssuePropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =

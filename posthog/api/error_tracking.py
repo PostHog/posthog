@@ -13,7 +13,6 @@ from django.db import transaction
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models.filters.mixins.property import PropertyMixin
 
 from posthog.api.utils import action
 from posthog.models.error_tracking import (
@@ -30,9 +29,11 @@ from posthog.models.utils import uuid7
 from posthog.storage import object_storage
 from loginas.utils import is_impersonated_session
 from posthog.hogql.property import property_to_expr
+from posthog.hogql import ast
 
 from posthog.tasks.email import send_error_tracking_issue_assigned
 from posthog.hogql.compiler.bytecode import create_bytecode
+from posthog.schema import PropertyGroupFilterValue
 
 ONE_GIGABYTE = 1024 * 1024 * 1024
 JS_DATA_MAGIC = b"posthog_error_tracking"
@@ -408,7 +409,7 @@ class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
         return "user_group" if obj.user_group else "user"
 
 
-class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, PropertyMixin, viewsets.ModelViewSet):
+class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "error_tracking"
     queryset = ErrorTrackingAssignmentRule.objects.all()
     serializer_class = ErrorTrackingAssignmentRuleSerializer
@@ -418,34 +419,53 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, PropertyMixin, 
 
     def update(self, request, *args, **kwargs) -> Response:
         assignment_rule = self.get_object()
-        assignee = request.data.get("assignee", None)
-        filters = request.GET.get("filters")
+        assignee = request.data.get("assignee")
+        json_filters = request.GET.get("filters")
 
-        assignment_rule.filters = filters
-        assignment_rule.byte_code = self.generate_byte_code(filters)
-        assignment_rule.user_id = None if assignee["type"] == "user_group" else assignee["id"]
-        assignment_rule.user_group_id = None if assignee["type"] == "user" else assignee["id"]
+        if json_filters:
+            parsed_filters = PropertyGroupFilterValue(**json_filters)
+            assignment_rule.filters = json_filters
+            assignment_rule.byte_code = self.generate_byte_code(parsed_filters)
+
+        if assignee:
+            assignment_rule.user_id = None if assignee["type"] == "user_group" else assignee["id"]
+            assignment_rule.user_group_id = None if assignee["type"] == "user" else assignee["id"]
 
         assignment_rule.save()
+
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
     def create(self, request, *args, **kwargs) -> Response:
-        properties = request.GET.get("properties")
+        json_filters = request.data.get("filters")
         assignee = request.data.get("assignee", None)
 
-        assignment_rule = self.queryset.objects.create(
-            properties=properties,
-            byte_code=self.generate_byte_code(),
+        if not json_filters:
+            return Response({"error": "Filters are required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not assignee:
+            return Response({"error": "Assignee is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        parsed_filters = PropertyGroupFilterValue(**json_filters)
+
+        bytecode = self.generate_byte_code(parsed_filters)
+
+        assignment_rule = ErrorTrackingAssignmentRule.objects.create(
+            team=self.team,
+            filters=json_filters,
+            bytecode=bytecode,
+            order_key=0,
             user_id=None if assignee["type"] == "user_group" else assignee["id"],
             user_group_id=None if assignee["type"] == "user" else assignee["id"],
         )
 
-        return Response(assignment_rule, status=status.HTTP_201_CREATED)
+        serializer = ErrorTrackingAssignmentRuleSerializer(assignment_rule)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-    def generate_byte_code(self):
-        expr = property_to_expr(self.property_groups, self.team)
-
-        return create_bytecode(expr).bytecode
+    def generate_byte_code(self, props: PropertyGroupFilterValue):
+        expr = property_to_expr(props, self.team, strict=True)
+        # The rust HogVM expects a return statement, so we wrap the compiled filter expression in one
+        expr = ast.ReturnStatement(expr=expr)
+        bytecode = create_bytecode(expr).bytecode
+        return bytecode
 
 
 def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple[str, str]:
