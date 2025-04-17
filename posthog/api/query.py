@@ -138,7 +138,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     )
     @monitor(feature=Feature.QUERY, endpoint="query", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
-        # raise Exception("This is a test exception")
         data = self.get_model(request.data, QueryRequest)
         with suppress(Exception):
             request_id = structlog.get_context(logger).get("request_id")
