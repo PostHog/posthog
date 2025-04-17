@@ -59,6 +59,9 @@ export class CyclotronJobQueue {
     }
 
     public async start() {
+        if (!this.consumeBatch) {
+            throw new Error('consumeBatch is required to start the job queue')
+        }
         if (this.implementation === 'cyclotron') {
             await this.startCyclotronWorker()
         }
@@ -204,7 +207,7 @@ export class CyclotronJobQueue {
             invocations.push(invocation)
         }
 
-        await this.consumeBatch(invocations)
+        await this.consumeBatch!(invocations)
 
         await Promise.all(failReleases)
         counterJobsProcessed.inc({ queue: this.queue }, jobs.length)
