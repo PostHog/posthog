@@ -701,7 +701,7 @@ export function SavedInsightsEmptyState(): JSX.Element {
                             resourceType={AccessControlResourceType.Insight}
                             minAccessLevel={AccessControlLevel.Editor}
                             userAccessLevel={
-                                getAppContext()?.resource_access_control[AccessControlResourceType.Insight]
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]
                             }
                         >
                             New insight

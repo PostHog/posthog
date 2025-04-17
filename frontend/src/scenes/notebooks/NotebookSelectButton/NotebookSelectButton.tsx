@@ -135,7 +135,7 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                     onClick={openNewNotebook}
                     resourceType={AccessControlResourceType.Notebook}
                     minAccessLevel={AccessControlLevel.Editor}
-                    userAccessLevel={getAppContext()?.resource_access_control[AccessControlResourceType.Notebook]}
+                    userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.Notebook]}
                 >
                     New notebook
                 </AccessControlledLemonButton>

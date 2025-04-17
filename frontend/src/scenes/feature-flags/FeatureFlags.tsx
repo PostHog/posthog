@@ -475,7 +475,7 @@ export function FeatureFlags(): JSX.Element {
                         resourceType={AccessControlResourceType.FeatureFlag}
                         minAccessLevel={AccessControlLevel.Editor}
                         userAccessLevel={
-                            getAppContext()?.resource_access_control[AccessControlResourceType.FeatureFlag]
+                            getAppContext()?.resource_access_control?.[AccessControlResourceType.FeatureFlag]
                         }
                     >
                         New feature flag

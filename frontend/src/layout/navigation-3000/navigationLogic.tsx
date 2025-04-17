@@ -484,7 +484,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             logic: isUsingSidebar ? insightsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.savedInsights(),
                             sideAction:
-                                getAppContext()?.resource_access_control[AccessControlResourceType.Insight] ===
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight] ===
                                 AccessControlLevel.Editor
                                     ? {
                                           icon: <IconPlusSmall />, // The regular plus is too big

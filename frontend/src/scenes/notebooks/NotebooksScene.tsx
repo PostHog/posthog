@@ -71,7 +71,7 @@ export function NotebooksScene(): JSX.Element {
                             resourceType={AccessControlResourceType.Notebook}
                             minAccessLevel={AccessControlLevel.Editor}
                             userAccessLevel={
-                                getAppContext()?.resource_access_control[AccessControlResourceType.Notebook]
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.Notebook]
                             }
                         >
                             New notebook

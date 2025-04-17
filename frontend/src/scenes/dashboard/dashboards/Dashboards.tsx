@@ -54,7 +54,9 @@ export function Dashboards(): JSX.Element {
                         type="primary"
                         minAccessLevel={AccessControlLevel.Editor}
                         resourceType={AccessControlResourceType.Dashboard}
-                        userAccessLevel={getAppContext()?.resource_access_control[AccessControlResourceType.Dashboard]}
+                        userAccessLevel={
+                            getAppContext()?.resource_access_control?.[AccessControlResourceType.Dashboard]
+                        }
                     >
                         New dashboard
                     </AccessControlledLemonButton>
