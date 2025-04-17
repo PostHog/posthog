@@ -65,7 +65,6 @@ HOG_FUNCTION_TEMPLATES = [
     blank_site_destination,
     blank_site_app,
     slack,
-    webhook_mappings,
     activecampaign,
     airtable,
     attio,
