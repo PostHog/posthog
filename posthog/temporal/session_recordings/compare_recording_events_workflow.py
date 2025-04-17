@@ -287,17 +287,30 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
                 },
             )
             if not result:
-                return {"click_count": 0, "mouse_activity_count": 0, "keypress_count": 0}
+                return {"click_count": 0, "mouse_activity_count": 0, "keypress_count": 0, "event_count": 0}
 
             row = result[0]
             return {
                 "click_count": row[7],  # click_count index
                 "keypress_count": row[8],  # keypress_count index
                 "mouse_activity_count": row[9],  # mouse_activity_count index
+                "event_count": row[14],  # event_count index
             }
 
         v1_metadata = get_metadata_counts(team.pk, recording.session_id, "session_replay_events")
         v2_metadata = get_metadata_counts(team.pk, recording.session_id, "session_replay_events_v2_test")
+
+        await logger.ainfo(
+            "Total event count comparison",
+            v1_snapshot_count=len(v1_snapshots),
+            v2_snapshot_count=len(v2_snapshots),
+            v1_metadata_count=v1_metadata["event_count"],
+            v2_metadata_count=v2_metadata["event_count"],
+            snapshot_difference=len(v2_snapshots) - len(v1_snapshots),
+            metadata_difference=v2_metadata["event_count"] - v1_metadata["event_count"],
+            snapshot_vs_metadata_v1_difference=len(v1_snapshots) - v1_metadata["event_count"],
+            snapshot_vs_metadata_v2_difference=len(v2_snapshots) - v2_metadata["event_count"],
+        )
 
         await logger.ainfo(
             "Click count comparison",
