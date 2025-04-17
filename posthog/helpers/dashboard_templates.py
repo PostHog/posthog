@@ -707,7 +707,7 @@ def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dash
 
     configurations = [
         {
-            "name": "Top pageviews by path",
+            "name": "Top paths",
             "description": f"Shows the most popular pages viewed by this {singular} in the last 30 days",
             "query": {
                 "kind": "InsightVizNode",

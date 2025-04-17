@@ -59,7 +59,7 @@ export function GroupDashboardCard(): JSX.Element {
         <div className="flex flex-col gap-4">
             <div className="grid grid-cols-2 gap-2">
                 <QueryCard
-                    title="Top pageviews by path"
+                    title="Top paths"
                     description={`Shows the most popular pages viewed by this ${groupTypeName} in the last 30 days`}
                     query={
                         {
