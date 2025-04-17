@@ -1101,7 +1101,7 @@ describe('HogTransformer', () => {
                 filters: {
                     bytecode: await compileHog(`
                         // Invalid filter that will throw an error
-                        throw new Error('Test error in filter')
+                        lol
                     `),
                 },
             })
