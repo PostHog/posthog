@@ -180,7 +180,13 @@ impl AggregateFunnelRow {
             return;
         }
 
-        for i in 0..final_index {
+        let optional_count = args
+            .optional_steps
+            .iter()
+            .filter(|i| **i < final_index as i8)
+            .count();
+
+        for i in 0..(final_index - optional_count) {
             //if event_uuids[i].len() >= MAX_REPLAY_EVENTS && !event_uuids[i].contains(&final_value.uuids[i]) {
             // Always put the actual event uuids first, we use it to extract timestamps
             // This might create duplicates, but that's fine (we can remove it in clickhouse)
@@ -188,8 +194,9 @@ impl AggregateFunnelRow {
             // TODO: Here, this errors with an index out of bound with the optional steps - figure it out
             vars.event_uuids[i].insert(0, final_value.uuids[i].clone());
         }
+
         self.results.push(Result(
-            final_index as i8 - 1,
+            (final_index - 1 - optional_count) as i8,
             prop_val.clone(),
             final_value
                 .timings
@@ -266,27 +273,23 @@ impl AggregateFunnelRow {
                         processing_multiple_events && previous_step.uuids.contains(&event.uuid);
 
                     if !is_unmatched_step_attribution && !already_used_event {
+                        /*
+                        t.extend(
+                            std::iter::repeat(event.timestamp)
+                                .take(step - previous_step_index - 1),
+                        );
+                        */
+                        let mut t = previous_step.timings.clone();
+                        let mut u = previous_step.uuids.clone();
+                        if !args.optional_steps.contains(&(step as i8)) {
+                            t.push(event.timestamp);
+                            u.push(event.uuid);
+                        }
                         let new_entered_timestamp = EnteredTimestamp {
                             timestamp: previous_step.timestamp,
                             excluded: previous_step.excluded,
-                            timings: {
-                                let mut t = previous_step.timings.clone();
-                                t.extend(
-                                    std::iter::repeat(event.timestamp)
-                                        .take(step - previous_step_index - 1),
-                                );
-                                t.push(event.timestamp);
-                                t
-                            },
-                            uuids: {
-                                let mut u = previous_step.uuids.clone();
-                                u.extend(
-                                    std::iter::repeat(event.uuid)
-                                        .take(step - previous_step_index - 1),
-                                );
-                                u.push(event.uuid);
-                                u
-                            },
+                            timings: t,
+                            uuids: u,
                         };
 
                         if !previous_step.excluded {
