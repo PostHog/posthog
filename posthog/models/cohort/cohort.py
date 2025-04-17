@@ -6,7 +6,7 @@ import posthoganalytics
 import structlog
 from django.conf import settings
 from django.db import connection, models
-from django.db.models import Case, Q, When, QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
 
 from django.utils import timezone
@@ -400,13 +400,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             capture_exception(err)
 
     __repr__ = sane_repr("id", "name", "last_calculation")
-
-
-def get_and_update_pending_version(cohort: Cohort):
-    cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
-    cohort.save(update_fields=["pending_version"])
-    cohort.refresh_from_db()
-    return cohort.pending_version
 
 
 class CohortPeople(models.Model):
