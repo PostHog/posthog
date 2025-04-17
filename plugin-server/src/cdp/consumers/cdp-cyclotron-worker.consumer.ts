@@ -1,8 +1,7 @@
 import { CyclotronJob, CyclotronWorker } from '@posthog/cyclotron'
 import { Counter, Gauge } from 'prom-client'
 
-import { Hub } from '~/src/types'
-
+import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
 import { cyclotronJobToInvocation, invocationToCyclotronJobUpdate } from '../utils'
