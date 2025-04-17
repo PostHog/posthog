@@ -182,21 +182,18 @@ def sync_execute(
                     )
             except Exception as e:
                 err = wrap_query_error(e)
+                exception_type = type(e).__name__
+                tag_queries(clickhouse_exception_type=exception_type)
+                QUERY_ERROR_COUNTER.labels(
+                    exception_type=exception_type, query_type=query_type, workload=workload.value, chargeable=chargeable
+                ).inc()
                 if isinstance(err, ClickhouseAtCapacity) and is_personal_api_key and workload == Workload.OFFLINE:
                     workload = Workload.ONLINE
                     repeat = True
                 else:
-                    raise err
+                    raise err from e
             if not repeat:
                 break
-    except Exception as e:
-        exception_type = type(err).__name__
-        tag_queries(clickhouse_exception_type=exception_type)
-        QUERY_ERROR_COUNTER.labels(
-            exception_type=exception_type, query_type=query_type, workload=workload.value, chargeable=chargeable
-        ).inc()
-
-        raise err from e
     finally:
         execution_time = perf_counter() - start_time
 
