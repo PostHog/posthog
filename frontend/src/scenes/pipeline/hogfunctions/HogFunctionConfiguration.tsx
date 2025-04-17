@@ -267,15 +267,6 @@ export function HogFunctionConfiguration({
                     </div>
                 ) : null}
 
-                {type === 'transformation' && mightDrop && (
-                    <div>
-                        <LemonBanner type="error">
-                            <b>Warning:</b> This transformation will drop events. If this is not intended, please adjust
-                            your transformation code to return events instead of dropping them.
-                        </LemonBanner>
-                    </div>
-                )}
-
                 <Form
                     logic={hogFunctionConfigurationLogic}
                     props={logicProps}
@@ -420,6 +411,15 @@ export function HogFunctionConfiguration({
                         )}
 
                         <div className="deprecated-space-y-4 flex-2 min-w-100">
+                            {templateId === 'template-drop-events' && (
+                                <div>
+                                    <LemonBanner type="warning">
+                                        <b>Warning:</b> This transformation will drop events. If this is not intended,
+                                        please adjust your transformation code to return events instead of dropping
+                                        them.
+                                    </LemonBanner>
+                                </div>
+                            )}
                             <div
                                 className={clsx(
                                     'p-3 deprecated-space-y-2 bg-surface-primary',
