@@ -112,6 +112,9 @@ function JsonConfigField(props: {
 function EmailTemplateField({ schema }: { schema: HogFunctionInputSchemaType }): JSX.Element {
     const { globalsWithInputs, logicProps } = useValues(hogFunctionConfigurationLogic)
 
+    const emailMetaFields: ('from' | 'to' | 'subject')[] =
+        schema.type === 'email_template' ? ['from', 'subject'] : ['from', 'to', 'subject']
+
     return (
         <>
             <EmailTemplater
@@ -120,6 +123,7 @@ function EmailTemplateField({ schema }: { schema: HogFunctionInputSchemaType }):
                 formKey="configuration"
                 formFieldsPrefix={`inputs.${schema.key}.value`}
                 globals={globalsWithInputs}
+                emailMetaFields={emailMetaFields}
             />
         </>
     )
@@ -258,6 +262,7 @@ export function HogFunctionInputRenderer({ value, onChange, schema, disabled }: 
         case 'integration_field':
             return <HogFunctionInputIntegrationField schema={schema} value={value} onChange={onChange} />
         case 'email':
+        case 'email_template':
             return <EmailTemplateField schema={schema} />
         default:
             return (

@@ -287,7 +287,7 @@ export type HogFunctionTypeType =
     | 'alert'
     | 'broadcast'
 
-export type HogFunctionKind = 'messaging_campaign' | null
+export type HogFunctionKind = 'messaging_campaign' | 'messaging_template' | null
 
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]

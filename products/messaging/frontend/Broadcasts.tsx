@@ -51,7 +51,7 @@ export function Broadcasts(): JSX.Element {
         <Broadcast broadcastId={broadcastId} />
     ) : (
         <>
-            <MessagingTabs />
+            <MessagingTabs key="broadcasts-tabs" />
             <PageHeader
                 caption="Send one time communications to your users"
                 buttons={

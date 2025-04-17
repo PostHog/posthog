@@ -4887,7 +4887,16 @@ export type OnboardingProduct = {
 }
 
 export type HogFunctionInputSchemaType = {
-    type: 'string' | 'boolean' | 'dictionary' | 'choice' | 'json' | 'integration' | 'integration_field' | 'email'
+    type:
+        | 'string'
+        | 'boolean'
+        | 'dictionary'
+        | 'choice'
+        | 'json'
+        | 'integration'
+        | 'integration_field'
+        | 'email'
+        | 'email_template'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -4975,7 +4984,7 @@ export type HogFunctionTypeType =
     | 'alert'
     | 'broadcast'
 
-export type HogFunctionKind = 'messaging_campaign' | null
+export type HogFunctionKind = 'messaging_campaign' | 'messaging_template' | null
 
 export type HogFunctionType = {
     id: string
