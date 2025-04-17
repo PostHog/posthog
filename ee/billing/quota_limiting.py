@@ -223,7 +223,7 @@ def org_quota_limited_until(
     team_being_limited = any(x in previously_quota_limited_team_tokens for x in team_tokens)
 
     # 2a. already being limited
-    if team_being_limited:
+    if team_being_limited or quota_limited_until:
         # They are already being limited, do not update their status.
         report_organization_action(
             organization,
@@ -232,6 +232,8 @@ def org_quota_limited_until(
                 "event": "already limited",
                 "current_usage": usage + todays_usage,
                 "resource": resource.value,
+                "quota_limited_until": billing_period_end,
+                "quota_limiting_suspended_until": quota_limiting_suspended_until,
             },
         )
         update_organization_usage_fields(

@@ -59,7 +59,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                 teamId: item.globals.project.id,
                 functionId: item.hogFunction.id,
                 queueName: isLegacyPluginHogFunction(item.hogFunction) ? 'plugin' : 'hog',
-                priority: item.priority,
+                priority: item.queuePriority,
                 vmState: serializeHogFunctionInvocation(item),
             }
         })
@@ -139,7 +139,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                 }
 
                 if (state === HogWatcherState.degraded) {
-                    item.priority = 2
+                    item.queuePriority = 2
                 }
 
                 validInvocations.push(item)

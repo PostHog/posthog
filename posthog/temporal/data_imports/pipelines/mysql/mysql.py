@@ -1,10 +1,12 @@
 import dataclasses
+import math
 import re
 from collections.abc import Iterator
-from typing import Any, Optional
+from typing import Any
 
 import pyarrow as pa
 import pymysql
+import pymysql.converters
 from django.conf import settings
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from pymysql.cursors import Cursor, SSCursor
@@ -17,6 +19,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceRespo
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
+    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
     build_pyarrow_decimal_type,
     table_from_iterator,
 )
@@ -24,6 +27,7 @@ from posthog.temporal.data_imports.pipelines.sql_database.settings import (
     DEFAULT_CHUNK_SIZE,
 )
 from posthog.warehouse.models import IncrementalFieldType
+from posthog.warehouse.types import PartitionSettings
 
 
 def _sanitize_identifier(identifier: str) -> str:
@@ -46,9 +50,9 @@ def _build_query(
     schema: str,
     table_name: str,
     is_incremental: bool,
-    incremental_field: Optional[str],
-    incremental_field_type: Optional[IncrementalFieldType],
-    db_incremental_field_last_value: Optional[Any],
+    incremental_field: str | None,
+    incremental_field_type: IncrementalFieldType | None,
+    db_incremental_field_last_value: Any | None,
 ) -> tuple[str, dict[str, Any]]:
     query = f"SELECT * FROM `{schema}`.`{table_name}`"
 
@@ -66,6 +70,62 @@ def _build_query(
     return query, {
         "incremental_value": db_incremental_field_last_value,
     }
+
+
+def _get_partition_settings(
+    cursor: Cursor, schema: str, table_name: str, partition_size_bytes: int = DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
+) -> PartitionSettings | None:
+    """Get partition settings for given MySQL table.
+
+    To obtain partition settings, we look up `DATA_LENGTH` from
+    `INFORMATION_SCHEMA.TABLES`. Keep in mind that `DATA_LENGTH` only includes
+    size of values in clustered index. Notably, types like `TEXT` do not store
+    their values in the index, so the size will be underestimated if fields like
+    that are present. This could lead to larger than expected partitions.
+
+    We obtain the row count by counting the table directly, as `TABLE_ROWS` can
+    be out of date by a large factor depending on how recently have table
+    statistics been computed.
+    """
+    query = """
+    SELECT
+        t.DATA_LENGTH AS table_size,
+        (SELECT COUNT(*) FROM `{schema_identifier}`.`{table_name_identifier}`) AS row_count
+    FROM
+        information_schema.TABLES AS t
+    WHERE
+        t.TABLE_SCHEMA = %(schema)s
+        AND t.TABLE_NAME = %(table_name)s
+    """.format(
+        schema_identifier=pymysql.converters.escape_string(schema),
+        table_name_identifier=pymysql.converters.escape_string(table_name),
+    )
+
+    cursor.execute(
+        query,
+        {
+            "schema": schema,
+            "table_name": table_name,
+        },
+    )
+    result = cursor.fetchone()
+    if result is None:
+        return None
+
+    table_size, row_count = result
+
+    if row_count == 0:
+        return None
+
+    avg_row_size = table_size / row_count
+    # Partition must have at least one row
+    partition_size = max(round(partition_size_bytes / avg_row_size), 1)
+    partition_count = math.floor(row_count / partition_size)
+
+    if partition_count == 0:
+        return PartitionSettings(partition_count=1, partition_size=partition_size)
+
+    return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
 
 
 def _get_primary_keys(cursor: Cursor, schema: str, table_name: str) -> list[str] | None:
@@ -96,8 +156,8 @@ class TableStructureRow:
     data_type: str
     column_type: str
     is_nullable: bool
-    numeric_precision: Optional[int]
-    numeric_scale: Optional[int]
+    numeric_precision: int | None
+    numeric_scale: int | None
 
 
 def _get_table_structure(cursor: Cursor, schema: str, table_name: str) -> list[TableStructureRow]:
@@ -207,9 +267,9 @@ def mysql_source(
     table_names: list[str],
     is_incremental: bool,
     logger: FilteringBoundLogger,
-    db_incremental_field_last_value: Optional[Any],
-    incremental_field: Optional[str] = None,
-    incremental_field_type: Optional[IncrementalFieldType] = None,
+    db_incremental_field_last_value: Any | None,
+    incremental_field: str | None = None,
+    incremental_field_type: IncrementalFieldType | None = None,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:
@@ -232,6 +292,7 @@ def mysql_source(
         with connection.cursor() as cursor:
             primary_keys = _get_primary_keys(cursor, schema, table_name)
             table_structure = _get_table_structure(cursor, schema, table_name)
+            partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
 
             # Falback on checking for an `id` field on the table
             if primary_keys is None:
@@ -278,4 +339,10 @@ def mysql_source(
 
     name = NamingConvention().normalize_identifier(table_name)
 
-    return SourceResponse(name=name, items=get_rows(), primary_keys=primary_keys)
+    return SourceResponse(
+        name=name,
+        items=get_rows(),
+        primary_keys=primary_keys,
+        partition_count=partition_settings.partition_count if partition_settings else None,
+        partition_size=partition_settings.partition_size if partition_settings else None,
+    )

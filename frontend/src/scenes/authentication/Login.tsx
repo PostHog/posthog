@@ -9,13 +9,12 @@ import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/Socia
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { loginLogic } from './loginLogic'
-import { redirectIfLoggedInOtherInstance } from './redirectToLoggedInInstance'
+import { RedirectIfLoggedInOtherInstance } from './RedirectToLoggedInInstance'
 import RegionSelect from './RegionSelect'
 import { SupportModalButton } from './SupportModalButton'
 
@@ -59,16 +58,6 @@ export function Login(): JSX.Element {
     const isPasswordHidden = precheckResponse.status === 'pending' || precheckResponse.sso_enforcement
 
     useEffect(() => {
-        if (preflight?.cloud) {
-            try {
-                redirectIfLoggedInOtherInstance()
-            } catch (e) {
-                posthog.captureException(e)
-            }
-        }
-    }, [])
-
-    useEffect(() => {
         if (!isPasswordHidden) {
             passwordInputRef.current?.focus()
         }
@@ -86,6 +75,7 @@ export function Login(): JSX.Element {
             }
             footer={<SupportModalButton />}
         >
+            {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <div className="deprecated-space-y-4">
                 <h2>Log in</h2>
                 {generalError && (
