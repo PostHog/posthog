@@ -301,14 +301,14 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "type": "destination",
             "kind": None,
             "free": False,
-            "name": "Webhook",
+            "name": webhook_template["name"],
             "description": webhook_template["description"],
             "id": "template-webhook",
             "status": "beta",
             "icon_url": webhook_template["icon_url"],
             "category": webhook_template["category"],
             "inputs_schema": webhook_template["inputs_schema"],
-            "hog": webhook_template["hog"],
+            "hog": webhook_template["hog"].strip(),
             "filters": None,
             "masking": None,
             "mappings": None,
@@ -334,7 +334,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert response.json()["hog"] == webhook_template["hog"]
+        assert response.json()["hog"] == webhook_template["hog"].strip()
         assert response.json()["inputs_schema"] == webhook_template["inputs_schema"]
         assert response.json()["name"] == "Webhook"
         assert response.json()["description"] == webhook_template["description"]
