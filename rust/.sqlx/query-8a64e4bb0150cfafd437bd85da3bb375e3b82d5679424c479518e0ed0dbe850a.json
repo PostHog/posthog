@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT i.id, i.team_id, i.status, i.name, i.description\n            FROM posthog_errortrackingissue i\n            JOIN posthog_errortrackingissuefingerprintv2 f ON i.id = f.issue_id\n            WHERE f.team_id = $1 AND f.fingerprint = $2\n            ",
+  "query": "\n            SELECT id, team_id, status, name, description, false as \"eligible_for_assignment!\" FROM posthog_errortrackingissue\n            WHERE team_id = $1 AND id = $2\n            ",
   "describe": {
     "columns": [
       {
@@ -27,12 +27,17 @@
         "ordinal": 4,
         "name": "description",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "eligible_for_assignment!",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
       "Left": [
         "Int4",
-        "Text"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -40,8 +45,9 @@
       false,
       false,
       true,
-      true
+      true,
+      null
     ]
   },
-  "hash": "4bfe7439d7154ff93a716a5057518c0fa40ef0e392d55e678d06f5b3c4847b01"
+  "hash": "8a64e4bb0150cfafd437bd85da3bb375e3b82d5679424c479518e0ed0dbe850a"
 }
