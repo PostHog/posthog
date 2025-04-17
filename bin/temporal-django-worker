@@ -19,8 +19,10 @@ worker_pid=$!
 
 # Run wait in a loop in case we trap SIGINT or SIGTERM.
 # In both cases, wait will terminate early, potentially not waiting for graceful shutdown.
-while wait $worker_pid
+while true
 do
+    wait $worker_pid
+
     status=$?
     # If we exit with SIGTERM, status will be 128 + 15.
     # If we exit with SIGINT, status will be 128 + 2.
