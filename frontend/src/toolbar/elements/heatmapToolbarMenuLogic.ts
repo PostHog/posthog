@@ -80,6 +80,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         loadAllEnabled: true,
         maybeLoadClickmap: true,
         maybeLoadHeatmap: true,
+        updateElementMetrics: (element: HTMLElement, visible: boolean, rect: DOMRect) => ({ element, visible, rect }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -113,6 +114,21 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             { persist: true },
             {
                 setSamplingFactor: (_, { samplingFactor }) => samplingFactor,
+            },
+        ],
+        elementMetrics: [
+            new Map<HTMLElement, { visible: boolean; rect: DOMRect }>(),
+            {
+                updateElementMetrics: (state, { element, visible, rect }) => {
+                    // we only change if visible or rect has changed
+                    const current = state.get(element)
+                    if (current?.visible === visible && current?.rect === rect) {
+                        return state
+                    }
+                    const newMap = new Map(state)
+                    newMap.set(element, { visible, rect })
+                    return newMap
+                },
             },
         ],
     }),
@@ -269,8 +285,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             },
         ],
         countedElements: [
-            (s) => [s.elements, toolbarConfigLogic.selectors.dataAttributes, s.clickmapsEnabled],
-            (elements, dataAttributes, clickmapsEnabled) => {
+            (s) => [s.elements, toolbarConfigLogic.selectors.dataAttributes, s.clickmapsEnabled, s.elementMetrics],
+            (elements, dataAttributes, clickmapsEnabled, elementMetrics) => {
                 if (!clickmapsEnabled) {
                     return []
                 }
@@ -279,6 +295,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     const trimmedElement = trimElement(countedElement.element)
                     if (!trimmedElement) {
                         return
+                    }
+
+                    const metrics = elementMetrics.get(trimmedElement) || {
+                        visible: isElementVisible(trimmedElement),
+                        rect: trimmedElement.getBoundingClientRect(),
                     }
 
                     if (normalisedElements.has(trimmedElement)) {
@@ -297,12 +318,22 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                             deadclickCount: countedElement.type === '$dead_click' ? countedElement.count : 0,
                             element: trimmedElement,
                             actionStep: elementToActionStep(trimmedElement, dataAttributes),
+                            visible: metrics.visible,
+                            rect: metrics.rect,
                         })
                     }
                 })
 
                 const countedElements = Array.from(normalisedElements.values())
                 countedElements.sort((a, b) => b.count - a.count)
+
+                cache.intersectionObserver.disconnect()
+                cache.intersectionObserver.observe(document.body)
+
+                // Observe all counted elements
+                countedElements.forEach(({ element }) => {
+                    cache.intersectionObserver.observe(element)
+                })
 
                 return countedElements.map((e, i) => ({ ...e, position: i + 1 }))
             },
@@ -426,8 +457,28 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 actions.setHeatmapScrollY(scrollY)
             }
         }, 100)
+
+        // we bundle the whole app with the toolbar, which means we don't need ES5 support
+        // so we can use IntersectionObserver
+        // eslint-disable-next-line compat/compat
+        const intersectionObserver = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+                const element = entry.target as HTMLElement
+                const rect = element.getBoundingClientRect()
+                actions.updateElementMetrics(element, entry.isIntersecting, rect)
+            })
+        })
+
+        // Store for cleanup
+        cache.intersectionObserver = intersectionObserver
     }),
     beforeUnmount(({ cache }) => {
         clearInterval(cache.scrollCheckTimer)
+        cache.intersectionObserver?.disconnect()
     }),
 ])
+
+function isElementVisible(element: HTMLElement): boolean {
+    const style = window.getComputedStyle(element)
+    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0'
+}
