@@ -29,19 +29,19 @@ def DROP_EVENTS_TABLE_JSON_MV(on_cluster=True):
     return DROP_EVENTS_TABLE_JSON_MV_TEMPLATE.format(on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster))
 
 
-def ADD_BREADRUMBS_COLUMNS_DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=True):
+def ADD_BREADCRUMBS_COLUMNS_DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=True):
     return ALTER_EVENTS_TABLE_ADD_BREADCRUMBS_COLUMN.format(
         table_name="events", on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster)
     )
 
 
-def ADD_BREADRUMBS_COLUMNS_WRITABLE_EVENTS_TABLE_SQL(on_cluster=True):
+def ADD_BREADCRUMBS_COLUMNS_WRITABLE_EVENTS_TABLE_SQL(on_cluster=True):
     return ALTER_EVENTS_TABLE_ADD_BREADCRUMBS_COLUMN.format(
         table_name="writable_events", on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster)
     )
 
 
-def ADD_BREADRUMBS_COLUMNS_SHARDED_EVENTS_TABLE_SQL(on_cluster=True):
+def ADD_BREADCRUMBS_COLUMNS_SHARDED_EVENTS_TABLE_SQL(on_cluster=True):
     return ALTER_EVENTS_TABLE_ADD_BREADCRUMBS_COLUMN.format(
         table_name="sharded_events", on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster)
     )
@@ -50,15 +50,16 @@ def ADD_BREADRUMBS_COLUMNS_SHARDED_EVENTS_TABLE_SQL(on_cluster=True):
 operations = [
     # First drop the materialized view
     run_sql_with_exceptions(DROP_EVENTS_TABLE_JSON_MV, NodeRole.WRITE),
+    # then drop the kafka table
     run_sql_with_exceptions(DROP_KAFKA_EVENTS_TABLE_JSON, NodeRole.WRITE),
     # add missing columns to all tables in correct order
     # first the sharded tables
-    run_sql_with_exceptions(ADD_BREADRUMBS_COLUMNS_SHARDED_EVENTS_TABLE_SQL()),
+    run_sql_with_exceptions(ADD_BREADCRUMBS_COLUMNS_SHARDED_EVENTS_TABLE_SQL()),
     # second, add missing columns to writable table
-    run_sql_with_exceptions(ADD_BREADRUMBS_COLUMNS_WRITABLE_EVENTS_TABLE_SQL()),
+    run_sql_with_exceptions(ADD_BREADCRUMBS_COLUMNS_WRITABLE_EVENTS_TABLE_SQL()),
     # third,add missing columns to distributed table
     run_sql_with_exceptions(
-        ADD_BREADRUMBS_COLUMNS_DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR
+        ADD_BREADCRUMBS_COLUMNS_DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR
     ),
     # recreate the kafka table
     run_sql_with_exceptions(KAFKA_EVENTS_TABLE_JSON_SQL()),
