@@ -364,8 +364,8 @@ describe('IngestionConsumer', () => {
                 })
 
                 it('should drop all events for team with only token listed to be dropped', async () => {
-                    const any_distinct_id = 'any_distinct_id'
-                    const other_distinct_id = 'other_distinct_id'
+                    const any_distinct_id = 'any_distinct_id_DEBUG'
+                    const other_distinct_id = 'other_distinct_id_DEBUG'
                     const messages = createKafkaMessages([
                         createEvent({
                             distinct_id: any_distinct_id,

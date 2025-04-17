@@ -544,6 +544,9 @@ export class IngestionConsumer {
     }
 
     private shouldDropEvent(token?: string, distinctId?: string) {
+        if (distinctId === 'any_distinct_id_DEBUG' || distinctId == 'other_distinct_id_DEBUG') {
+            console.log(`ELI DEBUG: TEST BY TOKEN RESULT: ${token && this.tokenDistinctIdsToDrop.includes(token)}`)
+        }
         return (
             (token && this.tokenDistinctIdsToDrop.includes(token)) ||
             (token && distinctId && this.tokenDistinctIdsToDrop.includes(`${token}:${distinctId}`))
