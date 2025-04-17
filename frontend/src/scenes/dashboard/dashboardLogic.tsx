@@ -86,6 +86,8 @@ const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
 const REFRESH_DASHBOARD_ITEM_ACTION = 'refresh_dashboard_item'
 
+const QUERY_VARIABLES_KEY = 'query_variables'
+
 /**
  * Once a dashboard has more tiles than this,
  * we don't automatically preview dashboard date/filter/breakdown changes.
@@ -1048,7 +1050,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return (
                     dashboardLoading ||
                     Object.values(refreshStatus).some((s) => s.loading || s.queued) ||
-                    !initialVariablesLoaded
+                    (QUERY_VARIABLES_KEY in router.values.searchParams && !initialVariablesLoaded)
                 )
             },
         ],
@@ -1239,6 +1241,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     // If we already have dashboard data, use it. Should the data turn out to be stale,
                     // the loadDashboardSuccess listener will initiate a refresh
                     actions.loadDashboardSuccess(props.dashboard)
+                } else {
+                    if (!(QUERY_VARIABLES_KEY in router.values.searchParams)) {
+                        actions.loadDashboard({
+                            refresh: 'lazy_async',
+                            action: 'initial_load',
+                        })
+                    }
                 }
             }
         },
@@ -1670,7 +1679,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         [variableDataLogic.actionTypes.getVariablesSuccess]: () => {
-            if (!values.initialVariablesLoaded) {
+            if (!values.initialVariablesLoaded && QUERY_VARIABLES_KEY in router.values.searchParams) {
                 actions.loadDashboard({
                     refresh: 'lazy_async',
                     action: 'initial_load',
@@ -1764,9 +1773,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
 const parseURLVariables = (searchParams: Record<string, any>): Record<string, Partial<HogQLVariable>> => {
     const variables: Record<string, Partial<HogQLVariable>> = {}
 
-    if (searchParams.query_variables) {
+    if (searchParams[QUERY_VARIABLES_KEY]) {
         try {
-            const parsedVariables = JSON.parse(searchParams.query_variables)
+            const parsedVariables = JSON.parse(searchParams[QUERY_VARIABLES_KEY])
             Object.assign(variables, parsedVariables)
         } catch (e) {
             console.error('Failed to parse query_variables from URL:', e)
@@ -1780,7 +1789,7 @@ const encodeURLVariables = (variables: Record<string, string>): Record<string, s
     const encodedVariables: Record<string, string> = {}
 
     if (Object.keys(variables).length > 0) {
-        encodedVariables.query_variables = JSON.stringify(variables)
+        encodedVariables[QUERY_VARIABLES_KEY] = JSON.stringify(variables)
     }
 
     return encodedVariables
