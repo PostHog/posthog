@@ -21,7 +21,6 @@ from posthog.ph_client import get_ph_client
 from posthog.redis import get_client
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue
-from posthog.exceptions_capture import capture_exception
 
 logger = get_logger(__name__)
 
@@ -898,20 +897,20 @@ def ee_persist_finished_recordings_v2() -> None:
         persist_finished_recordings_v2()
 
 
-@shared_task(
-    ignore_result=True,
-    queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
-)
-def ee_count_items_in_playlists() -> None:
-    try:
-        from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
-            enqueue_recordings_that_match_playlist_filters,
-        )
-    except ImportError as ie:
-        capture_exception(ie, additional_properties={"posthog_feature": "session_replay_playlist_counters"})
-        logger.exception("Failed to import task to count items in playlists", error=ie)
-    else:
-        enqueue_recordings_that_match_playlist_filters()
+# @shared_task(
+#     ignore_result=True,
+#     queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
+# )
+# def ee_count_items_in_playlists() -> None:
+#     try:
+#         from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
+#             enqueue_recordings_that_match_playlist_filters,
+#         )
+#     except ImportError as ie:
+#         posthoganalytics.capture_exception(ie, properties={"posthog_feature": "session_replay_playlist_counters"})
+#         logger.exception("Failed to import task to count items in playlists", error=ie)
+#     else:
+#         enqueue_recordings_that_match_playlist_filters()
 
 
 @shared_task(ignore_result=True)
