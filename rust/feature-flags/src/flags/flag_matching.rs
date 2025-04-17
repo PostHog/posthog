@@ -639,11 +639,21 @@ impl FeatureFlagMatcher {
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<Option<FeatureFlagMatch>, FlagError> {
-        let flag_property_filters: Vec<PropertyFilter> = flag
+        // Collect ALL property filters - both from regular conditions and super conditions
+        let mut flag_property_filters: Vec<PropertyFilter> = flag
             .get_conditions()
             .iter()
             .flat_map(|c| c.properties.clone().unwrap_or_default())
             .collect();
+
+        // Add super condition properties
+        if let Some(super_groups) = &flag.filters.super_groups {
+            flag_property_filters.extend(
+                super_groups
+                    .iter()
+                    .flat_map(|c| c.properties.clone().unwrap_or_default()),
+            );
+        }
 
         let overrides = match flag.get_group_type_index() {
             Some(group_type_index) => self.get_group_overrides(
@@ -999,8 +1009,8 @@ impl FeatureFlagMatcher {
         } else {
             match self.get_person_properties_from_cache() {
                 Ok(props) => Ok(props),
-                Err(FlagError::PersonNotFound) => Ok(HashMap::new()), // NB: If we can't find a person ID associated with the distinct ID, return an empty map
-                Err(FlagError::PropertiesNotInCache) => Ok(HashMap::new()), // NB: If we can't find a person ID associated with the distinct ID, return an empty map
+                Err(FlagError::PersonNotFound) => Ok(HashMap::new()), // NB: if we can't find a person associated with the distinct ID, we return an empty HashMap
+                Err(FlagError::PropertiesNotInCache) => Ok(HashMap::new()), // NB: if we can't find the properties in the cache, we return an empty HashMap
                 Err(e) => Err(e),
             }
         }
@@ -1071,11 +1081,8 @@ impl FeatureFlagMatcher {
             .as_ref()
             .and_then(|sc| sc.first())
         {
-            // Need to fetch person properties to check super conditions.  If these properties are already locally computable,
-            // we don't need to fetch from the database, but if they aren't we need to fetch from the database and then we'll cache them.
-            // don't do that ^
             let person_properties = self.get_person_properties(
-                property_overrides,
+                property_overrides.clone(),
                 first_condition.properties.as_deref().unwrap_or(&[]),
             )?;
 
@@ -4909,5 +4916,197 @@ mod tests {
         assert!(!result.errors_while_computing_flags);
         let flag_details = result.flags.get("test_flag").unwrap();
         assert!(flag_details.enabled);
+    }
+
+    #[tokio::test]
+    async fn test_complex_super_condition_matching() {
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+
+        let flag = create_test_flag(
+            None,
+            Some(team.id),
+            None,
+            Some("complex_flag".to_string()),
+            Some(FlagFilters {
+                groups: vec![
+                    FlagGroupType {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: json!("@storytell.ai"),
+                            operator: Some(OperatorType::Icontains),
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                            negation: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    },
+                    FlagGroupType {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: json!([
+                                "simone.demarchi@outlook.com",
+                                "djokovic.dav@gmail.com",
+                                "dario.passarello@gmail.com",
+                                "matt.amick@purplewave.com"
+                            ]),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                            negation: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    },
+                    FlagGroupType {
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: json!("@posthog.com"),
+                            operator: Some(OperatorType::Icontains),
+                            prop_type: "person".to_string(),
+                            group_type_index: None,
+                            negation: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    },
+                ],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: Some(vec![FlagGroupType {
+                    properties: Some(vec![PropertyFilter {
+                        key: "$feature_enrollment/artificial-hog".to_string(),
+                        value: json!(["true"]),
+                        operator: Some(OperatorType::Exact),
+                        prop_type: "person".to_string(),
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }]),
+                holdout_groups: None,
+            }),
+            None,
+            None,
+            None,
+        );
+
+        // Test case 1: User with super condition property set to true
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "super_user".to_string(),
+            Some(json!({
+                "email": "random@example.com",
+                "$feature_enrollment/artificial-hog": true
+            })),
+        )
+        .await
+        .unwrap();
+
+        // Test case 2: User with matching email but no super condition
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "posthog_user".to_string(),
+            Some(json!({
+                "email": "test@posthog.com",
+                "$feature_enrollment/artificial-hog": false
+            })),
+        )
+        .await
+        .unwrap();
+
+        // Test case 3: User with neither super condition nor matching email
+        insert_person_for_team_in_pg(
+            reader.clone(),
+            team.id,
+            "regular_user".to_string(),
+            Some(json!({
+                "email": "regular@example.com"
+            })),
+        )
+        .await
+        .unwrap();
+
+        // Test super condition user
+        let mut matcher = FeatureFlagMatcher::new(
+            "super_user".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[flag.clone()])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(result.matches, "Super condition user should match");
+        assert_eq!(
+            result.reason,
+            FeatureFlagMatchReason::SuperConditionValue,
+            "Match reason should be SuperConditionValue"
+        );
+
+        // Test PostHog user
+        let mut matcher = FeatureFlagMatcher::new(
+            "posthog_user".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[flag.clone()])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(!result.matches, "PostHog user should not match");
+        assert_eq!(
+            result.reason,
+            FeatureFlagMatchReason::SuperConditionValue,
+            "Match reason should be SuperConditionValue"
+        );
+
+        // Test regular user
+        let mut matcher = FeatureFlagMatcher::new(
+            "regular_user".to_string(),
+            team.id,
+            team.project_id,
+            reader.clone(),
+            writer.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[flag.clone()])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None).unwrap();
+        assert!(!result.matches, "Regular user should not match");
+        assert_eq!(
+            result.reason,
+            FeatureFlagMatchReason::NoConditionMatch,
+            "Match reason should be NoConditionMatch"
+        );
     }
 }
