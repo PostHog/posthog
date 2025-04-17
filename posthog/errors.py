@@ -44,7 +44,7 @@ def wrap_query_error(err: Exception) -> Exception:
     if not isinstance(err, ServerException):
         return err
 
-    if re.search(r"Too many simultaneous.", err.message):
+    if err.code == 202:
         return ClickhouseAtCapacity()
 
     # Return a 512 error for queries which would time out
