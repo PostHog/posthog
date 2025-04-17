@@ -215,18 +215,33 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
                 and event.get("data", {}).get("type") in CLICK_TYPES
             )
 
-        # Count clicks in v1
+        def is_mouse_activity(event: dict) -> bool:
+            MOUSE_ACTIVITY_SOURCES = [2, 1, 6]  # MouseInteraction, MouseMove, TouchMove
+            return (
+                event.get("type") == 3  # RRWebEventType.IncrementalSnapshot
+                and event.get("data", {}).get("source") in MOUSE_ACTIVITY_SOURCES
+            )
+
+        # Count clicks and mouse activity in v1
+        v1_click_count = 0
+        v1_mouse_activity_count = 0
         for snapshot in v1_snapshots:
             if is_click(snapshot["data"]):
                 v1_click_count += 1
+            if is_mouse_activity(snapshot["data"]):
+                v1_mouse_activity_count += 1
 
-        # Count clicks in v2
+        # Count clicks and mouse activity in v2
+        v2_click_count = 0
+        v2_mouse_activity_count = 0
         for snapshot in v2_snapshots:
             if is_click(snapshot["data"]):
                 v2_click_count += 1
+            if is_mouse_activity(snapshot["data"]):
+                v2_mouse_activity_count += 1
 
-        # Get metadata click counts
-        def get_metadata_click_count(team_id: int, session_id: str, table_name: str) -> int:
+        # Get metadata counts
+        def get_metadata_counts(team_id: int, session_id: str, table_name: str) -> dict[str, int]:
             query = f"""
                 SELECT
                     session_id,
@@ -259,24 +274,40 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
                     "session_id": session_id,
                 },
             )
-            # click_count is at index 7 in the result tuple (0-based index matching the SELECT order)
-            return result[0][7] if result else 0
+            if not result:
+                return {"click_count": 0, "mouse_activity_count": 0}
 
-        v1_metadata_click_count = get_metadata_click_count(team.pk, recording.session_id, "session_replay_events")
-        v2_metadata_click_count = get_metadata_click_count(
-            team.pk, recording.session_id, "session_replay_events_v2_test"
-        )
+            row = result[0]
+            return {
+                "click_count": row[7],  # click_count index
+                "mouse_activity_count": row[9],  # mouse_activity_count index
+            }
+
+        v1_metadata = get_metadata_counts(team.pk, recording.session_id, "session_replay_events")
+        v2_metadata = get_metadata_counts(team.pk, recording.session_id, "session_replay_events_v2_test")
 
         await logger.ainfo(
             "Click count comparison",
-            v1_snapshot_click_count=v1_click_count,
-            v2_snapshot_click_count=v2_click_count,
-            v1_metadata_click_count=v1_metadata_click_count,
-            v2_metadata_click_count=v2_metadata_click_count,
+            v1_snapshot_count=v1_click_count,
+            v2_snapshot_count=v2_click_count,
+            v1_metadata_count=v1_metadata["click_count"],
+            v2_metadata_count=v2_metadata["click_count"],
             snapshot_difference=v2_click_count - v1_click_count,
-            metadata_difference=v2_metadata_click_count - v1_metadata_click_count,
-            snapshot_vs_metadata_v1_difference=v1_click_count - v1_metadata_click_count,
-            snapshot_vs_metadata_v2_difference=v2_click_count - v2_metadata_click_count,
+            metadata_difference=v2_metadata["click_count"] - v1_metadata["click_count"],
+            snapshot_vs_metadata_v1_difference=v1_click_count - v1_metadata["click_count"],
+            snapshot_vs_metadata_v2_difference=v2_click_count - v2_metadata["click_count"],
+        )
+
+        await logger.ainfo(
+            "Mouse activity count comparison",
+            v1_snapshot_count=v1_mouse_activity_count,
+            v2_snapshot_count=v2_mouse_activity_count,
+            v1_metadata_count=v1_metadata["mouse_activity_count"],
+            v2_metadata_count=v2_metadata["mouse_activity_count"],
+            snapshot_difference=v2_mouse_activity_count - v1_mouse_activity_count,
+            metadata_difference=v2_metadata["mouse_activity_count"] - v1_metadata["mouse_activity_count"],
+            snapshot_vs_metadata_v1_difference=v1_mouse_activity_count - v1_metadata["mouse_activity_count"],
+            snapshot_vs_metadata_v2_difference=v2_mouse_activity_count - v2_metadata["mouse_activity_count"],
         )
 
         # Compare total count
