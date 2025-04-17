@@ -1009,8 +1009,8 @@ impl FeatureFlagMatcher {
         } else {
             match self.get_person_properties_from_cache() {
                 Ok(props) => Ok(props),
-                Err(FlagError::PersonNotFound) => Ok(HashMap::new()),
-                Err(FlagError::PropertiesNotInCache) => Ok(HashMap::new()),
+                Err(FlagError::PersonNotFound) => Ok(HashMap::new()), // NB: if we can't find a person associated with the distinct ID, we return an empty HashMap
+                Err(FlagError::PropertiesNotInCache) => Ok(HashMap::new()), // NB: if we can't find the properties in the cache, we return an empty HashMap
                 Err(e) => Err(e),
             }
         }
