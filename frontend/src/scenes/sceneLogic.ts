@@ -107,9 +107,9 @@ export const sceneLogic = kea<sceneLogicType>([
                 setScene: (state, { scene, params }) =>
                     scene in state
                         ? {
-                            ...state,
-                            [scene]: { ...state[scene], sceneParams: params, lastTouch: new Date().valueOf() },
-                        }
+                              ...state,
+                              [scene]: { ...state[scene], sceneParams: params, lastTouch: new Date().valueOf() },
+                          }
                         : state,
                 setLoadedScene: (state, { loadedScene }) => ({
                     ...state,
@@ -265,9 +265,8 @@ export const sceneLogic = kea<sceneLogicType>([
                             return
                         }
 
-                        const productKeyFromUrl = Object.keys(productUrlMapping).find((key: string) =>
-                            // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-                            (Object.values(productUrlMapping[key]) as string[]).some(
+                        const productKeyFromUrl = Object.keys(productUrlMapping).find((key) =>
+                            productUrlMapping[key as ProductKey]?.some(
                                 (path: string) =>
                                     removeProjectIdIfPresent(location.pathname).startsWith(path) &&
                                     !path.startsWith('/projects')
