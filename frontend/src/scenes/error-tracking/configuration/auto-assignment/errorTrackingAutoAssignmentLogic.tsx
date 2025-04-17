@@ -51,14 +51,13 @@ export const errorTrackingAutoAssignmentLogic = kea<errorTrackingAutoAssignmentL
                         },
                     ]
                 },
-                saveRule: async (rule) => {
+                createRule: async () => {
                     const newValues = [...values.assignmentRules]
-                    if (rule.id === 'new') {
+                    const rule = newValues.find((r) => r.id === 'new')
+                    if (rule) {
                         const newRule = await api.errorTracking.createAssignmentRule(rule)
                         return newValues.map((r) => (rule.id === r.id ? newRule : r))
                     }
-                    await api.errorTracking.updateAssignmentRule(rule)
-
                     return newValues
                 },
                 updateRule: async (rule) => {

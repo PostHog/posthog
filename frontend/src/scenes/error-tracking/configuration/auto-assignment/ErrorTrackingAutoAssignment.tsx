@@ -11,7 +11,7 @@ import { errorTrackingAutoAssignmentLogic } from './errorTrackingAutoAssignmentL
 
 export function ErrorTrackingAutoAssignment(): JSX.Element {
     const { assignmentRules, hasNewRule } = useValues(errorTrackingAutoAssignmentLogic)
-    const { loadRules, addRule, updateRule, saveRule } = useActions(errorTrackingAutoAssignmentLogic)
+    const { loadRules, addRule, updateRule, createRule } = useActions(errorTrackingAutoAssignmentLogic)
 
     useEffect(() => {
         loadRules()
@@ -35,7 +35,7 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
                         <LemonSelect
                             size="small"
                             value={rule.filters.type}
-                            onChange={(type) => updateRule({ ...rule, filters: { ...rule, type } })}
+                            onChange={(type) => updateRule({ ...rule, filters: { ...rule.filters, type } })}
                             options={[
                                 { label: 'All', value: FilterLogicalOperator.And },
                                 { label: 'Any', value: FilterLogicalOperator.Or },
@@ -60,13 +60,8 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
             ))}
 
             <div>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    onClick={hasNewRule ? saveRule : addRule}
-                    disabledReason={hasNewRule ? 'Finish creating your new rule first' : undefined}
-                >
-                    {hasNewRule ? 'Save' : 'Add'} rule
+                <LemonButton type="secondary" size="small" onClick={hasNewRule ? createRule : addRule}>
+                    {`${hasNewRule ? 'Save' : 'Add'} rule`}
                 </LemonButton>
             </div>
         </div>
