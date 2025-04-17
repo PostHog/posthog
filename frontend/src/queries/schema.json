@@ -67,22 +67,6 @@
             "required": ["id", "kind"],
             "type": "object"
         },
-        "ActiveHoursHeatMapResult": {
-            "additionalProperties": false,
-            "properties": {
-                "day": {
-                    "$ref": "#/definitions/integer"
-                },
-                "hour": {
-                    "$ref": "#/definitions/integer"
-                },
-                "total": {
-                    "$ref": "#/definitions/integer"
-                }
-            },
-            "required": ["day", "hour", "total"],
-            "type": "object"
-        },
         "ActorsPropertyTaxonomyQuery": {
             "additionalProperties": false,
             "properties": {
@@ -4664,7 +4648,7 @@
                 },
                 "results": {
                     "items": {
-                        "$ref": "#/definitions/ActiveHoursHeatMapResult"
+                        "$ref": "#/definitions/WebActiveHoursHeatMapResult"
                     },
                     "type": "array"
                 },
@@ -6331,7 +6315,7 @@
                                 },
                                 "results": {
                                     "items": {
-                                        "$ref": "#/definitions/ActiveHoursHeatMapResult"
+                                        "$ref": "#/definitions/WebActiveHoursHeatMapResult"
                                     },
                                     "type": "array"
                                 },
@@ -13666,7 +13650,7 @@
                         },
                         "results": {
                             "items": {
-                                "$ref": "#/definitions/ActiveHoursHeatMapResult"
+                                "$ref": "#/definitions/WebActiveHoursHeatMapResult"
                             },
                             "type": "array"
                         },
@@ -14317,7 +14301,7 @@
                         },
                         "results": {
                             "items": {
-                                "$ref": "#/definitions/ActiveHoursHeatMapResult"
+                                "$ref": "#/definitions/WebActiveHoursHeatMapResult"
                             },
                             "type": "array"
                         },
@@ -18293,7 +18277,7 @@
                 },
                 "results": {
                     "items": {
-                        "$ref": "#/definitions/ActiveHoursHeatMapResult"
+                        "$ref": "#/definitions/WebActiveHoursHeatMapResult"
                     },
                     "type": "array"
                 },
@@ -18306,6 +18290,22 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "WebActiveHoursHeatMapResult": {
+            "additionalProperties": false,
+            "properties": {
+                "day": {
+                    "$ref": "#/definitions/integer"
+                },
+                "hour": {
+                    "$ref": "#/definitions/integer"
+                },
+                "total": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["day", "hour", "total"],
             "type": "object"
         },
         "WebAnalyticsConversionGoal": {

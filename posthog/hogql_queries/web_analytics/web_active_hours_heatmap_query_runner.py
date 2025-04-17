@@ -9,7 +9,7 @@ from posthog.schema import (
     CachedWebActiveHoursHeatMapQueryResponse,
     WebActiveHoursHeatMapQuery,
     WebActiveHoursHeatMapQueryResponse,
-    ActiveHoursHeatMapResult,
+    WebActiveHoursHeatMapResult,
 )
 
 
@@ -56,7 +56,8 @@ class WebActiveHoursHeatMapQueryRunner(WebAnalyticsQueryRunner):
             modifiers=self.modifiers,
         )
         results = [
-            ActiveHoursHeatMapResult(day=int(row[0]), hour=int(row[1]), total=int(row[2])) for row in response.results
+            WebActiveHoursHeatMapResult(day=int(row[0]), hour=int(row[1]), total=int(row[2]))
+            for row in response.results
         ]
 
         assert results is not None

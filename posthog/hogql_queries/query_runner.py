@@ -211,7 +211,7 @@ def get_query_runner(
         )
 
     if kind == "WebActiveHoursHeatMapQuery":
-        from .web_analytics.active_hours_heatmap_query_runner import WebActiveHoursHeatMapQueryRunner
+        from .web_analytics.web_active_hours_heatmap_query_runner import WebActiveHoursHeatMapQueryRunner
 
         return WebActiveHoursHeatMapQueryRunner(
             query=cast(WebActiveHoursHeatMapQuery | dict[str, Any], query),
