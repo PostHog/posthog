@@ -6,7 +6,11 @@ import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
 import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { WebActiveHoursHeatMapQuery, WebActiveHoursHeatMapResult } from '~/queries/schema/schema-general'
+import {
+    AnyResponseType,
+    WebActiveHoursHeatMapQuery,
+    WebActiveHoursHeatMapResult,
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { DaysAbbreviated, HoursAbbreviated, Sum } from './config'
@@ -15,9 +19,10 @@ import { HeatMapCell } from './HeatMapCell'
 interface EventsHeatMapProps {
     query: WebActiveHoursHeatMapQuery
     context: QueryContext
+    cachedResults?: AnyResponseType
 }
 
-export function EventsHeatMap({ query, context }: EventsHeatMapProps): JSX.Element {
+export function EventsHeatMap({ query, context, cachedResults }: EventsHeatMapProps): JSX.Element {
     const { themes, getTheme } = useValues(dataThemeLogic)
     const theme = getTheme(themes?.[0]?.id)
     const { ref: elementRef, width } = useResizeObserver()
@@ -64,6 +69,7 @@ export function EventsHeatMap({ query, context }: EventsHeatMapProps): JSX.Eleme
             query,
             key: 'events-heat-map',
             dataNodeCollectionId: context.insightProps?.dataNodeCollectionId,
+            cachedResults,
         })
     )
 
