@@ -51,7 +51,7 @@ services:
                 }
 
     db:
-        image: postgres:12-alpine
+        image: postgres:15.12-alpine
         restart: on-failure
         environment:
             POSTGRES_USER: posthog

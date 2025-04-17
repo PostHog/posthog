@@ -6,6 +6,7 @@
 # PostHog has sunset support for self-hosted K8s deployments.
 # See: https://posthog.com/blog/sunsetting-helm-support-posthog
 #
+#
 
 services:
     proxy:
