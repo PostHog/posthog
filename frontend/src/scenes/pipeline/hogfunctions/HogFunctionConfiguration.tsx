@@ -411,7 +411,7 @@ export function HogFunctionConfiguration({
                         )}
 
                         <div className="deprecated-space-y-4 flex-2 min-w-100">
-                            {templateId === 'template-drop-events' && (
+                            {type === 'transformation' && mightDrop && (
                                 <div>
                                     <LemonBanner type="warning">
                                         <b>Warning:</b> This transformation will drop events. If this is not intended,
