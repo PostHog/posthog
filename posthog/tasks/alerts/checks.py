@@ -96,7 +96,7 @@ def alerts_backlog_task() -> None:
         capture_ph_event(
             ANIRUDH_DISTINCT_ID,
             "alert check backlog",
-            properties={
+            additional_properties={
                 "calculation_interval": AlertCalculationInterval.DAILY,
                 "backlog": daily_alerts_breaching_sla,
             },
@@ -105,7 +105,7 @@ def alerts_backlog_task() -> None:
         capture_ph_event(
             ANIRUDH_DISTINCT_ID,
             "alert check backlog",
-            properties={
+            additional_properties={
                 "calculation_interval": AlertCalculationInterval.HOURLY,
                 "backlog": hourly_alerts_breaching_sla,
             },

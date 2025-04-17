@@ -67,7 +67,7 @@ def rbac_team_access_control_migration(organization_id: int):
                             logger.exception(error_message, exc_info=e)
                             capture_exception(
                                 e,
-                                properties={
+                                additional_properties={
                                     "team_id": team.id,
                                     "organization_id": organization_id,
                                     "team_membership_id": team_membership.id,
