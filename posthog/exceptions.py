@@ -64,7 +64,7 @@ def exception_reporting(exception: Exception, context: ExceptionContext) -> Opti
     if not isinstance(exception, APIException):
         tags = get_query_tags()
         logger.exception(exception, path=context["request"].path, **tags)
-        return capture_exception(exception, properties=tags)
+        return capture_exception(exception)
     return None
 
 

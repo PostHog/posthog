@@ -52,7 +52,7 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             await _add_inputs_to_properties(properties, input, "activity")
             if api_key:
                 try:
-                    capture_exception(e, properties=properties)
+                    capture_exception(e, additional_properties=properties)
                 except Exception as capture_error:
                     await logger.awarning("Failed to capture exception", exc_info=capture_error)
             raise
@@ -77,7 +77,7 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
             if api_key and not workflow.unsafe.is_replaying():
                 with workflow.unsafe.sandbox_unrestricted():
                     try:
-                        capture_exception(e, properties=properties)
+                        capture_exception(e, additional_properties=properties)
                     except Exception as capture_error:
                         await logger.awarning("Failed to capture exception", exc_info=capture_error)
             raise

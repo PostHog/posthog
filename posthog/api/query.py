@@ -35,7 +35,7 @@ from posthog.clickhouse.client.execute_async import (
     get_query_status,
     QueryStatusManager,
 )
-from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value, get_query_tags
+from posthog.clickhouse.query_tagging import tag_queries, get_query_tag_value
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql.ai import PromptUnclear, write_sql_from_prompt
 from posthog.hogql.errors import ExposedHogQLError
@@ -172,7 +172,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             raise Throttled(detail=str(c))
         except Exception as e:
             self.handle_column_ch_error(e)
-            capture_exception(e, properties=get_query_tags())
+            capture_exception(e)
             raise
 
     def auth_for_awaiting(self, request: Request, *args, **kwargs):
@@ -342,14 +342,14 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
                     if query_task.cancelled():
                         # Explicitly check for cancellation first
                         yield f"data: {json.dumps({'error': 'Query was cancelled', 'status_code': 499})}\n\n".encode()
-                        capture_exception(Exception("Query was cancelled"), properties=get_query_tags())
+                        capture_exception(Exception("Query was cancelled"))
                         break
                     try:
                         result = query_task.result()
                     except asyncio.CancelledError as e:
                         # Handle the cancellation as an SSE event
                         yield f"data: {json.dumps({'error': 'Query was cancelled', 'status_code': 499})}\n\n".encode()
-                        capture_exception(e, properties=get_query_tags())
+                        capture_exception(e)
                         break
                     except (ExposedHogQLError, ExposedCHQueryError) as e:
                         yield f"data: {json.dumps({'error': str(e), 'status_code': 400})}\n\n".encode()
@@ -358,7 +358,7 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
                         # Include error details for better debugging
                         error_message = str(e)
                         yield f"data: {json.dumps({'error': f'Server error: {error_message}'})}\n\n".encode()
-                        capture_exception(e, properties=get_query_tags())
+                        capture_exception(e)
                         break
 
                     if isinstance(result, BaseModel):
@@ -379,7 +379,7 @@ async def query_awaited(request: Request, *args, **kwargs) -> StreamingHttpRespo
                             last_update_time = current_time
                 # Just ignore errors when getting progress, shouldn't impact users
                 except Exception as e:
-                    capture_exception(e, properties=get_query_tags())
+                    capture_exception(e)
 
                 elapsed_time = time.time() - start_time
                 if elapsed_time < FAST_POLL_DURATION:
