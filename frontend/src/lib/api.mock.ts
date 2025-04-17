@@ -3,6 +3,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
     ActivationTaskStatus,
     CohortType,
     DataColorThemeModel,
@@ -90,7 +91,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     autocapture_web_vitals_opt_in: false,
     autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
-    user_access_level: 'admin',
+    user_access_level: AccessControlLevel.Admin,
     access_control: true,
     group_types: [
         {
