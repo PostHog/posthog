@@ -2404,6 +2404,7 @@ export type DatabaseSerializedFieldType =
     | 'expression'
     | 'view'
     | 'materialized_view'
+    | 'decimal'
 
 export type HogQLExpression = string
 
