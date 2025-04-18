@@ -22,6 +22,8 @@ import clsx from 'clsx'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import React, { useRef, useState } from 'react'
 
+import { Link } from '../Link'
+
 export interface TooltipProps {
     title: string | React.ReactNode | (() => string)
     delayMs?: number
@@ -32,6 +34,7 @@ export interface TooltipProps {
     className?: string
     visible?: boolean
     interactive?: boolean
+    docLink?: string
 }
 
 export function Tooltip({
@@ -45,6 +48,7 @@ export function Tooltip({
     closeDelayMs = 100, // Slight delay to ensure smooth transition
     interactive = false,
     visible: controlledOpen,
+    docLink,
 }: React.PropsWithChildren<TooltipProps>): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
     const [isHoveringTooltip, setIsHoveringTooltip] = useState(false) // Track tooltip hover state
@@ -108,8 +112,12 @@ export function Tooltip({
         })
     )
 
-    if (!title) {
+    if (!title && !docLink) {
         return <>{child}</>
+    }
+
+    if (docLink) {
+        interactive = true
     }
 
     return (
@@ -136,6 +144,13 @@ export function Tooltip({
                             style={{ ...transitionStyles }}
                         >
                             {typeof title === 'function' ? title() : title}
+                            {docLink && (
+                                <p className={`mb-0 ${title ? 'mt-1' : ''}`}>
+                                    <Link to={docLink} target="_blank" className="text-xs">
+                                        Read the docs
+                                    </Link>
+                                </p>
+                            )}
                             <FloatingArrow
                                 ref={caretRef}
                                 context={context}
