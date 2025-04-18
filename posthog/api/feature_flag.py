@@ -1,4 +1,6 @@
 import json
+import time
+import logging
 from typing import Any, Optional, cast
 from datetime import datetime
 
@@ -34,8 +36,6 @@ from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthenticat
 from posthog.constants import FlagRequestType
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
-import time
-import logging
 from posthog.helpers.dashboard_templates import (
     add_enriched_insights_to_feature_flag_dashboard,
 )
