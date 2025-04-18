@@ -204,79 +204,114 @@ This format:
 
 ## Frontend UI Implementation
 
-The Usage Data UI will follow the same pattern as the existing Trends visualization, with a few specific customizations, and will be integrated into the existing Billing section rather than as a standalone page:
+After exploring several implementation approaches, we have decided to use a custom ChartJS-based approach as implemented in `BillingUsage4.tsx` as our primary frontend implementation going forward.
+
+### Selected Implementation: BillingUsage4
+
+The `BillingUsage4` component provides the best balance of simplicity, performance, and maintainability. It offers:
+
+1. **Direct Chart.js integration**: Uses Chart.js without dependencies on insight systems
+2. **Clean data flow**: Direct connection to billingUsageLogic
+3. **Custom table view**: Shows all data points with proper formatting
+4. **Series toggling**: Allows users to show/hide specific series
+5. **Clean code structure**: Avoids architectural compromises and complex dependencies
+
+This approach was chosen over alternatives that attempted to leverage the existing insight system, as it provides:
+- Simpler architecture with fewer dependencies
+- Better control over the visualization
+- Improved performance with direct data flow
+- Easier maintenance and extensibility
 
 ### Component Structure
 
-1. **BillingUsage Component**: The existing component in the billing section will be enhanced
-   - Will be rendered within the existing BillingSection.tsx when the usage tab is selected
-   - Maintains consistent navigation and UI with the rest of the billing section
-   - Reuses the existing URL structure (`/organization/billing/usage`)
+The implementation consists of these core components:
 
-2. **UsageVisualization**: Primary visualization component within BillingUsage
-   - Adapts `ActionsLineGraph` pattern to usage data
-   - Renders data using the LineGraph component
-   - Supports both line and area chart types
-   - Handles breakdown selections
+1. **billingUsageLogic**: Kea logic for state management and API interaction
+   - Uses shared default filter settings
+   - Auto-loads data on mount
+   - Manages filters, date ranges, and data fetching
 
-3. **UsageTable**: Data table component
-   - Displays the same data in tabular format
-   - Shows each data point with precise values
-   - Enables sorting by different columns
+2. **BillingLineGraph**: Chart.js-based visualization component
+   - Renders time-series data
+   - Supports series toggling
+   - Provides interactive tooltips
 
-### Data Flow in Frontend
+3. **LemonTable implementation**: Table view for detailed data
+   - Shows values for all dates
+   - Supports sorting by columns
+   - Includes toggles for series visibility
+   - Shows totals next to series names
 
-The frontend data flow will follow PostHog's standard practices:
-- Use Kea logic for state management
-- API calls through the PostHog API client
-- Transform data only if needed (the API response is already in the correct format)
-- Update UI components reactively based on state changes
+4. **Filter Controls**: LemonUI components for data filtering
+   - Usage type selector
+   - Breakdown options
+   - Date range picker
+   - Interval selector
+   - Compare toggle
 
 ### User Experience
 
-- The interface will show both line graph and table
-- Breakdown selector will offer options like "type" and "team" with multi-select capability
-- Date range selector will use the existing date picker component
-- Controls for showing/hiding specific series via legend
-
-### Reused Components
-
-The implementation will leverage several existing components:
-- `LineGraph` for the primary visualization
-- `InsightsTable` for the data table view
-- Date range picker
-- Dropdown selectors for filters
-- LemonButton components for actions
+- The interface shows both a line graph and a table below it
+- The line graph provides a visual overview of the trends
+- The table shows detailed values for every date point
+- Users can toggle series visibility via checkboxes
+- Filters update both the graph and table simultaneously
+- The UI is consistent with PostHog's design system
 
 ## Implementation Guidelines
 
 ### Frontend Implementation
 
-1. **Reference Existing Components**:
-   - Study `trends/Trends.tsx` for overall layout and structure
-   - Review `trends/viz/ActionsLineGraph.tsx` for how to hook up LineGraph
-   - Examine `insights/views/LineGraph/LineGraph.tsx` for visualization options
+When modifying or extending the billing usage visualization:
 
-2. **Kea Logic Implementation**:
-   - Create `billingUsageLogic.ts` as the main state management
-   - Define interfaces for API request/response data
-   - Implement actions for loading data and updating filters
-   - Set up selectors to prepare data for visualization
-   - Add listeners to handle data fetching when filters change
-   - Look at `trendsDataLogic.ts` for patterns to emulate
+1. **Continue with BillingUsage4.tsx approach**:
+   - Refer to this component as the canonical implementation
+   - Extend this component rather than other variations
+   - Maintain the direct Chart.js approach
 
-3. **Component Implementation Approach**:
-   - Enhance `BillingUsage.tsx` to include filters and visualization
-   - Create `UsageVisualization.tsx` for the actual chart render
-   - Implement `UsageTable.tsx` for tabular representation
-   - Follow PostHog UI patterns with LemonUI components
+2. **CSS and Styling**:
+   - Follow the established pattern with a separate SCSS file
+   - Use CSS variables for colors
+   - Leverage Tailwind classes where appropriate
+   - Avoid inline styles
 
-4. **Backend Integration**:
-   - Add the `usage` action to `BillingViewset` in `ee/api/billing.py`
-   - Implement a `proxy_request` method in `BillingManager` class
-   - Ensure proper error handling and authentication
+3. **State Management**:
+   - Use billingUsageLogic for all data and filter state
+   - Keep local state in React for UI-only concerns (like hiddenSeries)
+   - Maintain the clear separation of logic and presentation
 
-The implementation should favor simplicity, reuse of existing components, and adherence to PostHog's UI patterns. The design should be consistent with the rest of the application, particularly the billing section where it will be housed.
+4. **Component Structure**:
+   - Keep the BillingLineGraph as a separate component
+   - Maintain the pattern of extracting complex rendering logic
+   - Extract reusable helper functions and components
+
+## Data Flow in Frontend
+
+The frontend data flow follows PostHog's standard practices:
+- Use billingUsageLogic for state management
+- API calls through the PostHog API client
+- Transform data in selectors if needed
+- Update UI components reactively based on state changes
+
+## Backend Implementation
+
+The backend implementation remains as originally designed, providing flexible data access through the usage API:
+
+1. **SQL Queries in Billing Service**: Efficient PostgreSQL queries using JSONB operations
+2. **Parameter Validation**: Thorough parameter validation in serializers
+3. **Service Layer**: Business logic and data transformations in service functions
+4. **Proxy Endpoint in PostHog**: Forwarding requests to the billing service
+5. **Authorization in PostHog**: Ensuring only organization owners/admins can access the data
+
+## Implementation Notes
+
+The implementation maintains a clear separation between frontend and backend concerns:
+- Frontend focuses on visualization and user interaction
+- Backend focuses on data access and transformation
+- PostHog handles authorization and proxying
+- Billing service handles the core business logic
+
+This separation ensures maintainability and allows each layer to evolve independently.
 
 ## Implementation Approach
 

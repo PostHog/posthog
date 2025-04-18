@@ -88,30 +88,35 @@ This document outlines the step-by-step implementation plan for the Usage Data A
 - [x] Pass raw query parameters to the billing service
 - [x] Set up request proxying to the billing service (all parameter validation happens in billing)
 
-### Step 11: Enhance BillingUsage Component ✅
-- [x] Refactor the existing `BillingUsage.tsx` component
-  - [x] Implement usage data fetching logic in `billingUsageLogic.ts` 
-  - [x] Add state management for filters and visualizations
-- [x] Create visualization components for usage data
-  - [x] Implement a LineGraph-based visualization 
-  - [x] Reuse existing PostHog chart components
-- [x] Add necessary filter controls
-  - [x] Date range selection
-  - [x] Usage type and breakdown selectors
-  - [x] Chart type toggles
+### Step 11: Frontend Implementation ✅
 
-### Step 12: Complete Billing Usage UI
-- [ ] Enhance the BillingUsage component with additional features
-  - Multiple visualization options (line, area, bar charts)
-  - Table view for raw data display
-  - Export options for the data
-- [ ] Implement testing for the frontend
-  - Unit tests for logic and components
-  - Integration tests for the complete UI flow
-- [ ] Finalize UI styling and responsive design
-  - Ensure consistent look with billing section
-  - Proper error handling and loading states
-  - Empty state displays
+After exploring multiple approaches to visualizing the billing usage data:
+
+- [x] BillingUsage.tsx: Basic implementation using the LineGraph component
+- [x] BillingUsage4.tsx: Custom implementation with Chart.js and a custom table
+- [x] BillingUsage5.tsx: Alternative implementation with Kea logic for series toggling
+
+We've decided to standardize on **BillingUsage4** as our canonical implementation.
+
+### Step 12: Implement Default Filter Improvements ✅
+- [x] Update billingUsageLogic to include default filters for:
+  - [x] usage_type set to 'event_count_in_period'
+  - [x] breakdowns set to ['team']
+- [x] Ensure auto-loading of data with default filters on component mount
+
+### Step 13: Complete BillingUsage4 Implementation
+- [ ] Review and optimize BillingUsage4 implementation
+- [ ] Ensure all needed features are properly implemented
+- [ ] Clean up unnecessary code and optimize performance
+- [ ] Add comprehensive tests for the BillingUsage4 component
+- [ ] Update documentation to reflect the chosen implementation
+
+### Step 14: Frontend Enhancements
+- [ ] Add option to normalize data (percentages) 
+- [ ] Improve chart tooltips with more information
+- [ ] Add filtering options to the table
+- [ ] Add more granular team filtering options
+- [ ] Add custom date range presets
 
 ## Future Improvements
 
