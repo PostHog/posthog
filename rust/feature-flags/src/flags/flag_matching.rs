@@ -762,7 +762,7 @@ impl FeatureFlagMatcher {
                         matches: super_condition_evaluation.is_match,
                         variant: None,
                         reason: super_condition_evaluation.reason,
-                        condition_index: Some(0),
+                        condition_index: None,
                         payload,
                     });
                 } // if no match, continue to normal conditions
@@ -2895,7 +2895,7 @@ mod tests {
 
         assert!(result.matches);
         assert_eq!(result.reason, FeatureFlagMatchReason::SuperConditionValue);
-        assert_eq!(result.condition_index, Some(0));
+        assert_eq!(result.condition_index, None);
     }
 
     #[tokio::test]
@@ -3038,7 +3038,7 @@ mod tests {
             result_test_id.reason,
             FeatureFlagMatchReason::SuperConditionValue
         );
-        assert_eq!(result_test_id.condition_index, Some(0));
+        assert_eq!(result_test_id.condition_index, None);
 
         assert!(result_example_id.matches);
         assert_eq!(

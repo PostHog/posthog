@@ -1109,7 +1109,7 @@ mod tests {
                 variant: None,
                 reason: FlagEvaluationReason {
                     code: "out_of_rollout_bound".to_string(),
-                    condition_index: Some(0),
+                    condition_index: None,
                     description: Some("Out of rollout bound".to_string()),
                 },
                 metadata: FlagDetailsMetadata {
