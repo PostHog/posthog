@@ -5,8 +5,9 @@ import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
-import { mswDecorator } from '~/mocks/browser'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
+import databaseSchemaMock from './__mocks__/DatabaseSchemaQuery.json'
 import revenueAnalyticsGrowthRateMock from './__mocks__/RevenueAnalyticsGrowthRateQuery.json'
 import revenueAnalyticsOverviewMock from './__mocks__/RevenueAnalyticsOverviewQuery.json'
 import revenueAnalyticsTopCustomersMock from './__mocks__/RevenueAnalyticsTopCustomersQuery.json'
@@ -32,7 +33,7 @@ const meta: Meta = {
                     const queryKind = query.kind
 
                     if (queryKind === 'DatabaseSchemaQuery') {
-                        return [200, { tables: {} }] // Empty schema, we don't care about this here
+                        return [200, databaseSchemaMock]
                     } else if (queryKind === 'RevenueAnalyticsGrowthRateQuery') {
                         return [200, revenueAnalyticsGrowthRateMock]
                     } else if (queryKind === 'RevenueAnalyticsTopCustomersQuery') {
@@ -48,6 +49,26 @@ const meta: Meta = {
     ],
 }
 export default meta
+
+export function RevenueAnalyticsDashboardOnboarding(): JSX.Element {
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/query/': (req) => {
+                const query = (req.body as any).query
+                const queryKind = query.kind
+
+                if (queryKind === 'DatabaseSchemaQuery') {
+                    return [200, { tables: {} }] // Empty schema, we don't care about this here
+                }
+            },
+        },
+    })
+
+    // Open the revenue analytics dashboard page
+    useEffect(() => router.actions.push(urls.revenueAnalytics()), [])
+
+    return <App />
+}
 
 export function RevenueAnalyticsDashboardTableView(): JSX.Element {
     const { setGrowthRateDisplayMode, setTopCustomersDisplayMode } = useActions(revenueAnalyticsLogic)
