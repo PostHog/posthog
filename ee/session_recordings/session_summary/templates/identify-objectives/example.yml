@@ -1,18 +1,21 @@
 objectives:
     - name: 'Example Objective'
       summary: 'Brief description of what the user was trying to accomplish'
+      success: true # Note: Whether the user was able to complete the objective without critical interruptions or abandonment
     - name: 'Another Example Objective'
       summary: 'Description of another goal the user was working toward during the session'
-    # Note: The actual number of objectives and actions should be based on your analysis of the session data. This is just an example of the format.
+      success: false
+    # Note: The actual number of objectives should be based on your analysis of the session data. This is just an example of the format.
 key_actions:
-    - objective: 'Example Objective'
+    - objective: 'Example Objective' # Must match EXACTLY with an objectives.name value
       events:
           - description: 'First significant action toward this objective'
-            event_id: 'abc123'
+            event_id: 'abc123' # Must be copied EXACTLY from event data, never invented
             error: false
           - description: 'Second action for this objective'
             event_id: 'def456'
             error: false
+          # Note: The actual number of events should be based on your analysis of the objective-related events in the session data. This is just an example of the format.
     - objective: 'Another Example Objective'
       events:
           - description: 'First significant action toward this objective'
@@ -24,5 +27,9 @@ key_actions:
           - description: 'Final action completing this objective'
             event_id: 'stu901'
             error: false
-initial_goal: 'Concise initial goal description'
-session_outcome: 'Concise session outcome description'
+initial_goal:
+    description: 'Concise initial goal description'
+    success: true # Note: Whether the user was able to complete the initial goal we predicted
+session_outcome:
+    description: 'Concise session outcome description'
+    success: true # Note: Whether the user's overall experience was successful or not

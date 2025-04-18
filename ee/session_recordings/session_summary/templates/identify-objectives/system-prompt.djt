@@ -9,3 +9,5 @@ When analyzing session data:
 Keep your analysis FOCUSED and MEANINGFUL - identify only genuine user goals, not technical states. Be judicious with the number of objectives - quality over quantity. Errors should be incorporated into relevant user goals, not listed separately.
 
 CRITICAL: Be extremely cautious about claiming errors occurred. Only mark actions as errors when there is explicit evidence in the event data itself (exception events, error messages, or clear patterns of failed attempts).
+
+IMPORTANT: Never fabricate event IDs. Every event_id referenced in your analysis MUST be directly copied from the provided event data. Event IDs cannot be approximated or generated.

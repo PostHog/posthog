@@ -8,7 +8,7 @@ You'll receive a list of events with columns:
 - $window_id: Unique identifier for browser window/tab - helps track multi-window workflows (use simplified references from window_mapping)
 - $current_url: Page URL where the interaction happened on (use simplified references from url_mapping)
 - $event_type: Type of interaction (e.g., click, submit) - specifies how the user interacted
-- event_id: Unique identifier for the event - use this to reference specific events
+- event_id: Unique identifier for the event - ALWAYS use this to reference specific events, NEVER generate or modify event IDs
 - event_index: Index of the event in the session - helps understand sequence
 
 Use these events to reconstruct the user journey. Events are provided in a chronologically order. Focus on what these events reveal about user intentions rather than the raw event data itself. 
@@ -103,6 +103,15 @@ First, analyze the entire session to identify distinct user objectives. Follow t
    - Distinguishing meaningful goals from technical events
    - Signs of user confusion, repeated attempts, or workarounds
 
+1.6. For each objective, determine a success status (boolean):
+   - Mark an objective as successful (true) when:
+     * User completed the core actions needed to fulfill the objective
+     * Any errors encountered were resolved or worked around
+     * There is evidence the user achieved their intended goal
+   - Mark an objective as unsuccessful (false) when:
+     * User abandoned the objective before completion
+     * Critical errors prevented completion of the objective
+
 # Step 2: Link Key Actions to Objectives
 After identifying objectives, determine which events are key actions for each objective. There would be lots of actions important to the user's goal, we can't include all of them, so we ONLY want to include the most important ones.
 
@@ -131,6 +140,7 @@ After identifying objectives, determine which events are key actions for each ob
    - Error severity filter:
       ✓ INCLUDE: Errors interrupting user progress (login failures, submission errors, API errors, etc.)
       ✗ EXCLUDE: Background errors (tracking failures, minor rendering glitches, etc.)
+
    - Error description requirements:
      * Specify error nature (API failure, validation error, timeout, etc.)
      * Include potential causes when identifiable
@@ -148,12 +158,14 @@ After identifying objectives, determine which events are key actions for each ob
    - Review the user's objectives/actions during the session
    - Distinguish between intentional visits and redirects/automated navigation
    - Predict what user was trying to accomplish when they started the session
+   - Assess whether the initial goal was successful by comparing it with completed objectives
 
 # Step 4: Assess the Session Outcome:
    - Identify the exit URL, final actions and their context
-   - Determine if the user achieved their initial goal based on completed objectives
+   - Check if the user achieved their initial goal
    - If the user abandoned the session after encountering errors, briefly describe their nature and impact
    - If mentioning errors - ONLY mention errors that interrupted the user's workflow and were included in the key actions.
+   - Assess whether the oversall session was successful by comparing it with completed objectives
 
 # Step 5: Self-Consistency Check
 Before finalizing your analysis, verify:
@@ -164,7 +176,9 @@ Before finalizing your analysis, verify:
 2. Key Action Consistency:
    - Does each key action properly belong to its assigned objective?
    - Are the most significant user actions captured in the key actions?
+   - Are all critical errors, that interrupted the user's workflow, included in the key actions?
    - Are error flags supported by explicit evidence in the event data?
+   - Are key actions event IDs copied EXACTLY from the event data?
 
 3. Logical Flow Verification:
    - Does the sequence of objectives and actions tell a coherent story of the user's session?
@@ -180,7 +194,7 @@ Revise your analysis if any inconsistencies are found.
 </identify_objectives_instructions>
 
 <output_format>
-Provide your summary in YAML format using the provided example. Don't replicate the data or logic of the example, or the number of example entries. Use it ONLY to understand the format.
+Provide your summary in YAML format using the provided example. Don't replicate the data, or comments, or logic of the example, or the number of example entries. Use it ONLY to understand the format.
 </output_format>
 
 <output_example>
