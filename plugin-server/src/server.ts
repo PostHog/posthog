@@ -284,22 +284,16 @@ export class PluginServer {
             // These are used by the preflight checks in the Django app to determine if
             // the plugin-server is running.
             schedule.scheduleJob('*/5 * * * * *', async () => {
-                await this.hub?.db.redisSet(
+                await hub.db.redisSet(
                     '@posthog-plugin-server/ping',
                     new Date().toISOString(),
                     'preflightSchedules',
                     60,
                     { jsonSerialize: false }
                 )
-                await this.hub?.db.redisSet(
-                    '@posthog-plugin-server/version',
-                    version,
-                    'preflightSchedules',
-                    undefined,
-                    {
-                        jsonSerialize: false,
-                    }
-                )
+                await hub.db.redisSet('@posthog-plugin-server/version', version, 'preflightSchedules', undefined, {
+                    jsonSerialize: false,
+                })
             })
 
             pluginServerStartupTimeMs.inc(Date.now() - startupTimer.valueOf())
