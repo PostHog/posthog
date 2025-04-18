@@ -12,6 +12,7 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -23,6 +24,7 @@ import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { getAppContext } from 'lib/utils/getAppContext'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -30,7 +32,14 @@ import { isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ActivityScope,
+    ProductKey,
+    ProgressStatus,
+    Survey,
+} from '~/types'
 
 import { SurveyQuestionLabel } from './constants'
 import { SurveysDisabledBanner, SurveySettings } from './SurveySettings'
@@ -66,7 +75,7 @@ export function Surveys(): JSX.Element {
             <PageHeader
                 buttons={
                     <>
-                        <LemonButton
+                        <AccessControlledLemonButton
                             to={urls.surveyTemplates()}
                             type="primary"
                             data-attr="new-survey"
@@ -75,16 +84,31 @@ export function Surveys(): JSX.Element {
                                     placement: 'bottom-start',
                                     actionable: true,
                                     overlay: (
-                                        <LemonButton size="small" to={urls.survey('new')}>
+                                        <AccessControlledLemonButton
+                                            size="small"
+                                            to={urls.survey('new')}
+                                            resourceType={AccessControlResourceType.Survey}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                            userAccessLevel={
+                                                getAppContext()?.resource_access_control?.[
+                                                    AccessControlResourceType.Survey
+                                                ]
+                                            }
+                                        >
                                             Create blank survey
-                                        </LemonButton>
+                                        </AccessControlledLemonButton>
                                     ),
                                 },
                                 'data-attr': 'saved-insights-new-insight-dropdown',
                             }}
+                            resourceType={AccessControlResourceType.Survey}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.Survey]
+                            }
                         >
                             New survey
-                        </LemonButton>
+                        </AccessControlledLemonButton>
                     </>
                 }
                 caption={
