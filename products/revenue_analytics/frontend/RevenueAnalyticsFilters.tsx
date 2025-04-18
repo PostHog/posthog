@@ -28,7 +28,7 @@ const DATE_FILTER_DATE_OPTIONS: DateMappingOption[] = [
     {
         key: 'Year to date',
         values: ['yStart'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('y'), date.endOf('d')),
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('y'), date.endOf('y')),
         defaultInterval: 'month',
     },
     {

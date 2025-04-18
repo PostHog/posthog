@@ -101,18 +101,4 @@ export function RevenueAnalyticsTopCustomersNode(props: {
             </div>
         </div>
     )
-
-    return <div>{JSON.stringify({ response, responseLoading })}</div>
-
-    // const results = responseLoading ? range(NUM_SKELETONS).map(() => undefined) : queryResponse?.results ?? []
-
-    // return (
-    //     <div className="grid auto-cols-fr grid-flow-col w-full gap-2">
-    //         {results.map((item, index) => (
-    //             <div key={item?.key ?? index} className={cn(HEIGHT_CLASS, { [REVENUE_CONTAINER_CLASS]: index === 0 })}>
-    //                 <ItemCell item={item} />
-    //             </div>
-    //         ))}
-    //     </div>
-    // )
 }

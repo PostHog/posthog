@@ -33,7 +33,6 @@ export function RevenueAnalyticsGrowthRateNode(props: {
 
     const { response, responseLoading, queryId } = useValues(logic)
 
-    // TODO: Figure out what `insightProps` should be
     if (responseLoading) {
         return <InsightLoadingState queryId={queryId} key={queryId} insightProps={props.context.insightProps ?? {}} />
     }
@@ -72,7 +71,7 @@ export function RevenueAnalyticsGrowthRateNode(props: {
                 <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
                     <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
                         <LineGraph
-                            data-attr="revenue-analytics-top-customers-node-graph"
+                            data-attr="revenue-analytics-growth-rate-node-graph"
                             type={GraphType.Line}
                             datasets={datasets}
                             labels={labels}
@@ -84,18 +83,4 @@ export function RevenueAnalyticsGrowthRateNode(props: {
             </div>
         </div>
     )
-
-    return <div>{JSON.stringify({ response, responseLoading })}</div>
-
-    // const results = responseLoading ? range(NUM_SKELETONS).map(() => undefined) : queryResponse?.results ?? []
-
-    // return (
-    //     <div className="grid auto-cols-fr grid-flow-col w-full gap-2">
-    //         {results.map((item, index) => (
-    //             <div key={item?.key ?? index} className={cn(HEIGHT_CLASS, { [REVENUE_CONTAINER_CLASS]: index === 0 })}>
-    //                 <ItemCell item={item} />
-    //             </div>
-    //         ))}
-    //     </div>
-    // )
 }
