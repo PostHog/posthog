@@ -15,7 +15,7 @@ import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from
 import { GrossRevenueTile } from './tiles/GrossRevenueTile'
 import { OverviewTile } from './tiles/OverviewTile'
 import { RevenueGrowthRateTile } from './tiles/RevenueGrowthRateTile'
-import { RevenueChurnTile } from './tiles/TopCustomers'
+import { TopCustomersTile } from './tiles/TopCustomersTile'
 
 export const scene: SceneExport = {
     component: RevenueAnalyticsScene,
@@ -81,9 +81,9 @@ const RevenueAnalyticsTables = (): JSX.Element => {
 
             <LemonDivider className="mt-6" />
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <RevenueGrowthRateTile />
-                <RevenueChurnTile />
+                <TopCustomersTile />
             </div>
         </div>
     )

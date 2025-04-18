@@ -108,6 +108,8 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
             select_from=ast.JoinExpr(table=charge_subquery),
             group_by=[ast.Field(chain=["customer_id"]), ast.Field(chain=["month"])],
             where=self.timestamp_where_clause(),
+            # Top 30 by month only to avoid too many rows
+            limit_by=ast.LimitByExpr(n=ast.Constant(value=30), exprs=[ast.Field(chain=["month"])]),
         )
 
     def calculate(self):

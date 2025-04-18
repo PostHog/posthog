@@ -5,7 +5,12 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { urls } from 'scenes/urls'
 
-import { NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    NodeKind,
+    QuerySchema,
+    RevenueAnalyticsTopCustomersGroupBy,
+} from '~/queries/schema/schema-general'
 import { Breadcrumb, ChartDisplayType, InsightLogicProps, PropertyMathType } from '~/types'
 
 import type { revenueAnalyticsLogicType } from './revenueAnalyticsLogicType'
@@ -40,6 +45,27 @@ const INITIAL_DATE_FILTER = {
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 const persistConfig = { persist: true, prefix: `${teamId}__` }
 
+const wrapWithDataTableNodeIfNeeded = (
+    query: DataTableNode['source'],
+    columns: string[],
+    isNeeded: boolean
+): QuerySchema => {
+    if (!isNeeded) {
+        return query
+    }
+
+    return {
+        kind: NodeKind.DataTableNode,
+        source: query,
+        full: true,
+        embedded: false,
+        showActions: true,
+        columns,
+    }
+}
+
+type LineOrTableChart = 'line' | 'table'
+
 export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
     path(['products', 'revenueAnalytics', 'frontend', 'revenueAnalyticsLogic']),
     connect(() => ({
@@ -54,6 +80,8 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
     })),
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setTopCustomersDisplayMode: (displayMode: LineOrTableChart) => ({ displayMode }),
+        setGrowthRateDisplayMode: (displayMode: LineOrTableChart) => ({ displayMode }),
     }),
     reducers({
         dateFilter: [
@@ -65,6 +93,37 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                     dateFrom,
                     interval: getDefaultInterval(dateFrom, dateTo),
                 }),
+            },
+        ],
+
+        growthRateDisplayMode: [
+            'line' as LineOrTableChart,
+            persistConfig,
+            {
+                setGrowthRateDisplayMode: (_, { displayMode }) => displayMode,
+                setDates: (state, { dateTo, dateFrom }) => {
+                    const interval = getDefaultInterval(dateFrom, dateTo)
+                    if (interval !== 'month') {
+                        return 'table'
+                    }
+
+                    return state
+                },
+            },
+        ],
+        topCustomersDisplayMode: [
+            'line' as LineOrTableChart,
+            persistConfig,
+            {
+                setTopCustomersDisplayMode: (_, { displayMode }) => displayMode,
+                setDates: (state, { dateTo, dateFrom }) => {
+                    const interval = getDefaultInterval(dateFrom, dateTo)
+                    if (interval !== 'month') {
+                        return 'table'
+                    }
+
+                    return state
+                },
             },
         ],
     }),
@@ -80,18 +139,36 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             ],
         ],
 
+        disabledGrowthModeSelection: [(s) => [s.dateFilter], (dateFilter): boolean => dateFilter.interval !== 'month'],
+
+        disabledTopCustomersModeSelection: [
+            (s) => [s.dateFilter],
+            (dateFilter): boolean => dateFilter.interval !== 'month',
+        ],
+
         hasRevenueTables: [
             (s) => [s.dataWarehouseTablesBySourceType],
             (dataWarehouseTablesBySourceType): boolean => Boolean(dataWarehouseTablesBySourceType['Stripe']?.length),
         ],
 
         queries: [
-            (s) => [s.dateFilter, s.managedViews, s.baseCurrency],
-            (dateFilter, managedViews, baseCurrency): Record<RevenueAnalyticsQuery, QuerySchema> => {
+            (s) => [s.dateFilter, s.managedViews, s.topCustomersDisplayMode, s.growthRateDisplayMode, s.baseCurrency],
+            (
+                dateFilter,
+                managedViews,
+                topCustomersDisplayMode,
+                growthRateDisplayMode,
+                baseCurrency
+            ): Record<RevenueAnalyticsQuery, QuerySchema> => {
                 const { dateFrom, dateTo, interval } = dateFilter
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
 
                 const chargeViews = managedViews.filter((view) => view.name.includes(CHARGE_REVENUE_VIEW_SUFFIX))
+
+                const topCustomersGroupBy: RevenueAnalyticsTopCustomersGroupBy =
+                    topCustomersDisplayMode === 'table' ? 'all' : 'month'
+
+                const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
                 return {
                     [RevenueAnalyticsQuery.OVERVIEW]: {
@@ -126,33 +203,25 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
                                         ? ChartDisplayType.ActionsAreaGraph
                                         : ChartDisplayType.ActionsLineGraph,
                                 aggregationAxisFormat: 'numeric',
-                                aggregationAxisPrefix: getCurrencySymbol(baseCurrency).symbol,
+                                aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
+                                aggregationAxisPostfix: isPrefix ? undefined : currencySymbol,
                             },
                         },
                     },
-                    [RevenueAnalyticsQuery.REVENUE_GROWTH_RATE]: {
-                        kind: NodeKind.DataTableNode,
-                        source: {
-                            kind: NodeKind.RevenueAnalyticsGrowthRateQuery,
-                            dateRange,
-                        },
-                        full: true,
-                        embedded: false,
-                        showActions: true,
-                        columns: ['month', 'mrr', 'previous_mrr', 'mrr_growth_rate'],
-                    },
-                    [RevenueAnalyticsQuery.TOP_CUSTOMERS]: {
-                        kind: NodeKind.DataTableNode,
-                        source: {
+                    [RevenueAnalyticsQuery.REVENUE_GROWTH_RATE]: wrapWithDataTableNodeIfNeeded(
+                        { kind: NodeKind.RevenueAnalyticsGrowthRateQuery, dateRange },
+                        ['month', 'mrr', 'previous_mrr', 'mrr_growth_rate'],
+                        growthRateDisplayMode === 'table'
+                    ),
+                    [RevenueAnalyticsQuery.TOP_CUSTOMERS]: wrapWithDataTableNodeIfNeeded(
+                        {
                             kind: NodeKind.RevenueAnalyticsTopCustomersQuery,
                             dateRange,
-                            groupBy: 'month',
+                            groupBy: topCustomersGroupBy,
                         },
-                        full: true,
-                        embedded: false,
-                        showActions: true,
-                        columns: ['name', 'customer_id', 'amount', 'month'],
-                    },
+                        ['name', 'customer_id', 'amount', 'month'],
+                        topCustomersGroupBy === 'all'
+                    ),
                 }
             },
         ],

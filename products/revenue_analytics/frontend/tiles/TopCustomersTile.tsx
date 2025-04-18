@@ -1,6 +1,7 @@
-import { IconInfo } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { IconInfo, IconLineGraph } from '@posthog/icons'
+import { LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { IconTableChart } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { useMemo } from 'react'
@@ -25,19 +26,24 @@ const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
     dataNodeCollectionId: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID,
 }
 
-export const RevenueChurnTile = (): JSX.Element => {
+export const TopCustomersTile = (): JSX.Element => {
     const { baseCurrency } = useValues(revenueEventsSettingsLogic)
 
-    const { queries } = useValues(revenueAnalyticsLogic)
+    const { queries, topCustomersDisplayMode, disabledGrowthModeSelection } = useValues(revenueAnalyticsLogic)
+    const { setTopCustomersDisplayMode } = useActions(revenueAnalyticsLogic)
     const query = queries[QUERY_ID]
 
     // TODO: Link back to the `person` page when clicking in the name/id
-    // Still need to figure out how to easily do this given that we only have Stripe's customer ID
+    // This will be solved by having users create a join between this view and the `person` view
+    // manually in the data warehouse view
+    //
+    // This is still a little bit aways because we need to turn our views into actual materialized views
+    // rather than just weird virtual SQL views
     const columns: QueryContext['columns'] = useMemo(() => {
         return {
             name: { title: 'Name' },
             customer_id: { title: 'Customer ID' },
-            month: { title: 'Month' },
+            month: { title: ' ', width: '0px', render: () => null }, // Hide month column by setting width to 0 and whitespace string
             amount: {
                 title: 'Amount',
                 render: ({ value }) => <AmountCell value={value as number} currency={baseCurrency} />,
@@ -49,12 +55,30 @@ export const RevenueChurnTile = (): JSX.Element => {
 
     return (
         <div className="flex flex-col gap-1">
-            <h3 className="text-lg font-semibold">
-                Top customers&nbsp;
-                <Tooltip title="Top customers by all revenue accumulated in the selected period.">
-                    <IconInfo />
-                </Tooltip>
-            </h3>
+            <div className="flex flex-row justify-between">
+                <h3 className="text-lg font-semibold">
+                    Top customers&nbsp;
+                    <Tooltip title="Top customers by all revenue accumulated in the selected period.">
+                        <IconInfo />
+                    </Tooltip>
+                </h3>
+
+                <LemonSegmentedButton
+                    value={topCustomersDisplayMode}
+                    onChange={setTopCustomersDisplayMode}
+                    options={[
+                        {
+                            value: 'line',
+                            icon: <IconLineGraph />,
+                            disabledReason: disabledGrowthModeSelection
+                                ? 'Select data that spans multiple months to see growth rate as a line graph'
+                                : undefined,
+                        },
+                        { value: 'table', icon: <IconTableChart /> },
+                    ]}
+                    size="small"
+                />
+            </div>
 
             <Query query={query} readOnly context={context} />
         </div>
