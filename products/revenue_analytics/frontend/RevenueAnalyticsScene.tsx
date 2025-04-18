@@ -30,48 +30,50 @@ export function RevenueAnalyticsScene(): JSX.Element {
         return <SpinnerOverlay sceneLevel />
     }
 
+    if (!hasRevenueTables) {
+        return (
+            <ProductIntroduction
+                isEmpty
+                productName="Revenue Analytics"
+                productKey={ProductKey.REVENUE_ANALYTICS}
+                titleOverride="Connect your first revenue source"
+                thingName="revenue" // Not used because we're overriding the title, but required prop
+                description="Track and analyze your revenue metrics to understand your business performance and growth."
+                actionElementOverride={
+                    <div className="flex flex-col gap-1">
+                        <LemonButton
+                            type="primary"
+                            icon={<IconPlus />}
+                            onClick={() => {
+                                updateHasSeenProductIntroFor(ProductKey.REVENUE_ANALYTICS, true)
+                                router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { kind: 'stripe' }))
+                            }}
+                            data-attr="create-revenue-source"
+                        >
+                            Connect revenue source
+                        </LemonButton>
+                        <span className="text-xs text-muted-alt">
+                            Only Stripe is supported currently. <br />
+                            <Link
+                                target="_blank"
+                                to="https://github.com/PostHog/posthog/issues/new?assignees=&labels=enhancement,feature/revenue-analytics%2C+feature&projects=&template=feature_request.yml&title=New%20revenue%20source:%20%3Cinsert%20source%3E"
+                            >
+                                Request more revenue integrations.
+                            </Link>
+                        </span>
+                    </div>
+                }
+            />
+        )
+    }
+
     return (
         <BindLogic logic={revenueAnalyticsLogic} props={{}}>
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-                <ProductIntroduction
-                    isEmpty={!hasRevenueTables}
-                    productName="Revenue Analytics"
-                    productKey={ProductKey.REVENUE_ANALYTICS}
-                    titleOverride="Connect your first revenue source"
-                    thingName="revenue" // Not used because we're overriding the title, but required prop
-                    description="Track and analyze your revenue metrics to understand your business performance and growth."
-                    actionElementOverride={
-                        <div className="flex flex-col gap-1">
-                            <LemonButton
-                                type="primary"
-                                icon={<IconPlus />}
-                                onClick={() => {
-                                    updateHasSeenProductIntroFor(ProductKey.REVENUE_ANALYTICS, true)
-                                    router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { kind: 'stripe' }))
-                                }}
-                                data-attr="create-revenue-source"
-                            >
-                                Connect revenue source
-                            </LemonButton>
-                            <span className="text-xs text-muted-alt">
-                                Only Stripe is supported currently. <br />
-                                <Link
-                                    target="_blank"
-                                    to="https://github.com/PostHog/posthog/issues/new?assignees=&labels=enhancement,feature/revenue-analytics%2C+feature&projects=&template=feature_request.yml&title=New%20revenue%20source:%20%3Cinsert%20source%3E"
-                                >
-                                    Request more revenue integrations.
-                                </Link>
-                            </span>
-                        </div>
-                    }
-                />
-
-                {hasRevenueTables && (
-                    <div className="flex flex-col gap-2">
-                        <RevenueAnalyticsFilters />
-                        <RevenueAnalyticsTables />
-                    </div>
-                )}
+                <div className="flex flex-col gap-2">
+                    <RevenueAnalyticsFilters />
+                    <RevenueAnalyticsTables />
+                </div>
             </BindLogic>
         </BindLogic>
     )
