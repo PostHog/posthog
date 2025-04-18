@@ -7,6 +7,7 @@ import {
     ElementPropertyFilter,
     EventPropertyFilter,
     PersonPropertyFilter,
+    HogQLPropertyFilter,
     Team,
 } from '../types'
 
@@ -14,10 +15,10 @@ export type HogBytecode = any[]
 
 // subset of EntityFilter
 export interface HogFunctionFilterBase {
-    id: string
+    id: string | null
     name?: string | null
     order?: number
-    properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter)[]
+    properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | HogQLPropertyFilter)[]
 }
 
 export interface HogFunctionFilterEvent extends HogFunctionFilterBase {

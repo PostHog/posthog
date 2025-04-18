@@ -1003,6 +1003,11 @@ export interface EventPropertyFilter extends PropertyFilterWithOperator {
 }
 
 /** Sync with posthog/frontend/src/types.ts */
+export interface HogQLPropertyFilter extends PropertyFilterWithOperator {
+    type: 'hogql'
+}
+
+/** Sync with posthog/frontend/src/types.ts */
 export interface PersonPropertyFilter extends PropertyFilterWithOperator {
     type: 'person'
 }
@@ -1037,6 +1042,7 @@ export type PropertyFilter =
     | CohortPropertyFilter
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
+    | HogQLPropertyFilter
 
 /** Sync with posthog/frontend/src/types.ts */
 export enum StringMatching {
