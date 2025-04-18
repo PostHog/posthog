@@ -4,6 +4,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { ErrorTrackingSymbolSet } from 'lib/components/Errors/types'
+import { dayjs } from 'lib/dayjs'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -45,7 +46,9 @@ export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>(
             {
                 loadSymbolSets: async () => {
                     const response = await api.errorTracking.symbolSets()
-                    return response.results
+                    return response.results.sort((a, b) => {
+                        return dayjs(b.created_at).diff(a.created_at)
+                    })
                 },
                 deleteSymbolSet: async (id) => {
                     await api.errorTracking.deleteSymbolSet(id)

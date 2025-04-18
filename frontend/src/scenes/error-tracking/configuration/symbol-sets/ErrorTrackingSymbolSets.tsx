@@ -11,9 +11,8 @@ import { errorTrackingSymbolSetLogic } from './errorTrackingSymbolSetLogic'
 import { SymbolSetUploadModal } from './SymbolSetUploadModal'
 
 export function ErrorTrackingSymbolSets(): JSX.Element {
-    const logic = errorTrackingSymbolSetLogic()
-    const { missingSymbolSets, validSymbolSets } = useValues(logic)
-    const { loadSymbolSets } = useActions(logic)
+    const { missingSymbolSets, validSymbolSets } = useValues(errorTrackingSymbolSetLogic)
+    const { loadSymbolSets } = useActions(errorTrackingSymbolSetLogic)
 
     useEffect(() => {
         loadSymbolSets()
