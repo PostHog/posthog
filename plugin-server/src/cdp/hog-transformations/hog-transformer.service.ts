@@ -119,7 +119,12 @@ export class HogTransformerService {
         }
     }
 
-    public transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult> {
+    public transformEventAndProduceMessages(
+        event: PluginEvent,
+        options: {
+            skipProduce?: boolean
+        } = {}
+    ): Promise<TransformationResult> {
         return runInstrumentedFunction({
             statsKey: `hogTransformer.transformEventAndProduceMessages`,
             func: async () => {
@@ -130,12 +135,19 @@ export class HogTransformerService {
                 ])
 
                 const transformationResult = await this.transformEvent(event, teamHogFunctions)
+
+                if (options.skipProduce) {
+                    this.hogFunctionMonitoringService.messagesToProduce = []
+                    return {
+                        ...transformationResult,
+                        scheduledPromises: [],
+                    }
+                }
+
                 await this.hogFunctionMonitoringService.processInvocationResults(transformationResult.invocationResults)
 
                 const scheduledPromises: Promise<void>[] = [this.hogFunctionMonitoringService.produceQueuedMessages()]
-
                 const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
-
                 if (shouldRunHogWatcher) {
                     const timer = hogWatcherLatency.startTimer({ operation: 'observeResults' })
                     scheduledPromises.push(
@@ -151,6 +163,10 @@ export class HogTransformerService {
                 }
 
                 hogTransformationCompleted.inc({ type: 'with_messages' })
+
+                const promises = this.hogFunctionMonitoringService.produceQueuedMessages()
+                scheduledPromises.push(promises)
+
                 return {
                     ...transformationResult,
                     scheduledPromises,

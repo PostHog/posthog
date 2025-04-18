@@ -1,6 +1,6 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`IngestionConsumer error handling should handle explicitly non retriable errors by sending to DLQ 1`] = `
+exports[`IngestionConsumer error handling should handled expected error failures such as eventDroppedError and write to the DLQ 1`] = `
 [
   {
     "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
@@ -219,6 +219,47 @@ exports[`IngestionConsumer typical event processing ai event 1`] = `
       "person_id": "<REPLACED-UUID-0>",
       "team_id": 2,
       "version": 0,
+    },
+  },
+]
+`;
+
+exports[`IngestionConsumer typical event processing bad uuid 1`] = `
+[
+  {
+    "key": null,
+    "topic": "events_dead_letter_queue_test",
+    "value": {
+      "distinct_id": "user-1",
+      "error": "Event ingestion failed. Error: Not a valid UUID: "WAT"",
+      "error_location": "plugin_server_ingest_event:populateTeamDataStep",
+      "error_timestamp": "REPLACED",
+      "event": "$pageview",
+      "event_uuid": "WAT",
+      "id": "<REPLACED-UUID-0>",
+      "ip": "",
+      "now": "2025-01-01 00:00:00",
+      "properties": "{"$current_url":"http://localhost:8000","$ip":"127.0.0.1","$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"}}",
+      "raw_payload": "{"distinct_id":"user-1","uuid":"WAT","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":null,"site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000","$ip":"127.0.0.1","$set":{"$current_url":"http://localhost:8000"},"$set_once":{"$initial_current_url":"http://localhost:8000"}}}",
+      "site_url": "us.posthog.com",
+      "tags": [
+        "plugin_server",
+        "ingest_event",
+      ],
+      "team_id": -1,
+      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+      "uuid": "WAT",
+    },
+  },
+  {
+    "key": null,
+    "topic": "clickhouse_ingestion_warnings_test",
+    "value": {
+      "details": "{"eventUuid":"\\"WAT\\""}",
+      "source": "plugin-server",
+      "team_id": 2,
+      "timestamp": "2025-01-01 00:00:00.000",
+      "type": "skipping_event_invalid_uuid",
     },
   },
 ]
