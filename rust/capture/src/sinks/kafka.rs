@@ -239,8 +239,15 @@ impl KafkaSink {
                 };
 
                 if is_limited {
-                    // Analytics overflow goes to the overflow topic without locality
-                    (&self.overflow_topic, None)
+                    // Analytics overflow goes to the overflow topic
+                    // we configure to retain partition key or not.
+                    // if is_limited is true, the OverflowLimiter is
+                    // configured and is safe to unwrap here.
+                    if self.partition.as_ref().unwrap().should_preserve_locality() {
+                        (&self.overflow_topic, Some(event_key.as_str()))
+                    } else {
+                        (&self.overflow_topic, None)
+                    }
                 } else {
                     // event_key is "<token>:<distinct_id>" for std events or
                     // "<token>:<ip_addr>" for cookieless events
@@ -410,6 +417,7 @@ mod tests {
             NonZeroU32::new(10).unwrap(),
             NonZeroU32::new(10).unwrap(),
             None,
+            false,
         ));
         let cluster = MockCluster::new(1).expect("failed to create mock brokers");
         let config = config::KafkaConfig {
