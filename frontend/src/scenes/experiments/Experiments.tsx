@@ -34,8 +34,16 @@ export const scene: SceneExport = {
 }
 
 export function Experiments(): JSX.Element {
-    const { filteredExperiments, experimentsLoading, tab, searchTerm, shouldShowEmptyState, searchStatus, userFilter } =
-        useValues(experimentsLogic)
+    const {
+        filteredExperiments,
+        experimentsLoading,
+        tab,
+        searchTerm,
+        shouldShowEmptyState,
+        searchStatus,
+        userFilter,
+        showLegacyBadge,
+    } = useValues(experimentsLogic)
     const { setExperimentsTab, deleteExperiment, archiveExperiment, setSearchStatus, setSearchTerm, setUserFilter } =
         useActions(experimentsLogic)
 
@@ -68,12 +76,11 @@ export function Experiments(): JSX.Element {
                         title={
                             <>
                                 {stringWithWBR(experiment.name, 17)}
-                                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER] &&
-                                    hasLegacyMetrics(experiment) && (
-                                        <LemonTag type="warning" className="ml-1">
-                                            Legacy
-                                        </LemonTag>
-                                    )}
+                                {showLegacyBadge && hasLegacyMetrics(experiment) && (
+                                    <LemonTag type="warning" className="ml-1">
+                                        Legacy
+                                    </LemonTag>
+                                )}
                             </>
                         }
                         description={experiment.description}
