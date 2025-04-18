@@ -1,5 +1,5 @@
 import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -25,6 +25,10 @@ export const scene: SceneExport = {
 export function RevenueAnalyticsScene(): JSX.Element {
     const { hasRevenueTables } = useValues(revenueAnalyticsLogic)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
+
+    if (hasRevenueTables === null) {
+        return <SpinnerOverlay sceneLevel />
+    }
 
     return (
         <BindLogic logic={revenueAnalyticsLogic} props={{}}>

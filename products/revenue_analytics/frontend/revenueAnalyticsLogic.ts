@@ -73,7 +73,7 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
             dataWarehouseSceneLogic,
             ['dataWarehouseTablesBySourceType'],
             databaseTableListLogic,
-            ['managedViews'],
+            ['database', 'managedViews'],
             revenueEventsSettingsLogic,
             ['baseCurrency'],
         ],
@@ -147,8 +147,17 @@ export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
         ],
 
         hasRevenueTables: [
-            (s) => [s.dataWarehouseTablesBySourceType],
-            (dataWarehouseTablesBySourceType): boolean => Boolean(dataWarehouseTablesBySourceType['Stripe']?.length),
+            (s) => [s.database, s.dataWarehouseTablesBySourceType],
+            (database, dataWarehouseTablesBySourceType): boolean | null => {
+                // Indicate loading state with `null` if we don't have a database yet
+                if (database === null) {
+                    return null
+                }
+
+                // Eventually we'll want to look at our revenue views,
+                // but for now checking whether we have Stripe tables is enough
+                return Boolean(dataWarehouseTablesBySourceType['Stripe']?.length)
+            },
         ],
 
         queries: [
