@@ -110,6 +110,7 @@ We've decided to standardize on **BillingUsage4** as our canonical implementatio
 - [ ] Clean up unnecessary code and optimize performance
 - [ ] Add comprehensive tests for the BillingUsage4 component
 - [ ] Update documentation to reflect the chosen implementation
+- [x] Allow unselecting event types in the filter dropdown (show all types when none selected)
 
 ### Step 14: Frontend Enhancements
 - [ ] Add option to normalize data (percentages) 

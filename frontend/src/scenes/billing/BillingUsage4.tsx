@@ -79,19 +79,19 @@ function BillingLineGraph({ series, dates, isLoading, hiddenSeries }: BillingLin
         }
 
         // Filter series based on hidden state
-        const visibleSeries = series.filter((_, index) => !hiddenSeries.includes(index))
+        const visibleSeries = series.filter((s) => !hiddenSeries.includes(s.id))
 
-        const datasets: ChartDataset<'line'>[] = visibleSeries.map((s, index) => ({
+        const datasets: ChartDataset<'line'>[] = visibleSeries.map((s) => ({
             label: s.label,
             data: s.data,
-            borderColor: getSeriesColor(index),
-            backgroundColor: getSeriesColor(index),
+            borderColor: getSeriesColor(s.id % 15),
+            backgroundColor: getSeriesColor(s.id % 15),
             borderWidth: 2,
             tension: 0.1,
             pointRadius: 0,
             pointHoverRadius: 4,
-            pointHoverBackgroundColor: getSeriesColor(index),
-            pointHoverBorderColor: getSeriesColor(index),
+            pointHoverBackgroundColor: getSeriesColor(s.id % 15),
+            pointHoverBorderColor: getSeriesColor(s.id % 15),
         }))
 
         const options: ChartOptions<'line'> = {
@@ -187,10 +187,10 @@ export function BillingUsage4(): JSX.Element {
         }
     }
 
-    // Function to toggle a series visibility
-    const toggleSeries = (index: number): void => {
+    // Function to toggle a series visibility by ID
+    const toggleSeries = (id: number): void => {
         setHiddenSeries((prevHidden) =>
-            prevHidden.includes(index) ? prevHidden.filter((i) => i !== index) : [...prevHidden, index]
+            prevHidden.includes(id) ? prevHidden.filter((i) => i !== id) : [...prevHidden, id]
         )
     }
 
@@ -198,7 +198,7 @@ export function BillingUsage4(): JSX.Element {
     const toggleAllSeries = (): void => {
         if (hiddenSeries.length === 0 && series.length > 0) {
             // Hide all series
-            setHiddenSeries(series.map((_, index) => index))
+            setHiddenSeries(series.map((s) => s.id))
         } else {
             // Show all series
             setHiddenSeries([])
@@ -266,13 +266,12 @@ export function BillingUsage4(): JSX.Element {
                     <span>Series</span>
                 </div>
             ),
-            render: (_, record: SeriesType, recordIndex: number) => {
-                const index = recordIndex
-                const isHidden = hiddenSeries.includes(index)
+            render: (_, record: SeriesType) => {
+                const isHidden = hiddenSeries.includes(record.id)
                 return (
                     <div className="flex items-center">
-                        <LemonCheckbox checked={!isHidden} onChange={() => toggleSeries(index)} className="mr-2" />
-                        <SeriesColorDot colorIndex={index} />
+                        <LemonCheckbox checked={!isHidden} onChange={() => toggleSeries(record.id)} className="mr-2" />
+                        <SeriesColorDot colorIndex={record.id} />
                         <span className="font-medium">{record.label}</span>
                     </div>
                 )
@@ -292,8 +291,9 @@ export function BillingUsage4(): JSX.Element {
                 <LemonSelect
                     value={filters.usage_type}
                     options={USAGE_TYPES}
-                    onChange={(value) => setFilters({ usage_type: value })}
+                    onChange={(value) => setFilters({ usage_type: value || undefined })}
                     placeholder="Select usage type"
+                    allowClear={true}
                 />
                 <LemonSelect<string | null>
                     value={filters.breakdowns?.length === 2 ? 'both' : filters.breakdowns?.[0] || null}
@@ -322,7 +322,8 @@ export function BillingUsage4(): JSX.Element {
 
             {!filters.usage_type && !filters.breakdowns?.includes('type') && (
                 <LemonBanner type="info">
-                    Please select a usage type or break down by type to see usage data
+                    Please select a usage type or break down by type to see usage data. Unselecting usage type will show
+                    all types when you have a breakdown by type.
                 </LemonBanner>
             )}
 
@@ -348,9 +349,7 @@ export function BillingUsage4(): JSX.Element {
                                     className="bg-white"
                                     embedded
                                     size="small"
-                                    rowClassName={(_, rowIndex) =>
-                                        hiddenSeries.includes(rowIndex || 0) ? 'opacity-50' : ''
-                                    }
+                                    rowClassName={(record) => (hiddenSeries.includes(record.id) ? 'opacity-50' : '')}
                                 />
                             </div>
                         </div>

@@ -57,8 +57,10 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             null as BillingUsageResponse | null,
             {
                 loadBillingUsage: async () => {
+                    const { usage_type, ...restFilters } = values.filters
                     const params = {
-                        ...values.filters,
+                        ...(usage_type ? { usage_type } : {}),
+                        ...restFilters,
                         start_date: values.dateFrom || dayjs().subtract(30, 'day').format('YYYY-MM-DD'),
                         end_date: values.dateTo || dayjs().format('YYYY-MM-DD'),
                         organization_id: values.currentOrganization?.id,
