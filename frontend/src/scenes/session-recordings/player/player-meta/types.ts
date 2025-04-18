@@ -30,6 +30,5 @@ export interface SessionOutcome {
 export interface SessionSummaryContent {
     objectives?: SessionObjective[] | null
     key_actions?: SessionObjectiveKeyActions[] | null
-    initial_goal?: SessionOutcome | null
     session_outcome?: SessionOutcome | null
 }

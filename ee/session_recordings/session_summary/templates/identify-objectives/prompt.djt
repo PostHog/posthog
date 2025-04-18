@@ -153,21 +153,16 @@ After identifying objectives, determine which events are key actions for each ob
    - For complex actions, briefly include the outcome
    - Prioritize actions showing progress or completion of the objective
 
-# Step 3: Determine Initial Goal
+# Step 3: Assess the Session Outcome:
    - Analyze the `start_url` from the `session_medata_input` to identify the entry point context
    - Review the user's objectives/actions during the session
    - Distinguish between intentional visits and redirects/automated navigation
-   - Predict what user was trying to accomplish when they started the session
-   - Assess whether the initial goal was successful by comparing it with completed objectives
-
-# Step 4: Assess the Session Outcome:
    - Identify the exit URL, final actions and their context
-   - Check if the user achieved their initial goal
    - If the user abandoned the session after encountering errors, briefly describe their nature and impact
    - If mentioning errors - ONLY mention errors that interrupted the user's workflow and were included in the key actions.
    - Assess whether the oversall session was successful by comparing it with completed objectives
 
-# Step 5: Self-Consistency Check
+# Step 4: Self-Consistency Check
 Before finalizing your analysis, verify:
 
 1. Objective Consistency:
@@ -182,7 +177,6 @@ Before finalizing your analysis, verify:
 
 3. Logical Flow Verification:
    - Does the sequence of objectives and actions tell a coherent story of the user's session?
-   - Is the initial goal consistent with the start URL and first objective?
    - Is the session outcome assessment supported by the final actions in the data?
 
 4. Temporal Coverage Verification:

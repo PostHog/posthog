@@ -106,22 +106,13 @@ function SessionSummary(): JSX.Element {
             {sessionSummary ? (
                 <>
                     <>
-                        {sessionSummary.initial_goal || sessionSummary.session_outcome ? (
+                        {sessionSummary.session_outcome ? (
                             <LemonBanner className="mb-3" type="info" action={undefined} onClose={undefined}>
-                                {sessionSummary.initial_goal ? (
-                                    <div className="text-sm break-words py-1 px-1 font-normal">
-                                        <b>Initial goal:</b> {sessionSummary.initial_goal.description}
-                                        <br />
-                                        Success: {sessionSummary.initial_goal.success ? 'Yes' : 'No'}
-                                    </div>
-                                ) : null}
-                                {sessionSummary.session_outcome ? (
-                                    <div className="text-sm break-words py-1 px-1 font-normal">
-                                        <b>Session outcome:</b> {sessionSummary.session_outcome.description}
-                                        <br />
-                                        Success: {sessionSummary.session_outcome.success ? 'Yes' : 'No'}
-                                    </div>
-                                ) : null}
+                                <div className="text-sm break-words py-1 px-1 font-normal">
+                                    <b>Session outcome:</b> {sessionSummary.session_outcome.description}
+                                    <br />
+                                    Success: {sessionSummary.session_outcome.success ? 'Yes' : 'No'}
+                                </div>
                             </LemonBanner>
                         ) : null}
                     </>

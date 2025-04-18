@@ -204,7 +204,9 @@ export const aiSummaryMockLight: SessionSummaryContent = {
             ],
         },
     ],
-    initial_goal: 'Create a new account to access the application',
-    session_outcome:
-        'Despite backend failures on the login page, the user successfully signed up, initialized their project, and enabled session replay, completing core onboarding steps.',
+    session_outcome: {
+        description:
+            'Despite backend failures on the login page, the user successfully signed up, initialized their project, and enabled session replay, completing core onboarding steps.',
+        success: true,
+    },
 }

@@ -27,9 +27,6 @@ key_actions:
           - description: 'Final action completing this objective'
             event_id: 'stu901'
             error: false
-initial_goal:
-    description: 'Concise initial goal description'
-    success: true # Note: Whether the user was able to complete the initial goal we predicted
 session_outcome:
     description: 'Concise session outcome description'
     success: true # Note: Whether the user's overall experience was successful or not

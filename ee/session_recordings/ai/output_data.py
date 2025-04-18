@@ -75,7 +75,6 @@ class RawSessionSummarySerializer(serializers.Serializer):
     key_actions = serializers.ListField(
         child=RawObjectiveKeyActionsSerializer(), required=False, allow_empty=True, allow_null=True
     )
-    initial_goal = OutcomeSerializer(required=False, allow_null=True)
     session_outcome = OutcomeSerializer(required=False, allow_null=True)
 
 
@@ -88,7 +87,6 @@ class SessionSummarySerializer(serializers.Serializer):
     key_actions = serializers.ListField(
         child=EnrichedObjectiveKeyActionsSerializer(), required=False, allow_empty=True, allow_null=True
     )
-    initial_goal = OutcomeSerializer(required=False, allow_null=True)
     session_outcome = OutcomeSerializer(required=False, allow_null=True)
 
 
