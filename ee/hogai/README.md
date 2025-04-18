@@ -103,3 +103,5 @@ If you've got any requests for Max, including around tools, let us know at #team
 - Test with diverse inputs and edge cases
 - Keep prompts clear and structured with explicit rules
 - Allow users to both get things done from scratch, and refine what's already there
+
+For a _lot_ of great detail on prompting, check out the [GPT-4.1 prompting guide](https://cookbook.openai.com/examples/gpt4-1_prompting_guide). While somewhat GPT-4.1 specific, those principles largely apply to LLMs overall.
