@@ -121,12 +121,15 @@ const translateInputs = (defaultVal: any) => {
         if (modifiedVal.includes('context.device.advertisingId')) {
             modifiedVal = modifiedVal.replaceAll('context.device.advertisingId', '')
         }
+        if (modifiedVal.includes('integrations.Actions Amplitude.session_id')) {
+            modifiedVal = modifiedVal.replaceAll('integrations.Actions Amplitude.session_id', '')
+        }
 
         if (modifiedVal.endsWith('.')) return ''
         else return modifiedVal
     }
 
-    if (typeof defaultVal === 'boolean') {
+    if (['boolean', 'string'].includes(typeof defaultVal)) {
         return defaultVal
     }
     if (typeof defaultVal === 'object') {
