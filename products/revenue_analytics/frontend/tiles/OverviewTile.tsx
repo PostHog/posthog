@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { Query } from '~/queries/Query/Query'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
@@ -24,5 +25,5 @@ export const OverviewTile = (): JSX.Element => {
 
     const context = useMemo(() => ({ insightProps: { ...INSIGHT_PROPS, query } }), [query])
 
-    return <div className="flex flex-col gap-1">TODO: {JSON.stringify({ query, context })}</div>
+    return <Query query={query} readOnly context={context} />
 }

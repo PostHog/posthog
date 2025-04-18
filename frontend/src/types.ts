@@ -254,7 +254,7 @@ export interface ColumnConfig {
 }
 
 export type WithAccessControl = {
-    user_access_level: 'none' | 'member' | 'admin' | 'viewer' | 'editor'
+    user_access_level: AccessControlLevel
 }
 
 export enum AccessControlResourceType {
@@ -3626,6 +3626,7 @@ export interface AppContext {
     persisted_feature_flags?: string[]
     anonymous: boolean
     frontend_apps?: Record<number, FrontendAppConfig>
+    resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
@@ -4092,12 +4093,20 @@ export type APIScopeObject =
     | 'user'
     | 'webhook'
 
+export enum AccessControlLevel {
+    None = 'none',
+    Member = 'member',
+    Admin = 'admin',
+    Viewer = 'viewer',
+    Editor = 'editor',
+}
+
 export interface AccessControlTypeBase {
     created_by: UserBasicType | null
     created_at: string
     updated_at: string
     resource: APIScopeObject
-    access_level: string | null // TODO: Change to enum
+    access_level: AccessControlLevel | null
     organization_member?: OrganizationMemberType['id'] | null
     role?: RoleType['id'] | null
 }
@@ -4106,6 +4115,10 @@ export interface AccessControlTypeProject extends AccessControlTypeBase {}
 
 export interface AccessControlTypeMember extends AccessControlTypeBase {
     organization_member: OrganizationMemberType['id']
+}
+
+export interface AccessControlTypeOrganizationAdmins extends AccessControlTypeBase {
+    organization_admin_members: OrganizationMemberType['id'][]
 }
 
 export interface AccessControlTypeRole extends AccessControlTypeBase {
@@ -4120,9 +4133,9 @@ export type AccessControlUpdateType = Pick<AccessControlType, 'access_level' | '
 
 export type AccessControlResponseType = {
     access_controls: AccessControlType[]
-    available_access_levels: string[] // TODO: Change to enum
-    user_access_level: string
-    default_access_level: string
+    available_access_levels: AccessControlLevel[]
+    user_access_level: AccessControlLevel
+    default_access_level: AccessControlLevel
     user_can_edit_access_levels: boolean
 }
 

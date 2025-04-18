@@ -58,14 +58,21 @@ interface IntervalFilterStandaloneProps {
     disabled?: boolean
     interval: IntervalType | undefined
     onIntervalChange: (interval: IntervalType) => void
-    options: LemonSelectOption<IntervalType>[]
+    options?: LemonSelectOption<IntervalType>[]
 }
+
+const DEFAULT_OPTIONS: LemonSelectOption<IntervalType>[] = [
+    { value: 'hour', label: 'Hour' },
+    { value: 'day', label: 'Day' },
+    { value: 'week', label: 'Week' },
+    { value: 'month', label: 'Month' },
+]
 
 export function IntervalFilterStandalone({
     disabled,
     interval,
     onIntervalChange,
-    options,
+    options = DEFAULT_OPTIONS,
 }: IntervalFilterStandaloneProps): JSX.Element {
     return (
         <LemonSelect

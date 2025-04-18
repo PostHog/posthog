@@ -105,11 +105,12 @@ export enum NodeKind {
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
+    WebActiveHoursHeatMapQuery = 'WebActiveHoursHeatMapQuery',
 
     // Revenue analytics queries
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
     RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
-    RevenueAnalyticsChurnRateQuery = 'RevenueAnalyticsChurnRateQuery',
+    RevenueAnalyticsTopCustomersQuery = 'RevenueAnalyticsTopCustomersQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -148,7 +149,7 @@ export type AnyDataNode =
     | HogQLAutocomplete
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsGrowthRateQuery
-    | RevenueAnalyticsChurnRateQuery
+    | RevenueAnalyticsTopCustomersQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
@@ -165,6 +166,7 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | VectorSearchQuery
+    | WebActiveHoursHeatMapQuery
 
 /**
  * @discriminator kind
@@ -202,11 +204,12 @@ export type QuerySchema =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
+    | WebActiveHoursHeatMapQuery
 
     // Revenue analytics
     | RevenueAnalyticsOverviewQuery
     | RevenueAnalyticsGrowthRateQuery
-    | RevenueAnalyticsChurnRateQuery
+    | RevenueAnalyticsTopCustomersQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -704,10 +707,11 @@ export interface DataTableNode
                     | WebGoalsQuery
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
+                    | WebActiveHoursHeatMapQuery
                     | SessionAttributionExplorerQuery
                     | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsGrowthRateQuery
-                    | RevenueAnalyticsChurnRateQuery
+                    | RevenueAnalyticsTopCustomersQuery
                     | RevenueExampleEventsQuery
                     | RevenueExampleDataWarehouseTablesQuery
                     | ErrorTrackingQuery
@@ -733,10 +737,11 @@ export interface DataTableNode
         | WebGoalsQuery
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
+        | WebActiveHoursHeatMapQuery
         | SessionAttributionExplorerQuery
         | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsGrowthRateQuery
-        | RevenueAnalyticsChurnRateQuery
+        | RevenueAnalyticsTopCustomersQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
         | ErrorTrackingQuery
@@ -1830,10 +1835,10 @@ export interface RevenueAnalyticsOverviewQuery
     kind: NodeKind.RevenueAnalyticsOverviewQuery
 }
 
-export type RevenueAnalyticsOverviewItemKey = 'MRR' | 'ARR' | 'Customer Count' | 'New customers' | 'Churned customers'
+export type RevenueAnalyticsOverviewItemKey = 'revenue' | 'paying_customer_count' | 'avg_revenue_per_customer'
 export interface RevenueAnalyticsOverviewItem {
     key: RevenueAnalyticsOverviewItemKey
-    value?: number
+    value: number
 }
 
 export interface RevenueAnalyticsOverviewQueryResponse
@@ -1845,16 +1850,21 @@ export interface RevenueAnalyticsGrowthRateQuery
     kind: NodeKind.RevenueAnalyticsGrowthRateQuery
 }
 
-export interface RevenueAnalyticsGrowthRateQueryResponse extends AnalyticsQueryResponseBase<unknown> {}
+export interface RevenueAnalyticsGrowthRateQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    columns?: string[]
+}
 export type CachedRevenueAnalyticsGrowthRateQueryResponse = CachedQueryResponse<RevenueAnalyticsGrowthRateQueryResponse>
 
-export interface RevenueAnalyticsChurnRateQuery
-    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsChurnRateQueryResponse> {
-    kind: NodeKind.RevenueAnalyticsChurnRateQuery
+export interface RevenueAnalyticsTopCustomersQuery
+    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsTopCustomersQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsTopCustomersQuery
 }
 
-export interface RevenueAnalyticsChurnRateQueryResponse extends AnalyticsQueryResponseBase<unknown> {}
-export type CachedRevenueAnalyticsChurnRateQueryResponse = CachedQueryResponse<RevenueAnalyticsChurnRateQueryResponse>
+export interface RevenueAnalyticsTopCustomersQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    columns?: string[]
+}
+export type CachedRevenueAnalyticsTopCustomersQueryResponse =
+    CachedQueryResponse<RevenueAnalyticsTopCustomersQueryResponse>
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
@@ -1900,6 +1910,7 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     last_seen: string
     earliest?: string
     aggregations: ErrorTrackingIssueAggregations
+    library: string | null
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {
@@ -2394,6 +2405,7 @@ export type DatabaseSerializedFieldType =
     | 'expression'
     | 'view'
     | 'materialized_view'
+    | 'unknown'
 
 export type HogQLExpression = string
 
@@ -2887,3 +2899,20 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 }
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
+
+export interface WebActiveHoursHeatMapQuery extends WebAnalyticsQueryBase<WebActiveHoursHeatMapQueryResponse> {
+    kind: NodeKind.WebActiveHoursHeatMapQuery
+}
+
+export interface WebActiveHoursHeatMapQueryResponse extends AnalyticsQueryResponseBase<WebActiveHoursHeatMapResult[]> {
+    hasMore?: boolean
+    limit?: integer
+}
+
+export interface WebActiveHoursHeatMapResult {
+    day: integer
+    hour: integer
+    total: integer
+}
+
+export type CachedWebActiveHoursHeatMapQueryResponse = CachedQueryResponse<WebActiveHoursHeatMapQueryResponse>
