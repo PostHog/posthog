@@ -1,5 +1,5 @@
 import { IconMagicWand, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
-import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonRow, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 // import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 // import { FEATURE_FLAGS } from 'lib/constants'
@@ -46,8 +46,12 @@ interface SessionObjectiveViewProps {
 function SessionObjectiveView({ objective, keyActions, onSeekToTime }: SessionObjectiveViewProps): JSX.Element {
     return (
         <div key={objective.name} className="mb-4">
-            <h3 className="mb-0">{objective.name}</h3>
-            <p>{objective.summary}</p>
+            <LemonRow fullWidth className="dashboard-row" outlined>
+                <h3 className="mb-0">{objective.name}</h3>
+                <br />
+                <p>{objective.summary}</p>
+            </LemonRow>
+
             {keyActions?.map((keyAction) =>
                 keyAction.events?.map((event: SessionKeyAction, eventIndex: number) =>
                     isValidTimestamp(event.milliseconds_since_start) ? (
@@ -194,7 +198,7 @@ export function PlayerSidebarSessionSummary(): JSX.Element | null {
             {/* TODO: Uncomment after testing */}
             {/* <FlaggedFeature flag={FEATURE_FLAGS.AI_SESSION_SUMMARY} match={true}> */}
             <div className="rounded border bg-surface-primary px-2 py-1">
-                <h2>AI Session Summary</h2>
+                {/* <h2>AI Session Summary</h2> */}
                 {sessionSummaryLoading ? (
                     <>
                         Thinking... <Spinner />{' '}

@@ -39,6 +39,7 @@ export function PlayerSidebar(): JSX.Element {
 
     const sidebarTabs = [
         SessionRecordingSidebarTab.OVERVIEW,
+        SessionRecordingSidebarTab.SESSION_SUMMARY,
         SessionRecordingSidebarTab.INSPECTOR,
         SessionRecordingSidebarTab.NETWORK_WATERFALL,
     ]
