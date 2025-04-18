@@ -3,10 +3,8 @@ import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, LemonTableColum
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -24,10 +22,9 @@ export const scene: SceneExport = {
 }
 
 export function SharedMetrics(): JSX.Element {
-    const { sharedMetrics, sharedMetricsLoading } = useValues(sharedMetricsLogic)
+    const { sharedMetrics, sharedMetricsLoading, showLegacyBadge } = useValues(sharedMetricsLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const columns: LemonTableColumns<SharedMetric> = [
         {
@@ -40,12 +37,11 @@ export function SharedMetrics(): JSX.Element {
                         title={
                             <>
                                 {stringWithWBR(sharedMetric.name, 17)}
-                                {featureFlags[FEATURE_FLAGS.EXPERIMENTS_NEW_QUERY_RUNNER] &&
-                                    hasLegacySharedMetrics(sharedMetric) && (
-                                        <LemonTag type="warning" className="ml-1">
-                                            Legacy
-                                        </LemonTag>
-                                    )}
+                                {showLegacyBadge && hasLegacySharedMetrics(sharedMetric) && (
+                                    <LemonTag type="warning" className="ml-1">
+                                        Legacy
+                                    </LemonTag>
+                                )}
                             </>
                         }
                     />
