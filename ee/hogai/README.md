@@ -53,7 +53,7 @@ The backend definition contains the tool's metadata for Max (what is it, how to 
 
 3. Add your tool name to the `AssistantContextualTool` union in `frontend/src/queries/schema/schema-assistant-messages.ts`, then run `pnpm schema:build`.
 
-For an example, see `products/replay/backend/max_tools.py`, which defines the `search_session_recordings` tool.
+For an example, see `products/replay/backend/max_tools.py`, which defines the `search_session_recordings` tool, and `products/data_warehouse/backend/max_tools.py`, which defines the `generate_hogql_query` tool.
 
 ### Mounting
 
