@@ -16,6 +16,7 @@ import { QueryContext } from '~/queries/types'
 import { GraphDataset, GraphType } from '~/types'
 
 import { revenueEventsSettingsLogic } from '../settings/revenueEventsSettingsLogic'
+import { InsightsWrapper } from './utils'
 
 let uniqueNode = 0
 export function RevenueAnalyticsTopCustomersNode(props: {
@@ -37,9 +38,12 @@ export function RevenueAnalyticsTopCustomersNode(props: {
     const { baseCurrency } = useValues(revenueEventsSettingsLogic)
     const { response, responseLoading, queryId } = useValues(logic)
 
-    // TODO: Figure out what `insightProps` should be
     if (responseLoading) {
-        return <InsightLoadingState queryId={queryId} key={queryId} insightProps={props.context.insightProps ?? {}} />
+        return (
+            <InsightsWrapper>
+                <InsightLoadingState queryId={queryId} key={queryId} insightProps={props.context.insightProps ?? {}} />
+            </InsightsWrapper>
+        )
     }
 
     // `results` is an array of array in order [customer_name, customer_id, revenue, month]
@@ -75,9 +79,11 @@ export function RevenueAnalyticsTopCustomersNode(props: {
 
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
 
+    // These classes are all pretty weird but they're here because we want to maintain consistency
+    // between the trends and top customers views
     return (
-        <div className="InsightVizDisplay InsightVizDisplay--type-trends border rounded bg-surface-primary">
-            <div className="InsightVizDisplay__content">
+        <InsightsWrapper>
+            <div className="TrendsInsight TrendsInsight--ActionsLineGraph">
                 <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
                     <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
                         <LineGraph
@@ -99,6 +105,6 @@ export function RevenueAnalyticsTopCustomersNode(props: {
                     </BindLogic>
                 </BindLogic>
             </div>
-        </div>
+        </InsightsWrapper>
     )
 }

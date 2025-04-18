@@ -14,6 +14,8 @@ import {
 import { QueryContext } from '~/queries/types'
 import { GraphDataset, GraphType } from '~/types'
 
+import { InsightsWrapper } from './utils'
+
 let uniqueNode = 0
 export function RevenueAnalyticsGrowthRateNode(props: {
     query: RevenueAnalyticsGrowthRateQuery
@@ -34,7 +36,11 @@ export function RevenueAnalyticsGrowthRateNode(props: {
     const { response, responseLoading, queryId } = useValues(logic)
 
     if (responseLoading) {
-        return <InsightLoadingState queryId={queryId} key={queryId} insightProps={props.context.insightProps ?? {}} />
+        return (
+            <InsightsWrapper>
+                <InsightLoadingState queryId={queryId} key={queryId} insightProps={props.context.insightProps ?? {}} />
+            </InsightsWrapper>
+        )
     }
 
     // `results` is an array of array in order [month, mrr, previous_mrr, growth_rate, 3m_growth_rate, 6m_growth_rate]
@@ -66,8 +72,8 @@ export function RevenueAnalyticsGrowthRateNode(props: {
     ]
 
     return (
-        <div className="InsightVizDisplay InsightVizDisplay--type-trends border rounded bg-surface-primary">
-            <div className="InsightVizDisplay__content">
+        <InsightsWrapper>
+            <div className="TrendsInsight TrendsInsight--ActionsLineGraph">
                 <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
                     <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
                         <LineGraph
@@ -81,6 +87,6 @@ export function RevenueAnalyticsGrowthRateNode(props: {
                     </BindLogic>
                 </BindLogic>
             </div>
-        </div>
+        </InsightsWrapper>
     )
 }
