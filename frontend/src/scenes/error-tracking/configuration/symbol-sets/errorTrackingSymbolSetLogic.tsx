@@ -47,6 +47,7 @@ export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>(
                 loadSymbolSets: async () => {
                     const response = await api.errorTracking.symbolSets()
                     return response.results.sort((a, b) => {
+                        // Most recent first
                         return dayjs(b.created_at).diff(a.created_at)
                     })
                 },
