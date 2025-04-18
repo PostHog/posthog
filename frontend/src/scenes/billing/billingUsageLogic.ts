@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -29,6 +29,12 @@ export interface BillingUsageFilters {
     interval?: 'day' | 'week' | 'month'
     compare?: 'previous_period'
     show_values_on_series?: boolean
+}
+
+export const DEFAULT_BILLING_USAGE_FILTERS: BillingUsageFilters = {
+    usage_type: 'event_count_in_period',
+    breakdowns: ['team'],
+    interval: 'day',
 }
 
 export interface BillingUsageLogicProps {
@@ -65,7 +71,8 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     })),
     reducers({
         filters: [
-            {} as BillingUsageFilters,
+            // Initialize with default filters
+            { ...DEFAULT_BILLING_USAGE_FILTERS } as BillingUsageFilters,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
@@ -116,4 +123,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             actions.loadBillingUsage()
         },
     })),
+    afterMount(({ actions }) => {
+        actions.loadBillingUsage()
+    }),
 ])
