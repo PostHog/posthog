@@ -3,8 +3,8 @@ from pathlib import Path
 
 import structlog
 from ee.hogai.utils.asgi import SyncIterableToAsync
-from ee.session_recordings.ai.llm.consume import stream_llm_session_summary
-from ee.session_recordings.ai.prompt_data import SessionSummaryPromptData
+from ee.session_recordings.session_summary.llm.consume import stream_llm_session_summary
+from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
 from ee.session_recordings.session_summary.base_summarizer import BaseReplaySummarizer
 from ee.session_recordings.session_summary.utils import load_custom_template, shorten_url
 from posthog.api.activity_log import ServerTimingsGathered
