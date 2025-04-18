@@ -4,6 +4,7 @@ import re
 from collections import defaultdict
 from typing import Optional, Union
 
+from dateutil.relativedelta import relativedelta
 from django.db import models
 from django.utils import timezone
 
@@ -16,6 +17,7 @@ LAST_UPDATED_TEAM_ACTION: dict[int, datetime.datetime] = {}
 TEAM_EVENT_ACTION_QUERY_CACHE: dict[int, dict[str, tuple]] = defaultdict(dict)
 # TEAM_EVENT_ACTION_QUERY_CACHE looks like team_id -> event ex('$pageview') -> query
 TEAM_ACTION_QUERY_CACHE: dict[int, str] = {}
+DEFAULT_EARLIEST_TIME_DELTA = relativedelta(weeks=1)
 
 
 class SelectorPart:
