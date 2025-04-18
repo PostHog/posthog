@@ -10,19 +10,37 @@ from django.template import Engine, Context
 def load_session_recording_events_from_csv(file_path: str) -> tuple[list[str], list[list[str | datetime]]]:
     headers = []
     rows: list[list[str | datetime]] = []
+    expected_headers = [
+        "event",
+        "timestamp",
+        "elements_chain_href",
+        "elements_chain_texts.0",
+        # TODO: Think if there's a value in combining all chain element (except for the last one) into a single column
+        "elements_chain_elements.0",
+        "properties.$window_id",
+        "properties.$current_url",
+        "properties.$event_type",
+    ]
     with open(file_path) as f:
         reader = csv.reader(f)
-        headers = next(reader)
-        # Ensure chronological order of the events
+        raw_headers = next(reader)
+        columns_to_keep = []
+        for i, header in enumerate(raw_headers):
+            if header in expected_headers:
+                columns_to_keep.append(i)
+        headers = [raw_headers[i] for i in columns_to_keep]
         timestamp_index = get_column_index(headers, "timestamp")
         if not timestamp_index:
             raise ValueError("Timestamp column not found in the CSV")
         for raw_row in reader:
+            # Keep only the columns we need
+            raw_row = [raw_row[i] for i in columns_to_keep]
             row: list[str | datetime] = []
             timestamp_str = raw_row[timestamp_index]
             timestamp = prepare_datetime(timestamp_str)
             row = [*raw_row[:timestamp_index], timestamp, *raw_row[timestamp_index + 1 :]]
             rows.append(row)
+        # Ensure chronological order of the events
         rows.sort(key=lambda x: x[timestamp_index])
     # Replace the headers with custom one to replicate DB response for recordings
     override_headers = [
