@@ -10,22 +10,22 @@ key_actions:
     - objective: 'Example Objective' # Must match EXACTLY with an objectives.name value
       events:
           - description: 'First significant action toward this objective'
-            event_id: 'abc123' # Must be copied EXACTLY from event data, never invented
+            event_id: 'abcd1234' # Must be copied EXACTLY from event data, never invented
             error: false
           - description: 'Second action for this objective'
-            event_id: 'def456'
+            event_id: 'defg4567'
             error: false
           # Note: The actual number of events should be based on your analysis of the objective-related events in the session data. This is just an example of the format.
     - objective: 'Another Example Objective'
       events:
           - description: 'First significant action toward this objective'
-            event_id: 'ghi789'
+            event_id: 'ghij7890'
             error: false
           - description: 'User attempted to perform an action but encountered an API error, potentially because of incorrect input. The user then corrected the input and tried again successfully'
-            event_id: 'mno345'
+            event_id: 'mnop3456'
             error: true
           - description: 'Final action completing this objective'
-            event_id: 'stu901'
+            event_id: 'stuv9012'
             error: false
 session_outcome:
     description: 'Concise session outcome description'
