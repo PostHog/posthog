@@ -394,21 +394,6 @@ class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
         read_only_fields = ["team_id"]
 
 
-class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
-    id = serializers.SerializerMethodField()
-    type = serializers.SerializerMethodField()
-
-    class Meta:
-        model = ErrorTrackingIssueAssignment
-        fields = ["id", "type"]
-
-    def get_id(self, obj):
-        return obj.user_id or obj.user_group_id
-
-    def get_type(self, obj):
-        return "user_group" if obj.user_group else "user"
-
-
 class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "error_tracking"
     queryset = ErrorTrackingAssignmentRule.objects.all()
@@ -420,12 +405,12 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
     def update(self, request, *args, **kwargs) -> Response:
         assignment_rule = self.get_object()
         assignee = request.data.get("assignee")
-        json_filters = request.GET.get("filters")
+        json_filters = request.data.get("filters")
 
         if json_filters:
             parsed_filters = PropertyGroupFilterValue(**json_filters)
             assignment_rule.filters = json_filters
-            assignment_rule.byte_code = self.generate_byte_code(parsed_filters)
+            assignment_rule.bytecode = self.generate_byte_code(parsed_filters)
 
         if assignee:
             assignment_rule.user_id = None if assignee["type"] == "user_group" else assignee["id"]
