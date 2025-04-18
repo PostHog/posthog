@@ -22,7 +22,6 @@ const meta: Meta = {
         testOptions: {
             includeNavigationInSnapshot: true,
             waitForLoadersToDisappear: true,
-            waitForSelector: '[data-attr=trend-line-graph] > canvas',
         },
     },
     decorators: [
@@ -50,15 +49,15 @@ const meta: Meta = {
 }
 export default meta
 
-export function RevenueAnalyticsDashboardGraphView(): JSX.Element {
+export function RevenueAnalyticsDashboardTableView(): JSX.Element {
     const { setGrowthRateDisplayMode, setTopCustomersDisplayMode } = useActions(revenueAnalyticsLogic)
 
     useEffect(() => {
         // Open the revenue analytics dashboard page
         router.actions.push(urls.revenueAnalytics())
 
-        setGrowthRateDisplayMode('graph')
-        setTopCustomersDisplayMode('graph')
+        setGrowthRateDisplayMode('table')
+        setTopCustomersDisplayMode('table')
     }, [setGrowthRateDisplayMode, setTopCustomersDisplayMode])
 
     useEffect(() => {
