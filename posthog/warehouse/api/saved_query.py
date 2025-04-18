@@ -1,6 +1,5 @@
 from typing import Any
 from django.conf import settings
-from django.utils import timezone
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -19,7 +18,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
-from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.models import (
     CLICKHOUSE_HOGQL_MAPPING,
     DataWarehouseJoin,
@@ -350,9 +348,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             workflow_handle = temporal.get_workflow_handle(workflow_id)
             if workflow_handle:
                 async_to_sync(workflow_handle.cancel)()
-                DataModelingJob.objects.filter(
-                    saved_query_id=saved_query.id, status=DataModelingJob.Status.RUNNING, workflow_id=workflow_id
-                ).update(status=DataModelingJob.Status.CANCELLED, last_run_at=timezone.now())
 
             # Schedule handling
             scheduled_workflow_handle = temporal.get_schedule_handle(str(saved_query.id))
@@ -364,13 +359,9 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                     workflow_handle_to_cancel = temporal.get_workflow_handle(workflow_id_to_cancel)
                     if workflow_handle_to_cancel:
                         async_to_sync(workflow_handle_to_cancel.cancel)()
-                        DataModelingJob.objects.filter(
-                            saved_query_id=saved_query.id,
-                            status=DataModelingJob.Status.RUNNING,
-                            workflow_id=workflow_id_to_cancel,
-                        ).update(status=DataModelingJob.Status.CANCELLED, last_run_at=timezone.now())
 
-            # Update saved query status
+            # Update saved query status, but not the data modeling job which occurs in the workflow
+            # This is because the saved_query is used by our UI to prevent multiple cancellations
             saved_query.status = DataWarehouseSavedQuery.Status.CANCELLED
             saved_query.save()
 
