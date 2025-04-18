@@ -78,23 +78,27 @@ This document outlines the step-by-step implementation plan for the Usage Data A
 
 ## Phase 3: PostHog Integration
 
-### Step 10: Create PostHog API endpoint
-- [ ] Implement `/api/billing/usage/` endpoint in PostHog
-- [ ] Add user authentication and organization ownership validation
-- [ ] Pass raw query parameters to the billing service
-- [ ] Set up request proxying to the billing service (all parameter validation happens in billing)
+### Step 10: Create PostHog API endpoint ✅
+- [x] Implement `/api/billing/usage/` endpoint in PostHog
+  - Added `usage` method to `BillingViewset` class
+  - Requires admin/owner level access
+  - Proxies requests to billing service
+  - Handles errors consistently with other billing endpoints
+- [x] Add user authentication and organization ownership validation
+- [x] Pass raw query parameters to the billing service
+- [x] Set up request proxying to the billing service (all parameter validation happens in billing)
 
-### Step 11: Enhance BillingUsage Component
-- [ ] Refactor the existing `BillingUsage.tsx` component
-  - Implement usage data fetching logic in `billingUsageLogic.ts` 
-  - Add state management for filters and visualizations
-- [ ] Create visualization components for usage data
-  - Implement a LineGraph-based visualization 
-  - Reuse existing PostHog chart components
-- [ ] Add necessary filter controls
-  - Date range selection
-  - Usage type and breakdown selectors
-  - Chart type toggles
+### Step 11: Enhance BillingUsage Component ✅
+- [x] Refactor the existing `BillingUsage.tsx` component
+  - [x] Implement usage data fetching logic in `billingUsageLogic.ts` 
+  - [x] Add state management for filters and visualizations
+- [x] Create visualization components for usage data
+  - [x] Implement a LineGraph-based visualization 
+  - [x] Reuse existing PostHog chart components
+- [x] Add necessary filter controls
+  - [x] Date range selection
+  - [x] Usage type and breakdown selectors
+  - [x] Chart type toggles
 
 ### Step 12: Complete Billing Usage UI
 - [ ] Enhance the BillingUsage component with additional features

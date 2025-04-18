@@ -401,6 +401,39 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise
 
+    @action(methods=["GET"], detail=False, url_path="usage")
+    def usage(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        user = self.request.user
+        if not isinstance(user, AbstractUser):
+            raise PermissionDenied("You must be logged in to access usage data")
+
+        organization = self._get_org_required()
+
+        membership = OrganizationMembership.objects.get(user=user, organization=organization)
+        if membership.level < OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied("You need to be an organization admin or owner to access usage data")
+
+        billing_manager = self.get_billing_manager()
+
+        try:
+            res = billing_manager.get_usage_data(organization, request.GET)
+            return Response(res, status=status.HTTP_200_OK)
+        except Exception as e:
+            if len(e.args) > 2:
+                detail_object = e.args[2]
+                if not isinstance(detail_object, dict):
+                    raise
+                return Response(
+                    {
+                        "statusText": e.args[0],
+                        "detail": detail_object.get("error_message", detail_object),
+                        "code": detail_object.get("code"),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            else:
+                raise
+
     def _get_org(self) -> Optional[Organization]:
         org = None if self.request.user.is_anonymous else self.request.user.organization
 
