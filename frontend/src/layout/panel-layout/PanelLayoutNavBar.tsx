@@ -541,6 +541,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 tooltipPlacement="right"
                                 className="group"
                                 iconOnly={isLayoutNavCollapsed}
+                                tooltipDocLink="https://posthog.com/docs/toolbar"
                             >
                                 <span
                                     className={`flex text-tertiary group-hover:text-primary ${
