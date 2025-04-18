@@ -454,7 +454,7 @@ async fn it_overflows_events_on_specified_keys_preserving_locality() -> Result<(
     let res = server.capture_events(batch_3.to_string()).await;
     assert_eq!(StatusCode::OK, res.status());
 
-    // main toppic results
+    // main topic results
     assert_eq!(
         topic.next_message_key()?.unwrap(),
         format!("{}:{}", token2, distinct_id1)
@@ -479,17 +479,17 @@ async fn it_overflows_events_on_specified_keys_preserving_locality() -> Result<(
     // Expected events should be in overflow topic, but should
     // retain original partition keys, so fetch-by-key works here
     assert_eq!(
-        topic.next_message_key()?.unwrap(),
+        overflow_topic.next_message_key()?.unwrap(),
         format!("{}:{}", token1, distinct_id1)
     );
 
     assert_eq!(
-        topic.next_message_key()?.unwrap(),
+        overflow_topic.next_message_key()?.unwrap(),
         format!("{}:{}", token1, distinct_id2)
     );
 
     assert_eq!(
-        topic.next_message_key()?.unwrap(),
+        overflow_topic.next_message_key()?.unwrap(),
         format!("{}:{}", token2, distinct_id2)
     );
 
