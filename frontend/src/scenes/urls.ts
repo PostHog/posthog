@@ -126,6 +126,8 @@ export const urls = {
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
     organizationBillingSection: (section: BillingSectionId = 'overview'): string =>
         combineUrl(`/organization/billing/${section}`).url,
+    billingUsage2: (): string => '/organization/billing/usage2',
+    billingUsage3: (): string => '/organization/billing/usage3',
     billingAuthorizationStatus: (): string => `/billing/authorization_status`,
     // Self-hosted only
     instanceStatus: (): string => '/instance/status',

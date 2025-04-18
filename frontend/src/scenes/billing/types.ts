@@ -12,4 +12,12 @@ export type BillingGaugeItemType = {
     value: number
 }
 
-export type BillingSectionId = 'overview' | 'usage'
+export type BillingSectionId =
+    | 'overview'
+    | 'usage'
+    | 'usage2'
+    | 'usage3'
+    | 'usage4'
+    | 'usage5'
+    | 'licenses'
+    | 'invoices'

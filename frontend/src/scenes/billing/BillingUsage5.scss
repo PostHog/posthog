@@ -1,0 +1,42 @@
+@import '../../styles/mixins';
+
+// Basic styling for the color dot
+.series-color-dot {
+    display: inline-block;
+    width: 0.75rem;
+    height: 0.75rem;
+    margin-right: 0.5rem;
+    border-radius: 9999px;
+}
+
+// Define colors for the series dots
+.series-color-dot-0 {
+    background-color: var(--data-color-1);
+}
+.series-color-dot-1 {
+    background-color: var(--data-color-2);
+}
+.series-color-dot-2 {
+    background-color: var(--data-color-3);
+}
+.series-color-dot-3 {
+    background-color: var(--data-color-4);
+}
+.series-color-dot-4 {
+    background-color: var(--data-color-5);
+}
+.series-color-dot-5 {
+    background-color: var(--data-color-6);
+}
+.series-color-dot-6 {
+    background-color: var(--data-color-7);
+}
+.series-color-dot-7 {
+    background-color: var(--data-color-8);
+}
+.series-color-dot-8 {
+    background-color: var(--data-color-9);
+}
+.series-color-dot-9 {
+    background-color: var(--data-color-10);
+}

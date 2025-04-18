@@ -1,7 +1,7 @@
 import './Billing.scss'
 
-import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { LemonTabs } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -10,6 +10,10 @@ import { urls } from 'scenes/urls'
 import { billingLogic } from './billingLogic'
 import { BillingOverview } from './BillingOverview'
 import { BillingUsage } from './BillingUsage'
+import { BillingUsage2 } from './BillingUsage2'
+import { BillingUsage3 } from './BillingUsage3'
+import { BillingUsage4 } from './BillingUsage4'
+import { BillingUsage5 } from './BillingUsage5'
 
 export const scene: SceneExport = {
     component: BillingSection,
@@ -17,46 +21,48 @@ export const scene: SceneExport = {
 }
 
 export function BillingSection(): JSX.Element {
+    const { billingLoading } = useValues(billingLogic)
     const { location } = useValues(router)
-    const { push } = useActions(router)
 
-    const activeSection = location.pathname.endsWith('/usage') ? 'usage' : 'overview'
+    const section = location.pathname.includes('usage5')
+        ? 'usage5'
+        : location.pathname.includes('usage4')
+        ? 'usage4'
+        : location.pathname.includes('usage3')
+        ? 'usage3'
+        : location.pathname.includes('usage2')
+        ? 'usage2'
+        : location.pathname.includes('usage')
+        ? 'usage'
+        : 'overview'
 
     useEffect(() => {
-        if (location.pathname === '/organization/billing') {
-            push(urls.organizationBillingSection('overview'))
+        if (!billingLoading && location.pathname === '/organization/billing') {
+            router.actions.push(urls.organizationBillingSection('overview'))
         }
-    }, [location.pathname])
+    }, [billingLoading, location.pathname])
 
     return (
-        <div className="flex gap-8 items-start mt-0">
-            <div className="sticky top-16 flex-shrink-0 w-1/5 min-w-56 max-w-80 [.SidePanel3000_&]:top-0">
-                <ul className="deprecated-space-y-px">
-                    <li>
-                        <LemonButton
-                            onClick={() => push(urls.organizationBillingSection('overview'))}
-                            active={activeSection === 'overview'}
-                            size="small"
-                            fullWidth
-                        >
-                            Overview
-                        </LemonButton>
-                    </li>
-                    <li>
-                        <LemonButton
-                            onClick={() => push(urls.organizationBillingSection('usage'))}
-                            active={activeSection === 'usage'}
-                            size="small"
-                            fullWidth
-                        >
-                            Usage
-                        </LemonButton>
-                    </li>
-                </ul>
-            </div>
-            <div className="flex-1 w-full deprecated-space-y-2 min-w-0">
-                {activeSection === 'overview' ? <BillingOverview /> : <BillingUsage />}
-            </div>
+        <div className="flex flex-col">
+            <LemonTabs
+                activeKey={section}
+                onChange={(key) => router.actions.push(urls.organizationBillingSection(key))}
+                tabs={[
+                    { key: 'overview', label: 'Overview' },
+                    { key: 'usage', label: 'Usage (LineGraph Insight)' },
+                    { key: 'usage2', label: 'Usage (DataViz)' },
+                    { key: 'usage3', label: 'Usage (LineGraph DataViz)' },
+                    { key: 'usage4', label: 'Usage (Custom)' },
+                    { key: 'usage5', label: 'Usage (Insight)' },
+                ]}
+            />
+
+            {section === 'overview' && <BillingOverview />}
+            {section === 'usage' && <BillingUsage />}
+            {section === 'usage2' && <BillingUsage2 />}
+            {section === 'usage3' && <BillingUsage3 />}
+            {section === 'usage4' && <BillingUsage4 />}
+            {section === 'usage5' && <BillingUsage5 />}
         </div>
     )
 }
