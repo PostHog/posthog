@@ -8,6 +8,7 @@ import {
     DecodedKafkaMessage,
     getProducedKafkaMessages,
     getProducedKafkaMessagesForTopic,
+    getProducedKafkaMessagesWithHeadersForTopic,
     mockProducer,
 } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
@@ -16,10 +17,10 @@ import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql
 import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { HogFunctionType } from '../cdp/types'
+import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
 import { UUIDT } from '../utils/utils'
 import { IngestionConsumer } from './ingestion-consumer'
-
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
 
@@ -45,6 +46,14 @@ jest.mock('../../src/kafka/batch-consumer', () => {
                 consumer: mockConsumer,
             })
         ),
+    }
+})
+
+jest.mock('../utils/posthog', () => {
+    const original = jest.requireActual('../utils/posthog')
+    return {
+        ...original,
+        captureException: jest.fn().mockReturnValue('test-sentry-id-123'),
     }
 })
 
@@ -97,6 +106,7 @@ describe('IngestionConsumer', () => {
     beforeEach(async () => {
         fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
+        jest.spyOn(Date.prototype, 'toISOString').mockReturnValue(fixedTime.toISO()!)
 
         offsetIncrementer = 0
         await resetTestDatabase()
@@ -138,6 +148,48 @@ describe('IngestionConsumer', () => {
             await ingester.handleKafkaBatch(createKafkaMessages([createEvent()]))
 
             expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
+        })
+
+        it('should merge existing kafka_consumer_breadcrumbs in message header with new ones', async () => {
+            const event = createEvent()
+            const messages = createKafkaMessages([event])
+
+            const existingBreadcrumb = {
+                topic: 'previous-topic',
+                offset: 123,
+                partition: 0,
+                processed_at: '2024-01-01T00:00:00.000Z',
+                consumer_id: 'previous-consumer',
+            }
+            messages[0].headers = [
+                {
+                    key: 'kafka-consumer-breadcrumbs',
+                    value: JSON.stringify([existingBreadcrumb]),
+                },
+            ]
+            await ingester.handleKafkaBatch(messages)
+
+            const producedMessages = getProducedKafkaMessagesWithHeadersForTopic('clickhouse_events_json_test')
+            expect(producedMessages.length).toBe(1)
+
+            const headers = producedMessages[0].headers || []
+            const breadcrumbHeader = headers.find((h) => h.key === 'kafka-consumer-breadcrumbs')
+
+            expect(breadcrumbHeader).toBeDefined()
+
+            const parsedBreadcrumbs = parseJSON(breadcrumbHeader?.value.toString() || '')
+            expect(Array.isArray(parsedBreadcrumbs)).toBe(true)
+            expect(parsedBreadcrumbs.length).toBe(2)
+
+            expect(parsedBreadcrumbs[0]).toMatchObject(existingBreadcrumb)
+
+            expect(parsedBreadcrumbs[1]).toMatchObject({
+                topic: 'test',
+                offset: expect.any(Number),
+                partition: expect.any(Number),
+                processed_at: fixedTime.toISO()!,
+                consumer_id: ingester['groupId'],
+            })
         })
 
         describe('overflow', () => {
