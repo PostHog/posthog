@@ -122,10 +122,8 @@ impl HealthHandle {
         if let Ok(h) = runtime::Handle::try_current() {
             let m = self.clone();
             h.spawn(async move { m.report_status(message.status).await });
-        } else {
-            if let Err(err) = self.sender.blocking_send(message) {
-                warn!("failed to report heath status: {}", err)
-            }
+        } else if let Err(err) = self.sender.blocking_send(message) {
+            warn!("failed to report heath status: {}", err)
         }
     }
 }
