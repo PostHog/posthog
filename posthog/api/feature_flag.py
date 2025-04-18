@@ -925,8 +925,7 @@ class FeatureFlagViewSet(
                     team__project_id=self.project_id,
                     deleted=False,
                 )
-                flags_count = feature_flags.count()
-                logger.info("Retrieved feature flags", extra={"flags_count": flags_count})
+                logger.info("Retrieved feature flags", extra={"flags_count": len(feature_flags)})
             except Exception as e:
                 logger.error("Error fetching feature flags", exc_info=True)
                 capture_exception(e)
