@@ -31,7 +31,6 @@ const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
 export const RevenueGrowthRateTile = (): JSX.Element => {
     const { baseCurrency } = useValues(revenueEventsSettingsLogic)
 
-    // TODO: Don't render this in case we're not looking at monthly intervals
     const { queries, growthRateDisplayMode, disabledGrowthModeSelection } = useValues(revenueAnalyticsLogic)
     const { setGrowthRateDisplayMode } = useActions(revenueAnalyticsLogic)
 
