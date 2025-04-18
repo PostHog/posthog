@@ -6,6 +6,7 @@ const commonColors = {
     'current': 'currentColor',
     'transparent': 'transparent',
     'accent': 'var(--accent)',
+    'accent-inverted': 'var(--accent-inverted)',
     'accent-hover': 'var(--accent-hover)',
     'accent-active': 'var(--accent-active)',
     'accent-highlight-primary': 'var(--accent-highlight-primary)',
