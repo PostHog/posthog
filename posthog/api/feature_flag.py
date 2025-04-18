@@ -934,7 +934,6 @@ class FeatureFlagViewSet(
                         "type": "server_error",
                         "code": "feature_flags_fetch_failed",
                         "detail": "Error fetching feature flags",
-                        "error": str(e),
                     },
                     status=500,
                 )
@@ -960,7 +959,6 @@ class FeatureFlagViewSet(
                             "type": "server_error",
                             "code": "cohorts_fetch_failed",
                             "detail": "Error fetching cohorts",
-                            "error": str(e),
                         },
                         status=500,
                     )
@@ -1069,7 +1067,6 @@ class FeatureFlagViewSet(
                         "type": "server_error",
                         "code": "serialization_failed",
                         "detail": "Error preparing response",
-                        "error": str(e),
                     },
                     status=500,
                 )
@@ -1083,7 +1080,6 @@ class FeatureFlagViewSet(
                     "type": "server_error",
                     "code": "unexpected_error",
                     "detail": "An unexpected error occurred",
-                    "error": str(e),
                 },
                 status=500,
             )
