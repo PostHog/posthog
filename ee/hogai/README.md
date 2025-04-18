@@ -6,9 +6,9 @@ This directory contains the PostHog AI platform and its core features - known as
 
 Add new capabilities to our AI assistant Max using the MaxTool API. You can allow Max to do anything in your product: both perform backend actions and control the UI. A tool can itself involve an LLM call based on a prompt tailored to the tool's task, using arguments provided to the tool by the Max root + context passed from the frontend.
 
-To implement a MaxTool you first define it in the backend, then you mount it in the frontend.
+To implement a MaxTool you first define it in the backend, then you mount it in the frontend. The backend definition contains the tool's metadata for Max (what is it, how to use it, when to use it, what arguments it takes) and its actual implementation. The frontend React mount point makes the tool available to Max - i.e. the tool is only available when the UI being automated is present.
 
-The backend definition contains the tool's metadata for Max (what is it, how to use it, when to use it, what arguments it takes) and its actual implementation. The frontend React mount point makes the tool available to Max - i.e. the tool is only available when the UI being automated is present.
+You'll need to set env vars OPENAI_API_KEY and ANTHROPIC_API_KEY in order to hack on this – just ask in #team-max-ai to get those API keys.
 
 > [!NOTE]
 > Max AI is currently behind the `artificial-hog` flag - make sure to enable it.
