@@ -13,7 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { AvailableFeature } from '~/types'
 
-import { hasLegacySharedMetrics } from '../utils'
+import { isLegacySharedMetric } from '../utils'
 import { SharedMetric } from './sharedMetricLogic'
 import { sharedMetricsLogic } from './sharedMetricsLogic'
 export const scene: SceneExport = {
@@ -37,7 +37,7 @@ export function SharedMetrics(): JSX.Element {
                         title={
                             <>
                                 {stringWithWBR(sharedMetric.name, 17)}
-                                {showLegacyBadge && hasLegacySharedMetrics(sharedMetric) && (
+                                {showLegacyBadge && isLegacySharedMetric(sharedMetric) && (
                                     <LemonTag type="warning" className="ml-1">
                                         Legacy
                                     </LemonTag>

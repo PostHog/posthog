@@ -679,8 +679,8 @@ export const isLegacyExperimentQuery = (query: unknown): query is ExperimentTren
     )
 }
 
-export function hasLegacyMetrics(experiment: Experiment): boolean {
-    const allMetrics = [...experiment.metrics, ...experiment.metrics_secondary, ...experiment.saved_metrics]
+export const isLegacyExperiment = ({ metrics, metrics_secondary, saved_metrics }: Experiment): boolean => {
+    const allMetrics = [...metrics, ...metrics_secondary, ...saved_metrics]
     /**
      * The legacy query runner uses ExperimentTrendsQuery and ExperimentFunnelsQuery
      * to run experiments.
@@ -690,6 +690,4 @@ export function hasLegacyMetrics(experiment: Experiment): boolean {
     return allMetrics.some(isLegacyExperimentQuery)
 }
 
-export function hasLegacySharedMetrics(sharedMetric: SharedMetric): boolean {
-    return isLegacyExperimentQuery(sharedMetric.query)
-}
+export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLegacyExperimentQuery(query)

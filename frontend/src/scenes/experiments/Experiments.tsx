@@ -26,7 +26,7 @@ import { experimentsLogic, getExperimentStatus } from './experimentsLogic'
 import { StatusTag } from './ExperimentView/components'
 import { Holdouts } from './Holdouts'
 import { SharedMetrics } from './SharedMetrics/SharedMetrics'
-import { hasLegacyMetrics } from './utils'
+import { isLegacyExperiment } from './utils'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -76,7 +76,7 @@ export function Experiments(): JSX.Element {
                         title={
                             <>
                                 {stringWithWBR(experiment.name, 17)}
-                                {showLegacyBadge && hasLegacyMetrics(experiment) && (
+                                {showLegacyBadge && isLegacyExperiment(experiment) && (
                                     <LemonTag type="warning" className="ml-1">
                                         Legacy
                                     </LemonTag>

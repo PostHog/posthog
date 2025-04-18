@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
-import { hasLegacySharedMetrics } from '../utils'
+import { isLegacySharedMetric } from '../utils'
 import type { SharedMetric } from './sharedMetricLogic'
 import type { sharedMetricsLogicType } from './sharedMetricsLogicType'
 
@@ -76,7 +76,7 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
                  * that use the NEW query runner.
                  * This covers the case when the feature was disabled after creating new experiments.
                  */
-                return sharedMetrics.some((sharedMetric) => !hasLegacySharedMetrics(sharedMetric))
+                return sharedMetrics.some((sharedMetric) => !isLegacySharedMetric(sharedMetric))
             },
         ],
     })),

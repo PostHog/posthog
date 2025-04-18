@@ -37,9 +37,9 @@ import {
     filterToExposureConfig,
     filterToMetricConfig,
     getViewRecordingFilters,
-    hasLegacyMetrics,
-    hasLegacySharedMetrics,
+    isLegacyExperiment,
     isLegacyExperimentQuery,
+    isLegacySharedMetric,
     metricToFilter,
     metricToQuery,
     percentageDistribution,
@@ -928,7 +928,7 @@ describe('hasLegacyMetrics', () => {
             saved_metrics: [],
         } as unknown as Experiment
 
-        expect(hasLegacyMetrics(experiment)).toBe(true)
+        expect(isLegacyExperiment(experiment)).toBe(true)
     })
 
     it('returns true if experiment has legacy secondary metrics', () => {
@@ -944,7 +944,7 @@ describe('hasLegacyMetrics', () => {
             saved_metrics: [],
         } as unknown as Experiment
 
-        expect(hasLegacyMetrics(experiment)).toBe(true)
+        expect(isLegacyExperiment(experiment)).toBe(true)
     })
 
     it('returns true if experiment has legacy saved metrics', () => {
@@ -960,7 +960,7 @@ describe('hasLegacyMetrics', () => {
             ],
         } as unknown as Experiment
 
-        expect(hasLegacyMetrics(experiment)).toBe(true)
+        expect(isLegacyExperiment(experiment)).toBe(true)
     })
 
     it('returns false if experiment has no legacy metrics', () => {
@@ -977,7 +977,7 @@ describe('hasLegacyMetrics', () => {
             saved_metrics: [],
         } as unknown as Experiment
 
-        expect(hasLegacyMetrics(experiment)).toBe(false)
+        expect(isLegacyExperiment(experiment)).toBe(false)
     })
 
     it('returns false if experiment has no metrics', () => {
@@ -988,7 +988,7 @@ describe('hasLegacyMetrics', () => {
             saved_metrics: [],
         } as unknown as Experiment
 
-        expect(hasLegacyMetrics(experiment)).toBe(false)
+        expect(isLegacyExperiment(experiment)).toBe(false)
     })
 })
 
@@ -1001,7 +1001,7 @@ describe('hasLegacySharedMetrics', () => {
             },
         } as unknown as SharedMetric
 
-        expect(hasLegacySharedMetrics(sharedMetric)).toBe(true)
+        expect(isLegacySharedMetric(sharedMetric)).toBe(true)
     })
 
     it('returns false if shared metrics contain no legacy queries', () => {
@@ -1013,10 +1013,10 @@ describe('hasLegacySharedMetrics', () => {
             },
         } as unknown as SharedMetric
 
-        expect(hasLegacySharedMetrics(sharedMetric)).toBe(false)
+        expect(isLegacySharedMetric(sharedMetric)).toBe(false)
     })
 
     it('returns false for empty shared metrics array', () => {
-        expect(hasLegacySharedMetrics({} as SharedMetric)).toBe(false)
+        expect(isLegacySharedMetric({} as SharedMetric)).toBe(false)
     })
 })

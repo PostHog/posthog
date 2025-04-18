@@ -14,7 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
-import { hasLegacyMetrics } from './utils'
+import { isLegacyExperiment } from './utils'
 
 export function getExperimentStatus(experiment: Experiment): ProgressStatus {
     if (!experiment.start_date) {
@@ -195,7 +195,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                  * that use the NEW query runner.
                  * This covers the case when the feature was disabled after creating new experiments.
                  */
-                return experiments.some((experiment) => !hasLegacyMetrics(experiment))
+                return experiments.some((experiment) => !isLegacyExperiment(experiment))
             },
         ],
     })),
