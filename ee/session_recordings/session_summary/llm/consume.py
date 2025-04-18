@@ -4,8 +4,8 @@ from typing import Any
 from jsonschema import ValidationError
 import openai
 import structlog
-from ee.session_recordings.ai.llm.call import stream_llm
-from ee.session_recordings.ai.output_data import (
+from ee.session_recordings.session_summary.llm.call import stream_llm
+from ee.session_recordings.session_summary.output_data import (
     enrich_raw_session_summary_with_events_meta,
     load_raw_session_summary_from_llm_content,
 )
@@ -71,7 +71,7 @@ def _serialize_to_sse_event(event_label: str, event_data: str) -> str:
     return f"event: {event_label}\ndata: {event_data}\n\n"
 
 
-def _convert_llm_content_to_session_summary_stream_event(
+def _convert_llm_content_to_session_summary_json(
     content: str,
     allowed_event_ids: list[str],
     session_id: str,
@@ -80,6 +80,8 @@ def _convert_llm_content_to_session_summary_stream_event(
     url_mapping_reversed: dict[str, str],
     window_mapping_reversed: dict[str, str],
     session_start_time: datetime,
+    summary_prompt: str,
+    final_validation: bool = False,
 ) -> str | None:
     # Try to parse the accumulated text as YAML
     raw_session_summary = load_raw_session_summary_from_llm_content(
@@ -99,11 +101,17 @@ def _convert_llm_content_to_session_summary_stream_event(
         session_start_time=session_start_time,
         session_id=session_id,
     )
-    # If parsing succeeds, yield the new chunk
-    sse_event_to_send = _serialize_to_sse_event(
-        event_label="session-summary-stream", event_data=json.dumps(session_summary.data)
-    )
-    return sse_event_to_send
+    # TODO: Remove after testing
+    # Track generation for history of experiments
+    if final_validation:
+        _track_session_summary_generation(
+            summary_prompt=summary_prompt,
+            raw_session_summary=json.dumps(raw_session_summary.data, indent=4),
+            session_summary=json.dumps(session_summary.data, indent=4),
+            # TODO: Store in env? Production won't have it set, so no saving will happen
+            results_base_dir_path="/Users/woutut/Documents/Code/posthog/playground/identify-objectives-experiments",
+        )
+    return json.dumps(session_summary.data)
 
 
 @retry(
@@ -139,7 +147,7 @@ def stream_llm_session_summary(
                 continue
             accumulated_content += raw_content
             try:
-                intermediate_summary = _convert_llm_content_to_session_summary_stream_event(
+                intermediate_summary = _convert_llm_content_to_session_summary_json(
                     content=accumulated_content,
                     allowed_event_ids=allowed_event_ids,
                     session_id=session_id,
@@ -148,10 +156,15 @@ def stream_llm_session_summary(
                     url_mapping_reversed=url_mapping_reversed,
                     window_mapping_reversed=window_mapping_reversed,
                     session_start_time=session_start_time,
+                    summary_prompt=summary_prompt,
                 )
                 if not intermediate_summary:
                     continue
-                yield intermediate_summary
+                # If parsing succeeds, yield the new chunk
+                sse_event_to_send = _serialize_to_sse_event(
+                    event_label="session-summary-stream", event_data=intermediate_summary
+                )
+                yield sse_event_to_send
             except ValidationError:
                 # We can except incorrect schemas because of incomplete chunks, ok to skip some.
                 # The stream should be retried only at the very end, when we have all the data.
@@ -170,7 +183,7 @@ def stream_llm_session_summary(
     try:
         if accumulated_usage:
             TOKENS_IN_PROMPT_HISTOGRAM.observe(accumulated_usage)
-        final_summary = _convert_llm_content_to_session_summary_stream_event(
+        final_summary = _convert_llm_content_to_session_summary_json(
             content=accumulated_content,
             allowed_event_ids=allowed_event_ids,
             session_id=session_id,
@@ -179,13 +192,46 @@ def stream_llm_session_summary(
             url_mapping_reversed=url_mapping_reversed,
             window_mapping_reversed=window_mapping_reversed,
             session_start_time=session_start_time,
+            summary_prompt=summary_prompt,
+            final_validation=True,
         )
         if not final_summary:
             logger.exception(f"Final LLM content validation failed for session_id {session_id}")
             raise ValueError("Final content validation failed")
-        # Yield the final validated summary
-        yield final_summary
+
+        # If parsing succeeds, yield the final validated summary
+        sse_event_to_send = _serialize_to_sse_event(event_label="session-summary-stream", event_data=final_summary)
+        yield sse_event_to_send
     # At this stage, when all the chunks are processed, any exception should be retried to ensure valid final content
     except (ValidationError, ValueError) as err:
         logger.exception(f"Failed to validate final LLM content for session_id {session_id}: {str(err)}")
         raise ExceptionToRetry()
+
+
+def _track_session_summary_generation(
+    summary_prompt: str, raw_session_summary: str, session_summary: str, results_base_dir_path: str
+) -> None:
+    from pathlib import Path
+
+    # Count how many child directories there are in the results_base_dir
+    child_dirs = [d for d in Path(results_base_dir_path).iterdir() if d.is_dir()]
+    datetime_marker = f"{len(child_dirs)}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+    current_experiment_dir = Path(results_base_dir_path) / datetime_marker
+    current_experiment_dir.mkdir(parents=True, exist_ok=True)
+    # Store the prompt and response for results tracking
+    with open(current_experiment_dir / f"prompt_{datetime_marker}.txt", "w") as f:
+        f.write(summary_prompt)
+    with open(current_experiment_dir / f"response_{datetime_marker}.yml", "w") as f:
+        f.write(raw_session_summary)
+    with open(current_experiment_dir / f"enriched_response_{datetime_marker}.yml", "w") as f:
+        f.write(session_summary)
+    template_dir = Path(__file__).parent.parent / "templates" / "identify-objectives"
+    with open(template_dir / "prompt.djt") as fr:
+        with open(current_experiment_dir / f"prompt_template_{datetime_marker}.txt", "w") as fw:
+            fw.write(fr.read())
+    with open(template_dir / "system-prompt.djt") as fr:
+        with open(current_experiment_dir / f"system_prompt_{datetime_marker}.txt", "w") as fw:
+            fw.write(fr.read())
+    with open(template_dir / "example.yml") as fr:
+        with open(current_experiment_dir / f"example_{datetime_marker}.yml", "w") as fw:
+            fw.write(fr.read())
