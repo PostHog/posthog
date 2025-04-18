@@ -43,9 +43,13 @@ def get_session_replay_events(
             argMinMerge(snapshot_source) as snapshot_source,
             argMinMerge(snapshot_library) as snapshot_library
             {block_fields}
-        FROM {table}
-        WHERE min_first_timestamp >= toDateTime(%(started_after)s) - INTERVAL %(timestamp_leeway)s SECOND
-        AND max_last_timestamp <= toDateTime(%(started_before)s) + INTERVAL {session_length_limit_seconds} SECOND + INTERVAL %(timestamp_leeway)s SECOND
+        FROM (
+            SELECT *
+            FROM {table}
+            WHERE min_first_timestamp >= toDateTime(%(started_after)s) - INTERVAL %(timestamp_leeway)s SECOND
+            AND max_last_timestamp <= toDateTime(%(started_before)s) + INTERVAL {session_length_limit_seconds} SECOND + INTERVAL %(timestamp_leeway)s SECOND
+            ORDER BY min_first_timestamp ASC
+        )
         GROUP BY
             session_id,
             team_id
