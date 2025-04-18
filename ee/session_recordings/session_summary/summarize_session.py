@@ -110,33 +110,6 @@ class ReplaySummarizer(BaseReplaySummarizer):
             system_prompt=system_prompt,
         )
         return session_summary_generator
-        # # Store the results on success
-        # results_base_dir = "/Users/woutut/Documents/Code/posthog/playground/identify-objectives-experiments"
-        # # Count how many child directories there are in the results_base_dir
-        # child_dirs = [d for d in Path(results_base_dir).iterdir() if d.is_dir()]
-        # datetime_marker = f"{len(child_dirs)}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
-        # current_experiment_dir = Path(results_base_dir) / datetime_marker
-        # current_experiment_dir.mkdir(parents=True, exist_ok=True)
-
-        # # Store the prompt and response for results tracking
-        # with open(current_experiment_dir / f"prompt_{datetime_marker}.txt", "w") as f:
-        #     f.write(summary_prompt)
-        # with open(current_experiment_dir / f"response_{datetime_marker}.yml", "w") as f:
-        #     f.write(json.dumps(raw_session_summary.data, indent=4))
-        # with open(current_experiment_dir / f"enriched_response_{datetime_marker}.yml", "w") as f:
-        #     f.write(json.dumps(session_summary.data, indent=4))
-        # with open(current_experiment_dir / f"timings_{datetime_marker}.json", "w") as fw:
-        #     fw.write(json.dumps(timer.get_all_timings(), indent=4))
-        # template_dir = Path(__file__).parent / "templates" / "identify-objectives"
-        # with open(template_dir / "prompt.djt") as fr:
-        #     with open(current_experiment_dir / f"prompt_template_{datetime_marker}.txt", "w") as fw:
-        #         fw.write(fr.read())
-        # with open(template_dir / "system-prompt.djt") as fr:
-        #     with open(current_experiment_dir / f"system_prompt_{datetime_marker}.txt", "w") as fw:
-        #         fw.write(fr.read())
-        # with open(template_dir / "example.yml") as fr:
-        #     with open(current_experiment_dir / f"example_{datetime_marker}.yml", "w") as fw:
-        #         fw.write(fr.read())
 
         # TODO: Calculate tag/error stats for the session manually
         # to use it later for grouping/suggesting (and showing overall stats)
