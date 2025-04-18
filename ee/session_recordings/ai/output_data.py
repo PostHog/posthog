@@ -54,6 +54,16 @@ class ObjectiveSerializer(serializers.Serializer):
 
     name = serializers.CharField(min_length=1, max_length=256, required=False, allow_null=True)
     summary = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
+    success = serializers.BooleanField(required=False, allow_null=True)
+
+
+class OutcomeSerializer(serializers.Serializer):
+    """
+    Initial goal and session outcome coming from LLM.
+    """
+
+    description = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
+    success = serializers.BooleanField(required=False, allow_null=True)
 
 
 class RawSessionSummarySerializer(serializers.Serializer):
@@ -65,8 +75,8 @@ class RawSessionSummarySerializer(serializers.Serializer):
     key_actions = serializers.ListField(
         child=RawObjectiveKeyActionsSerializer(), required=False, allow_empty=True, allow_null=True
     )
-    initial_goal = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
-    session_outcome = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
+    initial_goal = OutcomeSerializer(required=False, allow_null=True)
+    session_outcome = OutcomeSerializer(required=False, allow_null=True)
 
 
 class SessionSummarySerializer(serializers.Serializer):
@@ -78,8 +88,8 @@ class SessionSummarySerializer(serializers.Serializer):
     key_actions = serializers.ListField(
         child=EnrichedObjectiveKeyActionsSerializer(), required=False, allow_empty=True, allow_null=True
     )
-    initial_goal = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
-    session_outcome = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
+    initial_goal = OutcomeSerializer(required=False, allow_null=True)
+    session_outcome = OutcomeSerializer(required=False, allow_null=True)
 
 
 def load_raw_session_summary_from_llm_content(
