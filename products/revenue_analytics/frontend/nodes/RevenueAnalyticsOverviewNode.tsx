@@ -21,7 +21,6 @@ import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 
 const NUM_SKELETONS = 3
 const HEIGHT_CLASS = 'h-30'
-const REVENUE_CONTAINER_CLASS = 'col-span-3'
 
 let uniqueNode = 0
 export function RevenueAnalyticsOverviewNode(props: {
@@ -46,12 +45,17 @@ export function RevenueAnalyticsOverviewNode(props: {
     const results = responseLoading ? range(NUM_SKELETONS).map(() => undefined) : queryResponse?.results ?? []
 
     return (
-        <div className="grid auto-cols-fr grid-flow-col w-full gap-2">
-            {results.map((item, index) => (
-                <div key={item?.key ?? index} className={cn(HEIGHT_CLASS, { [REVENUE_CONTAINER_CLASS]: index === 0 })}>
-                    <ItemCell item={item} />
-                </div>
-            ))}
+        <div className="flex flex-row flex-wrap md:flex-nowrap w-full gap-2">
+            <div className={cn(HEIGHT_CLASS, 'w-full md:flex-2 md:w-auto md:max-w-[60%]')}>
+                <ItemCell item={results[0]} />
+            </div>
+            <div className="flex flex-row gap-2 flex-1 flex-wrap md:flex-nowrap">
+                {results.slice(1).map((item, index) => (
+                    <div key={item?.key ?? index} className={cn(HEIGHT_CLASS, 'flex-1 min-w-[200px]')}>
+                        <ItemCell item={item} />
+                    </div>
+                ))}
+            </div>
         </div>
     )
 }
