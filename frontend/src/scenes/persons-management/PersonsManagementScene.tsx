@@ -19,6 +19,7 @@ export function PersonsManagementScene(): JSX.Element {
         key: tab.key,
         label: <span data-attr={`persons-management-${tab.key}-tab`}>{tab.label}</span>,
         content: tab.content,
+        tooltipDocLink: tab.tooltipDocLink,
     }))
 
     return (
