@@ -50,6 +50,7 @@ function SessionObjectiveView({ objective, keyActions, onSeekToTime }: SessionOb
                 <h3 className="mb-0">{objective.name}</h3>
                 <br />
                 <p>{objective.summary}</p>
+                <p>Success: {objective.success ? 'Yes' : 'No'}</p>
             </LemonRow>
 
             {keyActions?.map((keyAction) =>
@@ -109,12 +110,16 @@ function SessionSummary(): JSX.Element {
                             <LemonBanner className="mb-3" type="info" action={undefined} onClose={undefined}>
                                 {sessionSummary.initial_goal ? (
                                     <div className="text-sm break-words py-1 px-1 font-normal">
-                                        <b>Initial goal:</b> {sessionSummary.initial_goal}
+                                        <b>Initial goal:</b> {sessionSummary.initial_goal.description}
+                                        <br />
+                                        Success: {sessionSummary.initial_goal.success ? 'Yes' : 'No'}
                                     </div>
                                 ) : null}
                                 {sessionSummary.session_outcome ? (
                                     <div className="text-sm break-words py-1 px-1 font-normal">
-                                        <b>Session outcome:</b> {sessionSummary.session_outcome}
+                                        <b>Session outcome:</b> {sessionSummary.session_outcome.description}
+                                        <br />
+                                        Success: {sessionSummary.session_outcome.success ? 'Yes' : 'No'}
                                     </div>
                                 ) : null}
                             </LemonBanner>

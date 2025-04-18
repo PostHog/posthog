@@ -19,11 +19,17 @@ export interface SessionObjectiveKeyActions {
 export interface SessionObjective {
     name?: string | null
     summary?: string | null
+    success?: boolean | null
+}
+
+export interface SessionOutcome {
+    description?: string | null
+    success?: boolean | null
 }
 
 export interface SessionSummaryContent {
     objectives?: SessionObjective[] | null
     key_actions?: SessionObjectiveKeyActions[] | null
-    initial_goal?: string | null
-    session_outcome?: string | null
+    initial_goal?: SessionOutcome | null
+    session_outcome?: SessionOutcome | null
 }
