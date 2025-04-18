@@ -65,6 +65,9 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
             ]
             if not is_monthly_grouping
             else [],
+            # Limit by month again to limit too many rows if we're spanning more than one month
+            # but still grouping them because we're using the sum of the amount
+            limit_by=ast.LimitByExpr(n=ast.Constant(value=20), exprs=[ast.Field(chain=["month"])]),
         )
 
         return base_query
@@ -108,8 +111,8 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
             select_from=ast.JoinExpr(table=charge_subquery),
             group_by=[ast.Field(chain=["customer_id"]), ast.Field(chain=["month"])],
             where=self.timestamp_where_clause(),
-            # Top 30 by month only to avoid too many rows
-            limit_by=ast.LimitByExpr(n=ast.Constant(value=30), exprs=[ast.Field(chain=["month"])]),
+            # Top 20 by month only to avoid too many rows
+            limit_by=ast.LimitByExpr(n=ast.Constant(value=20), exprs=[ast.Field(chain=["month"])]),
         )
 
     def calculate(self):
