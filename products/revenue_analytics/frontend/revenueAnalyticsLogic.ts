@@ -64,7 +64,7 @@ const wrapWithDataTableNodeIfNeeded = (
     }
 }
 
-type LineOrTableChart = 'line' | 'table'
+export type LineOrTableChart = 'line' | 'table'
 
 export const revenueAnalyticsLogic = kea<revenueAnalyticsLogicType>([
     path(['products', 'revenueAnalytics', 'frontend', 'revenueAnalyticsLogic']),
