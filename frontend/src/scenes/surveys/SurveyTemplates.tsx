@@ -1,14 +1,15 @@
 import './SurveyTemplates.scss'
 
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { PageHeader } from 'lib/components/PageHeader'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { Survey } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Survey } from '~/types'
 
 import { defaultSurveyAppearance, defaultSurveyTemplates, errorTrackingSurvey } from './constants'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
@@ -34,9 +35,16 @@ export function SurveyTemplates(): JSX.Element {
         <>
             <PageHeader
                 buttons={
-                    <LemonButton type="primary" to={urls.survey('new')} data-attr="new-blank-survey">
+                    <AccessControlledLemonButton
+                        type="primary"
+                        to={urls.survey('new')}
+                        data-attr="new-blank-survey"
+                        resourceType={AccessControlResourceType.Survey}
+                        minAccessLevel={AccessControlLevel.Editor}
+                        userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.Survey]}
+                    >
                         Create blank survey
-                    </LemonButton>
+                    </AccessControlledLemonButton>
                 }
             />
             <div className="flex flex-row flex-wrap gap-8 mt-8">
