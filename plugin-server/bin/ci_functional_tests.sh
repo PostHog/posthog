@@ -17,6 +17,7 @@ export PLUGINS_DEFAULT_LOG_LEVEL=0      # All logs, as debug logs are used in sy
 export NODE_ENV=production-functional-tests
 export PLUGIN_SERVER_MODE=functional-tests # running all capabilities is too slow
 export DATABASE_URL='postgres://posthog:posthog@localhost:5432/posthog'
+export PERSONS_DATABASE_URL='postgres://posthog:posthog@localhost:5432/posthog'
 # Not important at all, but I like to see nice red/green for tests
 export FORCE_COLOR=true
 export ENCRYPTION_SALT_KEYS='00beef0000beef0000beef0000beef00'

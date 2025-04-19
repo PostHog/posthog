@@ -14,6 +14,8 @@ export enum PostgresUse {
     COMMON_READ, // Read replica on the common tables, uses need to account for possible replication delay
     COMMON_WRITE, // Main PG master with common tables, we need to move as many queries away from it as possible
     PLUGIN_STORAGE_RW, // Plugin Storage table, no read replica for it
+    PERSONS_READ, // Person database, read replica
+    PERSONS_WRITE, // Person database, write
 }
 
 export class TransactionClient {
@@ -44,6 +46,8 @@ export class PostgresRouter {
             [PostgresUse.COMMON_WRITE, commonClient],
             [PostgresUse.COMMON_READ, commonClient],
             [PostgresUse.PLUGIN_STORAGE_RW, commonClient],
+            [PostgresUse.PERSONS_WRITE, commonClient],
+            [PostgresUse.PERSONS_READ, commonClient],
         ])
 
         if (serverConfig.DATABASE_READONLY_URL) {
@@ -69,6 +73,29 @@ export class PostgresRouter {
                 )
             )
             logger.info('👍', `Plugin-storage Postgresql ready`)
+        }
+        if (serverConfig.PERSONS_DATABASE_URL) {
+            logger.info('🤔', `Connecting to persons Postgresql...`)
+            this.pools.set(
+                PostgresUse.PERSONS_WRITE,
+                createPostgresPool(
+                    serverConfig.PERSONS_DATABASE_URL,
+                    serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
+                    app_name
+                )
+            )
+            logger.info('👍', `Persons Postgresql ready`)
+        }
+        if (serverConfig.PERSONS_READONLY_DATABASE_URL) {
+            logger.info('🤔', `Connecting to persons read-only Postgresql...`)
+            this.pools.set(
+                PostgresUse.PERSONS_READ,
+                createPostgresPool(
+                    serverConfig.PERSONS_READONLY_DATABASE_URL,
+                    serverConfig.POSTGRES_CONNECTION_POOL_SIZE,
+                    app_name
+                )
+            )
         }
     }
 
