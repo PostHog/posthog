@@ -50,14 +50,16 @@ def load_additional_event_context_from_elements_chain(
 ) -> list[tuple[str | datetime, ...]]:
     chain_index = get_column_index(session_events_columns, "elements_chain")
     chain_texts_index = get_column_index(session_events_columns, "elements_chain_texts")
-    # chain_elements_index = get_column_index(session_events_columns, "elements_chain_elements")
+    chain_elements_index = get_column_index(session_events_columns, "elements_chain_elements")
     # chain_ids_index = get_column_index(session_events_columns, "elements_chain_ids")
     updated_events = []
+
+    # TODO: Filter and improve in the same loop to avoid multiple passes?
     for event in session_events:
         updated_event = list(event)
         chain = event[chain_index]
-        improved_chain_texts = _get_improved_elements_chain_texts(chain, event[chain_texts_index])
-        updated_event[chain_texts_index] = improved_chain_texts
+        updated_event[chain_texts_index] = _get_improved_elements_chain_texts(chain, event[chain_texts_index])
+        updated_event[chain_elements_index] = _get_improved_elements_chain_elements(chain, event[chain_elements_index])
         updated_events.append(tuple(updated_event))
     return updated_events
 
@@ -68,6 +70,9 @@ def _filter_repeated_elements(elements: list[str]) -> list[str]:
 
 
 def _get_improved_elements_chain_texts(elements_chain: str, current_texts: list[str]) -> list[str]:
+    """
+    Get additional text from element chain (instead of default "text") for better context
+    """
     raw_texts = re.findall(r'(?::|\")(?:text|attr__aria-label)="\"?(.*?)\"?"', elements_chain)
     texts = _filter_repeated_elements(raw_texts)
     if not texts and not current_texts:
@@ -76,3 +81,32 @@ def _get_improved_elements_chain_texts(elements_chain: str, current_texts: list[
     if len(current_texts) > len(texts):
         return current_texts
     return texts
+
+
+def _get_improved_elements_chain_elements(elements_chain: str, current_elements: list[str]) -> list[str]:
+    """
+    Attach type to elements (if found) for better context
+    """
+    raw_updated_elements = []
+    raw_element_blocks = re.findall(
+        r"(?:^|;)(a|button|form|input|select|textarea|label)\.?(.*?)(?:$|;)", elements_chain
+    )
+    for element, context in raw_element_blocks:
+        element_type = re.findall(r'(?::|\")attr__type="\"?(.*?)\"?"', context)
+        # If no type found
+        if not element_type:
+            raw_updated_elements.append(element)
+            continue
+        # Button type doesn't add any new context
+        if element_type[0] == "button":
+            raw_updated_elements.append(element)
+            continue
+        raw_updated_elements.append(f'{element}[type="{element_type[0]}"]')
+    # Remove duplicates
+    updated_elements = _filter_repeated_elements(raw_updated_elements)
+    if not updated_elements and not current_elements:
+        return []
+    # If the current elements are longer, avoid modifications, as the goal to have as much context as possible
+    if len(current_elements) > len(updated_elements):
+        return current_elements
+    return updated_elements
