@@ -16,9 +16,9 @@ def load_session_recording_events_from_csv(file_path: str) -> tuple[list[str], l
         "elements_chain_href": {"regex": r"elements_chain_href", "indexes": [], "multi_column": False},
         "elements_chain_texts": {"regex": r"elements_chain_texts\.\d+", "indexes": [], "multi_column": True},
         "elements_chain_elements": {"regex": r"elements_chain_elements\.\d+", "indexes": [], "multi_column": True},
-        "$window_id": {"regex": r"properties\.\$window_id", "indexes": [], "multi_column": False},
-        "$current_url": {"regex": r"properties\.\$current_url", "indexes": [], "multi_column": False},
-        "$event_type": {"regex": r"properties\.\$event_type", "indexes": [], "multi_column": False},
+        "properties.$window_id": {"regex": r"properties\.\$window_id", "indexes": [], "multi_column": False},
+        "properties.$current_url": {"regex": r"properties\.\$current_url", "indexes": [], "multi_column": False},
+        "properties.$event_type": {"regex": r"properties\.\$event_type", "indexes": [], "multi_column": False},
         "elements_chain_ids": {"regex": r"elements_chain_ids\.\d+", "indexes": [], "multi_column": True},
         "elements_chain": {"regex": r"elements_chain", "indexes": [], "multi_column": False},
     }
