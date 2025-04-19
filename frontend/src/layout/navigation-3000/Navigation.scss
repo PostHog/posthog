@@ -150,13 +150,13 @@
             left: 0;
             font-size: 1.25rem;
             line-height: 0.5625rem;
-            color: var(--text-3000);
+            color: var(--text-primary);
             text-align: center;
             content: '•';
         }
 
         .LemonButton__icon {
-            color: var(--text-3000);
+            color: var(--text-primary);
             transform: translateY(-0.25rem);
         }
     }
@@ -193,7 +193,7 @@
         margin: 0;
         overflow: hidden;
         line-height: inherit;
-        color: var(--text-3000);
+        color: var(--text-primary);
         text-overflow: ellipsis;
     }
 
@@ -307,7 +307,7 @@
     }
 
     &::after {
-        background: var(--text-3000);
+        background: var(--text-primary);
         opacity: 0;
         transition: 100ms ease transform;
     }
@@ -581,7 +581,7 @@
     display: flex;
     width: 100%;
     height: 100%;
-    color: var(--text-3000);
+    color: var(--text-primary);
 
     &:focus-visible::after {
         position: absolute;
@@ -634,7 +634,7 @@
         height: 100%;
         padding: 0 calc(var(--sidebar-horizontal-padding) + 2.5rem) 0 var(--sidebar-list-item-inset);
         font-size: 0.75rem;
-        color: var(--text-3000);
+        color: var(--text-primary);
         background: none;
         outline: none;
     }

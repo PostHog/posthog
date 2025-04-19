@@ -543,7 +543,7 @@
     --blue: #597dce;
     --purple: #c278cf;
     --green: var(--success);
-    --black: var(--text-3000);
+    --black: var(--text-primary);
 
     // Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     --data-color-1: #1d4aff;
@@ -687,7 +687,6 @@
     --border-light: rgb(0 0 0 / 8%);
     --border-bold: rgb(0 0 0 / 24%);
     --transparent: transparent;
-    --text-3000-light: #111;
     --text-secondary-3000-light: rgb(17 17 17 / 70%);
     --muted-3000-light: rgb(17 17 17 / 60%);
     --trace-3000-light: rgb(17 17 17 / 25%);
@@ -717,7 +716,6 @@
     --danger-3000-button-border-hover-light: #f54e00;
     --shadow-elevation-3000-light: 0 3px 0 var(--border-3000-light);
     --shadow-elevation-3000-dark: 0 3px 0 var(--border-3000-dark);
-    --text-3000-dark: #fff;
     --text-secondary-3000-dark: rgb(255 255 255 / 70%);
     --muted-3000-dark: rgb(255 255 255 / 50%);
     --trace-3000-dark: rgb(255 255 255 / 25%);
@@ -749,7 +747,6 @@
     --danger-3000-button-border-hover-dark: #f54e00;
 
     // Light mode
-    --text-3000: var(--text-3000-light);
     --text-secondary-3000: var(--text-secondary-3000-light);
     --muted-3000: var(--muted-3000-light);
     --trace-3000: var(--trace-3000-light);
@@ -942,7 +939,6 @@
     --color-graph-crosshair: var(--primitive-neutral-cool-650);
 
     // Deprecated colors (Dark mode)
-    --text-3000: var(--text-3000-dark);
     --text-secondary-3000: var(--text-secondary-3000-dark);
     --muted-3000: var(--muted-3000-dark);
     --trace-3000: var(--trace-3000-dark);
@@ -1023,7 +1019,7 @@
         font-size: 14px;
         font-weight: 400;
         line-height: 1.5715;
-        color: var(--text-3000);
+        color: var(--text-primary);
         color-scheme: light dark;
         touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
         background: var(--bg-primary);
@@ -1113,7 +1109,7 @@
         h2,
         h3,
         h4 {
-            color: var(--text-3000);
+            color: var(--text-primary);
         }
 
         h1 {
@@ -1151,7 +1147,7 @@
         .LemonButton,
         .Link {
             .text-link {
-                color: var(--text-3000) !important;
+                color: var(--text-primary) !important;
             }
 
             &:hover {
@@ -1258,7 +1254,7 @@
         font-size: 0.875rem;
         font-weight: 500;
         line-height: 1.25rem;
-        color: var(--text-3000);
+        color: var(--text-primary);
 
         b,
         strong {
@@ -1328,7 +1324,7 @@
         font-weight: bold;
         line-height: 1rem;
         pointer-events: none;
-        border: 2px solid var(--text-3000);
+        border: 2px solid var(--text-primary);
         border-radius: 50%;
 
         // variants

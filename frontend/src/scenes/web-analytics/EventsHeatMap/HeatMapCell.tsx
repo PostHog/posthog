@@ -21,7 +21,7 @@ export function HeatMapCell({
 }: HeatMapCellProps): JSX.Element {
     const backgroundColorSaturation = maxValue === 0 ? 0 : Math.min(1, value / maxValue)
     const saturatedBackgroundColor = gradateColor(backgroundColor, backgroundColorSaturation, 0.1)
-    const textColor = backgroundColorSaturation > 0.4 ? '#fff' : 'var(--text-3000)'
+    const textColor = backgroundColorSaturation > 0.4 ? '#fff' : 'var(--text-primary)'
 
     const cell = (
         <div

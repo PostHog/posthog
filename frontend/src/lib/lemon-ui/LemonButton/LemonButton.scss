@@ -55,7 +55,7 @@
     --lemon-button-height: 2.3125rem;
     --lemon-button-gap: 0.5rem;
     --lemon-button-icon-opacity: 0.8;
-    --lemon-button-color: var(--text-3000);
+    --lemon-button-color: var(--text-primary);
 
     // column-gap: 4px;
     // flex-direction: row;
@@ -192,7 +192,7 @@
         --button-border-color: var(--primary-3000-button-border);
         --lemon-button-border-color-hover: var(--primary-3000-button-border-hover);
         --lemon-button-frame-bg-color: var(--primary-3000-frame-bg);
-        --lemon-button-color: var(--text-3000-light);
+        --lemon-button-color: var(--text-primary);
 
         &.LemonButton--status-alt {
             --lemon-button-bg-color: var(--primary-3000-frame-bg-light);
@@ -200,7 +200,7 @@
             --button-border-color: var(--primary-3000-button-border);
             --lemon-button-border-color-hover: var(--primary-3000-button-border-hover);
             --lemon-button-frame-bg-color: var(--primary-3000-button-bg-dark);
-            --lemon-button-color: var(--text-3000-light);
+            --lemon-button-color: var(--text-primary);
         }
     }
 
@@ -222,7 +222,7 @@
 
     &.LemonButton--primary.LemonButton--status-danger {
         --lemon-button-bg-color: var(--red-100);
-        --lemon-button-color: var(--text-3000);
+        --lemon-button-color: var(--text-primary);
 
         [theme='dark'] & {
             --lemon-button-bg-color: #312101;
@@ -235,7 +235,7 @@
 
         &.LemonButton--active,
         &:hover:not([aria-disabled='true']) {
-            --lemon-button-color: var(--text-3000);
+            --lemon-button-color: var(--text-primary);
         }
     }
 

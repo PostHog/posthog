@@ -68,7 +68,7 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
                             ? tabToName[result.type]
                             : `${capitalizeFirstLetter(aggregationLabel(result.extra_fields.group_type_index).plural)}`}
                     </span>
-                    <span className="text-text-3000 font-bold">
+                    <span className="text-primary font-bold">
                         <ResultName result={result} />
                     </span>
                 </div>

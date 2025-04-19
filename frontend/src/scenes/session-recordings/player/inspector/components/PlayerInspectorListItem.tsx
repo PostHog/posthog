@@ -122,7 +122,7 @@ function RowItemTitle({
     finalTimestamp: Dayjs | null
 }): JSX.Element {
     return (
-        <div className="flex items-center text-text-3000" data-attr="row-item-title">
+        <div className="flex items-center text-primary" data-attr="row-item-title">
             {item.type === FilterableInspectorListItemTypes.NETWORK ? (
                 <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} />
             ) : item.type === FilterableInspectorListItemTypes.CONSOLE ? (

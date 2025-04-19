@@ -30,7 +30,7 @@ body[theme=dark] {
     --primary-3000: #00FF01;
     --primary-3000-hover: #00FF01;
     --primary-alt-highlight: rgba(0, 255, 1, 0.1);
-    --text-3000: #00FF01;
+    --text-primary: #00FF01;
     --accent-3000: #222;
     --glass-border-3000: rgba(0,0,0,.3);
     --font-title: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
@@ -62,8 +62,7 @@ body[theme=light] {
     --primary-3000: #FF69B4;
     --primary-3000-hover: #FF1493;
     --primary-alt-highlight: rgba(255, 105, 180, 0.1);
-    --text-3000: #ed3993;
-    --text-3000-light: #58003f;
+    --text-primary: #ed3993;
     --accent-3000: #FEBDE2;
     --glass-border-3000: rgba(245, 145, 199, 0.3);
 

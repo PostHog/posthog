@@ -47,7 +47,6 @@ $xxl: 1600px;
 //     'brand-key': #000,
 
 //     // PostHog 3000
-//     'text-3000-light': #111,
 //     'text-secondary-3000-light': rgba(#111, 0.7),
 //     'muted-3000-light': rgba(#111, 0.6),
 //     'trace-3000-light': rgba(#111, 0.25),
@@ -83,7 +82,6 @@ $xxl: 1600px;
 //     'danger-3000-button-border-light': #e96b30,
 //     'danger-3000-button-border-hover-light': #f54e00,
 
-//     'text-3000-dark': #fff,
 //     'text-secondary-3000-dark': rgba(#fff, 0.7),
 //     'muted-3000-dark': rgba(#fff, 0.5),
 //     'trace-3000-dark': rgba(#fff, 0.25),
@@ -124,9 +122,8 @@ $xxl: 1600px;
 //     'shadow-elevation-3000-dark': 0 3px 0 var(--border-3000-dark),
 
 //     // The derived colors
-//     // `--default` is a pre-3000 alias for "default text color" (`--text-3000` now)
+//     // `--default` is a pre-3000 alias for "default text color" (`--text-primary` now)
 //     'default': var(--default),
-//     'text-3000': var(--text-3000),
 //     'text-secondary-3000': var(--text-secondary-3000),
 //     'muted-3000': var(--muted-3000),
 //     'primary-3000': var(--accent),
@@ -168,7 +165,7 @@ $xxl: 1600px;
 //     --blue: #597dce;
 //     --purple: #c278cf;
 //     --green: var(--success);
-//     --black: var(--text-3000);
+//     --black: var(--text-primary);
 
 //     //// Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
 //     --data-color-1: #1d4aff;
@@ -288,7 +285,6 @@ $xxl: 1600px;
 
 // // defined here so that they can be shared with the toolbar
 // @mixin light-mode-3000-variables {
-//     --text-3000: var(--text-3000-light);
 //     --text-secondary-3000: var(--text-secondary-3000-light);
 //     --muted-3000: var(--muted-3000-light);
 //     --trace-3000: var(--trace-3000-light);
@@ -328,7 +324,6 @@ $xxl: 1600px;
 
 // // defined here so that they can be shared with the toolbar
 // @mixin dark-mode-3000-variables {
-//     --text-3000: var(--text-3000-dark);
 //     --text-secondary-3000: var(--text-secondary-3000-dark);
 //     --muted-3000: var(--muted-3000-dark);
 //     --trace-3000: var(--trace-3000-dark);
@@ -377,11 +372,11 @@ $xxl: 1600px;
 // @mixin common-variables {
 //     --primary: var(--primary-3000); // Changed to accent
 //     --muted: var(--muted-3000);
-//     --default: var(--text-3000);
+//     --default: var(--text-primary);
 
 //     // `--muted-alt` can be removed now, as it's the same as `--muted` after the 3000 redesign
 //     --muted-alt: var(--muted-3000);
-//     --primary-alt: var(--text-3000);
+//     --primary-alt: var(--text-primary);
 //     --border: var(--border-primary);
 //     --border-bold: var(--border-bold-3000);
 //     --data-color-1: #1d4aff;

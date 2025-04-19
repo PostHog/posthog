@@ -111,7 +111,7 @@
 
     &.TopBar3000__breadcrumb--here {
         flex-shrink: 1;
-        color: var(--text-3000);
+        color: var(--text-primary);
         cursor: default;
 
         .TopBar3000--full & {
@@ -130,7 +130,7 @@
 
         &:hover,
         &.TopBar3000__breadcrumb--open {
-            color: var(--text-3000);
+            color: var(--text-primary);
 
             .LemonTag--default {
                 opacity: 1;

@@ -283,7 +283,7 @@ export function NodeCanvas<T extends Node>({ nodes, renderNode }: NodeCanvasProp
                                C ${controlPoint1X} ${controlPoint1Y}, 
                                  ${controlPoint2X} ${controlPoint2Y}, 
                                  ${edge.to.x + offset.x} ${edge.to.y + offset.y}`}
-                            stroke="var(--text-3000)"
+                            stroke="var(--text-primary)"
                             strokeWidth="2"
                             fill="none"
                         />

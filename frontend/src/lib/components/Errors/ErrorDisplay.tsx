@@ -31,7 +31,7 @@ export function ErrorDisplay({ eventProperties }: { eventProperties: EventType['
                     value={
                         sentryUrl ? (
                             <Link
-                                className="text-3000 hover:underline decoration-primary-alt cursor-pointer"
+                                className="text-accent hover:underline decoration-primary-alt cursor-pointer"
                                 to={sentryUrl}
                                 target="_blank"
                             >

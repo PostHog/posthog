@@ -102,7 +102,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
 
         return (
             <>
-                <div className="font-semibold text-text-3000">
+                <div className="font-semibold text-primary">
                     {is_success ? (
                         <IconTrending style={{ color: 'green' }} />
                     ) : (

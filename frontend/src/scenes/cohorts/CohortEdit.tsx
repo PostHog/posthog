@@ -215,7 +215,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                         onChange={(files) => onChange(files[0])}
                                         showUploadedFiles={false}
                                         callToAction={
-                                            <div className="flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 deprecated-space-y-1">
+                                            <div className="flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-primary deprecated-space-y-1">
                                                 {cohort.csv ? (
                                                     <>
                                                         <IconUploadFile

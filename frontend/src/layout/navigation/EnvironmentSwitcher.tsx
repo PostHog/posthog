@@ -98,7 +98,7 @@ export function EnvironmentSwitcherOverlay({ onClickInside }: { onClickInside?: 
                 label: (
                     <>
                         {projectNameWithoutEmoji}
-                        <LemonTag size="small" className="border-text-3000 uppercase ml-1.5">
+                        <LemonTag size="small" className="uppercase ml-1.5">
                             {projectTeams[0].name}
                         </LemonTag>
                         {projectTeams.length > 1 && (
@@ -185,7 +185,7 @@ function convertTeamToMenuItem(
     return {
         label: (
             <>
-                <LemonTag size="small" className="border-text-3000 uppercase">
+                <LemonTag size="small" className="uppercase">
                     {team.name}
                 </LemonTag>
             </>
