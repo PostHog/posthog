@@ -1,5 +1,6 @@
 import { Message, MessageHeader } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
+import { z } from 'zod'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
@@ -13,7 +14,14 @@ import {
     setUsageInNonPersonEventsCounter,
 } from '../main/ingestion-queues/metrics'
 import { runInstrumentedFunction } from '../main/utils'
-import { Hub, PipelineEvent, PluginServerService, PluginsServerConfig } from '../types'
+import {
+    Hub,
+    KafkaConsumerBreadcrumb,
+    KafkaConsumerBreadcrumbSchema,
+    PipelineEvent,
+    PluginServerService,
+    PluginsServerConfig,
+} from '../types'
 import { normalizeEvent } from '../utils/event'
 import { parseJSON } from '../utils/json-parse'
 import { logger } from '../utils/logger'
@@ -94,7 +102,6 @@ export class IngestionConsumer {
     public hogTransformer: HogTransformerService
     private overflowRateLimiter: MemoryRateLimiter
     private ingestionWarningLimiter: MemoryRateLimiter
-    private tokensToDrop: string[] = []
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
@@ -116,7 +123,6 @@ export class IngestionConsumer {
         this.topic = overrides.INGESTION_CONSUMER_CONSUME_TOPIC ?? hub.INGESTION_CONSUMER_CONSUME_TOPIC
         this.overflowTopic = overrides.INGESTION_CONSUMER_OVERFLOW_TOPIC ?? hub.INGESTION_CONSUMER_OVERFLOW_TOPIC
         this.dlqTopic = overrides.INGESTION_CONSUMER_DLQ_TOPIC ?? hub.INGESTION_CONSUMER_DLQ_TOPIC
-        this.tokensToDrop = hub.DROP_EVENTS_BY_TOKEN.split(',').filter((x) => !!x)
         this.tokenDistinctIdsToDrop = hub.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
         this.tokenDistinctIdsToSkipPersons = hub.SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
@@ -193,6 +199,52 @@ export class IngestionConsumer {
 
     private runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
         return runInstrumentedFunction<T>({ statsKey: `ingestionConsumer.${name}`, func })
+    }
+
+    private createBreadcrumb(message: Message): KafkaConsumerBreadcrumb {
+        return {
+            topic: message.topic,
+            partition: message.partition,
+            offset: message.offset,
+            processed_at: new Date().toISOString(),
+            consumer_id: this.groupId,
+        }
+    }
+
+    private getExistingBreadcrumbsFromHeaders(message: Message): KafkaConsumerBreadcrumb[] {
+        const existingBreadcrumbs: KafkaConsumerBreadcrumb[] = []
+        if (message.headers) {
+            for (const header of message.headers) {
+                if (header.key === 'kafka-consumer-breadcrumbs') {
+                    try {
+                        const parsedValue = parseJSON(header.value.toString())
+                        if (Array.isArray(parsedValue)) {
+                            const validatedBreadcrumbs = z.array(KafkaConsumerBreadcrumbSchema).safeParse(parsedValue)
+                            if (validatedBreadcrumbs.success) {
+                                existingBreadcrumbs.push(...validatedBreadcrumbs.data)
+                            } else {
+                                logger.warn('Failed to validated breadcrumbs array from header', {
+                                    error: validatedBreadcrumbs.error.format(),
+                                })
+                            }
+                        } else {
+                            const validatedBreadcrumb = KafkaConsumerBreadcrumbSchema.safeParse(parsedValue)
+                            if (validatedBreadcrumb.success) {
+                                existingBreadcrumbs.push(validatedBreadcrumb.data)
+                            } else {
+                                logger.warn('Failed to validate breadcrumb from header', {
+                                    error: validatedBreadcrumb.error.format(),
+                                })
+                            }
+                        }
+                    } catch (e) {
+                        logger.warn('Failed to parse breadcrumb from header', { error: e })
+                    }
+                }
+            }
+        }
+
+        return existingBreadcrumbs
     }
 
     public async handleKafkaBatch(messages: Message[]) {
@@ -342,10 +394,15 @@ export class IngestionConsumer {
 
     private async runEventRunnerV1(incomingEvent: IncomingEvent): Promise<EventPipelineResult | undefined> {
         const { event, message } = incomingEvent
+
+        const existingBreadcrumbs = this.getExistingBreadcrumbsFromHeaders(message)
+        const currentBreadcrumb = this.createBreadcrumb(message)
+        const allBreadcrumbs = existingBreadcrumbs.concat(currentBreadcrumb)
+
         try {
             const result = await this.runInstrumented('runEventPipeline', () =>
                 retryIfRetriable(async () => {
-                    const runner = this.getEventPipelineRunnerV1(event)
+                    const runner = this.getEventPipelineRunnerV1(event, allBreadcrumbs)
                     return await runner.runEventPipeline(event)
                 })
             )
@@ -413,8 +470,11 @@ export class IngestionConsumer {
         }
     }
 
-    private getEventPipelineRunnerV1(event: PipelineEvent): EventPipelineRunner {
-        return new EventPipelineRunner(this.hub, event, this.hogTransformer)
+    private getEventPipelineRunnerV1(
+        event: PipelineEvent,
+        breadcrumbs: KafkaConsumerBreadcrumb[] = []
+    ): EventPipelineRunner {
+        return new EventPipelineRunner(this.hub, event, this.hogTransformer, breadcrumbs)
     }
 
     private parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
@@ -547,7 +607,7 @@ export class IngestionConsumer {
 
     private shouldDropEvent(token?: string, distinctId?: string) {
         return (
-            (token && this.tokensToDrop.includes(token)) ||
+            (token && this.tokenDistinctIdsToDrop.includes(token)) ||
             (token && distinctId && this.tokenDistinctIdsToDrop.includes(`${token}:${distinctId}`))
         )
     }
@@ -588,17 +648,25 @@ export class IngestionConsumer {
                 : this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
 
         await Promise.all(
-            kafkaMessages.map((message) =>
-                this.kafkaOverflowProducer!.produce({
+            kafkaMessages.map((message) => {
+                const headers: MessageHeader[] = message.headers ?? []
+                const existingBreadcrumbs = this.getExistingBreadcrumbsFromHeaders(message)
+                const breadcrumb = this.createBreadcrumb(message)
+                const allBreadcrumbs = [...existingBreadcrumbs, breadcrumb]
+                headers.push({
+                    key: 'kafka-consumer-breadcrumbs',
+                    value: Buffer.from(JSON.stringify(allBreadcrumbs)),
+                })
+                return this.kafkaOverflowProducer!.produce({
                     topic: this.overflowTopic!,
                     value: message.value,
                     // ``message.key`` should not be undefined here, but in the
                     // (extremely) unlikely event that it is, set it to ``null``
                     // instead as that behavior is safer.
                     key: preservePartitionLocality ? message.key ?? null : null,
-                    headers: message.headers,
+                    headers: headers,
                 })
-            )
+            })
         )
     }
 
