@@ -38,7 +38,7 @@ class SessionSummaryPromptData:
 
     def load_session_data(
         self,
-        raw_session_events: list[list[Any]],
+        raw_session_events: list[tuple[str | datetime, ...]],
         raw_session_metadata: dict[str, Any],
         raw_session_columns: list[str],
         session_id: str,

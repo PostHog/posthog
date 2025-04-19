@@ -7,8 +7,12 @@ from typing import Any
 from urllib.parse import urlparse
 from django.template import Engine, Context
 
+from posthog.session_recordings.queries.session_replay_events import DEFAULT_EVENT_FIELDS
 
-def load_session_recording_events_from_csv(file_path: str) -> tuple[list[str], list[list[str | datetime]]]:
+
+def load_session_recording_events_from_csv(
+    file_path: str, extra_fields: list[str]
+) -> tuple[list[str], list[tuple[str | datetime, ...]]]:
     rows = []
     headers_indexes = {
         "event": {"regex": r"event", "indexes": [], "multi_column": False},
@@ -16,12 +20,17 @@ def load_session_recording_events_from_csv(file_path: str) -> tuple[list[str], l
         "elements_chain_href": {"regex": r"elements_chain_href", "indexes": [], "multi_column": False},
         "elements_chain_texts": {"regex": r"elements_chain_texts\.\d+", "indexes": [], "multi_column": True},
         "elements_chain_elements": {"regex": r"elements_chain_elements\.\d+", "indexes": [], "multi_column": True},
-        "properties.$window_id": {"regex": r"properties\.\$window_id", "indexes": [], "multi_column": False},
-        "properties.$current_url": {"regex": r"properties\.\$current_url", "indexes": [], "multi_column": False},
-        "properties.$event_type": {"regex": r"properties\.\$event_type", "indexes": [], "multi_column": False},
+        "$window_id": {"regex": r"properties\.\$window_id", "indexes": [], "multi_column": False},
+        "$current_url": {"regex": r"properties\.\$current_url", "indexes": [], "multi_column": False},
+        "$event_type": {"regex": r"properties\.\$event_type", "indexes": [], "multi_column": False},
         "elements_chain_ids": {"regex": r"elements_chain_ids\.\d+", "indexes": [], "multi_column": True},
         "elements_chain": {"regex": r"elements_chain", "indexes": [], "multi_column": False},
     }
+    allowed_headers = [x.replace("properties.", "") for x in DEFAULT_EVENT_FIELDS] + extra_fields
+    if list(headers_indexes.keys()) != allowed_headers:
+        raise ValueError(
+            f"Headers {headers_indexes.keys()} do not match expected headers {DEFAULT_EVENT_FIELDS + extra_fields}"
+        )
     with open(file_path) as f:
         reader = csv.reader(f)
         raw_headers = next(reader)
@@ -59,7 +68,7 @@ def load_session_recording_events_from_csv(file_path: str) -> tuple[list[str], l
                     row.append(all_values)
             timestamp_str = raw_row[timestamp_index]
             row = [*row[:timestamp_index], prepare_datetime(timestamp_str), *row[timestamp_index + 1 :]]
-            rows.append(row)
+            rows.append(tuple(row))
         # Ensure chronological order of the events
         rows.sort(key=lambda x: x[timestamp_index])
     return list(headers_indexes.keys()), rows

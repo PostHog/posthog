@@ -16,6 +16,17 @@ from posthog.session_recordings.models.metadata import (
     RecordingMetadata,
 )
 
+DEFAULT_EVENT_FIELDS = [
+    "event",
+    "timestamp",
+    "elements_chain_href",
+    "elements_chain_texts",
+    "elements_chain_elements",
+    "properties.$window_id",
+    "properties.$current_url",
+    "properties.$event_type",
+]
+
 
 def seconds_until_midnight():
     now = datetime.now(pytz.timezone("UTC"))
