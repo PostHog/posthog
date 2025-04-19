@@ -22,6 +22,10 @@ if (inputs.debug) {
 
 let res := fetch(inputs.url, payload);
 
+if (res.status >= 400) {
+  throw Error(f'Webhook failed with status {res.status}: {res.body}');
+}
+
 if (inputs.debug) {
   print('Response', res.status, res.body);
 }

@@ -75,4 +75,23 @@ describe('webhook template', () => {
             ]
         `)
     })
+
+    it('should throw an error if the webhook fails', async () => {
+        let response = await tester.invoke({
+            url: 'https://example.com?v={event.properties.$lib_version}',
+            debug: true,
+        })
+
+        response = tester.invokeFetchResponse(response.invocation, {
+            response: { status: 400, headers: {} },
+            body: '{"message": "Bad Request"}',
+        })
+
+        expect(response.error).toMatchInlineSnapshot(`"Webhook failed with status 400: {'message': 'Bad Request'}"`)
+        expect(response.logs.filter((l) => l.level === 'error').map((l) => l.message)).toMatchInlineSnapshot(`
+            [
+              "Error executing function on event event-id: Error('Webhook failed with status 400: {\\'message\\': \\'Bad Request\\'}')",
+            ]
+        `)
+    })
 })
