@@ -26,6 +26,8 @@ const PAGINATION_LIMIT = 100
 const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
 
+export type ProjectTreeTab = 'my-stuff' | 'team-stuff'
+
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
     connect(() => ({
@@ -81,6 +83,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         checkSelectedFolders: true,
         syncTypeAndRef: (type: string, ref: string) => ({ type, ref }),
         updateSyncedFiles: (files: FileSystemEntry[]) => ({ files }),
+        setProjectTreeTab: (tab: ProjectTreeTab) => ({ tab }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -422,6 +425,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             {} as Record<string, boolean>,
             {
                 setCheckedItems: (_, { checkedItems }) => checkedItems,
+            },
+        ],
+        projectTreeTab: [
+            'my-stuff' as ProjectTreeTab,
+            {
+                setProjectTreeTab: (_, { tab }) => tab,
             },
         ],
     }),

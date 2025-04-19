@@ -15,6 +15,7 @@ interface PanelLayoutPanelProps {
     searchPlaceholder?: string
     panelActions?: React.ReactNode
     children: React.ReactNode
+    panelTabs?: React.ReactNode
 }
 
 const panelLayoutPanelVariants = cva({
@@ -45,7 +46,12 @@ const panelLayoutPanelVariants = cva({
     ],
 })
 
-export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: PanelLayoutPanelProps): JSX.Element {
+export function PanelLayoutPanel({
+    searchPlaceholder,
+    panelActions,
+    children,
+    panelTabs,
+}: PanelLayoutPanelProps): JSX.Element {
     const { clearSearch, setSearchTerm, toggleLayoutPanelPinned } = useActions(panelLayoutLogic)
     const { isLayoutPanelPinned, searchTerm, panelTreeRef, projectTreeMode, isLayoutNavCollapsed } =
         useValues(panelLayoutLogic)
@@ -63,7 +69,7 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
                 )}
                 ref={containerRef}
             >
-                <div className="flex justify-between p-1 bg-surface-tertiary">
+                <div className="flex justify-between p-1 bg-surface-secondary border-b border-primary">
                     <ProjectDropdownMenu />
 
                     <div className="flex gap-px items-center justify-end shrink-0">
@@ -83,9 +89,15 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
                         {panelActions ?? null}
                     </div>
                 </div>
-                <div className="border-b border-primary h-px" />
+                {panelTabs && (
+                    <div className="bg-surface-secondary">
+                        {/* <div className="border-b border-primary h-px" /> */}
+                        {panelTabs}
+                    </div>
+                )}
+                {/* <div className="border-b border-primary h-px" /> */}
                 <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-surface-secondary">
-                    <div className="flex gap-1 p-1 items-center justify-between">
+                    <div className="flex gap-1 px-1 pt-1 items-center justify-between">
                         <LemonInput
                             placeholder={searchPlaceholder}
                             className="w-full"
@@ -123,7 +135,7 @@ export function PanelLayoutPanel({ searchPlaceholder, panelActions, children }: 
                             }}
                         />
                     </div>
-                    <div className="border-b border-primary h-px" />
+                    {/* <div className="border-b border-primary h-px" /> */}
                     {children}
                 </div>
             </nav>
