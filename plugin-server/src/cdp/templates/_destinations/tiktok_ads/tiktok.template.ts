@@ -199,19 +199,12 @@ if (res.status >= 400) {
     ],
     filters: {
         events: [
-            { id: '$pageview', name: 'Pageview', type: 'events' },
-            { id: 'Payment Info Entered', type: 'events' },
-            { id: 'Product Added', type: 'events' },
-            { id: 'Product Added to Wishlist', type: 'events' },
-            { id: 'Product Clicked', type: 'events' },
-            { id: 'Order Completed', type: 'events' },
-            { id: 'Signed Up', type: 'events' },
-            { id: 'Checkout Started', type: 'events' },
-            { id: 'Order Completed', type: 'events' },
-            { id: 'Products Searched', type: 'events' },
-            { id: 'Product Viewed', type: 'events' },
+            {
+                id: '$pageview',
+                name: 'Pageview',
+                type: 'events',
+            },
         ],
-        actions: [],
-        filter_test_accounts: true,
-    },
+        // bytecode: ['_H', 1, 32, 'Order Completed', 32, 'event', 1, 1, 11, 3, 1, 4, 1],
+    }
 }

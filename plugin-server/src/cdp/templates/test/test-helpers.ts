@@ -135,6 +135,12 @@ export class TemplateTester {
 
         const globals = this.createGlobals(_globals)
 
+        if (this.template.filters) {
+            const stringifiedFilters = JSON.stringify(this.template.filters)
+            const compiledFilters = await compileHog(stringifiedFilters, true)
+            console.log('filters', compiledFilters, stringifiedFilters)
+        }
+
         const hogFunction: HogFunctionType = {
             ...this.template,
             inputs: compiledInputs,
