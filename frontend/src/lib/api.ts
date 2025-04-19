@@ -140,6 +140,7 @@ import {
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameRecord,
     ErrorTrackingSymbolSet,
+    SymbolSetStatusFilter,
 } from './components/Errors/types'
 import {
     ACTIVITY_PAGE_SIZE,
@@ -2233,16 +2234,27 @@ const api = {
                 .create({ data: { ids: mergingIssueIds } })
         },
 
-        async updateSymbolSet(id: ErrorTrackingSymbolSet['id'], data: FormData): Promise<void> {
-            return await new ApiRequest().errorTrackingSymbolSet(id).update({ data })
-        },
+        symbolSets: {
+            async list({
+                status,
+                offset = 0,
+                limit = 100,
+            }: {
+                status?: SymbolSetStatusFilter
+                offset: number
+                limit: number
+            }): Promise<CountedPaginatedResponse<ErrorTrackingSymbolSet>> {
+                const queryString = { order_by: '-created_at', status, offset, limit }
+                return await new ApiRequest().errorTrackingSymbolSets().withQueryString(toParams(queryString)).get()
+            },
 
-        async deleteSymbolSet(id: ErrorTrackingSymbolSet['id']): Promise<void> {
-            return await new ApiRequest().errorTrackingSymbolSet(id).delete()
-        },
+            async update(id: ErrorTrackingSymbolSet['id'], data: FormData): Promise<void> {
+                return await new ApiRequest().errorTrackingSymbolSet(id).update({ data })
+            },
 
-        async symbolSets(): Promise<{ results: ErrorTrackingSymbolSet[] }> {
-            return await new ApiRequest().errorTrackingSymbolSets().get()
+            async delete(id: ErrorTrackingSymbolSet['id']): Promise<void> {
+                return await new ApiRequest().errorTrackingSymbolSet(id).delete()
+            },
         },
 
         async symbolSetStackFrames(

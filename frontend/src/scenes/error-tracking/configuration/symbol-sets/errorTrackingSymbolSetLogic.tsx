@@ -1,9 +1,9 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, defaults, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import api from 'lib/api'
-import { ErrorTrackingSymbolSet } from 'lib/components/Errors/types'
+import api, { CountedPaginatedResponse } from 'lib/api'
+import { ErrorTrackingSymbolSet, SymbolSetStatusFilter } from 'lib/components/Errors/types'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -11,69 +11,60 @@ import { Breadcrumb } from '~/types'
 
 import type { errorTrackingSymbolSetLogicType } from './errorTrackingSymbolSetLogicType'
 
-export enum ErrorGroupTab {
-    Overview = 'overview',
-    Breakdowns = 'breakdowns',
-}
-
 export type SymbolSetUpload = SourceMapUpload
+export const RESULTS_PER_PAGE = 20
 
-export interface SourceMapUpload {
+export type SourceMapUpload = {
     minified: File
     sourceMap: File
 }
+
+export type ErrorTrackingSymbolSetResponse = CountedPaginatedResponse<ErrorTrackingSymbolSet>
 
 export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingSymbolSetLogic']),
 
     actions({
-        setUploadSymbolSetId: (id: ErrorTrackingSymbolSet['id'] | null) => ({ id }),
+        loadSymbolSets: () => {},
+        deleteSymbolSet: (id: string) => ({ id }),
+        setUploadSymbolSetId: (id: string | null) => ({ id }),
+        setSymbolSetStatusFilter: (status: SymbolSetStatusFilter) => ({ status }),
+        setPage: (page: number) => ({ page }),
+    }),
+
+    defaults({
+        page: 1 as number,
+        symbolSetResponse: null as ErrorTrackingSymbolSetResponse | null,
+        symbolSetStatusFilter: 'all' as SymbolSetStatusFilter,
+        uploadSymbolSetId: null as string | null,
     }),
 
     reducers({
-        uploadSymbolSetId: [
-            null as string | null,
-            {
-                setUploadSymbolSetId: (_, { id }) => id,
-            },
-        ],
+        uploadSymbolSetId: {
+            setUploadSymbolSetId: (_, { id }) => id,
+        },
+        symbolSetStatusFilter: {
+            setSymbolSetStatusFilter: (_, { status }) => status,
+        },
+        page: {
+            setPage: (_, { page }) => page,
+            setSymbolSetStatusFilter: () => 1,
+        },
     }),
 
     loaders(({ values }) => ({
-        symbolSets: [
-            [] as ErrorTrackingSymbolSet[],
-            {
-                loadSymbolSets: async () => {
-                    const response = await api.errorTracking.symbolSets()
-                    return response.results
-                },
-                deleteSymbolSet: async (id) => {
-                    await api.errorTracking.deleteSymbolSet(id)
-                    const newValues = [...values.symbolSets]
-                    return newValues.filter((v) => v.id !== id)
-                },
+        symbolSetResponse: {
+            loadSymbolSets: async (_, breakpoint) => {
+                await breakpoint(100)
+                const res = await api.errorTracking.symbolSets.list({
+                    status: values.symbolSetStatusFilter,
+                    limit: RESULTS_PER_PAGE,
+                    offset: (values.page - 1) * RESULTS_PER_PAGE,
+                })
+                return res
             },
-        ],
+        },
     })),
-
-    selectors({
-        breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
-                {
-                    key: Scene.ErrorTracking,
-                    name: 'Error tracking',
-                    path: urls.errorTracking(),
-                },
-                {
-                    key: Scene.ErrorTrackingConfiguration,
-                    name: 'Configuration',
-                },
-            ],
-        ],
-        validSymbolSets: [(s) => [s.symbolSets], (symbolSets) => symbolSets.filter((s) => !!s.storage_ptr)],
-        missingSymbolSets: [(s) => [s.symbolSets], (symbolSets) => symbolSets.filter((s) => !s.storage_ptr)],
-    }),
 
     forms(({ values, actions }) => ({
         uploadSymbolSet: {
@@ -95,12 +86,58 @@ export const errorTrackingSymbolSetLogic = kea<errorTrackingSymbolSetLogicType>(
                 const formData = new FormData()
                 formData.append('minified', minifiedSrc)
                 formData.append('source_map', sourceMapSrc)
-                await api.errorTracking.updateSymbolSet(id, formData)
+                await api.errorTracking.symbolSets.update(id, formData)
                 actions.setUploadSymbolSetId(null)
                 actions.loadSymbolSets()
                 actions.resetUploadSymbolSet()
                 lemonToast.success('Source map uploaded')
             },
         },
+    })),
+
+    listeners(({ actions }) => ({
+        deleteSymbolSet: async ({ id }: { id: ErrorTrackingSymbolSet['id'] }) => {
+            await api.errorTracking.symbolSets.delete(id)
+            lemonToast.success('Symbol set deleted')
+            actions.loadSymbolSets()
+        },
+        setSymbolSetStatusFilter: () => actions.loadSymbolSets(),
+        setPage: () => actions.loadSymbolSets(),
+    })),
+
+    selectors(({ actions }) => ({
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: Scene.ErrorTracking,
+                    name: 'Error tracking',
+                    path: urls.errorTracking(),
+                },
+                {
+                    key: Scene.ErrorTrackingConfiguration,
+                    name: 'Configuration',
+                },
+            ],
+        ],
+        symbolSets: [
+            (s) => [s.symbolSetResponse],
+            (response: ErrorTrackingSymbolSetResponse): ErrorTrackingSymbolSet[] => {
+                return response?.results || []
+            },
+        ],
+        pagination: [
+            (s) => [s.page, s.symbolSetResponse],
+            (page: number, symbolSetResponse: ErrorTrackingSymbolSetResponse) => {
+                return {
+                    controlled: true,
+                    pageSize: RESULTS_PER_PAGE,
+                    currentPage: page,
+                    entryCount: symbolSetResponse?.count ?? 0,
+                    onBackward: () => actions.setPage(page - 1),
+                    onForward: () => actions.setPage(page + 1),
+                }
+            },
+        ],
     })),
 ])
