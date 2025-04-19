@@ -110,7 +110,6 @@ class FeatureFlagSerializer(
 
     # :TRICKY: Needed for backwards compatibility
     filters = serializers.DictField(source="get_filters", required=False)
-    is_simple_flag = serializers.SerializerMethodField()
     rollout_percentage = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
 
@@ -155,7 +154,6 @@ class FeatureFlagSerializer(
             "created_at",
             "version",
             "last_modified_by",
-            "is_simple_flag",
             "rollout_percentage",
             "ensure_experience_continuity",
             "experiment_set",
@@ -197,16 +195,6 @@ class FeatureFlagSerializer(
             )
         )
 
-    # Simple flags are ones that only have rollout_percentage
-    # That means server side libraries are able to gate these flags without calling to the server
-    def get_is_simple_flag(self, feature_flag: FeatureFlag) -> bool:
-        no_properties_used = all(len(condition.get("properties", [])) == 0 for condition in feature_flag.conditions)
-        return (
-            len(feature_flag.conditions) == 1
-            and no_properties_used
-            and feature_flag.aggregation_group_type_index is None
-        )
-
     def get_features(self, feature_flag: FeatureFlag) -> dict:
         from products.early_access_features.backend.api import MinimalEarlyAccessFeatureSerializer
 
@@ -219,7 +207,7 @@ class FeatureFlagSerializer(
         # ignoring type because mypy doesn't know about the surveys_linked_flag `related_name` relationship
 
     def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
-        if self.get_is_simple_flag(feature_flag):
+        if feature_flag.get_is_simple_flag:
             return feature_flag.conditions[0].get("rollout_percentage")
         else:
             return None
