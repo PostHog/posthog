@@ -47,26 +47,28 @@ def get_session_events(
 
 def load_additional_event_context_from_elements_chain(
     session_events_columns: list[str], session_events: list[tuple[str | datetime, ...]]
-) -> list[tuple[str | datetime, ...]]:
+) -> tuple[list[str], list[tuple[str | datetime, ...]]]:
     chain_index = get_column_index(session_events_columns, "elements_chain")
     chain_texts_index = get_column_index(session_events_columns, "elements_chain_texts")
     chain_elements_index = get_column_index(session_events_columns, "elements_chain_elements")
     # chain_ids_index = get_column_index(session_events_columns, "elements_chain_ids")
     updated_events = []
-
     # TODO: Filter and improve in the same loop to avoid multiple passes?
     for event in session_events:
-        updated_event = list(event)
         chain = event[chain_index]
+        if not chain:
+            updated_events.append(event)
+            continue
+        updated_event = list(event)
         updated_event[chain_texts_index] = _get_improved_elements_chain_texts(chain, event[chain_texts_index])
         updated_event[chain_elements_index] = _get_improved_elements_chain_elements(chain, event[chain_elements_index])
+        # Remove chain from as we already got all the info from it
+        updated_event.pop(chain_index)
         updated_events.append(tuple(updated_event))
-    return updated_events
-
-
-def _filter_repeated_elements(elements: list[str]) -> list[str]:
-    # Keep unique elements keeping the order
-    return list(dict.fromkeys(elements))
+    # Remove chain from columns also to avoid confusion
+    updated_columns = session_events_columns.copy()
+    updated_columns.pop(chain_index)
+    return updated_columns, updated_events
 
 
 def _get_improved_elements_chain_texts(elements_chain: str, current_texts: list[str]) -> list[str]:
@@ -74,7 +76,8 @@ def _get_improved_elements_chain_texts(elements_chain: str, current_texts: list[
     Get additional text from element chain (instead of default "text") for better context
     """
     raw_texts = re.findall(r'(?::|\")(?:text|attr__aria-label)="\"?(.*?)\"?"', elements_chain)
-    texts = _filter_repeated_elements(raw_texts)
+    # Remove duplicates
+    texts = list(dict.fromkeys(raw_texts))
     if not texts and not current_texts:
         return []
     # If the current texts are longer, avoid modifications, as the goal to have as much context as possible
@@ -103,7 +106,7 @@ def _get_improved_elements_chain_elements(elements_chain: str, current_elements:
             continue
         raw_updated_elements.append(f'{element}[type="{element_type[0]}"]')
     # Remove duplicates
-    updated_elements = _filter_repeated_elements(raw_updated_elements)
+    updated_elements = list(dict.fromkeys(raw_updated_elements))
     if not updated_elements and not current_elements:
         return []
     # If the current elements are longer, avoid modifications, as the goal to have as much context as possible
