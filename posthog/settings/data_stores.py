@@ -36,7 +36,7 @@ def postgres_config(host: str) -> dict:
     """
 
     return {
-        "ENGINE": "django.db.backends.postgresql_psycopg2",
+        "ENGINE": "django.db.backends.postgresql",
         "NAME": get_from_env("POSTHOG_DB_NAME"),
         "USER": os.getenv("POSTHOG_DB_USER", "postgres"),
         "PASSWORD": os.getenv("POSTHOG_DB_PASSWORD", ""),

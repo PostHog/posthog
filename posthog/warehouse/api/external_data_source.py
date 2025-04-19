@@ -6,7 +6,7 @@ import structlog
 import temporalio
 from dateutil import parser
 from django.db.models import Prefetch, Q
-from psycopg2 import OperationalError
+from psycopg import OperationalError
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request

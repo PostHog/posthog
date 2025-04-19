@@ -8,7 +8,7 @@ from unittest.mock import patch
 import django_redis.exceptions
 import kombu.connection
 import kombu.exceptions
-import psycopg2
+import psycopg
 import pytest
 from clickhouse_driver.errors import Error as ClickhouseError
 from django.core.cache import cache
@@ -307,7 +307,7 @@ def simulate_postgres_psycopg2_error():
     Causes psycopg2 to raise an error
     """
     with patch.object(connections[DEFAULT_DB_ALIAS], "cursor") as cursor_mock:
-        cursor_mock.side_effect = return_given_error_or_random(psycopg2.OperationalError)
+        cursor_mock.side_effect = return_given_error_or_random(psycopg.OperationalError)
         yield
 
 
