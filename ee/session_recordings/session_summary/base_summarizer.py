@@ -38,6 +38,7 @@ class BaseReplaySummarizer:
                 events_to_ignore=[
                     "$feature_flag_called",
                 ],
+                extra_fields=["elements_chain_ids", "elements_chain"],
             )
         else:
             session_events_columns, session_events = load_session_recording_events_from_csv(local_path)
