@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     initial_geoip_subdivision_city_name AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_geoip_time_zone AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
 
-    -- attribution
+    -- attribution - please add new columns at the end of this list, and make sure you use AFTER in the migration
     initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -88,11 +88,10 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-    initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
-    initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
 
     -- Count pageview, autocapture, and screen events for providing totals.
     -- It's unclear if we can use the counts as they are not idempotent, and we had a bug on EU where events were
@@ -114,7 +113,11 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
 
     -- web vitals
-    vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))
+    vitals_lcp AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC')),
+
+    -- this was accidentally added at the end in prod, it lives here now
+    initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC'))
+
 ) ENGINE = {engine}
 """
 
@@ -210,7 +213,7 @@ SELECT
     initializeAggregation('argMinState', {geoip_subdivision_city_name}, timestamp) as initial_geoip_subdivision_city_name,
     initializeAggregation('argMinState', {geoip_time_zone}, timestamp) as initial_geoip_time_zone,
 
-    -- attribution
+    -- attribution - match the order in the table
     initializeAggregation('argMinState', {referring_domain}, timestamp) as initial_referring_domain,
     initializeAggregation('argMinState', {utm_source}, timestamp) as initial_utm_source,
     initializeAggregation('argMinState', {utm_campaign}, timestamp) as initial_utm_campaign,
@@ -230,11 +233,10 @@ SELECT
     initializeAggregation('argMinState', {mc_cid}, timestamp) as initial_mc_cid,
     initializeAggregation('argMinState', {igshid}, timestamp) as initial_igshid,
     initializeAggregation('argMinState', {ttclid}, timestamp) as initial_ttclid,
+    initializeAggregation('argMinState', {irclid}, timestamp) as initial_irclid,
     initializeAggregation('argMinState', {epik}, timestamp) as initial_epik,
     initializeAggregation('argMinState', {qclid}, timestamp) as initial_qclid,
     initializeAggregation('argMinState', {sccid}, timestamp) as initial_sccid,
-    initializeAggregation('argMinState', {kx}, timestamp) as initial__kx,
-    initializeAggregation('argMinState', {irclid}, timestamp) as initial_irclid,
 
     -- counts
     if(event='$pageview', 1, 0) as pageview_count,
@@ -251,7 +253,11 @@ SELECT
     initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to,
 
     -- vitals
-    initializeAggregation('argMinState', {vitals_lcp}, timestamp) as vitals_lcp
+    initializeAggregation('argMinState', {vitals_lcp}, timestamp) as vitals_lcp,
+
+    -- end
+    initializeAggregation('argMinState', {kx}, timestamp) as initial__kx
+
 FROM {database}.events
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
 """.format(
@@ -333,7 +339,7 @@ SELECT
     argMinState({geoip_subdivision_city_name}, timestamp) as initial_geoip_subdivision_city_name,
     argMinState({geoip_time_zone}, timestamp) as initial_geoip_time_zone,
 
-    -- attribution
+    -- attribution - match the order in the table
     argMinState({referring_domain}, timestamp) as initial_referring_domain,
     argMinState({utm_source}, timestamp) as initial_utm_source,
     argMinState({utm_campaign}, timestamp) as initial_utm_campaign,
@@ -353,11 +359,10 @@ SELECT
     argMinState({mc_cid}, timestamp) as initial_mc_cid,
     argMinState({igshid}, timestamp) as initial_igshid,
     argMinState({ttclid}, timestamp) as initial_ttclid,
+    argMinState({irclid}, timestamp) as initial_irclid,
     argMinState({epik}, timestamp) as initial_epik,
     argMinState({qclid}, timestamp) as initial_qclid,
     argMinState({sccid}, timestamp) as initial_sccid,
-    argMinState({kx}, timestamp) as initial__kx,
-    argMinState({irclid}, timestamp) as initial_irclid,
 
     -- count
     sumIf(1, event='$pageview') as pageview_count,
@@ -374,7 +379,11 @@ SELECT
     uniqUpToState(1)(CAST(if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL) AS Nullable(UUID))) as page_screen_autocapture_uniq_up_to,
 
     -- web vitals
-    argMinState({vitals_lcp}, timestamp) as vitals_lcp
+    argMinState({vitals_lcp}, timestamp) as vitals_lcp,
+
+    -- end
+    argMinState({kx}, timestamp) as initial__kx
+
 FROM {database}.sharded_events
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7)
 GROUP BY
@@ -541,11 +550,10 @@ SELECT
     argMinMerge(initial_mc_cid) as initial_mc_cid,
     argMinMerge(initial_igshid) as initial_igshid,
     argMinMerge(initial_ttclid) as initial_ttclid,
+    argMinMerge(initial_irclid) as initial_irclid,
     argMinMerge(initial_epik) as initial_epik,
     argMinMerge(initial_qclid) as initial_qclid,
     argMinMerge(initial_sccid) as initial_sccid,
-    argMinMerge(initial__kx) as initial__kx,
-    argMinMerge(initial_irclid) as initial_irclid,
 
     sum(pageview_count) as pageview_count,
     uniqMerge(pageview_uniq) as pageview_uniq,
@@ -558,7 +566,9 @@ SELECT
 
     uniqUpToMerge(1)(page_screen_autocapture_uniq_up_to) as page_screen_autocapture_uniq_up_to,
 
-    argMinMerge(vitals_lcp) as vitals_lcp
+    argMinMerge(vitals_lcp) as vitals_lcp,
+
+    argMinMerge(initial__kx) as initial__kx
 FROM {TABLE_BASE_NAME}
 GROUP BY session_id_v7, team_id
 """
