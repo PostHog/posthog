@@ -44,6 +44,7 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
                                 ErrorCodes.NETWORK_ERROR,
                                 ErrorCodes.TOO_MANY_SIMULTANEOUS_QUERIES,
                                 ErrorCodes.NOT_ENOUGH_SPACE,
+                                ErrorCodes.SOCKET_TIMEOUT,
                                 439,  # CANNOT_SCHEDULE_TASK: "Cannot schedule a task: cannot allocate thread"
                             )
                         )
