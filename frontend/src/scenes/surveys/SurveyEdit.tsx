@@ -12,7 +12,6 @@ import {
     LemonDivider,
     LemonInput,
     LemonSelect,
-    LemonTag,
     LemonTextArea,
     Link,
     Popover,
@@ -340,11 +339,7 @@ export default function SurveyEdit(): JSX.Element {
                                                         title="Feedback button"
                                                         description="Set up a survey based on your own custom button or our prebuilt feedback tab"
                                                         value={SurveyType.Widget}
-                                                    >
-                                                        <LemonTag type="warning" className="uppercase">
-                                                            Beta
-                                                        </LemonTag>
-                                                    </PresentationTypeCard>
+                                                    />
                                                 </div>
                                                 {survey.type === SurveyType.Widget && <SurveyWidgetCustomization />}
                                             </div>

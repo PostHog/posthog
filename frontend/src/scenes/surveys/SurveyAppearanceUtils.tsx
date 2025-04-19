@@ -19,7 +19,7 @@ export function PresentationTypeCard({
 }: {
     title: string
     description?: string
-    children: React.ReactNode
+    children?: React.ReactNode
     onClick: () => void
     value: any
     active: boolean
