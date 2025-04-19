@@ -231,6 +231,9 @@ export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T):
     if (event.sent_at) {
         properties['$sent_at'] = event.sent_at
     }
+    if (event.now) {
+        properties['$captured_at'] = event.now
+    }
 
     event.properties = properties
     return event
