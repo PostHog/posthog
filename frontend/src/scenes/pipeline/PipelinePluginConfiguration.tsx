@@ -180,7 +180,7 @@ export function PipelinePluginConfiguration({
                                         {plugin.name}
                                     </div>
                                     {plugin.description ? (
-                                        <div className="text-text-3000 text-xs text-tertiary mt-1">
+                                        <div className="text-primary text-xs text-tertiary mt-1">
                                             <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
                                                 {plugin.description}
                                             </LemonMarkdown>

@@ -34,7 +34,7 @@
     &:not([aria-disabled='true']):hover,
     &--active {
         button {
-            color: var(--text-3000);
+            color: var(--text-primary);
             background: var(--border-primary);
         }
 
