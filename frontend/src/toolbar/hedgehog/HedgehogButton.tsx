@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { HedgehogBuddy } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
-import { hedgehogBuddyLogic } from 'lib/components/HedgehogBuddy/hedgehogBuddyLogic'
+import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
 import { useEffect } from 'react'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
@@ -10,7 +9,7 @@ import { heatmapToolbarMenuLogic } from '../elements/heatmapToolbarMenuLogic'
 export function HedgehogButton(): JSX.Element {
     const { hedgehogMode, hedgehogActor } = useValues(toolbarLogic)
     const { syncWithHedgehog, setHedgehogActor, toggleMinimized } = useActions(toolbarLogic)
-    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
+    const { hedgehogConfig } = useValues(hedgehogModeLogic)
     const { heatmapEnabled } = useValues(heatmapToolbarMenuLogic)
 
     useEffect(() => {
@@ -25,7 +24,8 @@ export function HedgehogButton(): JSX.Element {
 
     return (
         <>
-            {hedgehogMode && (
+            {/* TODO */}
+            {/* {hedgehogMode && (
                 <HedgehogBuddy
                     hedgehogConfig={hedgehogConfig}
                     onClose={() => {}}
@@ -35,7 +35,7 @@ export function HedgehogButton(): JSX.Element {
                     }}
                     onClick={() => toggleMinimized()}
                 />
-            )}
+            )} */}
         </>
     )
 }

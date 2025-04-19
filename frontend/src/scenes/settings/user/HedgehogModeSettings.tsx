@@ -1,11 +1,10 @@
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { hedgehogBuddyLogic } from 'lib/components/HedgehogBuddy/hedgehogBuddyLogic'
-import { HedgehogOptions } from 'lib/components/HedgehogBuddy/HedgehogOptions'
+import { hedgehogModeLogic } from 'lib/components/HedgehogMode/hedgehogModeLogic'
 
 export function HedgehogModeSettings(): JSX.Element {
-    const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
-    const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
+    const { hedgehogConfig } = useValues(hedgehogModeLogic)
+    const { patchHedgehogConfig } = useActions(hedgehogModeLogic)
     return (
         <>
             <div className="flex gap-2">
@@ -25,8 +24,8 @@ export function HedgehogModeSettings(): JSX.Element {
                 />
             </div>
 
-            <div className="mt-4 p-2 border rounded bg-surface-primary">
-                <HedgehogOptions />
+            <div className="p-2 mt-4 border rounded bg-surface-primary">
+                <p>TODO!</p>
             </div>
         </>
     )

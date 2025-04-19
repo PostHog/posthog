@@ -1,41 +1,40 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import type { HedgeHogMode } from '@posthog/hedgehog-mode'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import posthog from 'posthog-js'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { HedgehogColorOptions, HedgehogConfig } from '~/types'
+import { HedgehogConfig } from '~/types'
 
-import type { hedgehogBuddyLogicType } from './hedgehogBuddyLogicType'
+import type { hedgehogModeLogicType } from './hedgehogModeLogicType'
 
-export const COLOR_TO_FILTER_MAP: Record<HedgehogColorOptions, string> = {
-    red: 'hue-rotate(340deg) saturate(300%) brightness(90%)',
-    green: 'hue-rotate(60deg) saturate(100%)',
-    blue: 'hue-rotate(210deg) saturate(300%) brightness(90%)',
-    purple: 'hue-rotate(240deg)',
-    dark: 'brightness(70%)',
-    light: 'brightness(130%)',
-    sepia: 'sepia(100%) saturate(300%) brightness(70%)',
-    invert: 'invert(100%)',
-    'invert-hue': 'invert(100%) hue-rotate(180deg)',
-    greyscale: 'saturate(0%)',
-}
-
-export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
-    path(['hedgehog', 'hedgehogBuddyLogic']),
+export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
+    path(['hedgehog', 'hedgehogModeLogic']),
+    connect({
+        values: [userLogic, ['user'], membersLogic, ['members']],
+        actions: [membersLogic, ['ensureAllMembersLoaded']],
+    }),
     actions({
+        setHedgehogMode: (hedgeHogMode: HedgeHogMode) => ({ hedgeHogMode }),
         setHedgehogModeEnabled: (enabled: boolean) => ({ enabled }),
-        addAccessory: (accessory: string) => ({ accessory }),
-        removeAccessory: (accessory: string) => ({ accessory }),
         patchHedgehogConfig: (config: Partial<HedgehogConfig>) => ({ config }),
         clearLocalConfig: true,
         loadRemoteConfig: true,
         updateRemoteConfig: (config: Partial<HedgehogConfig>) => ({ config }),
+        syncGame: true,
     }),
 
     reducers(() => ({
+        hedgehogMode: [
+            null as HedgeHogMode | null,
+            {
+                setHedgehogMode: (_, { hedgeHogMode }) => hedgeHogMode,
+            },
+        ],
         localConfig: [
             null as Partial<HedgehogConfig> | null,
             {
@@ -110,7 +109,7 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
                     use_as_profile: false,
                     color: null,
                     accessories: [],
-                    walking_enabled: true,
+                    ai_enabled: true,
                     interactions_enabled: true,
                     controls_enabled: true,
                     party_mode_enabled: false,
@@ -127,7 +126,7 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         setHedgehogModeEnabled: ({ enabled }) => {
             actions.patchHedgehogConfig({
                 enabled,
@@ -136,20 +135,7 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
             posthog.capture(enabled ? 'hedgehog mode enabled' : 'hedgehog mode disabled')
         },
 
-        addAccessory: ({ accessory }) => {
-            actions.patchHedgehogConfig({
-                accessories: [...(values.hedgehogConfig.accessories ?? []), accessory],
-            })
-        },
-
-        removeAccessory: ({ accessory }) => {
-            actions.patchHedgehogConfig({
-                accessories: (values.hedgehogConfig.accessories ?? []).filter((acc) => acc !== accessory),
-            })
-        },
-
-        patchHedgehogConfig: async (_, breakpoint) => {
-            await breakpoint(1000)
+        patchHedgehogConfig: async () => {
             actions.updateRemoteConfig(values.hedgehogConfig)
         },
 
@@ -162,6 +148,80 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
                     ?.actions.loadUserSuccess({ ...theUserLogic.values.user, hedgehog_config: remoteConfig } as any)
             }
         },
+
+        syncGame: () => {
+            const { hedgehogMode, hedgehogConfig, members } = values
+            if (!hedgehogMode || !hedgehogConfig) {
+                return
+            }
+
+            if (!hedgehogConfig.enabled) {
+                cache.hedgehogs = {}
+                return
+            }
+
+            // TODO: Sync members with game
+
+            // const hedgehogs: Record<string, HedgehogActor> = (cache.hedgehogs = cache.hedgehogs || {})
+
+            // console.log('hedgehogs', hedgehogs)
+
+            // const membersWithHedgehogConfig = members?.filter(
+            //     (x) => x.user.hedgehog_config && x.user.uuid !== values.user?.uuid
+            // )
+
+            // if (!hedgehogConfig.party_mode_enabled) {
+            //     // Remove all members
+            //     membersWithHedgehogConfig?.forEach((x) => {
+            //         if (hedgehogs[x.user.uuid]) {
+            //             hedgehogs[x.user.uuid].destroy()
+            //             delete hedgehogs[x.user.uuid]
+            //         }
+            //     })
+            // } else {
+            //     // Sync members
+            //     membersWithHedgehogConfig?.forEach((x) => {
+            //         const combinedHedgehogConfig: HedgehogActorOptions = {
+            //             ...hedgehogConfig,
+            //             ...x.user.hedgehog_config,
+            //             id: x.user.uuid,
+            //             player: false,
+            //             // Reset some params to default
+            //             skin: 'default',
+            //             // Finally some settings are forced
+            //             controls_enabled: false,
+            //         }
+            //         if (!hedgehogs[x.user.uuid]) {
+            //             hedgehogs[x.user.uuid] = game.spawnHedgehog(combinedHedgehogConfig)
+            //         } else {
+            //             hedgehogs[x.user.uuid].updateOptions(combinedHedgehogConfig)
+            //         }
+            //     })
+            // }
+
+            // if (!hedgehogs.player) {
+            //     hedgehogs.player = game.spawnHedgehog({
+            //         ...hedgehogConfig,
+            //         id: 'player',
+            //         player: true,
+            //         onClick: () => {},
+            //     })
+            // } else {
+            //     hedgehogs.player.updateOptions({
+            //         ...hedgehogConfig,
+            //     })
+            // }
+        },
+    })),
+
+    subscriptions(({ actions, values }) => ({
+        hedgehogConfig: () => {
+            if (values.hedgehogModeEnabled) {
+                actions.ensureAllMembersLoaded()
+            }
+            actions.syncGame()
+        },
+        hedgehogMode: () => actions.syncGame(),
     })),
 
     afterMount(({ actions }) => {
@@ -171,16 +231,5 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
         } else {
             actions.loadRemoteConfig()
         }
-
-        posthog.getEarlyAccessFeatures((features) => {
-            const relatedEAF = features.find((x) => x.flagKey === FEATURE_FLAGS.HEDGEHOG_MODE)
-            if (relatedEAF) {
-                if (posthog.getFeatureFlag(FEATURE_FLAGS.HEDGEHOG_MODE)) {
-                    actions.setHedgehogModeEnabled(true)
-                }
-
-                posthog.updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.HEDGEHOG_MODE, false)
-            }
-        })
     }),
 ])

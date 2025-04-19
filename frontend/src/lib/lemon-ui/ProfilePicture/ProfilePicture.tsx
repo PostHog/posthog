@@ -2,7 +2,7 @@ import './ProfilePicture.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { HedgehogBuddyProfile } from 'lib/components/HedgehogBuddy/HedgehogBuddyRender'
+import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeRender'
 import { fullName, inStorybookTestRunner } from 'lib/utils'
 import md5 from 'md5'
 import React, { useMemo, useState } from 'react'
@@ -61,7 +61,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
     const pictureComponent = (
         <span className={clsx('ProfilePicture', size, className)} ref={ref}>
             {hedgehogProfile ? (
-                <HedgehogBuddyProfile {...user.hedgehog_config} size="100%" />
+                <HedgehogModeProfile {...user.hedgehog_config} size="100%" />
             ) : (
                 gravatarLoaded !== true && (
                     <>
@@ -75,7 +75,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
                                 color={type === 'system' ? LettermarkColor.Gray : undefined}
                             />
                         ) : (
-                            <HedgehogBuddyProfile {...user.hedgehog_config} size="100%" />
+                            <HedgehogModeProfile {...user.hedgehog_config} size="100%" />
                         )}
                     </>
                 )
