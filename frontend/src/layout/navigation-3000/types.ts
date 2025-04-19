@@ -31,6 +31,7 @@ interface NavbarItemBase {
     featureFlag?: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
     tag?: 'alpha' | 'beta' | 'new'
     sideAction?: Omit<SideAction, 'divider' | 'data-attr' | 'tooltipPlacement'> & { identifier: string }
+    tooltipDocLink?: string
     /** @deprecated */
     onClick?: () => void
 }

@@ -14,6 +14,7 @@ export interface AbstractLemonTab<T extends string | number> {
     tooltip?: string | JSX.Element
     /** URL of the tab if it can be linked to (which is usually a good practice). */
     link?: string
+    tooltipDocLink?: string
 }
 
 /** A tab with content. In this case the LemonTabs component automatically renders content of the active tab. */
@@ -76,7 +77,13 @@ export function LemonTabs<T extends string | number>({
                         </>
                     )
                     return (
-                        <Tooltip key={tab.key} title={tab.tooltip} placement="top" offset={0}>
+                        <Tooltip
+                            key={tab.key}
+                            title={tab.tooltip}
+                            placement="top"
+                            offset={0}
+                            docLink={tab.tooltipDocLink}
+                        >
                             <li
                                 className={clsx('LemonTabs__tab', tab.key === activeKey && 'LemonTabs__tab--active')}
                                 onClick={onChange ? () => onChange(tab.key) : undefined}

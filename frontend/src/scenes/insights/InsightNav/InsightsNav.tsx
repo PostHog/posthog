@@ -32,6 +32,7 @@ export function InsightsNav(): JSX.Element {
                                     INSIGHT_TYPES_METADATA[type].tooltipDescription ||
                                     INSIGHT_TYPES_METADATA[type].description
                                 }
+                                docLink={INSIGHT_TYPES_METADATA[type].tooltipDocLink}
                             >
                                 <span>{label}</span>
                             </Tooltip>

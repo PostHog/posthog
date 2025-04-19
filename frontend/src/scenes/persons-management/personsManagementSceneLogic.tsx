@@ -24,6 +24,7 @@ export type PersonsManagementTab = {
     label: string | JSX.Element
     content: any
     buttons?: any
+    tooltipDocLink?: string
 }
 
 export type PersonsManagementTabs = Record<
@@ -61,8 +62,9 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                     {
                         key: 'persons',
                         url: urls.persons(),
-                        label: 'Persons',
+                        label: 'People',
                         content: <Persons />,
+                        tooltipDocLink: 'https://posthog.com/docs/data/persons',
                     },
                     {
                         key: 'cohorts',
@@ -78,6 +80,7 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                                 New cohort
                             </LemonButton>
                         ),
+                        tooltipDocLink: 'https://posthog.com/docs/data/cohorts',
                     },
                     ...(featureFlags[FEATURE_FLAGS.B2B_ANALYTICS]
                         ? [

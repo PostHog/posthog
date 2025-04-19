@@ -45,6 +45,7 @@ interface PropertyFiltersProps {
     disabledReason?: string
     exactMatchFeatureFlagCohortOperators?: boolean
     hideBehavioralCohorts?: boolean
+    addFilterDocLink?: string
 }
 
 export function PropertyFilters({
@@ -75,6 +76,7 @@ export function PropertyFilters({
     disabledReason = undefined,
     exactMatchFeatureFlagCohortOperators = false,
     hideBehavioralCohorts,
+    addFilterDocLink,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -141,6 +143,7 @@ export function PropertyFilters({
                                             allowRelativeDateOptions={allowRelativeDateOptions}
                                             exactMatchFeatureFlagCohortOperators={exactMatchFeatureFlagCohortOperators}
                                             hideBehavioralCohorts={hideBehavioralCohorts}
+                                            addFilterDocLink={addFilterDocLink}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

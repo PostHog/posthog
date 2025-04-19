@@ -83,6 +83,7 @@ export interface InsightTypeMetadata {
     tooltipDescription?: string
     icon: (props?: any) => JSX.Element | null
     inMenu: boolean
+    tooltipDocLink?: string
 }
 
 export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
@@ -91,30 +92,35 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         description: 'Visualize and break down how actions or events vary over time.',
         icon: IconTrends,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/trends/overview',
     },
     [NodeKind.FunnelsQuery]: {
         name: 'Funnel',
         description: 'Discover how many users complete or drop out of a sequence of actions.',
         icon: IconFunnels,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/funnels',
     },
     [NodeKind.RetentionQuery]: {
         name: 'Retention',
         description: 'See how many users return on subsequent days after an initial action.',
         icon: IconRetention,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/retention',
     },
     [NodeKind.PathsQuery]: {
         name: 'Paths',
         description: 'Trace the journeys users take within your product and where they drop off.',
         icon: IconUserPaths,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/paths',
     },
     [NodeKind.StickinessQuery]: {
         name: 'Stickiness',
         description: 'See what keeps users coming back by viewing the interval between repeated actions.',
         icon: IconStickiness,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/stickiness',
     },
     [NodeKind.LifecycleQuery]: {
         name: 'Lifecycle',
@@ -123,6 +129,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
             "Understand growth by breaking down new, resurrected, returning and dormant users. Doesn't include anonymous events and users/groups appear as new when they are first identified.",
         icon: IconLifecycle,
         inMenu: true,
+        tooltipDocLink: 'https://posthog.com/docs/product-analytics/lifecycle',
     },
     [NodeKind.FunnelCorrelationQuery]: {
         name: 'Funnel Correlation',

@@ -758,6 +758,13 @@ export enum ReplayTabs {
     Settings = 'settings',
 }
 
+export type ReplayTab = {
+    label: string
+    key: ReplayTabs
+    tooltip?: string
+    tooltipDocLink?: string
+}
+
 export enum ExperimentsTabs {
     All = 'all',
     Yours = 'yours',
