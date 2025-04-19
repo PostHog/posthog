@@ -6,7 +6,7 @@ import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/Prope
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
@@ -58,16 +58,19 @@ export function PropertyValue({
     const isDurationProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Duration
 
-    const load = (newInput: string | undefined): void => {
-        loadPropertyValues({
-            endpoint,
-            type: propertyDefinitionType,
-            newInput,
-            propertyKey,
-            eventNames,
-            properties: additionalPropertiesFilter,
-        })
-    }
+    const load = useCallback(
+        (newInput: string | undefined): void => {
+            loadPropertyValues({
+                endpoint,
+                type: propertyDefinitionType,
+                newInput,
+                propertyKey,
+                eventNames,
+                properties: additionalPropertiesFilter,
+            })
+        },
+        [endpoint, propertyDefinitionType, propertyKey, eventNames, additionalPropertiesFilter, loadPropertyValues]
+    )
 
     const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
 
@@ -75,7 +78,7 @@ export function PropertyValue({
         if (!isDateTimeProperty) {
             load('')
         }
-    }, [propertyKey, isDateTimeProperty])
+    }, [propertyKey, isDateTimeProperty, load])
 
     const displayOptions = options[propertyKey]?.values || []
 
@@ -125,8 +128,9 @@ export function PropertyValue({
                 size="medium"
                 makeLabel={(_, startOfRange) => (
                     <span className="hide-when-small">
-                        Matches all values {operator === PropertyOperator.IsDateBefore ? 'before' : 'after'}{' '}
-                        {startOfRange} if evaluated today.
+                        <span>Matches all values </span>
+                        <span>{operator === PropertyOperator.IsDateBefore ? 'before' : 'after'}</span>
+                        <span> {startOfRange} if evaluated today.</span>
                     </span>
                 )}
             />

@@ -222,6 +222,17 @@ export const numericOperatorMap: Record<string, string> = {
     is_not_set: '✕ is not set',
 }
 
+export const versionOperatorMap: Record<string, string> = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+    gt: '> greater than',
+    gte: '>= greater than or equal',
+    lt: '< less than',
+    lte: '<= less than or equal',
+    is_set: '✓ is set',
+    is_not_set: '✕ is not set',
+}
+
 export const dateTimeOperatorMap: Record<string, string> = {
     is_date_exact: '= equals',
     is_date_before: '< before',
@@ -273,6 +284,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...selectorOperatorMap,
     ...cohortOperatorMap,
     ...cleanedPathOperatorMap,
+    ...versionOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
@@ -285,6 +297,7 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Duration: durationOperatorMap,
     Selector: selectorOperatorMap,
     Cohort: cohortOperatorMap,
+    Version: versionOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
@@ -598,7 +611,7 @@ export function humanFriendlyDuration(
     } else {
         units = [hDisplay, mDisplay, sDisplay].filter(Boolean)
     }
-    return units.slice(0, maxUnits ?? undefined).join(' ')
+    return units.slice(0, maxUnits ?? undefined).join(' ')
 }
 
 export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | string): string {
@@ -608,8 +621,8 @@ export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | 
 
 export function humanFriendlyDetailedTime(
     date: dayjs.Dayjs | string | null | undefined,
-    formatDate = 'MMMM DD, YYYY',
-    formatTime = 'h:mm:ss A'
+    formatDate = 'MMMM D, YYYY',
+    formatTime = 'h:mm:ss A'
 ): string {
     if (!date) {
         return 'Never'
@@ -622,9 +635,9 @@ export function humanFriendlyDetailedTime(
     }
     let formatString: string
     if (parsedDate.isSame(today, 'd')) {
-        formatString = `[Today] ${formatTime}`
+        formatString = `[Today] ${formatTime}`
     } else if (parsedDate.isSame(yesterday, 'd')) {
-        formatString = `[Yesterday] ${formatTime}`
+        formatString = `[Yesterday] ${formatTime}`
     } else {
         formatString = `${formatDate} ${formatTime}`
     }
@@ -1403,7 +1416,7 @@ export function pluralize(count: number, singular: string, plural?: string, incl
         plural = singular + 's'
     }
     const form = count === 1 ? singular : plural
-    return includeNumber ? `${humanFriendlyNumber(count)} ${form}` : form
+    return includeNumber ? `${humanFriendlyNumber(count)} ${form}` : form
 }
 
 const WORD_PLURALIZATION_RULES = [
@@ -1465,7 +1478,7 @@ export function compactNumber(value: number | null): string {
         magnitude++
         value /= 1000
     }
-    return magnitude > 0 ? `${value} ${COMPACT_NUMBER_MAGNITUDES[magnitude]}` : value.toString()
+    return magnitude > 0 ? `${value} ${COMPACT_NUMBER_MAGNITUDES[magnitude]}` : value.toString()
 }
 
 export function roundToDecimal(value: number | null, places: number = 2): string {
