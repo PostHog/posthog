@@ -159,11 +159,20 @@ jobs:
                       values:
                           image:
                               sha: '${{ needs.build.outputs.capture_digest }}'
+                    # NOTE: Will be removed once moved to the separate cyclotron images
                     - release: cyclotron
                       values:
                           fetch_image:
                               sha: '${{ needs.build.outputs.cyclotron-fetch_digest }}'
                           janitor_image:
+                              sha: '${{ needs.build.outputs.cyclotron-janitor_digest }}'
+                    - release: cyclotron-fetch
+                      values:
+                          image:
+                              sha: '${{ needs.build.outputs.cyclotron-fetch_digest }}'
+                    - release: cyclotron-janitor
+                      values:
+                          image:
                               sha: '${{ needs.build.outputs.cyclotron-janitor_digest }}'
                     - release: property-defs-rs
                       values:
