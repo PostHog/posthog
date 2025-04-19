@@ -192,7 +192,7 @@
         --button-border-color: var(--primary-3000-button-border);
         --lemon-button-border-color-hover: var(--primary-3000-button-border-hover);
         --lemon-button-frame-bg-color: var(--primary-3000-frame-bg);
-        --lemon-button-color: var(--text-primary);
+        --lemon-button-color: var(--primitive-neutral-950);
 
         &.LemonButton--status-alt {
             --lemon-button-bg-color: var(--primary-3000-frame-bg-light);
@@ -200,7 +200,7 @@
             --button-border-color: var(--primary-3000-button-border);
             --lemon-button-border-color-hover: var(--primary-3000-button-border-hover);
             --lemon-button-frame-bg-color: var(--primary-3000-button-bg-dark);
-            --lemon-button-color: var(--text-primary);
+            --lemon-button-color: var(--primitive-neutral-950);
         }
     }
 
