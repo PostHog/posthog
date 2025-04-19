@@ -17550,6 +17550,9 @@
                     },
                     "type": "array"
                 },
+                "minDecimalPlaces": {
+                    "type": "number"
+                },
                 "resultCustomizationBy": {
                     "$ref": "#/definitions/ResultCustomizationBy",
                     "default": "value",
@@ -17652,6 +17655,9 @@
                         ]
                     },
                     "type": "object"
+                },
+                "min_decimal_places": {
+                    "type": "number"
                 },
                 "show_alert_threshold_lines": {
                     "type": "boolean"
