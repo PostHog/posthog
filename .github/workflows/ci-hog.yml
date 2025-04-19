@@ -65,7 +65,7 @@ jobs:
                   fetch-depth: 1
 
             - name: Set up Python
-              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+              uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v5
               with:
                   python-version-file: 'pyproject.toml'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
@@ -171,7 +171,7 @@ jobs:
                   fetch-depth: 1
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
             - name: Set up Python
-              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+              uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v5
               with:
                   python-version-file: 'pyproject.toml'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}

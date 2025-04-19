@@ -64,7 +64,7 @@ jobs:
         steps:
             - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
-            - uses: actions/setup-python@65d7f2d534ac1bc67fcd62888c5f4f3d2cb2b236 # v4
+            - uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v4
               with:
                   python-version: '3.11'
 
