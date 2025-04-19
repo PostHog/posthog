@@ -1,6 +1,6 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`CdpCyclotronWorkerPlugins onEvent should handle and collect errors 3`] = `
+exports[`CdpCyclotronWorkerPlugins onEvent should handle and collect errors 2`] = `
 [
   {
     "key": "<REPLACED-UUID-0>",

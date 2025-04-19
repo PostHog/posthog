@@ -206,6 +206,8 @@ export type HogFunctionInvocationQueueParameters =
     | HogFunctionQueueParametersFetchRequest
     | HogFunctionQueueParametersFetchResponse
 
+export type HogFunctionInvocationJobQueue = 'hog' | 'fetch' | 'plugin'
+
 export type HogFunctionInvocation = {
     id: string
     globals: HogFunctionInvocationGlobalsWithInputs
@@ -215,7 +217,7 @@ export type HogFunctionInvocation = {
     vmState?: VMState
     timings: HogFunctionTiming[]
     // Params specific to the queueing system
-    queue: 'hog' | 'fetch' | 'plugins'
+    queue: HogFunctionInvocationJobQueue
     queueParameters?: HogFunctionInvocationQueueParameters
     queuePriority: number
     queueScheduledAt?: DateTime

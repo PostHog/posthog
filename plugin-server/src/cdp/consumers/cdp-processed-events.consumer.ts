@@ -1,47 +1,27 @@
-import { CyclotronJobInit, CyclotronManager } from '@posthog/cyclotron'
-import { chunk } from 'lodash'
 import { Message } from 'node-rdkafka'
-import { Histogram } from 'prom-client'
 
 import { Hub, RawClickHouseEvent } from '~/src/types'
 
-import {
-    convertToHogFunctionInvocationGlobals,
-    isLegacyPluginHogFunction,
-    serializeHogFunctionInvocation,
-} from '../../cdp/utils'
+import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { HogWatcherState } from '../services/hog-watcher.service'
+import { CyclotronJobQueue } from '../services/job-queue'
 import { HogFunctionInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
-
-export const histogramCyclotronJobsCreated = new Histogram({
-    name: 'cdp_cyclotron_jobs_created_per_batch',
-    help: 'The number of jobs we are creating in a single batch',
-    buckets: [0, 50, 100, 250, 500, 750, 1000, 1500, 2000, 3000, Infinity],
-})
 
 export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpProcessedEventsConsumer'
     protected topic = KAFKA_EVENTS_JSON
     protected groupId = 'cdp-processed-events-consumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
-
-    private cyclotronManager?: CyclotronManager
+    private cyclotronJobQueue: CyclotronJobQueue
 
     constructor(hub: Hub) {
         super(hub)
-    }
-
-    private async createCyclotronJobs(jobs: CyclotronJobInit[]) {
-        const cyclotronManager = this.cyclotronManager
-        if (!cyclotronManager) {
-            throw new Error('Cyclotron manager not initialized')
-        }
-        return this.runInstrumented('cyclotronManager.bulkCreateJobs', () => cyclotronManager.bulkCreateJobs(jobs))
+        this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hog', this.hogFunctionManager)
     }
 
     public async processBatch(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<HogFunctionInvocation[]> {
@@ -53,36 +33,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             this.createHogFunctionInvocations(invocationGlobals)
         )
 
-        // For the cyclotron ones we simply create the jobs
-        const cyclotronJobs = invocationsToBeQueued.map((item) => {
-            return {
-                teamId: item.globals.project.id,
-                functionId: item.hogFunction.id,
-                queueName: isLegacyPluginHogFunction(item.hogFunction) ? 'plugin' : 'hog',
-                priority: item.queuePriority,
-                vmState: serializeHogFunctionInvocation(item),
-            }
-        })
-        try {
-            histogramCyclotronJobsCreated.observe(cyclotronJobs.length)
-            // Cyclotron batches inserts into one big INSERT which can lead to contention writing WAL information hence we chunk into batches
-
-            const chunkedCyclotronJobs = chunk(cyclotronJobs, this.hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
-
-            if (this.hub.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
-                // NOTE: It's not super clear the perf tradeoffs of doing this in parallel hence the config option
-                await Promise.all(chunkedCyclotronJobs.map((jobs) => this.createCyclotronJobs(jobs)))
-            } else {
-                for (const jobs of chunkedCyclotronJobs) {
-                    await this.createCyclotronJobs(jobs)
-                }
-            }
-        } catch (e) {
-            logger.error('⚠️', 'Error creating cyclotron jobs', e)
-            logger.warn('⚠️', 'Failed jobs', { jobs: cyclotronJobs })
-            throw e
-        }
-
+        await this.cyclotronJobQueue.queueInvocations(invocationsToBeQueued)
         await this.hogFunctionMonitoringService.produceQueuedMessages()
 
         return invocationsToBeQueued
@@ -206,6 +157,9 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
 
     public async start(): Promise<void> {
         await super.start()
+        // Make sure we are ready to produce to cyclotron first
+        await this.cyclotronJobQueue.startAsProducer()
+        // Then start the kafka consumer
         await this.startKafkaConsumer({
             topic: this.topic,
             groupId: this.groupId,
@@ -214,20 +168,5 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                 await this.processBatch(invocationGlobals)
             },
         })
-
-        this.cyclotronManager = this.hub.CYCLOTRON_DATABASE_URL
-            ? new CyclotronManager({
-                  shards: [
-                      {
-                          dbUrl: this.hub.CYCLOTRON_DATABASE_URL,
-                      },
-                  ],
-                  shardDepthLimit: this.hub.CYCLOTRON_SHARD_DEPTH_LIMIT ?? 1000000,
-                  shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
-                  shouldUseBulkJobCopy: this.hub.CDP_CYCLOTRON_USE_BULK_COPY_JOB,
-              })
-            : undefined
-
-        await this.cyclotronManager?.connect()
     }
 }
