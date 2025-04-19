@@ -10,6 +10,7 @@ from dags import (
     backups,
     ch_examples,
     deletes,
+    delete_groups,
     exchange_rate,
     export_query_logs_to_s3,
     materialized_columns,
@@ -55,6 +56,7 @@ defs = dagster.Definitions(
     ],
     jobs=[
         deletes.deletes_job,
+        delete_groups.delete_groups_job,
         exchange_rate.daily_exchange_rates_job,
         exchange_rate.hourly_exchange_rates_job,
         export_query_logs_to_s3.export_query_logs_to_s3,
@@ -68,6 +70,7 @@ defs = dagster.Definitions(
         exchange_rate.daily_exchange_rates_schedule,
         exchange_rate.hourly_exchange_rates_schedule,
         export_query_logs_to_s3.query_logs_export_schedule,
+        delete_groups.delete_groups_schedule,
         person_overrides.squash_schedule,
         backups.full_sharded_backup_schedule,
         backups.incremental_sharded_backup_schedule,

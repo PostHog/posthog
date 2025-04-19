@@ -12,6 +12,7 @@ from posthog.clickhouse.cluster import (
 
 class JobOwners(str, Enum):
     TEAM_CLICKHOUSE = "team-clickhouse"
+    TEAM_CRM = "team-crm"
     TEAM_WEB_ANALYTICS = "team-web-analytics"
 
 
