@@ -25,6 +25,7 @@ APIScopeObject = Literal[
     "group",
     "hog_function",
     "insight",
+    "message_template",
     "notebook",
     "organization",
     "organization_member",

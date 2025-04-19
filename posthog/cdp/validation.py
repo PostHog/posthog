@@ -82,7 +82,17 @@ def transpile_template_code(obj: Any, compiler: JavaScriptCompiler) -> str:
 
 class InputsSchemaItemSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
-        choices=["string", "boolean", "dictionary", "choice", "json", "integration", "integration_field", "email"]
+        choices=[
+            "string",
+            "boolean",
+            "dictionary",
+            "choice",
+            "json",
+            "integration",
+            "integration_field",
+            "email",
+            "email_template",
+        ]
     )
     key = serializers.CharField()
     label = serializers.CharField(required=False, allow_blank=True)  # type: ignore

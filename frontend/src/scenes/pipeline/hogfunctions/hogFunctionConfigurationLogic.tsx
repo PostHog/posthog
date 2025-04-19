@@ -708,6 +708,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         willChangeEnabledOnSave: [
             (s) => [s.configuration, s.hogFunction],
             (configuration, hogFunction) => {
+                if (configuration?.kind === 'messaging_template') {
+                    return false
+                }
                 return configuration?.enabled !== (hogFunction?.enabled ?? false)
             },
         ],
