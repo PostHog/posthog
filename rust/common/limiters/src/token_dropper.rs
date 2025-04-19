@@ -8,18 +8,21 @@ pub struct TokenDropper {
 }
 
 impl TokenDropper {
-    // Takes "token:id_1,token:id2,token" where token without id means drop all events
+    // Takes "token1:id1,token:id2,token" where token without id means drop all events
     pub fn new(config: &str) -> Self {
         let mut to_drop = HashMap::new();
 
         for part in config.split(',') {
-            let mut parts = part.trim().split(':');
-            let Some(token) = parts.next() else {
+            if part.trim().is_empty() {
+                continue;
+            }
+            let parts: Vec<&str> = part.split(':').filter(|s| !s.trim().is_empty()).collect();
+            let Some(token) = parts.first() else {
                 warn!("Invalid format in part {}", part);
                 continue;
             };
 
-            match parts.next() {
+            match parts.get(1) {
                 Some(id) => {
                     let entry = to_drop
                         .entry(token.to_string())
@@ -38,6 +41,9 @@ impl TokenDropper {
     }
 
     pub fn should_drop(&self, token: &str, distinct_id: &str) -> bool {
+        if token.is_empty() {
+            return false;
+        }
         match self.to_drop.get(token) {
             Some(None) => true, // Drop all events for this token
             Some(Some(ids)) => ids.iter().any(|id| id == distinct_id),
