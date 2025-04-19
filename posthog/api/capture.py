@@ -414,6 +414,49 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
     )
 
 
+@dataclasses.dataclass(frozen=True)
+class EventsQuotaOverageResult:
+    events: list[Any]
+
+
+def tag_events_with_quota_overage(token: str, events: list[dict[str, Any]]) -> EventsQuotaOverageResult:
+    if not settings.EE_AVAILABLE:
+        return EventsQuotaOverageResult(events)
+
+    from ee.billing.quota_limiting import QuotaResource, list_limited_team_attributes
+
+    results = []
+    limited_tokens_events = list_limited_team_attributes(
+        QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
+    )
+    limited_tokens_exceptions = list_limited_team_attributes(
+        QuotaResource.EXCEPTIONS, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
+    )
+    limited_tokens_recordings = list_limited_team_attributes(
+        QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY
+    )
+
+    for event in events:
+        if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
+            EVENTS_RECEIVED_COUNTER.labels(resource_type="recordings").inc()
+            if token in limited_tokens_recordings:
+                event["properties"]["$is_quota_overage"] = True
+
+        elif event.get("event") == "$exception":
+            EVENTS_RECEIVED_COUNTER.labels(resource_type="exceptions").inc()
+            if token in limited_tokens_exceptions:
+                event["properties"]["$is_quota_overage"] = True
+
+        else:
+            EVENTS_RECEIVED_COUNTER.labels(resource_type="events").inc()
+            if token in limited_tokens_events:
+                event["properties"]["$is_quota_overage"] = True
+
+        results.append(event)
+
+    return EventsQuotaOverageResult(results)
+
+
 def lib_version_from_query_params(request) -> str:
     # url has a ver parameter from posthog-js
     return request.GET.get("ver", "unknown")
@@ -522,8 +565,15 @@ def get_event(request):
         # we're not going to change the response for events
         recordings_were_quota_limited = False
         try:
+            # Drop events over quota
             events_over_quota_result = drop_events_over_quota(token, events)
             events = events_over_quota_result.events
+            
+            # Tag events with quota overage
+            events_tagged_with_quota_overage = tag_events_with_quota_overage(token, events)
+            events = events_tagged_with_quota_overage.events
+            
+            # Record if recordings were quota limited
             recordings_were_quota_limited = events_over_quota_result.recordings_were_limited
         except Exception as e:
             # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
