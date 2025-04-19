@@ -2,62 +2,67 @@ import csv
 from datetime import datetime
 import json
 from pathlib import Path
+import re
 from typing import Any
 from urllib.parse import urlparse
 from django.template import Engine, Context
 
 
 def load_session_recording_events_from_csv(file_path: str) -> tuple[list[str], list[list[str | datetime]]]:
-    headers = []
-    rows: list[list[str | datetime]] = []
-    expected_headers = [
-        "event",
-        "timestamp",
-        "elements_chain_href",
-        "elements_chain_texts.0",
-        # TODO: Think if there's a value in combining all chain element (except for the last one) into a single column
-        "elements_chain_elements.0",
-        "properties.$window_id",
-        "properties.$current_url",
-        "properties.$event_type",
-    ]
+    rows = []
+    headers_indexes = {
+        "event": {"regex": r"event", "indexes": [], "multi_column": False},
+        "timestamp": {"regex": r"timestamp", "indexes": [], "multi_column": False},
+        "elements_chain_href": {"regex": r"elements_chain_href", "indexes": [], "multi_column": False},
+        "elements_chain_texts": {"regex": r"elements_chain_texts\.\d+", "indexes": [], "multi_column": True},
+        "elements_chain_elements": {"regex": r"elements_chain_elements\.\d+", "indexes": [], "multi_column": True},
+        "$window_id": {"regex": r"properties\.\$window_id", "indexes": [], "multi_column": False},
+        "$current_url": {"regex": r"properties\.\$current_url", "indexes": [], "multi_column": False},
+        "$event_type": {"regex": r"properties\.\$event_type", "indexes": [], "multi_column": False},
+        "elements_chain_ids": {"regex": r"elements_chain_ids\.\d+", "indexes": [], "multi_column": True},
+        "elements_chain": {"regex": r"elements_chain", "indexes": [], "multi_column": False},
+    }
     with open(file_path) as f:
         reader = csv.reader(f)
         raw_headers = next(reader)
-        columns_to_keep = []
-        for i, header in enumerate(raw_headers):
-            if header in expected_headers:
-                columns_to_keep.append(i)
-        headers = [raw_headers[i] for i in columns_to_keep]
-        timestamp_index = get_column_index(headers, "timestamp")
-        if not timestamp_index:
-            raise ValueError("Timestamp column not found in the CSV")
+        for i, raw_header in enumerate(raw_headers):
+            for header_metadata in headers_indexes.values():
+                if re.match(header_metadata["regex"], raw_header):
+                    header_metadata["indexes"].append(i)
+                    break
+        # Ensure all headers have indexes
+        for header_metadata in headers_indexes.values():
+            if not header_metadata["indexes"]:
+                raise ValueError(f"Header {header_metadata['regex']} not found in the CSV")
+        # Read rows
+        timestamp_index = get_column_index(list(headers_indexes.keys()), "timestamp")
         for raw_row in reader:
-            # Keep only the columns we need
-            raw_row = [raw_row[i] for i in columns_to_keep]
-            row: list[str | datetime] = []
+            row = []
+            for header_metadata in headers_indexes.values():
+                if len(header_metadata["indexes"]) == 1:
+                    raw_row_value = raw_row[header_metadata["indexes"][0]]
+                    # Ensure to keep the format for multi-column fields
+                    if raw_row_value:
+                        if header_metadata["multi_column"]:
+                            row.append([raw_row_value])
+                        else:
+                            row.append(raw_row_value)
+                    else:
+                        if header_metadata["multi_column"]:
+                            row.append([])
+                        else:
+                            row.append("")
+                # Ensure to combine all values for multi-column fields (like chain texts) into a single list
+                else:
+                    # Store only non-empty values
+                    all_values = [raw_row_value for i in header_metadata["indexes"] if (raw_row_value := raw_row[i])]
+                    row.append(all_values)
             timestamp_str = raw_row[timestamp_index]
-            timestamp = prepare_datetime(timestamp_str)
-            row = [*raw_row[:timestamp_index], timestamp, *raw_row[timestamp_index + 1 :]]
+            row = [*row[:timestamp_index], prepare_datetime(timestamp_str), *row[timestamp_index + 1 :]]
             rows.append(row)
         # Ensure chronological order of the events
         rows.sort(key=lambda x: x[timestamp_index])
-    # Replace the headers with custom one to replicate DB response for recordings
-    override_headers = [
-        "event",
-        "timestamp",
-        "elements_chain_href",
-        "elements_chain_texts",
-        "elements_chain_elements",
-        "$window_id",
-        "$current_url",
-        "$event_type",
-    ]
-    if len(headers) != len(override_headers):
-        raise ValueError(
-            f"Headers length mismatch when loading session recording events from CSV: {len(headers)} != {len(override_headers)}"
-        )
-    return override_headers, rows
+    return list(headers_indexes.keys()), rows
 
 
 def load_session_metadata_from_json(file_path: str) -> dict[str, Any]:
