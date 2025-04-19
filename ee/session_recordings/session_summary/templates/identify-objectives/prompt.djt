@@ -1,5 +1,6 @@
 <events_input_format>
 You'll receive a list of events with columns:
+
 - event: Type of event (e.g., $pageview, $autocapture) - signals user actions or system events
 - timestamp: When the event occurred - helps track sequence and time between actions
 - elements_chain_href: URL fragment interacted with - shows specific link or element targets
@@ -11,7 +12,7 @@ You'll receive a list of events with columns:
 - event_id: Unique identifier for the event - ALWAYS use this to reference specific events, NEVER generate or modify event IDs
 - event_index: Index of the event in the session - helps understand sequence
 
-Use these events to reconstruct the user journey. Events are provided in a chronologically order. Focus on what these events reveal about user intentions rather than the raw event data itself. 
+Use these events to reconstruct the user journey. Events are provided in a chronologically order. Focus on what these events reveal about user intentions rather than the raw event data itself.
 
 Don't include raw `elements_chain_texts` data in your summary, but use it to improve your understanding of user goals.
 </events_input_format>
@@ -23,7 +24,7 @@ Don't include raw `elements_chain_texts` data in your summary, but use it to imp
 </events_input>
 
 <url_mapping_input_format>
-URLs mapping table shows the actual URLs for simplified URL references in the events data. 
+URLs mapping table shows the actual URLs for simplified URL references in the events data.
 
 When analyzing events, use these mappings to understand the actual pages visited. For example, if an event shows 'url_1', refer to this mapping to find the actual URL. In your summary and tags, always use the actual page/feature names, not the simplified URL references. Always refer to the URL with the simplest version e.g. `posthog.com` or `posthog.com/replay`, instead of mentioning the full URL with long query parameters.
 </url_mapping_input_format>
@@ -38,6 +39,7 @@ When analyzing events, use these mappings to understand the actual pages visited
 Window IDs mapping table shows the actual browser windows/tabs IDs for simplified references in the events data.
 
 Window IDs help track user activity across different browser windows or tabs. For example:
+
 - If events switch from 'window_1' to 'window_2', the user switched to a different browser window/tab
 - Multiple events with the same window ID indicate continuous activity in the same window/tab
 - Frequent window switches might indicate comparing content or multitasking
@@ -55,10 +57,10 @@ Use this information to understand user navigation patterns and parallel browsin
 Use session metadata to understand user engagement context:
 
 - active_seconds: Total time user actively engaged with the application
-  * <30 seconds: Very brief session, likely a single objective
-  * 30-120 seconds: Short session, typically 1-3 distinct objectives
-  * 120-300 seconds: Medium session, may contain 3-5 related objectives
-  * >300 seconds: Extensive session, likely contains multiple complex objectives
+  - <30 seconds: Very brief session, likely a single segment
+  - 30-120 seconds: Short session, typically 1-2 distinct segments
+  - 120-300 seconds: Medium session, may contain 2-3 related segments
+  - > 300 seconds: Extensive session, likely contains multiple complex segments
 - inactive_seconds: Periods when user wasn't interacting with the application
 - click_count, keypress_count, mouse_activity_count: Interaction density
 - start_url: Entry point to the application, often indicates initial user intent
@@ -75,114 +77,181 @@ Use these metrics to calibrate your analysis of user objectives and engagement q
 <identify_objectives_instructions>
 CRITICAL WARNING: DO NOT hallucinate errors. Only mark events as errors when there is EXPLICIT evidence in the event data that an error occurred.
 
-# Step 1: Identify User Objectives
-First, analyze the entire session to identify distinct user objectives. Follow these guidelines:
+# Step 1: Segment the Session Timeline
 
-1.1. Identify the primary user objectives (goals) in the session. Scale appropriately based on session length and complexity (as described in the `session_metadata_input_format`):
-   - IMPORTANT: Ensure you identify objectives throughout the ENTIRE session timeline - not just at the beginning.
-   - Analyze the full timeline from first to last event to avoid recency or primacy bias.
+First, analyze the entire session and divide it into sequential chronological segments. Follow these guidelines:
 
-1.2. Each objective must represent an intentional user goal:
-   ✓ GOOD OBJECTIVES: "Login to application," "Filter products," "Complete checkout"
-   ✗ BAD OBJECTIVES: "Page loaded," "Error occurred," "Session started"
+1.1. Segment the session timeline into 1-7 distinct chronological phases, based on session length and complexity (as described in the `session_metadata_input_format`):
 
-1.3. For each objective, provide:
-   - A concise, descriptive name that captures the user's goal
-   - A brief summary incorporating both user actions AND any technical issues
+- Each segment must represent a consecutive period in the timeline
+- Segments should follow the natural progression of the user journey
+- Segment boundaries should be based on meaningful transitions in user activity
+- IMPORTANT: Analyze the full timeline from first to last event to avoid recency or primacy bias.
 
-1.4. Objective Boundary Guidelines:
-   ✓ DO: 
-      * create new objectives when user clearly switches tasks/goals
-      * account for non-linear behavior (users may return to previous objectives)
-   ✗ DO NOT:
-      * create objectives for error states or technical issues
-      * create overlapping objectives (each event belongs to one primary objective)
+1.2. For each segment, provide:
 
-1.5. Pay special attention to:
-   - URL patterns and journey (use `url_mapping_input` to interpret actual pages visited)
-   - Distinguishing meaningful goals from technical events
-   - Signs of user confusion, repeated attempts, or workarounds
+- A concise, descriptive name that captures the user's primary activities in that timeframe
+  ✓ GOOD NAMES: "Login to application," "Filter products," "Complete checkout"
+  ✗ BAD NAMES: "Page loaded," "Error occurred," "Session started"
+- A brief summary incorporating both user actions AND any issues encountered (either technical or flow related)
+- Start and end `event_id`s to clearly mark the segment boundaries
 
-1.6. For each objective, determine a success status (boolean):
-   - Mark an objective as successful (true) when:
-     * User completed the core actions needed to fulfill the objective
-     * Any errors encountered were resolved or worked around
-     * There is evidence the user achieved their intended goal
-   - Mark an objective as unsuccessful (false) when:
-     * User abandoned the objective before completion
-     * Critical errors prevented completion of the objective
+1.3. Segment Boundary Guidelines:
 
-# Step 2: Link Key Actions to Objectives
-After identifying objectives, determine which events are key actions for each objective. There would be lots of actions important to the user's goal, we can't include all of them, so we ONLY want to include the most important ones.
+✓ DO:
 
-2.1. Key Actions Guidelines:
-   - Include 1-5 key actions per objective based on objective's complexity and duration
-   - Each key action should represent a significant step in the user's journey toward the objective
-   - Consolidate repeated similar actions (e.g., "Clicked search button 3 times")
-   - Create separate key actions for repeated behaviors ONLY if they represent distinct phases
-   - Select key actions that occur close together in time
-   - Avoid combining actions with large time gaps between them into the same objective
-   - Each key action could be a user action (`"error": false`) or an error (`"error": true`) based on the guidelines below
+- Create new segments when the user clearly transitions to a different area/activity
+- Use natural breakpoints such as page changes, significant pauses, or task completions
+- Keep segments to a reasonable size (typically 3-7 minutes of activity)
 
-2.2. Error Identification Guidelines (CRITICAL):
-   - NEVER flag as errors:
-     ✗ Normal page navigation
-     ✗ Sequential UI interactions (changing filters, adjusting parameters)
-     ✗ Any other action without direct failure evidence
+✗ DO NOT:
 
-   - Flag event as an error (`error: true`) ONLY with EXPLICIT evidence:
-     ✓ Event name/type contains: 'exception', 'failed', 'error', etc.
-     ✓ `elements_chain_texts` contains error messages (e.g., "404 Not Found", "Failed to load", etc.)
-     ✓ Session abandonment shortly after exception events
-     ✓ Multiple rapid identical form submissions followed by a change in form data
-     ✓ And other similar patterns
-     
-   - Error severity filter:
-      ✓ INCLUDE: Errors interrupting user progress (login failures, submission errors, API errors, etc.)
-      ✗ EXCLUDE: Background errors (tracking failures, minor rendering glitches, etc.)
+- Create segments based on technical events rather than user activity
+- Make segments too granular (single actions) or too broad (half the session)
+- Create overlapping segments (each event belongs to one primary segment)
 
-   - Error description requirements:
-     * Specify error nature (API failure, validation error, timeout, etc.)
-     * Include potential causes when identifiable
-     * Explain impact on user flow
-     * Provide more detail than regular action descriptions
+1.4. Pay special attention to:
 
-2.3. User Action Guidelines:
-   - Focus on actions that demonstrate clear user intent
-   - Keep descriptions concise but informative
-   - For complex actions, briefly include the outcome
-   - Prioritize actions showing progress or completion of the objective
+- URL patterns and page transitions (use `url_mapping_input` to interpret actual pages visited)
+- Clusters of related actions happening in sequence
+- Periods of focused activity on a specific task
+- Transitions between different sections of the application
 
-# Step 3: Assess the Session Outcome:
-   - Analyze the `start_url` from the `session_medata_input` to identify the entry point context
-   - Review the user's objectives/actions during the session
-   - Distinguish between intentional visits and redirects/automated navigation
-   - Identify the exit URL, final actions and their context
-   - If the user abandoned the session after encountering errors, briefly describe their nature and impact
-   - If mentioning errors - ONLY mention errors that interrupted the user's workflow and were included in the key actions.
-   - Assess whether the oversall session was successful by comparing it with completed objectives
+1.5. For each segment, determine a success status (boolean):
+
+- Mark a segment as successful (true) when:
+  - User completed the core actions they attempted during that segment, confirmed by clear evidence in the events data
+  - Any errors encountered were resolved or worked around
+- Mark a segment as unsuccessful (false) when:
+  - User abandoned activities before completion
+  - Critical errors prevented completion of intended actions
+
+# Step 2: Identify Key Actions Within Each Segment
+
+After segmenting the timeline, identify the most significant actions within each segment. Prioritize conversion-related events and critical interruptions.
+
+2.1. Key Action Prioritization (in order of importance):
+
+- HIGH PRIORITY: 
+  - Conversion events (sign-ups, subscriptions, purchases, plan upgrades/downgrades, etc.)
+  - Events that prevented conversions (errors during checkout, payment issues, unsuccesful plan changes, etc.)
+  - Critical flow interruptions (technical errors, repeated failed attempts to complete a task, etc.)
+- MEDIUM PRIORITY:
+  - Events leading to or indicating session abandonment
+  - Major feature interactions or significant user decisions
+  - Feature failures, based on the error identification guidelines below or repeated unsuccessful attempts
+- LOW PRIORITY:
+  - Standard navigation or routine interactions
+
+2.2. Key Actions Guidelines:
+
+- Include 2-5 key actions per segment that follow the prioritization above. The number of key actions should be based on the segment's complexity and duration.
+- For segments without conversion events or critical issues, select actions that best represent the user's primary activities and goals.
+- Actions must be listed in chronological order within each segment
+- Consolidate repeated similar actions.
+- Each key action could be a user action (`"error": false`) or an error (`"error": true`) based on the guidelines below, and should be an actual event from the timeline (with a valid event_id).
+
+2.3. Error Identification Guidelines (CRITICAL):
+
+- NEVER flag as errors:
+  ✗ Normal page navigation
+  ✗ Sequential UI interactions (changing filters, adjusting parameters)
+  ✗ Any other action without direct failure evidence
+  ✗ Non-blocking background errors (tracking failures, minor rendering glitches, etc.)
+
+- Flag event as an error (`error: true`) ONLY with EXPLICIT evidence:
+  ✓ Event name/type contains: 'exception', 'failed', 'error', etc.
+  ✓ `elements_chain_texts` contains error messages (e.g., "Try again", "Failed to load", etc.)
+  ✓ Session abandonment shortly after exception events
+  ✓ Multiple rapid identical form submissions followed by a change in form data
+  ✓ And other similar patterns
+
+- Error description requirements:
+  - Specify error nature (API failure, validation error, timeout, etc.)
+  - Include potential causes when identifiable
+  - Explain impact on user flow
+  - Provide more detail than regular action descriptions, including potential business impact
+
+2.4. Action Description Guidelines:
+
+- For conversion events: Clearly indicate the conversion type and outcome
+- For conversion-blocking errors: Explain what prevented completion and any user recovery attempts
+- For critical flow interruptions: Describe both the interruption and its impact on user progress
+- For all actions: Keep descriptions concise but informative (4-8 words)
+- Focus on describing user intent rather than technical event details
+
+# Step 3: Assess the Session Journey and Outcome
+
+After analyzing the chronological segments and key actions, evaluate the overall user journey and session outcome.
+
+3.1. Journey Flow Analysis:
+
+- Identify the user's entry context (referring to `start_url` from the session metadata) and exit context by the last URL in the session
+- Track progression through the application, noting transitions between major sections
+- Highlight any non-linear patterns (going back to previous areas, abandoning flows)
+
+3.2. Critical Issues Impact:
+
+- Identify technical or flow-related errors that directly impacted conversion attempts or feature interactions
+- Note any user experience issues that may have contributed to abandoned conversions
+- Assess whether errors led to session abandonment
+
+3.3. Session Success Determination:
+
+- Mark the session as successful (true) when:
+  - User completed one or more significant conversion actions
+  - User accomplished apparent goals despite minor obstacles
+  - Session shows logical progression and completion
+- Mark the session as unsuccessful (false) when:
+  - User abandoned critical conversion flows
+  - Technical errors prevented completion of conversion attempts
+  - Session ended abruptly during an important process
+
+3.4. Final Outcome Description:
+
+- Provide a concise summary (2-3 sentences) of the overall user journey
+- Emphasize conversion successes or failures
+- Note any critical issues that affected the user's workflow
 
 # Step 4: Self-Consistency Check
+
 Before finalizing your analysis, verify:
 
-1. Objective Consistency:
-   - Do all identified objectives represent distinct user goals?
+4.1. Chronological Segment Consistency:
 
-2. Key Action Consistency:
-   - Does each key action properly belong to its assigned objective?
-   - Are the most significant user actions captured in the key actions?
-   - Are all critical errors, that interrupted the user's workflow, included in the key actions?
-   - Are error flags supported by explicit evidence in the event data?
-   - Are key actions event IDs copied EXACTLY from the event data?
+- Are segments properly sequential with no time gaps or overlaps?
+- Does each segment represent a distinct phase in the user journey?
+- Do segment boundaries align with natural transitions in user activity?
+- Is the entire session timeline covered from first to last event?
 
-3. Logical Flow Verification:
-   - Does the sequence of objectives and actions tell a coherent story of the user's session?
-   - Is the session outcome assessment supported by the final actions in the data?
+4.2. Key Action Prioritization Verification:
 
-4. Temporal Coverage Verification:
-   - Are later events in the session represented proportionally in the identified objectives and key actions?
-   - Are key actions within the same objective happening close together in time?
-   - If most key actions are from early in the session, revisit the later events to ensure important activities aren't overlooked
+- Are conversion events and conversion-blocking errors properly identified in each segment?
+- Are critical interruptions to user flow highlighted appropriately?
+- Do selected key actions accurately represent the most significant events in each segment?
+- Are event IDs copied EXACTLY from the event data (never invented)?
+- Are error flags supported by explicit evidence in the event data?
+
+4.3. Conversion Focus Verification:
+
+- Have all potential conversion opportunities been identified?
+- Is the analysis of conversion success/failure accurate?
+- Are the reasons for conversion abandonment clearly identified?
+- Have you distinguished between user choice and technical blockers for failed conversions?
+
+4.4. Narrative Flow Verification:
+
+- Does the sequence of segments tell a coherent story of the user's session?
+- Is the progression from segment to segment logical and easy to follow?
+- Does the session outcome assessment match the evidence from the key actions?
+- Are critical issues properly connected to their impact on the user journey?
+
+4.5. Balanced Coverage Verification:
+
+- Is the entire session represented proportionally in the segments and key actions?
+- Are early, middle, and late events given appropriate attention?
+- Is the analysis free from recency or primacy bias?
+- If most key actions are from early in the session, or the summary misses large portions of the timeline, revisit events to ensure important activities aren't overlooked
 
 Revise your analysis if any inconsistencies are found.
 </identify_objectives_instructions>
