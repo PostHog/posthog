@@ -1,4 +1,5 @@
 from collections.abc import Generator
+import json
 from pathlib import Path
 
 import structlog
@@ -35,10 +36,10 @@ class ReplaySummarizer(BaseReplaySummarizer):
             template_dir,
             f"prompt.djt",
             {
-                "EVENTS_DATA": prompt_data.results,
-                "SESSION_METADATA": prompt_data.metadata.to_dict(),
-                "URL_MAPPING": short_url_mapping_reversed,
-                "WINDOW_ID_MAPPING": window_mapping_reversed,
+                "EVENTS_DATA": json.dumps(prompt_data.results),
+                "SESSION_METADATA": json.dumps(prompt_data.metadata.to_dict()),
+                "URL_MAPPING": json.dumps(short_url_mapping_reversed),
+                "WINDOW_ID_MAPPING": json.dumps(window_mapping_reversed),
                 "SUMMARY_EXAMPLE": summary_example,
             },
         )
