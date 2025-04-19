@@ -16307,11 +16307,18 @@
             "required": ["results"],
             "type": "object"
         },
+        "RevenueAnalyticsTopCustomersGroupBy": {
+            "enum": ["month", "all"],
+            "type": "string"
+        },
         "RevenueAnalyticsTopCustomersQuery": {
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "groupBy": {
+                    "$ref": "#/definitions/RevenueAnalyticsTopCustomersGroupBy"
                 },
                 "kind": {
                     "const": "RevenueAnalyticsTopCustomersQuery",
@@ -16325,7 +16332,7 @@
                     "$ref": "#/definitions/RevenueAnalyticsTopCustomersQueryResponse"
                 }
             },
-            "required": ["kind"],
+            "required": ["groupBy", "kind"],
             "type": "object"
         },
         "RevenueAnalyticsTopCustomersQueryResponse": {
@@ -17767,6 +17774,9 @@
                     },
                     "type": "array"
                 },
+                "minDecimalPlaces": {
+                    "type": "number"
+                },
                 "resultCustomizationBy": {
                     "$ref": "#/definitions/ResultCustomizationBy",
                     "default": "value",
@@ -17869,6 +17879,9 @@
                         ]
                     },
                     "type": "object"
+                },
+                "min_decimal_places": {
+                    "type": "number"
                 },
                 "show_alert_threshold_lines": {
                     "type": "boolean"
