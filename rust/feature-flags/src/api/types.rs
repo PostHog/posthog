@@ -141,7 +141,11 @@ impl FromFeatureAndMatch for FlagDetails {
             variant: flag_match.variant.clone(),
             reason: FlagEvaluationReason {
                 code: flag_match.reason.to_string(),
-                condition_index: flag_match.condition_index.map(|i| i as i32),
+                condition_index: if flag_match.matches {
+                    flag_match.condition_index.map(|i| i as i32)
+                } else {
+                    None
+                },
                 description: Self::get_reason_description(flag_match),
             },
             metadata: FlagDetailsMetadata {
