@@ -26,6 +26,8 @@ const PAGINATION_LIMIT = 100
 const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
 
+export type ProjectTreeSortMethod = 'alphabetical' | 'created_at'
+
 export const projectTreeLogic = kea<projectTreeLogicType>([
     path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
     connect(() => ({
@@ -81,6 +83,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         checkSelectedFolders: true,
         syncTypeAndRef: (type: string, ref: string) => ({ type, ref }),
         updateSyncedFiles: (files: FileSystemEntry[]) => ({ files }),
+        setSortMethod: (sortMethod: ProjectTreeSortMethod) => ({ sortMethod }),
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -424,6 +427,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 setCheckedItems: (_, { checkedItems }) => checkedItems,
             },
         ],
+        sortMethod: [
+            'alphabetical' as ProjectTreeSortMethod,
+            {
+                setSortMethod: (_, { sortMethod }) => sortMethod,
+            },
+        ],
     }),
     selectors({
         savedItems: [
@@ -564,13 +573,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         pendingActionsCount: [(s) => [s.pendingActions], (pendingActions): number => pendingActions.length],
         projectTree: [
-            (s) => [s.viableItems, s.folderStates, s.checkedItems],
-            (viableItems, folderStates, checkedItems): TreeDataItem[] =>
+            (s) => [s.viableItems, s.folderStates, s.checkedItems, s.sortMethod],
+            (viableItems, folderStates, checkedItems, sortMethod): TreeDataItem[] =>
                 convertFileSystemEntryToTreeDataItem({
                     imports: viableItems,
                     folderStates,
                     checkedItems,
                     root: 'project',
+                    sortBy: sortMethod,
                 }),
         ],
         groupNodes: [

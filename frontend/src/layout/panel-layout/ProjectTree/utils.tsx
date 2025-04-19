@@ -7,6 +7,7 @@ import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/Sea
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { iconForType } from './defaultTree'
+import { ProjectTreeSortMethod } from './projectTreeLogic'
 import { FolderState } from './types'
 
 export interface ConvertProps {
@@ -16,6 +17,7 @@ export interface ConvertProps {
     root: string
     searchTerm?: string
     disableFolderSelect?: boolean
+    sortBy?: ProjectTreeSortMethod
 }
 
 export function wrapWithShortutIcon(item: FileSystemImport | FileSystemEntry, icon: JSX.Element): JSX.Element {
@@ -38,6 +40,7 @@ export function convertFileSystemEntryToTreeDataItem({
     root,
     searchTerm,
     disableFolderSelect,
+    sortBy = 'alphabetical',
 }: ConvertProps): TreeDataItem[] {
     // The top-level nodes for our project tree
     const rootNodes: TreeDataItem[] = []
@@ -179,24 +182,38 @@ export function convertFileSystemEntryToTreeDataItem({
         }
     }
 
-    // Helper function to sort nodes (and their children) alphabetically by name.
+    // Helper function to sort nodes (and their children) based on chosen method
     const sortNodes = (nodes: TreeDataItem[]): void => {
         nodes.sort((a, b) => {
+            // Always keep "Load more" and "Loading" at the end
             if (a.id.startsWith(`${root}-load-more/`) || a.id.startsWith(`${root}-loading/`)) {
                 return 1
             }
             if (b.id.startsWith(`${root}-load-more/`) || b.id.startsWith(`${root}-loading/`)) {
                 return -1
             }
-            // folders before files
+
+            // Always keep folders before files
             if (a.record?.type === 'folder' && b.record?.type !== 'folder') {
                 return -1
             }
             if (b.record?.type === 'folder' && a.record?.type !== 'folder') {
                 return 1
             }
+
+            // Sort by creation date if selected
+            if (sortBy === 'created_at' && a.record && b.record) {
+                const dateA = a.record.created_at ? new Date(a.record.created_at).getTime() : 0
+                const dateB = b.record.created_at ? new Date(b.record.created_at).getTime() : 0
+                if (dateA !== dateB) {
+                    return dateB - dateA // newest first
+                }
+            }
+
+            // Default to alphabetical sort
             return String(a.name).localeCompare(String(b.name))
         })
+
         for (const node of nodes) {
             if (node.children) {
                 sortNodes(node.children)

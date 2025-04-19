@@ -233,6 +233,7 @@ export const FEATURE_FLAGS = {
     PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     TREE_VIEW: 'tree-view', // owner: @mariusandra #team-devex
     TREE_VIEW_TABLE_MODE: 'tree-view-table-mode', // owner: @adamleithp #team-devex
+    TREE_VIEW_WITH_SORTING: 'tree-view-with-sorting', // owner: @adamleithp #team-devex
     EXPERIMENTS_NEW_QUERY_RUNNER: 'experiments-new-query-runner', // owner: #team-experiments
     RECORDINGS_AI_REGEX: 'recordings-ai-regex', // owner: @veryayskiy #team-replay
     EXPERIMENTS_NEW_QUERY_RUNNER_AA_TEST: 'experiments-new-query-runner-aa-test', // #team-experiments

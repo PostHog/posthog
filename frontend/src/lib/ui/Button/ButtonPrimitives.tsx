@@ -147,7 +147,7 @@ const buttonVariants = cva({
                 not-disabled:data-[current=true]:bg-fill-button-tertiary-active 
                 not-disabled:data-[state=open]:bg-fill-button-tertiary-active 
                 not-disabled:data-[state=checked]:bg-fill-button-tertiary-active
-                not-disabled:data-highlighted:bg-fill-button-tertiary-active
+                not-disabled:data-highlighted:bg-fill-button-tertiary-hover
             `,
             // Outline variant (aka posthog secondary button)
             outline: `
