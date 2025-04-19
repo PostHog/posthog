@@ -34,6 +34,7 @@ import {
     RecordingUniversalFilters,
     SessionRecordingId,
     SessionRecordingType,
+    SortDirection,
 } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -83,6 +84,7 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
 }
 
 export const DEFAULT_RECORDING_FILTERS_ORDER_BY = 'start_time'
+export const DEFAULT_RECORDING_FILTERS_DIRECTION = 'DESC'
 
 export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
@@ -91,6 +93,7 @@ export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_group: { ...DEFAULT_UNIVERSAL_GROUP_FILTER },
     duration: [defaultRecordingDurationFilter],
     order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
+    direction: DEFAULT_RECORDING_FILTERS_DIRECTION,
 }
 
 const DEFAULT_PERSON_RECORDING_FILTERS: RecordingUniversalFilters = {
@@ -289,16 +292,24 @@ function combineLegacyRecordingFilters(
 
 function sortRecordings(
     recordings: SessionRecordingType[],
-    order: RecordingsQuery['order'] | 'duration' = 'start_time'
+    order: RecordingsQuery['order'] | 'duration' = 'start_time',
+    direction: SortDirection = 'DESC'
 ): SessionRecordingType[] {
     const orderKey: RecordingOrder = order === 'duration' ? 'recording_duration' : order
 
-    return recordings.sort((a, b) => {
+    const compareRecordings = (a: SessionRecordingType, b: SessionRecordingType): number => {
         const orderA = a[orderKey]
         const orderB = b[orderKey]
-        const incomparible = orderA === undefined || orderB === undefined
-        return incomparible ? 0 : orderA > orderB ? -1 : 1
-    })
+
+        if (orderA === undefined || orderB === undefined) {
+            return 0
+        }
+
+        const comparison = orderA > orderB ? -1 : 1
+        return direction === 'DESC' ? comparison : -comparison
+    }
+
+    return recordings.sort(compareRecordings)
 }
 
 export interface SessionRecordingPlaylistLogicProps {
@@ -434,6 +445,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                                 : response.has_next,
                         results: response.results,
                         order: params.order,
+                        direction,
                     }
                 },
             },
@@ -492,6 +504,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             })
                             return getDefaultFilters(props.personUUID)
                         }
+
+                        if (filters.order && filters.order !== state.order && !filters.direction) {
+                            filters.direction = DEFAULT_RECORDING_FILTERS_DIRECTION
+                        }
+
                         return {
                             ...state,
                             ...filters,
@@ -766,7 +783,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return true
                 })
 
-                return sortRecordings(filteredRecordings, filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY)
+                return sortRecordings(
+                    filteredRecordings,
+                    filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                    filters.direction
+                )
             },
         ],
 
