@@ -5,7 +5,8 @@ import { elementsToAction } from 'scenes/activity/explore/createActionFromEvent'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
-import { FunnelExclusionSteps, FunnelsQuery } from '~/queries/schema/schema-general'
+import { AnyEntityNode, FunnelExclusionSteps, FunnelsFilter } from '~/queries/schema/schema-general'
+import { integer } from '~/queries/schema/type-utils'
 import {
     AnyPropertyFilter,
     Breakdown,
@@ -217,24 +218,16 @@ export const getBreakdownStepValues = (
     return EMPTY_BREAKDOWN_VALUES
 }
 
-export const getClampedExclusionStepRange = ({
-    stepRange,
-    query,
-}: {
-    stepRange: FunnelExclusionSteps
-    query: FunnelsQuery
-}): FunnelExclusionSteps => {
-    const maxStepIndex = Math.max((query.series.length || 0) - 1, 1)
-
-    let { funnelFromStep, funnelToStep } = stepRange
-
-    funnelFromStep = clamp(funnelFromStep ?? 0, 0, maxStepIndex)
-    funnelToStep = clamp(funnelToStep ?? maxStepIndex, funnelFromStep + 1, maxStepIndex)
+export const getClampedFunnelStepRange = (
+    stepRange: FunnelExclusionSteps | FunnelsFilter,
+    series: AnyEntityNode[] | null | undefined
+): { funnelFromStep?: integer; funnelToStep?: integer } => {
+    const maxStepIndex = Math.max((series?.length || 0) - 1, 1)
+    const { funnelFromStep, funnelToStep } = stepRange
 
     return {
-        ...(stepRange || {}),
-        funnelFromStep,
-        funnelToStep,
+        ...(funnelFromStep != null ? { funnelFromStep: clamp(funnelFromStep, 0, maxStepIndex - 1) } : {}),
+        ...(funnelToStep != null ? { funnelToStep: clamp(funnelToStep, (funnelFromStep || 0) + 1, maxStepIndex) } : {}),
     }
 }
 

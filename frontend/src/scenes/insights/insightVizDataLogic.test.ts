@@ -84,6 +84,40 @@ describe('insightVizDataLogic', () => {
                 samplingFactor: 0.1,
             })
         })
+
+        it('handles funnel step range side effects', () => {
+            const querySource = {
+                ...funnelsQueryDefault,
+                series: [funnelsQueryDefault.series[0], funnelsQueryDefault.series[0], funnelsQueryDefault.series[0]],
+                funnelsFilter: {
+                    funnelVizType: 'trends',
+                    funnelFromStep: 0,
+                    funnelToStep: 2,
+                },
+            } as FunnelsQuery
+            builtInsightVizDataLogic.actions.updateQuerySource(querySource)
+
+            expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    ...querySource,
+                    series: querySource.series.slice(0, 2),
+                } as FunnelsQuery)
+            }).toMatchValues({
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        ...querySource,
+                        series: querySource.series.slice(0, 2),
+                        funnelsFilter: {
+                            funnelVizType: 'trends',
+                            funnelFromStep: 0,
+                            funnelToStep: 1,
+                        },
+                        trendsFilter: {}, // we currently don't remove insight filters of previous query kinds
+                    },
+                },
+            })
+        })
     })
 
     describe('updateDateRange', () => {
