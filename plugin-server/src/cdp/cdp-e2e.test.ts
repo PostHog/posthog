@@ -62,7 +62,7 @@ describe('CDP Consumer loop', () => {
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
-            hub.CYCLOTRON_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
+            hub.CYCLOTRON_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/rust_test_database'
 
             processedEventsConsumer = new CdpProcessedEventsConsumer(hub)
             await processedEventsConsumer.start()

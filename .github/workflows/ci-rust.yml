@@ -50,8 +50,6 @@ jobs:
 
         steps:
             # Checkout project code
-            # Use sparse checkout to only select files in rust directory
-            # Turning off cone mode ensures that files in the project root are not included during checkout
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               if: needs.changes.outputs.rust == 'true'
               with:
@@ -82,7 +80,19 @@ jobs:
             matrix:
                 package:
                     - feature-flags
-                    - others
+                    - property-defs-rs
+                    - batch-import-worker
+                    - capture
+                    - cymbal
+                    - hook-api
+                    - hook-common
+                    - hook-janitor
+                    - hook-worker
+                    - cyclotron-core
+                    - cyclotron-node
+                    - cyclotron-janitor
+                    - cyclotron-fetch
+
         needs: changes
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 10
@@ -95,18 +105,11 @@ jobs:
             - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
               if: needs.changes.outputs.rust == 'true'
 
-            - name: Setup main repo dependencies for flags
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+            - name: Setup dependencies
+              if: needs.changes.outputs.rust == 'true'
               run: |
                   docker compose -f ../docker-compose.dev.yml down
                   docker compose -f ../docker-compose.dev.yml up -d
-                  echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
-
-            - name: Setup dependencies
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'others'
-              run: |
-                  docker compose up kafka redis db echo_server objectstorage -d --wait
-                  docker compose up setup_test_db
                   echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
@@ -125,49 +128,48 @@ jobs:
                   sccache --start-server
 
             - name: Set up Python
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+              if: needs.changes.outputs.rust == 'true'
               uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
               with:
                   python-version-file: 'pyproject.toml'
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install uv
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+              if: needs.changes.outputs.rust == 'true'
               uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
               with:
                   enable-cache: true
                   pyproject-file: 'pyproject.toml'
 
-            - name: Install SAML (python3-saml) dependencies
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+            - name: Install SAML (python3-saml) dependencies, PG tools
+              if: needs.changes.outputs.rust == 'true'
               run: |
                   sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl postgres-client
 
             - name: Install python dependencies
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+              if: needs.changes.outputs.rust == 'true'
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev --directory ..
-
-            - name: Set up databases
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
-              env:
-                  DEBUG: 'true'
-                  TEST: 'true'
-                  SECRET_KEY: 'abcdef' # unsafe - for testing only
-                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-              run: cd ../ && python manage.py setup_test_environment --only-postgres
 
             - name: Download MaxMind Database
               if: needs.changes.outputs.rust == 'true'
               run: |
                   cd ../ && ./bin/download-mmdb
 
-            - name: Run cargo test
+            - name: Export migration files
               if: needs.changes.outputs.rust == 'true'
+              run: ./bin/migrate
+
+            - name: Bootstrap test databases, run cargo test
+              if: needs.changes.outputs.rust == 'true'
+              env:
+                  DEBUG: 'true'
+                  TEST: 'true'
+                  SECRET_KEY: 'abcdef' # unsafe - for testing only
               run: |
-                  echo "Starting cargo test"
-                  RUST_BACKTRACE=1 cargo test --all-features ${{ matrix.package == 'feature-flags' && '--package feature-flags' || '--workspace --exclude feature-flags' }}
+                  echo "Starting Cargo test suite..."
+                  ./bin/run_workspace_tests -s -p ${{ matrix.package }}
                   echo "Cargo test completed"
 
     linting:

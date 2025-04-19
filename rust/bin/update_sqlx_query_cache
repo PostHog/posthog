@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+set -euxo pipefail
+
+#
+# Updates the SQLX query cache for the entire posthog/rust workspace.
+#
+# This operation has a number of moving parts. See `posthog/rust/README.md`
+# for more details. *IMPORTANT* you should only need to run this manually if
+# you've modified a query declared in a sqlx macro invocation.
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+source "$SCRIPT_DIR/util"
+
+source "$SCRIPT_DIR/../.env"
+log "Sourced rust/.env file - database URL is: $DATABASE_URL"
+
+# This is required for SQLX to refresh the query cache
+log "Executing Rust workspace migrations..."
+$SCRIPT_DIR/migrate
+
+# Refresh (rebuild) the SQLX query cache for the workspace. Note: the --all-* arguments
+# ensure that `sqlx::query*(...)` macros used in unit tests (etc.) are also cached
+log "Attempting to update workspace SQLX query cache..."
+pushd "$SCRIPT_DIR/.."
+cargo sqlx prepare -D "$DATABASE_URL" --workspace -- --all-targets --all-features
+popd
+
+log "Upated SQLX query cache at: $(realpath "$SCRIPT_DIR/../.sqlx")"

@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+#
+## Run *full workspace* test schema migrations, and all subproject test suites
+#
+
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
+source "$SCRIPT_DIR/util"
+
+function usage {
+  echo "$0 [-s] [-p PKG]"
+  echo -e "Arguments:"
+  echo -e "-s       Skip running migrations prior to test execution"
+  echo -e "-p PKG   Only run the workspace tests for the named package"
+
+  exit 1
+}
+
+SUBPKG_NAME=workspace
+SKIP_MIGRATIONS=
+
+while getopts "sp:" opt; do
+  case "$opt" in
+    p)
+      SUBPKG_NAME="$OPTARG"
+      ;;
+
+    s)
+      SKIP_MIGRATIONS=1
+      ;;
+
+    *)
+      usage
+      ;;
+  esac
+done
+shift $((OPTIND - 1))
+
+# conditionally run the migrations (test schemas + django postgres models only!)
+if [[ -n "$SKIP_MIGRATIONS" ]]; then
+  log "Skipping migrations..."
+else
+  $SCRIPT_DIR/migrate
+fi
+
+# if a workspace subpackage name was provided, only
+# execute the test suite for that package (used in CI)
+OPTIONAL_SUBPKG_TARGET=""
+if [[ "$SUBPKG_NAME" != "workspace" ]]; then
+  OPTIONAL_SUBPKG_TARGET="-p $SUBPKG_NAME"
+fi
+
+# run the workspace test suite using limited # of threads
+# to avoid overwhelming the posthog Docker Compose rig
+log "Executing cargo test with target: $SUBPKG_NAME"
+cargo test $OPTIONAL_SUBPKG_TARGET -- --test-threads=4

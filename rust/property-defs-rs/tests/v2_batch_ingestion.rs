@@ -13,8 +13,10 @@ use property_defs_rs::{
     v2_batch_ingestion::process_batch_v2,
 };
 
-#[sqlx::test(migrations = "./tests/test_migrations")]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_simple_batch_write(db: PgPool) {
+    seed_team_project_tables(&db, 111).await;
+
     let config = Config::init_with_defaults().unwrap();
     let cache: Arc<Cache<Update, ()>> = Arc::new(Cache::new(config.cache_capacity));
     let updates = gen_test_event_updates("$pageview", 100, None);
@@ -45,7 +47,7 @@ async fn test_simple_batch_write(db: PgPool) {
     assert_eq!(Some(100), event_props_count);
 }
 
-#[sqlx::test(migrations = "./tests/test_migrations")]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_group_batch_write(db: PgPool) {
     let _unused = sqlx::query!(
         r#"
@@ -55,6 +57,7 @@ async fn test_group_batch_write(db: PgPool) {
     )
     .execute(&db)
     .await;
+    seed_team_project_tables(&db, 111).await;
 
     let config = Config::init_with_defaults().unwrap();
     let cache: Arc<Cache<Update, ()>> = Arc::new(Cache::new(config.cache_capacity));
@@ -102,8 +105,10 @@ async fn test_group_batch_write(db: PgPool) {
     assert_eq!(Some(100), event_props_count);
 }
 
-#[sqlx::test(migrations = "./tests/test_migrations")]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_person_batch_write(db: PgPool) {
+    seed_team_project_tables(&db, 111).await;
+
     let config = Config::init_with_defaults().unwrap();
     let cache: Arc<Cache<Update, ()>> = Arc::new(Cache::new(config.cache_capacity));
     let updates =
@@ -133,6 +138,42 @@ async fn test_person_batch_write(db: PgPool) {
             .await
             .unwrap();
     assert_eq!(Some(100), event_props_count);
+}
+
+async fn seed_team_project_tables(db: &PgPool, id: i32) {
+    sqlx::query(
+        r#"
+    INSERT INTO posthog_organization
+    (id, name, slug, created_at, updated_at, plugins_access_level,
+     for_internal_metrics, is_member_join_email_enabled, setup_section_2_completed,
+     personalization, domain_whitelist)
+    VALUES('019621ef-58dd-745e-8998-16e2c2ee29f7', 'foo', 'bar', now(), now(),
+           $1, true, true, true, '{}', ARRAY['baz'])"#
+    )
+    .bind(id)
+    .execute(db)
+    .await
+    .expect("failed to write test fixture to posthog_organization");
+
+    sqlx::query(
+        "INSERT INTO posthog_project (id, organization_id, name, created_at)
+        VALUES($1, '019621ef-58dd-745e-8998-16e2c2ee29f7', 'foobar', now())"
+    )
+    .bind(id)
+    .execute(db)
+    .await
+    .expect("failed to write test fixture to posthog_project");
+
+    sqlx::query(r#"
+        INSERT INTO posthog_team
+        (id, uuid, organization_id, parent_team_id, project_id, api_token, app_urls, name, created_at, updated_at,
+         anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control,
+         test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage,
+         event_properties, event_properties_with_usage, event_properties_numerical)
+        VALUES ($1, '01962200-176d-79bd-947d-75f9d40ae9a4', '019621ef-58dd-745e-8998-16e2c2ee29f7', $1, $1, 'abc123',
+                ARRAY['example.com'], 'foobar', now(), now(), false, true, true, true, false, false, '{}', 'PST',
+                '{}', true, false, '{}', '{}' , '{}', '{}', '{}')
+        "#).bind(id).execute(db).await.expect("failed to write test fixture to posthog_team");
 }
 
 fn gen_test_event_updates(

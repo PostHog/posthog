@@ -50,7 +50,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_producer_message_max_bytes: 1000000, // 1MB, rdkafka default
         kafka_topic_metadata_refresh_interval_ms: 10000,
         kafka_compression_codec: "none".to_string(),
-        kafka_hosts: "kafka:9092".to_string(),
+        kafka_hosts: "localhost:9092".to_string(),
         kafka_topic: "events_plugin_ingestion".to_string(),
         kafka_overflow_topic: "events_plugin_ingestion_overflow".to_string(),
         kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),

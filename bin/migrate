@@ -6,9 +6,9 @@ SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 
 # NOTE when running in docker, rust might not exist so we need to check for it
 if [ -d "$SCRIPT_DIR/../rust/bin" ]; then
-    bash $SCRIPT_DIR/../rust/bin/migrate-cyclotron
+    bash $SCRIPT_DIR/../rust/bin/migrate
     if [ $? -ne 0 ]; then
-        echo "Error in rust/bin/migrate-cyclotron, exiting."
+      echo "ERROR migrating Rust services w/isolated production DBs (cyclotron, property-defs-rs), exiting."
         exit 1
     fi
 fi
@@ -22,14 +22,14 @@ echo "0" > $CLICKHOUSE_STATUS
 # Run ClickHouse migrations in the background but track their status
 (
     # Run migrations and capture status
-    python manage.py migrate_clickhouse 
+    python manage.py migrate_clickhouse
     CH_MIGRATE_STATUS=$?
     if [ $CH_MIGRATE_STATUS -ne 0 ]; then
         echo "Error in migrate_clickhouse, setting error status."
         echo "1" > $CLICKHOUSE_STATUS
         exit $CH_MIGRATE_STATUS
     fi
-    
+
     python manage.py sync_replicated_schema
     SYNC_STATUS=$?
     if [ $SYNC_STATUS -ne 0 ]; then

@@ -5,8 +5,40 @@ use sqlx::postgres::PgArguments;
 use sqlx::{Arguments, PgPool};
 use uuid::Uuid;
 
-#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn seed_team_table(db: &PgPool) {
+    sqlx::query!(
+        r#"
+    INSERT INTO posthog_organization
+    (id, name, slug, created_at, updated_at, plugins_access_level,
+     for_internal_metrics, is_member_join_email_enabled, setup_section_2_completed,
+     personalization, domain_whitelist)
+    VALUES('019621ef-58dd-745e-8998-16e2c2ee29f7', 'foo', 'bar', now(), now(),
+           1, true, true, true, '{}', ARRAY['baz'])"#
+    )
+    .execute(db)
+    .await
+    .expect("failed to write test fixture to posthog_organization");
+
+    sqlx::query!("INSERT INTO posthog_project (id, organization_id, name, created_at) VALUES(1, '019621ef-58dd-745e-8998-16e2c2ee29f7', 'foobar', now())")
+        .execute(db)
+        .await.expect("failed to write test fixture to posthog_project");
+
+    sqlx::query(r#"
+        INSERT INTO posthog_team
+        (id, uuid, organization_id, parent_team_id, project_id, api_token, app_urls, name, created_at, updated_at,
+         anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control,
+         test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage,
+         event_properties, event_properties_with_usage, event_properties_numerical)
+        VALUES ($1, '01962200-176d-79bd-947d-75f9d40ae9a4', '019621ef-58dd-745e-8998-16e2c2ee29f7', 1, 1, 'abc123',
+                ARRAY['example.com'], 'foobar', now(), now(), false, true, true, true, false, false, '{}', 'PST',
+                '{}', true, false, '{}', '{}' , '{}', '{}', '{}')
+        "#).bind(1).execute(db).await.expect("failed to write test fixture to posthog_team");
+}
+
+#[sqlx::test(migrations = "../migrations")]
 async fn test_updates(db: PgPool) {
+    seed_team_table(&db).await;
+
     let properties = r#"
         {
             "TIMESTAMP": 5424245435435435,
@@ -106,8 +138,10 @@ async fn test_updates(db: PgPool) {
     .unwrap();
 }
 
-#[sqlx::test(migrations = "./tests/test_migrations")]
+#[sqlx::test(migrations = "../migrations")]
 async fn test_update_on_project_id_conflict(db: PgPool) {
+    seed_team_table(&db).await;
+
     let definition_created_at: DateTime<Utc> = Utc::now() - Duration::days(1);
     let mut args = PgArguments::default();
     args.add(Uuid::now_v7()).unwrap();

@@ -222,7 +222,7 @@ mod test {
         client
     }
 
-    #[sqlx::test(migrations = "./tests/test_migrations")]
+    #[sqlx::test(migrations = "../migrations")]
     pub async fn happy_path_test(pool: PgPool) {
         // We assert here that s3 receives 1 put and no gets, because we're only resolving
         // one frame, twice. Note that we're not using a caching symbol set provider, so if
