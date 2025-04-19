@@ -310,7 +310,6 @@ const config = {
         '../../ee/frontend/**/*.{ts,tsx}',
         '../../frontend/src/index.html',
         '../../products/**/frontend/**/*.{ts,tsx}',
-        '../../common/**/src/**/*.{ts,tsx}',
         '../../common/**/frontend/**/*.{ts,tsx}',
         '!../../frontend/src/**/*Type.ts',
     ],
