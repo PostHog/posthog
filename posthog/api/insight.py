@@ -374,6 +374,10 @@ class InsightSerializer(InsightBasicSerializer):
 
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Insight:
+        if "filters" in validated_data:
+            raise ValidationError(
+                {"filters": "This field is deprecated and no longer allowed. Please use `query` instead."},
+            )
         request = self.context["request"]
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
         team_id = self.context["team_id"]
