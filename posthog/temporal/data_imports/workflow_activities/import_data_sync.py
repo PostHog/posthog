@@ -280,10 +280,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                             if schema.is_incremental
                             else None,
                         )
-                    elif (
-                        ExternalDataSource.Type(model.pipeline.source_type) == ExternalDataSource.Type.MSSQL
-                        and str(inputs.team_id) not in settings.OLD_MSSQL_SOURCE_TEAM_IDS
-                    ):
+                    elif ExternalDataSource.Type(model.pipeline.source_type) == ExternalDataSource.Type.MSSQL:
                         source = mssql_source(
                             host=tunnel.local_bind_host,
                             port=int(tunnel.local_bind_port),
@@ -305,6 +302,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                             else None,
                         )
                     else:
+                        # should never get here but adding this in case above branching logic changes
                         # Old MS SQL Server source
                         # TODO: remove once all teams have been moved to new source
                         source = sql_source_for_type(
@@ -381,10 +379,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     else None,
                     db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
                 )
-            elif (
-                ExternalDataSource.Type(model.pipeline.source_type) == ExternalDataSource.Type.MSSQL
-                and str(inputs.team_id) not in settings.OLD_MSSQL_SOURCE_TEAM_IDS
-            ):
+            elif ExternalDataSource.Type(model.pipeline.source_type) == ExternalDataSource.Type.MSSQL:
                 source = mssql_source(
                     host=host,
                     port=port,
