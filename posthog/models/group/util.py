@@ -6,11 +6,12 @@ from zoneinfo import ZoneInfo
 from dateutil.parser import isoparse
 from django.utils.timezone import now
 
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_GROUPS
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.group import Group
-from posthog.models.group.sql import INSERT_GROUP_SQL
+from posthog.models.group.sql import INSERT_GROUP_SQL, MARK_GROUP_DELETED_SQL
 
 
 def raw_create_group_ch(
@@ -89,3 +90,21 @@ def get_aggregation_target_field(
         return f'{event_table_alias}."$group_{aggregation_group_type_index}"'
     else:
         return default
+
+
+def raw_delete_group_ch(
+    team_id: int,
+    group_type_index: GroupTypeIndex,
+    group_key: str,
+):
+    """Mark ClickHouse-only Group record as deleted.
+
+    DON'T USE DIRECTLY -
+    unless you specifically want to sync Postgres state from ClickHouse yourself."""
+
+    data = {
+        "group_type_index": group_type_index,
+        "group_key": group_key,
+        "team_id": team_id,
+    }
+    sync_execute(MARK_GROUP_DELETED_SQL, data)

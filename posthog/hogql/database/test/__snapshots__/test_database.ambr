@@ -9,7 +9,8 @@
   SELECT groups.group_type_index AS index, groups.group_key AS key 
   FROM groups 
   WHERE equals(groups.team_id, 420) 
-  GROUP BY groups.group_type_index, groups.group_key) AS groups) AS events__some_field ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), events__some_field.events__some_field___key) 
+  GROUP BY groups.group_type_index, groups.group_key 
+  HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, %(hogql_val_0)s)), 0)) AS groups) AS events__some_field ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), events__some_field.events__some_field___key) 
   WHERE equals(events.team_id, 420) 
   LIMIT 50000
   '''
@@ -253,7 +254,8 @@
                       "key",
                       "created_at",
                       "updated_at",
-                      "properties"
+                      "properties",
+                      "is_deleted"
                   ],
                   "hogql_value": "group_0",
                   "id": "group_0",
@@ -280,7 +282,8 @@
                       "key",
                       "created_at",
                       "updated_at",
-                      "properties"
+                      "properties",
+                      "is_deleted"
                   ],
                   "hogql_value": "group_1",
                   "id": "group_1",
@@ -307,7 +310,8 @@
                       "key",
                       "created_at",
                       "updated_at",
-                      "properties"
+                      "properties",
+                      "is_deleted"
                   ],
                   "hogql_value": "group_2",
                   "id": "group_2",
@@ -334,7 +338,8 @@
                       "key",
                       "created_at",
                       "updated_at",
-                      "properties"
+                      "properties",
+                      "is_deleted"
                   ],
                   "hogql_value": "group_3",
                   "id": "group_3",
@@ -361,7 +366,8 @@
                       "key",
                       "created_at",
                       "updated_at",
-                      "properties"
+                      "properties",
+                      "is_deleted"
                   ],
                   "hogql_value": "group_4",
                   "id": "group_4",
@@ -584,6 +590,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "json"
+              },
+              "is_deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_deleted",
+                  "id": null,
+                  "name": "is_deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
               }
           },
           "id": "groups",
@@ -1522,7 +1538,8 @@
                       "key",
                       "created_at",
                       "updated_at",
-                      "properties"
+                      "properties",
+                      "is_deleted"
                   ],
                   "hogql_value": "group_0",
                   "id": "group_0",
@@ -1549,7 +1566,8 @@
                       "key",
                       "created_at",
                       "updated_at",
-                      "properties"
+                      "properties",
+                      "is_deleted"
                   ],
                   "hogql_value": "group_1",
                   "id": "group_1",
@@ -1576,7 +1594,8 @@
                       "key",
                       "created_at",
                       "updated_at",
-                      "properties"
+                      "properties",
+                      "is_deleted"
                   ],
                   "hogql_value": "group_2",
                   "id": "group_2",
@@ -1603,7 +1622,8 @@
                       "key",
                       "created_at",
                       "updated_at",
-                      "properties"
+                      "properties",
+                      "is_deleted"
                   ],
                   "hogql_value": "group_3",
                   "id": "group_3",
@@ -1630,7 +1650,8 @@
                       "key",
                       "created_at",
                       "updated_at",
-                      "properties"
+                      "properties",
+                      "is_deleted"
                   ],
                   "hogql_value": "group_4",
                   "id": "group_4",
@@ -1828,6 +1849,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "json"
+              },
+              "is_deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_deleted",
+                  "id": null,
+                  "name": "is_deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
               }
           },
           "id": "groups",

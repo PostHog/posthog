@@ -273,7 +273,8 @@
                  FROM groups
                  WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                  GROUP BY groups.group_type_index,
-                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+                          groups.group_key
+                 HAVING equals(argMax(groups.is_deleted, toTimeZone(groups._timestamp, 'UTC')), 0)) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfWeek(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC')), 0)), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2020-02-15 23:59:59', 'UTC'))), equals(e.event, 'watched movie'), ifNull(equals(e__group_0.properties___industry, 'technology'), 0))
               GROUP BY aggregation_target,
                        start_of_interval
