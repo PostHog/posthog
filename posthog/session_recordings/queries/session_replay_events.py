@@ -151,16 +151,7 @@ class SessionReplayEvents:
         from posthog.schema import HogQLQuery, HogQLQueryResponse
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
-        fields = [
-            "event",
-            "timestamp",
-            "elements_chain_href",
-            "elements_chain_texts",
-            "elements_chain_elements",
-            "properties.$window_id",
-            "properties.$current_url",
-            "properties.$event_type",
-        ]
+        fields = [*DEFAULT_EVENT_FIELDS]
         if extra_fields:
             fields.extend(extra_fields)
 

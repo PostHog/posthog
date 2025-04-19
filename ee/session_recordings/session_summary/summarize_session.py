@@ -73,7 +73,9 @@ class ReplaySummarizer:
             )
 
         with timer("load_additional_event_context"):
-            session_events = load_additional_event_context_from_elements_chain(session_events_columns, session_events)
+            session_events_columns, session_events = load_additional_event_context_from_elements_chain(
+                session_events_columns, session_events
+            )
 
         # TODO Get web analytics data on URLs to better understand what the user was doing
         # related to average visitors of the same pages (left the page too fast, unexpected bounce, etc.).

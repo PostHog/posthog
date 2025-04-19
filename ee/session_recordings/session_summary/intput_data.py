@@ -45,29 +45,85 @@ def get_session_events(
     return session_events_columns, session_events
 
 
+def _skip_event_without_context(
+    eventRow: tuple[str | datetime, ...],
+    # Using indexes as argument to avoid calling get_column_index on each event row
+    indexes: dict[str, int],
+) -> bool:
+    """
+    Avoid events that don't add meaningful context and confuse the LLM.
+    """
+    event = eventRow[indexes["event"]]
+    elements_chain_texts = eventRow[indexes["elements_chain_texts"]]
+    elements_chain_elements = eventRow[indexes["elements_chain_elements"]]
+    elements_chain_href = eventRow[indexes["elements_chain_href"]]
+    elements_chain_ids = eventRow[indexes["elements_chain_ids"]]
+    # Skip autocapture events with no proper context
+    if event == "$autocapture":
+        if (
+            not elements_chain_texts
+            and not elements_chain_elements
+            and not elements_chain_href
+            and not elements_chain_ids
+        ):
+            return True
+    # Skip custom events with no proper context
+    # Assuming that events with a short name and no contexts aren't useful for the summary
+    # TODO: Check the assumptions, as could be risky, but worth it to avoid adding noise
+    if (
+        not event.startswith("$")
+        and len(event.split(" ")) == 1
+        and len(event.split(".")) == 1
+        and len(event.split("_")) == 1
+    ):
+        if (
+            not elements_chain_texts
+            and not elements_chain_elements
+            and not elements_chain_href
+            and not elements_chain_ids
+        ):
+            return True
+    return False
+
+
 def load_additional_event_context_from_elements_chain(
     session_events_columns: list[str], session_events: list[tuple[str | datetime, ...]]
 ) -> tuple[list[str], list[tuple[str | datetime, ...]]]:
-    chain_index = get_column_index(session_events_columns, "elements_chain")
-    chain_texts_index = get_column_index(session_events_columns, "elements_chain_texts")
-    chain_elements_index = get_column_index(session_events_columns, "elements_chain_elements")
-    # chain_ids_index = get_column_index(session_events_columns, "elements_chain_ids")
+    indexes = {
+        "event": get_column_index(session_events_columns, "event"),
+        "$event_type": get_column_index(session_events_columns, "$event_type"),
+        "elements_chain": get_column_index(session_events_columns, "elements_chain"),
+        "elements_chain_texts": get_column_index(session_events_columns, "elements_chain_texts"),
+        "elements_chain_elements": get_column_index(session_events_columns, "elements_chain_elements"),
+        "elements_chain_href": get_column_index(session_events_columns, "elements_chain_href"),
+        "elements_chain_ids": get_column_index(session_events_columns, "elements_chain_ids"),
+    }
     updated_events = []
     # TODO: Filter and improve in the same loop to avoid multiple passes?
     for event in session_events:
-        chain = event[chain_index]
+        chain = event[indexes["elements_chain"]]
         if not chain:
+            # If no chain - no additional context will come, so it's ok to check if to skip right away
+            if _skip_event_without_context(event, indexes):
+                continue
             updated_events.append(event)
             continue
         updated_event = list(event)
-        updated_event[chain_texts_index] = _get_improved_elements_chain_texts(chain, event[chain_texts_index])
-        updated_event[chain_elements_index] = _get_improved_elements_chain_elements(chain, event[chain_elements_index])
-        # Remove chain from as we already got all the info from it
-        updated_event.pop(chain_index)
+        updated_event[indexes["elements_chain_texts"]] = _get_improved_elements_chain_texts(
+            chain, event[indexes["elements_chain_texts"]]
+        )
+        updated_event[indexes["elements_chain_elements"]] = _get_improved_elements_chain_elements(
+            chain, event[indexes["elements_chain_elements"]]
+        )
+        # After additional context is added, check again if the event is still without context
+        if _skip_event_without_context(updated_event, indexes):
+            continue
+        # Remove chain from as we already got all the info from it (safe to remove as it's the last column)
+        updated_event.pop(indexes["elements_chain"])
         updated_events.append(tuple(updated_event))
-    # Remove chain from columns also to avoid confusion
+    # Remove chain from columns also to avoid confusion (safe to remove as it's the last column)
     updated_columns = session_events_columns.copy()
-    updated_columns.pop(chain_index)
+    updated_columns.pop(indexes["elements_chain"])
     return updated_columns, updated_events
 
 
