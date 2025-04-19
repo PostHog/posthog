@@ -36,13 +36,13 @@ export const VariablesForDashboard = (): JSX.Element => {
 
     return (
         <>
-            <div className="flex gap-4 flex-wrap px-px mt-4">
+            <div className="flex gap-4 flex-wrap px-px mt-4 mb-2">
                 {dashboardVariables.map((n) => (
                     <VariableComponent
                         key={n.variable.id}
                         variable={n.variable}
                         showEditingUI={false}
-                        onChange={overrideVariableValue}
+                        onChange={(variableId, value, isNull) => overrideVariableValue(variableId, value, isNull, true)}
                         variableOverridesAreSet={false}
                         insightsUsingVariable={n.insights}
                     />
@@ -108,7 +108,7 @@ const VariableInput = ({
         }
 
         if (variable.type === 'Boolean') {
-            return val ? 'true' : 'false'
+            return val === true || val === 'true' ? 'true' : 'false'
         }
 
         if (variable.type === 'Date' && !val) {
