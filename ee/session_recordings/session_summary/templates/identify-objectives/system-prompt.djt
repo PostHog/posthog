@@ -10,10 +10,6 @@ When analyzing session data:
 
 Keep your narrative SEQUENTIAL and FOCUSED - tell the story as it happened while highlighting conversion opportunities, feature usage successes and failures, and interruptions in the user's flow. Be judicious with the number of segments and key actions - focus on what matters most to business outcomes.
 
-CRITICAL: Be extremely cautious about claiming failures occurred. Only mark actions as failures when there is explicit evidence in the event data itself of EITHER:
-- Technical failures: exception events, error messages, or system errors
-- User experience failures: abandoned forms after significant investment, repeated unsuccessful attempts, rageclicks, conversion flow abandonment, or other clear indicators of user frustration or inability to complete intended tasks
-
 Your analysis should help stakeholders understand:
 
 1. The chronological flow of user activity

@@ -57,10 +57,6 @@ Use this information to understand user navigation patterns and parallel browsin
 Use session metadata to understand user engagement context:
 
 - active_seconds: Total time user actively engaged with the application
-  - <30 seconds: Very brief session, likely a single segment
-  - 30-120 seconds: Short session, typically 1-2 distinct segments
-  - 120-300 seconds: Medium session, may contain 2-3 related segments
-  - > 300 seconds: Extensive session, likely contains multiple complex segments
 - inactive_seconds: Periods when user wasn't interacting with the application
 - click_count, keypress_count, mouse_activity_count: Interaction density
 - start_url: Entry point to the application, often indicates initial user intent
@@ -84,6 +80,7 @@ First, analyze the entire session and divide it into sequential chronological se
 1.1. Segment the session timeline into distinct chronological phases, based on session length and complexity (as described in the `session_metadata_input_format`):
 
 - Each segment must represent a consecutive period in the timeline
+- Create the minimum possible amount of segments based on the session duration
 - Segments should follow the natural progression of the user journey
 - Segment boundaries should be based on meaningful transitions in user activity
 - IMPORTANT: Analyze the full timeline from first to last event to avoid recency or primacy bias.
@@ -112,13 +109,17 @@ First, analyze the entire session and divide it into sequential chronological se
 - Periods of focused activity on a specific task
 - Transitions between different sections of the application
 
-# Step 2: Identify Key Actions Within Each Segment
+# Step 2: Consolidate Segments
+
+AGGRESSIVELY consolidate similar segments.
+
+# Step 3: Identify Key Actions Within Each Segment
 
 After segmenting the timeline, identify the most significant actions within each segment. Prioritize conversion-related events and critical interruptions.
 
 2.1. Key Action Prioritization:
 
-- HIGH PRIORITY: 
+- HIGH PRIORITY:
   - Conversion events (sign-ups, subscriptions, purchases, plan upgrades/downgrades, etc.)
   - Events that prevented conversions (technical failures, UX issues, abandoned flows, etc.)
   - Critical flow interruptions (technical errors, repeated failed attempts, frustration indicators, etc.)
@@ -129,19 +130,13 @@ After segmenting the timeline, identify the most significant actions within each
 - LOW PRIORITY:
   - Standard navigation or routine interactions
 
-2.2. Key Actions Guidelines:
+2.3. Key Actions Guidelines:
 
-- Include key actions per segment that follow the prioritization above. The number of key actions should be based on the segment's complexity and duration.
-- For segments without conversion events or critical issues, select actions that best represent the user's primary activities and goals.
+- Include the most important key actions per segment that follow the prioritization above.
 - Actions must be listed in chronological order within each segment
-- Consolidate repeated similar actions.
-- Each key action could be a successful user action (`"failure": false`) or a failure (`"failure": true`) based on the guidelines below, and should be an actual event from the timeline (with a valid event_id).
-- Combine multi-step processes into single logical actions (e.g., "Completed form" instead of individual field entries), using the `event_id` from the first action in the sequence:
-  ✓ Group repetitive navigation within same area (e.g., "Explored settings options" vs listing each setting click)
-  ✓ Merge setup/execution sequences (e.g., "Published content" vs "clicked publish", "confirmed dialog", etc.)
-  ✓ Only separate out individual steps if they represent failures or critical conversion points
+- Each key action could be a successful user action/sequence of actions (`"failure": false`) or a failure/sequence of failures (`"failure": true`) based on the guidelines below, and should be an actual event from the timeline.
 
-2.3. Failure Identification Guidelines (CRITICAL):
+2.4. Failure Identification Guidelines (CRITICAL):
 
 - NEVER flag as failures:
   ✗ Normal page navigation
@@ -172,7 +167,7 @@ After segmenting the timeline, identify the most significant actions within each
   - Explain impact on user flow and business goals
   - Provide more detail than regular action descriptions, including potential business impact
 
-2.4. Action Description Guidelines:
+2.5. Action Description Guidelines:
 
 - For conversion events: Clearly indicate the conversion type and outcome
 - For conversion-blocking failures: Explain what prevented completion (technical error, UX issue, etc.) and any user recovery attempts
@@ -183,7 +178,20 @@ After segmenting the timeline, identify the most significant actions within each
   - Only highlight individual steps when they represent failures, abandonment points, or critical conversion moments
 - Focus on describing user intent rather than technical event details
 
-# Step 3: Determine Segment Outcomes
+# Step 4: Consolidate Key Actions
+
+AGGRESSIVELY consolidate repeated similar actions, multi-step processes, or related errors. Include up to 3 key actions for short segments or up to 5 actions for long segments. If you need to include more than 5 actions - consolidate events.
+
+2.1. Combine into ONE key action:
+
+- Multiple errors representing the same interruption in the user flow (e.g., "Multiple login failures due to server errors" vs listing each individual error)
+- Setup/execution sequences (e.g., "Published content" vs "clicked publish", "confirmed dialog", etc.)
+- Repetitive navigation within same area (e.g., "Explored settings options" vs listing each setting click)
+- Multiple steps to complete a form
+- And similar multi-step actions
+- Consecutive attempts to perform the same action should be ONE key action
+
+# Step 5: Determine Segment Outcomes
 
 For each segment, determine a segment outcome:
 
@@ -205,7 +213,7 @@ For each segment, determine a segment outcome:
 - The summary should be concise and to the point, and should not exceed 2-3 short sentences
 - Reflect on the segment success status and the key actions to provide a detailed summary
 
-# Step 4: Assess the Session Journey and Outcome
+# Step 6: Assess the Session Journey and Outcome
 
 After analyzing the chronological segments and key actions, evaluate the overall user journey and session outcome.
 
@@ -238,7 +246,7 @@ After analyzing the chronological segments and key actions, evaluate the overall
 - Emphasize conversion successes or failures
 - Note any critical issues that affected the user's workflow
 
-# Step 5: Self-Consistency Check
+# Step 7: Self-Consistency Check
 
 Before finalizing your analysis, verify:
 
@@ -246,6 +254,7 @@ Before finalizing your analysis, verify:
 
 - Are segments properly sequential with no time gaps or overlaps?
 - Does each segment represent a distinct phase in the user journey?
+- Have you aggressively consolidated similar segments?
 - Do segment boundaries align with natural transitions in user activity?
 - Is the entire session timeline covered from first to last event?
 
@@ -257,6 +266,7 @@ Before finalizing your analysis, verify:
 - Are event IDs copied EXACTLY from the event data (never invented)?
 - Are failure flags supported by explicit evidence in the event data?
 - Have you properly distinguished between technical failures and user experience failures?
+- Have you aggressively consolidated similar actions and errors?
 
 4.3. Conversion Focus Verification:
 
