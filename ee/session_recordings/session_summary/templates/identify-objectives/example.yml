@@ -7,7 +7,7 @@ segments:
       name: 'Another Example Segment'
       start_event_id: 'gfgz6242'
       end_event_id: 'stuv9012'
-    # Note: The actual number of segments should be based on your analysis of the session timeline. This is just an example of the format.key_actions:
+    # Note: The actual number of segments should be based on your analysis of the session timeline.
 
 key_actions:
     - segment_index: 0 # Must match EXACTLY with a segments.index value
@@ -18,7 +18,7 @@ key_actions:
           - description: 'Second action in this segment'
             event_id: 'defg4567'
             error: false
-          # Note: The actual number of events should be based on your analysis of the segment-related events in the session data. This is just an example of the format.
+          # Note: The actual number of events should be based on your analysis of the current segment events in the session data.
     - segment_index: 1
       events:
           - description: 'Significant action in this segment'
