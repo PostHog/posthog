@@ -1,17 +1,16 @@
 segments:
-    - name: 'Example Segment'
-      summary: 'Brief description of what the user was trying to accomplish'
-      success: true # Note: Whether the user was able to achieve segment's goals without critical interruptions or abandonment
+    - index: 0
+      name: 'Example Segment'
       start_event_id: 'abcd1234'
-      end_event_id: 'defg4567'
-    - name: 'Another Example Segment'
-      summary: 'Description of the next chronological phase in the user journey'
-      success: false
-      start_event_id: 'ghij7890'
+      end_event_id: 'vbgs1287'
+    - index: 1
+      name: 'Another Example Segment'
+      start_event_id: 'gfgz6242'
       end_event_id: 'stuv9012'
-    # Note: The actual number of segments should be based on your analysis of the session timeline. This is just an example of the format.
+    # Note: The actual number of segments should be based on your analysis of the session timeline. This is just an example of the format.key_actions:
+
 key_actions:
-    - segment: 'Example Segment' # Must match EXACTLY with a segments.name value
+    - segment_index: 0 # Must match EXACTLY with a segments.index value
       events:
           - description: 'First significant action in this segment'
             event_id: 'abcd1234' # Must be copied EXACTLY from event data, never invented
@@ -20,17 +19,28 @@ key_actions:
             event_id: 'defg4567'
             error: false
           # Note: The actual number of events should be based on your analysis of the segment-related events in the session data. This is just an example of the format.
-    - segment: 'Another Example Segment'
+    - segment_index: 1
       events:
-          - description: 'First significant action in this segment'
+          - description: 'Significant action in this segment'
             event_id: 'ghij7890'
             error: false
-          - description: 'User attempted to perform an action but encountered an API error, potentially because of incorrect input'
+          - description: 'User attempted to perform an action but encountered error'
             event_id: 'mnop3456'
             error: true
           - description: 'Final action in this chronological segment'
             event_id: 'stuv9012'
             error: false
+    # Note: Each segment should have key actions.
+
+segment_outcomes:
+    - segment_index: 0
+      summary: 'Detailed description incorporating key action insights'
+      success: true
+    - segment_index: 1
+      summary: 'Description highlighting encountered errors and their impact'
+      success: false
+    # Note: Each segment should have a segment outcome.
+
 session_outcome:
     description: 'Concise session outcome description focusing on conversion attempts, feature usage, and critical issues'
-    success: true # Note: Whether the user's overall experience was successful or not
+    success: true
