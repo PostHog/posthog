@@ -1,4 +1,12 @@
-import { IconMagicWand, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import {
+    IconClock,
+    IconKeyboard,
+    IconMagicWand,
+    IconPointer,
+    IconThumbsDown,
+    IconThumbsUp,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonBanner, LemonCollapse, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 // import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -54,20 +62,36 @@ function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
     }
 
     return (
-        <div className="text-xs text-muted mt-1">
-            {isValidMetaNumber(meta.duration) && isValidMetaNumber(meta.duration_percentage) && (
-                <div>
-                    Duration: {formatMsIntoTime(meta.duration * 1000 || 0)} (
-                    {((meta.duration_percentage || 0) * 100).toFixed(2)}% of session)
-                </div>
-            )}
-            {isValidMetaNumber(meta.events_count) && isValidMetaNumber(meta.events_percentage) && (
-                <div>
-                    Events: {meta.events_count} ({((meta.events_percentage || 0) * 100).toFixed(2)}% of session)
-                </div>
-            )}
-            {isValidMetaNumber(meta.key_action_count) && <div>Key actions: {meta.key_action_count}</div>}
-            {isValidMetaNumber(meta.failure_count) && <div>Failures: {meta.failure_count}</div>}
+        <div className="grid grid-cols-2 gap-2 text-xs text-muted mt-2">
+            <div className="flex items-center gap-1">
+                <IconClock className="text-muted" />
+                <span>Duration:</span>
+                {isValidMetaNumber(meta.duration) && isValidMetaNumber(meta.duration_percentage) && (
+                    <span>
+                        {formatMsIntoTime(meta.duration * 1000 || 0)} (
+                        {((meta.duration_percentage || 0) * 100).toFixed(2)}%)
+                    </span>
+                )}
+            </div>
+            <div className="flex items-center gap-1">
+                <IconPointer className="text-muted" />
+                <span>Events:</span>
+                {isValidMetaNumber(meta.events_count) && isValidMetaNumber(meta.events_percentage) && (
+                    <span>
+                        {meta.events_count} ({((meta.events_percentage || 0) * 100).toFixed(2)}%)
+                    </span>
+                )}
+            </div>
+            <div className="flex items-center gap-1">
+                <IconKeyboard className="text-muted" />
+                <span>Key actions:</span>
+                {isValidMetaNumber(meta.key_action_count) && <span>{meta.key_action_count}</span>}
+            </div>
+            <div className="flex items-center gap-1">
+                <IconWarning className={meta.failure_count && meta.failure_count > 0 ? 'text-danger' : 'text-muted'} />
+                <span>Failures:</span>
+                {isValidMetaNumber(meta.failure_count) && <span>{meta.failure_count}</span>}
+            </div>
         </div>
     )
 }
