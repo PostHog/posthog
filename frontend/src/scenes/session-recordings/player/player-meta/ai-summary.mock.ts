@@ -1,7 +1,7 @@
 import { SessionSummaryContent } from './types'
 
 export const aiSummaryMockLight: SessionSummaryContent = {
-    objectives: [
+    segments: [
         {
             name: 'Navigate from login to signup',
             summary:
@@ -25,7 +25,7 @@ export const aiSummaryMockLight: SessionSummaryContent = {
     ],
     key_actions: [
         {
-            objective: 'Navigate from login to signup',
+            segment: 'Navigate from login to signup',
             events: [
                 {
                     description: 'API query failed on the login page, indicating backend issues',
@@ -67,7 +67,7 @@ export const aiSummaryMockLight: SessionSummaryContent = {
             ],
         },
         {
-            objective: 'Complete account registration',
+            segment: 'Complete account registration',
             events: [
                 {
                     description: 'Entered data into signup form fields',
@@ -109,7 +109,7 @@ export const aiSummaryMockLight: SessionSummaryContent = {
             ],
         },
         {
-            objective: 'Initialize project and complete onboarding tasks',
+            segment: 'Initialize project and complete onboarding tasks',
             events: [
                 {
                     description: 'Pageview of the project products overview after signup',
@@ -150,7 +150,7 @@ export const aiSummaryMockLight: SessionSummaryContent = {
             ],
         },
         {
-            objective: 'Enable session replay feature',
+            segment: 'Enable session replay feature',
             events: [
                 {
                     description: 'Clicked \u201cSession replay\u201d in the project sidebar to start installation flow',
