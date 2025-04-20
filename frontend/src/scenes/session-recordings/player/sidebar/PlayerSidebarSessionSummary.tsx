@@ -8,7 +8,7 @@ import {
     IconThumbsUp,
     IconWarning,
 } from '@posthog/icons'
-import { LemonBanner, LemonCollapse, LemonDivider, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonDivider, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 // import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 // import { FEATURE_FLAGS } from 'lib/constants'
@@ -309,19 +309,29 @@ function SessionSummary(): JSX.Element {
                             BETA
                         </LemonTag>
                     </h3>
-                    {sessionSummary?.session_outcome && Object.keys(sessionSummary.session_outcome).length > 0 && (
+
+                    {sessionSummary?.session_outcome ? (
                         <div className="mb-2">
-                            <LemonBanner
-                                type={sessionSummary.session_outcome.success ? 'success' : 'error'}
-                                className="mb-4"
-                            >
-                                <div className="text-sm font-normal">
-                                    <div>{sessionSummary.session_outcome.description}</div>
+                            {sessionSummary.session_outcome.success !== null &&
+                            sessionSummary.session_outcome.success !== undefined &&
+                            sessionSummary.session_outcome.description ? (
+                                <LemonBanner
+                                    type={sessionSummary.session_outcome.success ? 'success' : 'error'}
+                                    className="mb-4"
+                                >
+                                    <div className="text-sm font-normal">
+                                        <div>{sessionSummary.session_outcome.description}</div>
+                                    </div>
+                                </LemonBanner>
+                            ) : (
+                                <div className="mb-4">
+                                    <LemonSkeleton className="h-12" />
                                 </div>
-                            </LemonBanner>
+                            )}
                             <LemonDivider />
                         </div>
-                    )}
+                    ) : null}
+
                     {sessionSummaryLoadingState && (
                         <SessionSummaryLoadingState
                             operation={sessionSummaryLoadingState.operation}

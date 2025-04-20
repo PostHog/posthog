@@ -433,6 +433,7 @@ def enrich_raw_session_summary_with_meta(
             full_window_id = window_mapping_reversed.get(window_id)
             if not full_window_id:
                 # Each processed event should have a full window ID stored in the mapping
+                # TODO: Check why some events lack window IDs (maybe it's ok and I should just skip them)
                 raise ValueError(
                     f"Full window ID not found for event_id {event_id} when summarizing session_id {session_id}: {event_mapping_data}"
                 )
