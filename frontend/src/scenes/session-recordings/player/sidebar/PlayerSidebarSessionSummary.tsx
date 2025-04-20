@@ -243,7 +243,12 @@ function SessionSummary(): JSX.Element {
                         {processingSegment && (
                             <div className="mb-4 grid grid-cols-[auto_1fr] gap-x-2">
                                 <Spinner className="text-2xl row-span-2 self-center" />
-                                <span className="text-muted">Researching key actions for segment:</span>
+                                <span className="text-muted">
+                                    Researching key actions for segment
+                                    {isValidMetaNumber(processingSegment.meta?.key_action_count) && (
+                                        <span className="font-semibold"> ({processingSegment.meta.key_action_count})</span>
+                                    )}:
+                                </span>
                                 <div className="font-semibold">{processingSegment.name}</div>
                             </div>
                         )}
