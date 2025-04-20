@@ -86,7 +86,7 @@ def _skip_event_without_context(
     return False
 
 
-def load_additional_event_context_from_elements_chain(
+def add_context_and_filter_events(
     session_events_columns: list[str], session_events: list[tuple[str | datetime, ...]]
 ) -> tuple[list[str], list[tuple[str | datetime, ...]]]:
     indexes = {
@@ -99,7 +99,6 @@ def load_additional_event_context_from_elements_chain(
         "elements_chain_ids": get_column_index(session_events_columns, "elements_chain_ids"),
     }
     updated_events = []
-    # TODO: Filter and improve in the same loop to avoid multiple passes?
     for event in session_events:
         chain = event[indexes["elements_chain"]]
         if not chain:

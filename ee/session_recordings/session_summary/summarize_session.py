@@ -5,9 +5,9 @@ from pathlib import Path
 import structlog
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.session_recordings.session_summary.intput_data import (
+    add_context_and_filter_events,
     get_session_events,
     get_session_metadata,
-    load_additional_event_context_from_elements_chain,
 )
 from ee.session_recordings.session_summary.llm.consume import stream_llm_session_summary
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
@@ -72,8 +72,8 @@ class ReplaySummarizer:
                 local_path="/Users/woutut/Documents/Code/posthog/playground/identify-objectives-samples/Contra (8910)/019644fd-28d9-744d-afc6-2a0abf0aa4e3_events.csv",
             )
 
-        with timer("load_additional_event_context"):
-            session_events_columns, session_events = load_additional_event_context_from_elements_chain(
+        with timer("add_context_and_filter"):
+            session_events_columns, session_events = add_context_and_filter_events(
                 session_events_columns, session_events
             )
 
