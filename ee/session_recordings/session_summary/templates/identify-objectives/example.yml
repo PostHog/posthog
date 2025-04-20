@@ -14,22 +14,22 @@ key_actions:
       events:
           - description: 'First significant action in this segment'
             event_id: 'abcd1234' # Must be copied EXACTLY from event data, never invented
-            error: false
+            failure: false
           - description: 'Second action in this segment'
             event_id: 'defg4567'
-            error: false
+            failure: false
           # Note: The actual number of events should be based on your analysis of the current segment events in the session data.
     - segment_index: 1
       events:
           - description: 'Significant action in this segment'
             event_id: 'ghij7890'
-            error: false
-          - description: 'User attempted to perform an action but encountered error'
+            failure: false
+          - description: 'User attempted to perform an action but encountered an error'
             event_id: 'mnop3456'
-            error: true
+            failure: true
           - description: 'Final action in this chronological segment'
             event_id: 'stuv9012'
-            error: false
+            failure: false
     # Note: Each segment should have key actions.
 
 segment_outcomes:
@@ -37,7 +37,7 @@ segment_outcomes:
       summary: 'Detailed description incorporating key action insights'
       success: true
     - segment_index: 1
-      summary: 'Description highlighting encountered errors and their impact'
+      summary: 'Description highlighting encountered failures and their impact'
       success: false
     # Note: Each segment should have a segment outcome.
 

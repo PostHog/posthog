@@ -116,12 +116,12 @@ First, analyze the entire session and divide it into sequential chronological se
 
 After segmenting the timeline, identify the most significant actions within each segment. Prioritize conversion-related events and critical interruptions.
 
-2.1. Key Action Prioritization (in order of importance):
+2.1. Key Action Prioritization:
 
 - HIGH PRIORITY: 
   - Conversion events (sign-ups, subscriptions, purchases, plan upgrades/downgrades, etc.)
-  - Events that prevented conversions (errors during checkout, payment issues, unsuccesful plan changes, etc.)
-  - Critical flow interruptions (technical errors, repeated failed attempts to complete a task, etc.)
+  - Events that prevented conversions (technical failures, UX issues, abandoned flows, etc.)
+  - Critical flow interruptions (technical errors, repeated failed attempts, frustration indicators, etc.)
 - MEDIUM PRIORITY:
   - Events leading to or indicating session abandonment
   - Major feature interactions or significant user decisions
@@ -135,33 +135,43 @@ After segmenting the timeline, identify the most significant actions within each
 - For segments without conversion events or critical issues, select actions that best represent the user's primary activities and goals.
 - Actions must be listed in chronological order within each segment
 - Consolidate repeated similar actions.
-- Each key action could be a user action (`"error": false`) or an error (`"error": true`) based on the guidelines below, and should be an actual event from the timeline (with a valid event_id).
+- Each key action could be a successful user action (`"failure": false`) or a failure (`"failure": true`) based on the guidelines below, and should be an actual event from the timeline (with a valid event_id).
 
-2.3. Error Identification Guidelines (CRITICAL):
+2.3. Failure Identification Guidelines (CRITICAL):
 
-- NEVER flag as errors:
+- NEVER flag as failures:
   ✗ Normal page navigation
   ✗ Sequential UI interactions (changing filters, adjusting parameters)
-  ✗ Any other action without direct failure evidence
+  ✗ Any other action without direct evidence of technical error or user frustration
   ✗ Non-blocking background errors (tracking failures, minor rendering glitches, etc.)
 
-- Flag event as an error (`error: true`) ONLY with EXPLICIT evidence:
+- Flag event as a failure (`failure: true`) with EXPLICIT evidence of either:
+  
+  Technical errors:
   ✓ Event name/type contains: 'exception', 'failed', 'error', etc.
   ✓ `elements_chain_texts` contains error messages (e.g., "Try again", "Failed to load", etc.)
   ✓ Session abandonment shortly after exception events
+  
+  User experience failures:
+  ✓ Form abandonment after significant time investment (started typing but left without submitting)
   ✓ Multiple rapid identical form submissions followed by a change in form data
-  ✓ And other similar patterns
+  ✓ Rageclicks (multiple rapid clicks on the same element with no visible response)
+  ✓ Conversion flow abandonment (e.g., leaving checkout, subscription, or signup flow)
+  ✓ Back-and-forth navigation indicating search for functionality
+  ✓ Repeated attempts to complete the same action without success
+  ✓ And other similar patterns showing user frustration or inability to complete tasks
 
-- Error description requirements:
-  - Specify error nature (API failure, validation error, timeout, etc.)
+- Failure description requirements:
+  - For technical failures: Specify error nature (API failure, validation error, timeout, etc.)
+  - For UX failures: Describe the abandoned task, point of frustration, or flow impediment
   - Include potential causes when identifiable
-  - Explain impact on user flow
+  - Explain impact on user flow and business goals
   - Provide more detail than regular action descriptions, including potential business impact
 
 2.4. Action Description Guidelines:
 
 - For conversion events: Clearly indicate the conversion type and outcome
-- For conversion-blocking errors: Explain what prevented completion and any user recovery attempts
+- For conversion-blocking failures: Explain what prevented completion (technical error, UX issue, etc.) and any user recovery attempts
 - For critical flow interruptions: Describe both the interruption and its impact on user progress
 - For all actions: Keep descriptions concise but informative (4-8 words)
 - Focus on describing user intent rather than technical event details
@@ -175,11 +185,12 @@ For each segment, determine a segment outcome:
 - Mark a segment as successful (`success: true`) when:
   - User completed a meaningful conversion or successfully used a feature (use `Key Action Prioritization` guide to identify the most important actions)
   - User completed the core actions they attempted during that segment, confirmed by clear evidence in the events data
-  - User resolved or worked around any errors encountered
+  - User resolved or worked around any failures encountered
 - Mark a segment as unsuccessful (`success: false`) when:
-  - User started a conversion, but abandoned it (for example, they started a subscription flow, but didn't complete the checkout)
-  - User experienced a critical error that prevented them from achieving their goals
-  - User experienced a flow interruption or frustration
+  - User started a conversion, but abandoned it
+  - User experienced a technical failure that prevented them from achieving their goals
+  - User showed signs of frustration (rageclicks, repeated attempts, abandonment)
+  - User experienced a flow interruption that impeded progress
 
 3.2. Segment Summary:
 
@@ -233,11 +244,12 @@ Before finalizing your analysis, verify:
 
 4.2. Key Action Prioritization Verification:
 
-- Are conversion events and conversion-blocking errors properly identified in each segment?
+- Are conversion events and conversion-blocking failures properly identified in each segment?
 - Are critical interruptions to user flow highlighted appropriately?
 - Do selected key actions accurately represent the most significant events in each segment?
 - Are event IDs copied EXACTLY from the event data (never invented)?
-- Are error flags supported by explicit evidence in the event data?
+- Are failure flags supported by explicit evidence in the event data?
+- Have you properly distinguished between technical failures and user experience failures?
 
 4.3. Conversion Focus Verification:
 
