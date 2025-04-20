@@ -136,6 +136,10 @@ After segmenting the timeline, identify the most significant actions within each
 - Actions must be listed in chronological order within each segment
 - Consolidate repeated similar actions.
 - Each key action could be a successful user action (`"failure": false`) or a failure (`"failure": true`) based on the guidelines below, and should be an actual event from the timeline (with a valid event_id).
+- Combine multi-step processes into single logical actions (e.g., "Completed form" instead of individual field entries), using the `event_id` from the first action in the sequence:
+  ✓ Group repetitive navigation within same area (e.g., "Explored settings options" vs listing each setting click)
+  ✓ Merge setup/execution sequences (e.g., "Published content" vs "clicked publish", "confirmed dialog", etc.)
+  ✓ Only separate out individual steps if they represent failures or critical conversion points
 
 2.3. Failure Identification Guidelines (CRITICAL):
 
@@ -174,6 +178,9 @@ After segmenting the timeline, identify the most significant actions within each
 - For conversion-blocking failures: Explain what prevented completion (technical error, UX issue, etc.) and any user recovery attempts
 - For critical flow interruptions: Describe both the interruption and its impact on user progress
 - For all actions: Keep descriptions concise but informative (4-8 words)
+- For multi-step processes:
+  - Describe the overall completed action rather than individual steps
+  - Only highlight individual steps when they represent failures, abandonment points, or critical conversion moments
 - Focus on describing user intent rather than technical event details
 
 # Step 3: Determine Segment Outcomes
