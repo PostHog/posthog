@@ -109,7 +109,7 @@ def _convert_llm_content_to_session_summary_json(
             raw_session_summary=json.dumps(raw_session_summary.data, indent=4),
             session_summary=json.dumps(session_summary.data, indent=4),
             # TODO: Store in env? Production won't have it set, so no saving will happen
-            results_base_dir_path="/Users/woutut/Documents/Code/posthog/playground/identify-objectives-experiments",
+            results_base_dir_path="/Users/woutut/Documents/Code/posthog/playground/identify-objectives-experiments/runs",
         )
     return json.dumps(session_summary.data)
 
