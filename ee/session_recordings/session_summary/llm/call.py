@@ -64,15 +64,21 @@ def stream_llm(
     session_id: str,
     assistant_start_text: str | None = None,
     system_prompt: str | None = None,
-    model: str = "o4-mini-2025-04-16",
+    model: str = "gpt-4.1-2025-04-14",
+    # model: str = "o4-mini-2025-04-16",
 ) -> Generator[ChatCompletionChunk, None, None]:
     messages = _prepare_messages(input_prompt, session_id, assistant_start_text, system_prompt)
     user_param = _prepare_user_param(user_key)
+
+    # # TODO: Remove exception after testing, needed to avoid meaningless calls to LLM
+    # raise Exception("Avoid the call to LLM when debugging")
+
     # TODO Make model/reasoning_effort/temperature/top_p/max_tokens configurable through input to use for different promp
     stream = openai.chat.completions.create(
         model=model,
         # TODO: Start with low reasoning for faster responses, iterate afterward based on user experience
-        reasoning_effort="low",
+        # reasoning_effort="medium",
+        temperature=0.1,
         messages=messages,  # type: ignore
         user=user_param,
         stream=True,

@@ -80,7 +80,7 @@ First, analyze the entire session and divide it into sequential chronological se
 1.1. Segment the session timeline into distinct chronological phases, based on session length and complexity (as described in the `session_metadata_input_format`):
 
 - Each segment must represent a consecutive period in the timeline
-- Create the minimum possible amount of segments based on the session duration
+- Create the minimum possible number of segments based on the session duration
 - Segments should follow the natural progression of the user journey
 - Segment boundaries should be based on meaningful transitions in user activity
 - IMPORTANT: Analyze the full timeline from first to last event to avoid recency or primacy bias.

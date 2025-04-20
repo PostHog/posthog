@@ -24,6 +24,7 @@ import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { SessionSummaryContent } from './types'
+// import { aiSummaryMockLight } from './ai-summary.mock'
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
 
 const ALLOW_LISTED_PERSON_PROPERTIES = [
@@ -315,6 +316,8 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         },
         // Using listener instead of loader to be able to stream the summary chunks (as loaders wait for the whole response)
         summarizeSession: async () => {
+            // actions.setSessionSummaryContent(aiSummaryMockLight)
+            // return;
             const id = props.sessionRecordingId || props.sessionRecordingData?.sessionRecordingId
             if (!id) {
                 return
