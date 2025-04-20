@@ -7,7 +7,7 @@ import {
     IconThumbsUp,
     IconWarning,
 } from '@posthog/icons'
-import { LemonBanner, LemonCollapse, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 // import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 // import { FEATURE_FLAGS } from 'lib/constants'
@@ -126,7 +126,13 @@ function SessionSegmentView({
                                 <div className="flex flex-row gap-2">
                                     <h3 className="mb-1">{segment.name}</h3>
                                     {segmentOutcome && Object.keys(segmentOutcome).length > 0 ? (
-                                        <div>Success: {segmentOutcome.success ? 'Yes' : 'No'}</div>
+                                        <div>
+                                            {segmentOutcome.success ? null : (
+                                                <LemonTag size="small" type="default">
+                                                    failed
+                                                </LemonTag>
+                                            )}
+                                        </div>
                                     ) : (
                                         <Spinner />
                                     )}
