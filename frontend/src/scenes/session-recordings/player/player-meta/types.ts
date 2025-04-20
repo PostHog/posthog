@@ -16,11 +16,21 @@ export interface SessionSegmentKeyActions {
     events?: SessionKeyAction[] | null
 }
 
+export interface SegmentMeta {
+    duration?: number | null
+    duration_percentage?: number | null
+    events_count?: number | null
+    events_percentage?: number | null
+    key_action_count?: number | null
+    failure_count?: number | null
+}
+
 export interface SessionSegment {
     index?: number | null
     name?: string | null
     start_event_id?: string | null
     end_event_id?: string | null
+    meta?: SegmentMeta | null
 }
 
 export interface SessionSegmentOutcome {
