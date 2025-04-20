@@ -8,7 +8,13 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { SessionKeyAction, SessionSegment, SessionSegmentKeyActions, SessionSegmentOutcome } from '../player-meta/types'
+import {
+    SegmentMeta,
+    SessionKeyAction,
+    SessionSegment,
+    SessionSegmentKeyActions,
+    SessionSegmentOutcome,
+} from '../player-meta/types'
 
 function formatEventMetaInfo(event: SessionKeyAction): JSX.Element {
     return (
@@ -37,6 +43,35 @@ function formatMsIntoTime(ms: number): string {
 
 const isValidTimestamp = (ms: unknown): ms is number => typeof ms === 'number' && !isNaN(ms) && ms >= 0
 const isValidMetaNumber = (value: unknown): value is number => typeof value === 'number' && !isNaN(value) && value >= 0
+
+interface SegmentMetaProps {
+    meta: SegmentMeta | null | undefined
+}
+
+function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
+    if (!meta) {
+        return null
+    }
+
+    return (
+        <div className="text-xs text-muted mt-1">
+            {isValidMetaNumber(meta.duration) && isValidMetaNumber(meta.duration_percentage) && (
+                <div>
+                    Duration: {formatMsIntoTime(meta.duration * 1000 || 0)} (
+                    {((meta.duration_percentage || 0) * 100).toFixed(2)}% of session)
+                </div>
+            )}
+            {isValidMetaNumber(meta.events_count) && isValidMetaNumber(meta.events_percentage) && (
+                <div>
+                    Events: {meta.events_count} ({((meta.events_percentage || 0) * 100).toFixed(2)}% of session)
+                </div>
+            )}
+            {isValidMetaNumber(meta.key_action_count) && <div>Key actions: {meta.key_action_count}</div>}
+            {isValidMetaNumber(meta.failure_count) && <div>Failures: {meta.failure_count}</div>}
+        </div>
+    )
+}
+
 interface SessionSegmentViewProps {
     segment: SessionSegment
     segmentOutcome: SessionSegmentOutcome | undefined
@@ -77,32 +112,9 @@ function SessionSegmentView({
                                         <p className="text-sm font-normal mb-0">{segmentOutcome.summary}</p>
                                     </>
                                 )}
-                                {segment.meta && (
-                                    <div className="text-xs text-muted mt-1">
-                                        {isValidMetaNumber(segment.meta.duration) &&
-                                            isValidMetaNumber(segment.meta.duration_percentage) && (
-                                                <div>
-                                                    Duration: {formatMsIntoTime(segment.meta.duration * 1000 || 0)} (
-                                                    {((segment.meta.duration_percentage || 0) * 100).toFixed(2)}% of
-                                                    session)
-                                                </div>
-                                            )}
-                                        {isValidMetaNumber(segment.meta.events_count) &&
-                                            isValidMetaNumber(segment.meta.events_percentage) && (
-                                                <div>
-                                                    Events: {segment.meta.events_count} (
-                                                    {((segment.meta.events_percentage || 0) * 100).toFixed(2)}% of
-                                                    session)
-                                                </div>
-                                            )}
-                                        {isValidMetaNumber(segment.meta.key_action_count) && (
-                                            <div>Key actions: {segment.meta.key_action_count}</div>
-                                        )}
-                                        {isValidMetaNumber(segment.meta.failure_count) && (
-                                            <div>Failures: {segment.meta.failure_count}</div>
-                                        )}
-                                    </div>
-                                )}
+                                <SegmentMetaTable
+                                    meta={segment.meta && Object.keys(segment.meta).length > 0 ? segment.meta : null}
+                                />
                             </div>
                         ),
                         content: (
