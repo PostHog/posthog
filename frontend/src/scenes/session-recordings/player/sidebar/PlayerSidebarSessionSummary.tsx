@@ -194,13 +194,13 @@ function SessionSegmentView({
     )
 }
 
-interface SummaryLoadingStateProps {
+interface SessionSummaryLoadingStateProps {
     operation: string
     counter?: number
     name?: string
 }
 
-function SummaryLoadingState({ operation, counter, name }: SummaryLoadingStateProps): JSX.Element {
+function SessionSummaryLoadingState({ operation, counter, name }: SessionSummaryLoadingStateProps): JSX.Element {
     return (
         <div className="mb-4 grid grid-cols-[auto_1fr] gap-x-2">
             <Spinner className="text-2xl row-span-2 self-center" />
@@ -225,23 +225,71 @@ function SessionSummary(): JSX.Element {
     const { sessionSummary, summaryHasHadFeedback } = useValues(playerMetaLogic(logicProps))
     const { sessionSummaryFeedback } = useActions(playerMetaLogic(logicProps))
 
-    const findProcessingSegmentIndex = () => {
-        if (!sessionSummary?.segments) {
-            return -1
-        }
-        for (let i = 0; i < sessionSummary.segments.length; i++) {
-            const nextSegment = sessionSummary.segments[i + 1]
-            const nextActions = nextSegment && sessionSummary.key_actions?.filter(
-                (keyAction) => keyAction.segment_index === nextSegment.index
-            )
-            if (!nextSegment || !nextActions?.length) {
-                return i
+    const getSessionSummaryLoadingState = (): SessionSummaryLoadingStateProps | null => {
+        if (!sessionSummary) {
+            return {
+                operation: 'Researching...',
             }
         }
-        return -1
+        const segments = sessionSummary.segments || []
+        const hasSegmentsWithKeyActions = segments.some((segment) =>
+            sessionSummary.key_actions?.some(
+                (keyAction) => keyAction.segment_index === segment.index && keyAction.events?.length
+            )
+        )
+        const hasSegmentsWithOutcomes = segments.some((segment) =>
+            sessionSummary.segment_outcomes?.some((outcome) => outcome.segment_index === segment.index)
+        )
+        const allSegmentsHaveSuccess = segments.every((segment) =>
+            sessionSummary.segment_outcomes?.some(
+                (outcome) =>
+                    outcome.segment_index === segment.index && outcome.success !== null && outcome.success !== undefined
+            )
+        )
+        // If all segments have a success outcome, it means the data is fully loaded and loading state can be hidden
+        if (allSegmentsHaveSuccess) {
+            return null
+        }
+        // If some segments have outcomes already, it means we stream the success and summary of each segment
+        if (hasSegmentsWithOutcomes) {
+            return {
+                operation: 'Researching the success of the each segment',
+            }
+        }
+        // If some segments have key actions already, it means we stream the key actions for each segment
+        if (hasSegmentsWithKeyActions) {
+            // Find first segment that has no key actions
+            const nextSegmentIndex = segments.findIndex(
+                (segment) =>
+                    !sessionSummary.key_actions?.some(
+                        (keyAction) => keyAction.segment_index === segment.index && keyAction.events?.length
+                    )
+            )
+            // If we found such segment, and it's the first one, take it as current
+            // If we don't find such segment, it means we are researching the last segment
+            let currentSegmentIndex
+            if (nextSegmentIndex === 0) {
+                currentSegmentIndex = 0
+            } else if (nextSegmentIndex === -1) {
+                currentSegmentIndex = segments.length - 1
+            } else {
+                currentSegmentIndex = nextSegmentIndex - 1
+            }
+            const currentSegment = segments[currentSegmentIndex]
+            return {
+                operation: 'Researching key actions for the segment',
+                counter: currentSegment?.meta?.key_action_count ?? undefined,
+                name: currentSegment?.name ?? undefined,
+            }
+        }
+        // If no segments have key actions or outcomes, it means we are researching the segments for the session
+        return {
+            operation: 'Researching segments for the session...',
+            counter: segments.length || undefined,
+        }
     }
 
-    const processingSegment = findProcessingSegmentIndex() !== -1 ? sessionSummary?.segments?.[findProcessingSegmentIndex()] : null
+    const sessionSummaryLoadingState = getSessionSummaryLoadingState()
 
     return (
         <div className="flex flex-col">
@@ -261,11 +309,11 @@ function SessionSummary(): JSX.Element {
 
                     <div>
                         <h2>Segments:</h2>
-                        {processingSegment && (
-                            <SummaryLoadingState
-                                operation="Researching key actions for segment"
-                                counter={isValidMetaNumber(processingSegment.meta?.key_action_count) ? processingSegment.meta.key_action_count : undefined}
-                                name={processingSegment.name ?? undefined}
+                        {sessionSummaryLoadingState && (
+                            <SessionSummaryLoadingState
+                                operation={sessionSummaryLoadingState.operation}
+                                counter={sessionSummaryLoadingState.counter}
+                                name={sessionSummaryLoadingState.name}
                             />
                         )}
                         {sessionSummary?.segments?.map((segment) => {
