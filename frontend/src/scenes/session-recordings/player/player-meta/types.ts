@@ -1,6 +1,6 @@
 export interface SessionKeyAction {
     description?: string | null
-    error?: boolean | null
+    failure?: boolean | null
     event_id?: string | null
     timestamp?: string | null
     milliseconds_since_start?: number | null

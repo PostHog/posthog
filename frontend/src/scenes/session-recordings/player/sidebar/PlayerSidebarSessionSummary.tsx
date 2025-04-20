@@ -15,7 +15,7 @@ function formatEventMetaInfo(event: SessionKeyAction): JSX.Element {
         <pre className="m-0 p-0 font-mono text-xs whitespace-pre">
             {`Event: ${event.event}
             Event type: ${event.event_type}
-            Error: ${event.error ? 'Yes' : 'No'}
+            Failure: ${event.failure ? 'Yes' : 'No'}
             Timestamp: ${event.timestamp}
             Milliseconds since start: ${event.milliseconds_since_start}
             Window ID: ${event.window_id}
@@ -69,7 +69,7 @@ function SessionSegmentView({
                         <div
                             key={`${segment.name}-${eventIndex}`}
                             className={`border-b cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight ${
-                                event.error ? 'bg-danger-highlight' : ''
+                                event.failure ? 'bg-danger-highlight' : ''
                             }`}
                             onClick={() => {
                                 if (!isValidTimestamp(event.milliseconds_since_start)) {
