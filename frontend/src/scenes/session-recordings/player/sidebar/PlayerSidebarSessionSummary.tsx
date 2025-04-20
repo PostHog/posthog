@@ -194,6 +194,31 @@ function SessionSegmentView({
     )
 }
 
+interface SummaryLoadingStateProps {
+    operation: string
+    counter?: number
+    name?: string
+}
+
+function SummaryLoadingState({ operation, counter, name }: SummaryLoadingStateProps): JSX.Element {
+    return (
+        <div className="mb-4 grid grid-cols-[auto_1fr] gap-x-2">
+            <Spinner className="text-2xl row-span-2 self-center" />
+            <span className="text-muted">
+                {operation}
+                {counter !== undefined && <span className="font-semibold"> ({counter})</span>}
+                {name ? ':' : ''}
+            </span>
+            {name ? (
+                <div className="font-semibold">{name}</div>
+            ) : (
+                // Empty div to maintain two rows for spinner alignment
+                <div />
+            )}
+        </div>
+    )
+}
+
 function SessionSummary(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { seekToTime } = useActions(sessionRecordingPlayerLogic)
@@ -205,11 +230,7 @@ function SessionSummary(): JSX.Element {
             return -1
         }
         for (let i = 0; i < sessionSummary.segments.length; i++) {
-            const currentSegment = sessionSummary.segments[i]
             const nextSegment = sessionSummary.segments[i + 1]
-            const currentActions = sessionSummary.key_actions?.filter(
-                (keyAction) => keyAction.segment_index === currentSegment.index
-            )
             const nextActions = nextSegment && sessionSummary.key_actions?.filter(
                 (keyAction) => keyAction.segment_index === nextSegment.index
             )
@@ -241,16 +262,11 @@ function SessionSummary(): JSX.Element {
                     <div>
                         <h2>Segments:</h2>
                         {processingSegment && (
-                            <div className="mb-4 grid grid-cols-[auto_1fr] gap-x-2">
-                                <Spinner className="text-2xl row-span-2 self-center" />
-                                <span className="text-muted">
-                                    Researching key actions for segment
-                                    {isValidMetaNumber(processingSegment.meta?.key_action_count) && (
-                                        <span className="font-semibold"> ({processingSegment.meta.key_action_count})</span>
-                                    )}:
-                                </span>
-                                <div className="font-semibold">{processingSegment.name}</div>
-                            </div>
+                            <SummaryLoadingState
+                                operation="Researching key actions for segment"
+                                counter={isValidMetaNumber(processingSegment.meta?.key_action_count) ? processingSegment.meta.key_action_count : undefined}
+                                name={processingSegment.name ?? undefined}
+                            />
                         )}
                         {sessionSummary?.segments?.map((segment) => {
                             const matchingSegmentOutcome = sessionSummary?.segment_outcomes?.find(
