@@ -8,7 +8,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { SessionKeyAction, SessionObjective, SessionObjectiveKeyActions } from '../player-meta/types'
+import { SessionKeyAction, SessionSegment, SessionSegmentKeyActions } from '../player-meta/types'
 
 function formatEventMetaInfo(event: SessionKeyAction): JSX.Element {
     return (
@@ -37,27 +37,27 @@ function formatMsIntoTime(ms: number): string {
 
 const isValidTimestamp = (ms: unknown): ms is number => typeof ms === 'number' && !isNaN(ms) && ms >= 0
 
-interface SessionObjectiveViewProps {
-    objective: SessionObjective
-    keyActions: SessionObjectiveKeyActions[]
+interface SessionSegmentViewProps {
+    segment: SessionSegment
+    keyActions: SessionSegmentKeyActions[]
     onSeekToTime: (time: number) => void
 }
 
-function SessionObjectiveView({ objective, keyActions, onSeekToTime }: SessionObjectiveViewProps): JSX.Element {
+function SessionSegmentView({ segment, keyActions, onSeekToTime }: SessionSegmentViewProps): JSX.Element {
     return (
-        <div key={objective.name} className="mb-4">
+        <div key={segment.name} className="mb-4">
             <LemonRow fullWidth className="dashboard-row" outlined>
-                <h3 className="mb-0">{objective.name}</h3>
+                <h3 className="mb-0">{segment.name}</h3>
                 <br />
-                <p>{objective.summary}</p>
-                <p>Success: {objective.success ? 'Yes' : 'No'}</p>
+                <p>{segment.summary}</p>
+                <p>Success: {segment.success ? 'Yes' : 'No'}</p>
             </LemonRow>
 
             {keyActions?.map((keyAction) =>
                 keyAction.events?.map((event: SessionKeyAction, eventIndex: number) =>
                     isValidTimestamp(event.milliseconds_since_start) ? (
                         <div
-                            key={`${objective.name}-${eventIndex}`}
+                            key={`${segment.name}-${eventIndex}`}
                             className={`border-b cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight ${
                                 event.error ? 'bg-danger-highlight' : ''
                             }`}
@@ -118,15 +118,15 @@ function SessionSummary(): JSX.Element {
                     </>
 
                     <div>
-                        <h2>Objectives:</h2>
-                        {sessionSummary?.objectives?.map((objective) => {
+                        <h2>Segments:</h2>
+                        {sessionSummary?.segments?.map((segment) => {
                             const matchingKeyActions = sessionSummary?.key_actions?.filter(
-                                (keyAction) => keyAction.objective === objective.name
+                                (keyAction) => keyAction.segment === segment.name
                             )
                             return (
-                                <SessionObjectiveView
-                                    key={objective.name}
-                                    objective={objective}
+                                <SessionSegmentView
+                                    key={segment.name}
+                                    segment={segment}
                                     keyActions={matchingKeyActions || []}
                                     onSeekToTime={seekToTime}
                                 />

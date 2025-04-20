@@ -11,15 +11,17 @@ export interface SessionKeyAction {
     event_index?: number | null
 }
 
-export interface SessionObjectiveKeyActions {
-    objective?: string | null
+export interface SessionSegmentKeyActions {
+    segment?: string | null
     events?: SessionKeyAction[] | null
 }
 
-export interface SessionObjective {
+export interface SessionSegment {
     name?: string | null
     summary?: string | null
     success?: boolean | null
+    start_event_id?: string | null
+    end_event_id?: string | null
 }
 
 export interface SessionOutcome {
@@ -28,7 +30,7 @@ export interface SessionOutcome {
 }
 
 export interface SessionSummaryContent {
-    objectives?: SessionObjective[] | null
-    key_actions?: SessionObjectiveKeyActions[] | null
+    segments?: SessionSegment[] | null
+    key_actions?: SessionSegmentKeyActions[] | null
     session_outcome?: SessionOutcome | null
 }
