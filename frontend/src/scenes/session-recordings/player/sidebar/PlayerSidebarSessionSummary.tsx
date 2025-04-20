@@ -1,4 +1,5 @@
 import {
+    IconAIText,
     IconClock,
     IconKeyboard,
     IconMagicWand,
@@ -7,7 +8,7 @@ import {
     IconThumbsUp,
     IconWarning,
 } from '@posthog/icons'
-import { LemonCollapse, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonDivider, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 // import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 // import { FEATURE_FLAGS } from 'lib/constants'
@@ -301,82 +302,72 @@ function SessionSummary(): JSX.Element {
         <div className="flex flex-col">
             {sessionSummary ? (
                 <>
-                    <>
-                        {sessionSummary.session_outcome ? (
-                            <div className="mb-4">
-                                <div className="bg-primary/5 rounded-lg p-4">
-                                    <h3 className="text-lg font-semibold mb-2">Session Overview</h3>
-                                    <div className="text-sm">
-                                        <div className="mb-2">{sessionSummary.session_outcome.description}</div>
-                                        <LemonTag
-                                            type={sessionSummary.session_outcome.success ? 'success' : 'danger'}
-                                            className="mt-1"
-                                        >
-                                            {sessionSummary.session_outcome.success
-                                                ? 'successful session'
-                                                : 'failed session'}
-                                        </LemonTag>
-                                    </div>
+                    <h3 className="text-lg font-semibold mb-4 mt-2 flex items-center gap-2">
+                        <IconAIText />
+                        AI Replay Research
+                        <LemonTag type="warning" size="medium">
+                            BETA
+                        </LemonTag>
+                    </h3>
+                    {sessionSummary?.session_outcome && Object.keys(sessionSummary.session_outcome).length > 0 && (
+                        <div className="mb-2">
+                            <LemonBanner
+                                type={sessionSummary.session_outcome.success ? 'success' : 'error'}
+                                className="mb-4"
+                            >
+                                <div className="text-sm font-normal">
+                                    <div>{sessionSummary.session_outcome.description}</div>
                                 </div>
-                            </div>
-                        ) : null}
-                    </>
-
-                    <div>
-                        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                            <IconMagicWand className="text-primary" />
-                            AI Replay Research
-                            <LemonTag type="warning" size="medium">
-                                BETA
-                            </LemonTag>
-                        </h3>
-                        {sessionSummaryLoadingState && (
-                            <SessionSummaryLoadingState
-                                operation={sessionSummaryLoadingState.operation}
-                                counter={sessionSummaryLoadingState.counter}
-                                name={sessionSummaryLoadingState.name}
+                            </LemonBanner>
+                            <LemonDivider />
+                        </div>
+                    )}
+                    {sessionSummaryLoadingState && (
+                        <SessionSummaryLoadingState
+                            operation={sessionSummaryLoadingState.operation}
+                            counter={sessionSummaryLoadingState.counter}
+                            name={sessionSummaryLoadingState.name}
+                        />
+                    )}
+                    {sessionSummary?.segments?.map((segment) => {
+                        const matchingSegmentOutcome = sessionSummary?.segment_outcomes?.find(
+                            (outcome) => outcome.segment_index === segment.index
+                        )
+                        const matchingKeyActions = sessionSummary?.key_actions?.filter(
+                            (keyAction) => keyAction.segment_index === segment.index
+                        )
+                        return (
+                            <SessionSegmentView
+                                key={segment.name}
+                                segment={segment}
+                                segmentOutcome={matchingSegmentOutcome}
+                                keyActions={matchingKeyActions || []}
+                                onSeekToTime={seekToTime}
                             />
-                        )}
-                        {sessionSummary?.segments?.map((segment) => {
-                            const matchingSegmentOutcome = sessionSummary?.segment_outcomes?.find(
-                                (outcome) => outcome.segment_index === segment.index
-                            )
-                            const matchingKeyActions = sessionSummary?.key_actions?.filter(
-                                (keyAction) => keyAction.segment_index === segment.index
-                            )
-                            return (
-                                <SessionSegmentView
-                                    key={segment.name}
-                                    segment={segment}
-                                    segmentOutcome={matchingSegmentOutcome}
-                                    keyActions={matchingKeyActions || []}
-                                    onSeekToTime={seekToTime}
-                                />
-                            )
-                        })}
+                        )
+                    })}
 
-                        <div className="text-right mb-2 mt-4">
-                            <p>Is this a good summary?</p>
-                            <div className="flex flex-row gap-2 justify-end">
-                                <LemonButton
-                                    size="xsmall"
-                                    type="primary"
-                                    icon={<IconThumbsUp />}
-                                    disabledReason={summaryHasHadFeedback ? 'Thanks for your feedback!' : undefined}
-                                    onClick={() => {
-                                        sessionSummaryFeedback('good')
-                                    }}
-                                />
-                                <LemonButton
-                                    size="xsmall"
-                                    type="primary"
-                                    icon={<IconThumbsDown />}
-                                    disabledReason={summaryHasHadFeedback ? 'Thanks for your feedback!' : undefined}
-                                    onClick={() => {
-                                        sessionSummaryFeedback('bad')
-                                    }}
-                                />
-                            </div>
+                    <div className="text-right mb-2 mt-4">
+                        <p>Is this a good summary?</p>
+                        <div className="flex flex-row gap-2 justify-end">
+                            <LemonButton
+                                size="xsmall"
+                                type="primary"
+                                icon={<IconThumbsUp />}
+                                disabledReason={summaryHasHadFeedback ? 'Thanks for your feedback!' : undefined}
+                                onClick={() => {
+                                    sessionSummaryFeedback('good')
+                                }}
+                            />
+                            <LemonButton
+                                size="xsmall"
+                                type="primary"
+                                icon={<IconThumbsDown />}
+                                disabledReason={summaryHasHadFeedback ? 'Thanks for your feedback!' : undefined}
+                                onClick={() => {
+                                    sessionSummaryFeedback('bad')
+                                }}
+                            />
                         </div>
                     </div>
                 </>
