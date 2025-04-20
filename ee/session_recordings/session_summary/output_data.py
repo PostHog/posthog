@@ -32,7 +32,7 @@ class RawSegmentKeyActionsSerializer(serializers.Serializer):
     Key actions grouped by segment.
     """
 
-    segment = serializers.CharField(min_length=1, max_length=256, required=False, allow_null=True)
+    segment_index = serializers.IntegerField(min_value=0, required=False, allow_null=True)
     events = serializers.ListField(child=RawKeyActionSerializer(), required=False, allow_empty=True, allow_null=True)
 
 
@@ -41,7 +41,7 @@ class EnrichedSegmentKeyActionsSerializer(serializers.Serializer):
     Key actions grouped by segment, enriched with metadata.
     """
 
-    segment = serializers.CharField(min_length=1, max_length=256, required=False, allow_null=True)
+    segment_index = serializers.IntegerField(min_value=0, required=False, allow_null=True)
     events = serializers.ListField(
         child=EnrichedKeyActionSerializer(), required=False, allow_empty=True, allow_null=True
     )
@@ -52,9 +52,8 @@ class SegmentSerializer(serializers.Serializer):
     Segments coming from LLM.
     """
 
+    index = serializers.IntegerField(min_value=0, required=False, allow_null=True)
     name = serializers.CharField(min_length=1, max_length=256, required=False, allow_null=True)
-    summary = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
-    success = serializers.BooleanField(required=False, allow_null=True)
     start_event_id = serializers.CharField(min_length=1, max_length=128, required=False, allow_null=True)
     end_event_id = serializers.CharField(min_length=1, max_length=128, required=False, allow_null=True)
 
@@ -68,6 +67,16 @@ class OutcomeSerializer(serializers.Serializer):
     success = serializers.BooleanField(required=False, allow_null=True)
 
 
+class SegmentOutcomeSerializer(serializers.Serializer):
+    """
+    Outcome for each segment.
+    """
+
+    segment_index = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    summary = serializers.CharField(min_length=1, max_length=1024, required=False, allow_null=True)
+    success = serializers.BooleanField(required=False, allow_null=True)
+
+
 class RawSessionSummarySerializer(serializers.Serializer):
     """
     Raw session summary coming from LLM.
@@ -76,6 +85,9 @@ class RawSessionSummarySerializer(serializers.Serializer):
     segments = serializers.ListField(child=SegmentSerializer(), required=False, allow_empty=True, allow_null=True)
     key_actions = serializers.ListField(
         child=RawSegmentKeyActionsSerializer(), required=False, allow_empty=True, allow_null=True
+    )
+    segment_outcomes = serializers.ListField(
+        child=SegmentOutcomeSerializer(), required=False, allow_empty=True, allow_null=True
     )
     session_outcome = OutcomeSerializer(required=False, allow_null=True)
 
@@ -88,6 +100,9 @@ class SessionSummarySerializer(serializers.Serializer):
     segments = serializers.ListField(child=SegmentSerializer(), required=False, allow_empty=True, allow_null=True)
     key_actions = serializers.ListField(
         child=EnrichedSegmentKeyActionsSerializer(), required=False, allow_empty=True, allow_null=True
+    )
+    segment_outcomes = serializers.ListField(
+        child=SegmentOutcomeSerializer(), required=False, allow_empty=True, allow_null=True
     )
     session_outcome = OutcomeSerializer(required=False, allow_null=True)
 
@@ -111,20 +126,20 @@ def load_raw_session_summary_from_llm_content(
     if not segments:
         # If segments aren't generated yet - return the current state
         return raw_session_summary
-    segments_names = [segment.get("name") for segment in segments]
+    segments_indices = [segment.get("index") for segment in segments]
     key_actions = raw_session_summary.data.get("key_actions")
     if not key_actions:
         # If key actions aren't generated yet - return the current state
         return raw_session_summary
     for key_action_group in key_actions:
-        key_group_segment = key_action_group.get("segment")
-        if not key_group_segment:
-            # If key group segment isn't generated yet - skip this group
+        key_group_segment_index = key_action_group.get("segment_index")
+        if key_group_segment_index is None:
+            # If key group segment index isn't generated yet - skip this group
             continue
         # Ensure that LLM didn't hallucinate segments
-        if key_group_segment not in segments_names:
+        if key_group_segment_index not in segments_indices:
             raise ValueError(
-                f"LLM hallucinated segment {key_group_segment} when summarizing session_id {session_id}: {raw_session_summary.data}"
+                f"LLM hallucinated segment index {key_group_segment_index} when summarizing session_id {session_id}: {raw_session_summary.data}"
             )
         key_group_events = key_action_group.get("events")
         if not key_group_events:
@@ -190,9 +205,9 @@ def enrich_raw_session_summary_with_events_meta(
     # Iterate over key actions groups per segment
     for key_action_group in key_actions:
         enriched_events = []
-        segment = key_action_group.get("segment")
-        if not segment:
-            # If segment isn't generated yet - skip this group
+        segment_index = key_action_group.get("segment_index")
+        if segment_index is None:
+            # If segment index isn't generated yet - skip this group
             continue
         events = key_action_group.get("events", [])
         if not events:
@@ -244,7 +259,7 @@ def enrich_raw_session_summary_with_events_meta(
             enriched_events.append(enriched_event)
         # Ensure chronological order of the events
         enriched_events.sort(key=lambda x: x.get("milliseconds_since_start", 0))
-        enriched_key_actions.append({"segment": segment, "events": enriched_events})
+        enriched_key_actions.append({"segment_index": segment_index, "events": enriched_events})
     # Validate the enriched content against the schema
     summary_to_enrich = dict(raw_session_summary.data)
     summary_to_enrich["key_actions"] = enriched_key_actions
