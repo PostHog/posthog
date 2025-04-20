@@ -64,6 +64,16 @@ function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
     return (
         <div className="grid grid-cols-2 gap-2 text-xs mt-2">
             <div className="flex items-center gap-1">
+                <IconKeyboard />
+                <span className="text-muted">Key actions:</span>
+                {isValidMetaNumber(meta.key_action_count) && <span>{meta.key_action_count}</span>}
+            </div>
+            <div className="flex items-center gap-1">
+                <IconWarning className={meta.failure_count && meta.failure_count > 0 ? 'text-danger' : ''} />
+                <span className="text-muted">Failures:</span>
+                {isValidMetaNumber(meta.failure_count) && <span>{meta.failure_count}</span>}
+            </div>
+            <div className="flex items-center gap-1">
                 <IconClock />
                 <span className="text-muted">Duration:</span>
                 {isValidMetaNumber(meta.duration) && isValidMetaNumber(meta.duration_percentage) && (
@@ -81,16 +91,6 @@ function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
                         {meta.events_count} ({((meta.events_percentage || 0) * 100).toFixed(2)}%)
                     </span>
                 )}
-            </div>
-            <div className="flex items-center gap-1">
-                <IconKeyboard />
-                <span className="text-muted">Key actions:</span>
-                {isValidMetaNumber(meta.key_action_count) && <span>{meta.key_action_count}</span>}
-            </div>
-            <div className="flex items-center gap-1">
-                <IconWarning className={meta.failure_count && meta.failure_count > 0 ? 'text-danger' : ''} />
-                <span className="text-muted">Failures:</span>
-                {isValidMetaNumber(meta.failure_count) && <span>{meta.failure_count}</span>}
             </div>
         </div>
     )
@@ -200,6 +200,28 @@ function SessionSummary(): JSX.Element {
     const { sessionSummary, summaryHasHadFeedback } = useValues(playerMetaLogic(logicProps))
     const { sessionSummaryFeedback } = useActions(playerMetaLogic(logicProps))
 
+    const findProcessingSegmentIndex = () => {
+        if (!sessionSummary?.segments) {
+            return -1
+        }
+        for (let i = 0; i < sessionSummary.segments.length; i++) {
+            const currentSegment = sessionSummary.segments[i]
+            const nextSegment = sessionSummary.segments[i + 1]
+            const currentActions = sessionSummary.key_actions?.filter(
+                (keyAction) => keyAction.segment_index === currentSegment.index
+            )
+            const nextActions = nextSegment && sessionSummary.key_actions?.filter(
+                (keyAction) => keyAction.segment_index === nextSegment.index
+            )
+            if (!nextSegment || !nextActions?.length) {
+                return i
+            }
+        }
+        return -1
+    }
+
+    const processingSegment = findProcessingSegmentIndex() !== -1 ? sessionSummary?.segments?.[findProcessingSegmentIndex()] : null
+
     return (
         <div className="flex flex-col">
             {sessionSummary ? (
@@ -218,6 +240,13 @@ function SessionSummary(): JSX.Element {
 
                     <div>
                         <h2>Segments:</h2>
+                        {processingSegment && (
+                            <div className="mb-4 grid grid-cols-[auto_1fr] gap-x-2">
+                                <Spinner className="text-2xl row-span-2 self-center" />
+                                <span className="text-muted">Researching key actions for segment:</span>
+                                <div className="font-semibold">{processingSegment.name}</div>
+                            </div>
+                        )}
                         {sessionSummary?.segments?.map((segment) => {
                             const matchingSegmentOutcome = sessionSummary?.segment_outcomes?.find(
                                 (outcome) => outcome.segment_index === segment.index
