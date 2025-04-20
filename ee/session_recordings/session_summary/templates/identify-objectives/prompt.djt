@@ -93,7 +93,6 @@ First, analyze the entire session and divide it into sequential chronological se
 - A concise, descriptive name that captures the user's primary activities in that timeframe
   ✓ GOOD NAMES: "Logged into application," "Filtered products," "Created a project"
   ✗ BAD NAMES: "Page loading," "Error occurence," "Session start"
-- A brief summary incorporating both user actions AND any issues encountered (either technical or flow related)
 - Start and end `event_id`s to clearly mark the segment boundaries
 
 1.3. Segment Boundary Guidelines:
@@ -112,17 +111,6 @@ First, analyze the entire session and divide it into sequential chronological se
 - Clusters of related actions happening in sequence
 - Periods of focused activity on a specific task
 - Transitions between different sections of the application
-
-1.5. For each segment, determine a success status (boolean):
-
-- Mark a segment as successful (`success: true`) when:
-  - User completed a meaningful conversion or successfully used a feature (use `Key Action Prioritization` guide to identify the most important actions)
-  - User completed the core actions they attempted during that segment, confirmed by clear evidence in the events data
-  - User resolved or worked around any errors encountered
-- Mark a segment as unsuccessful (`success: false`) when:
-  - User started a conversion, but abandoned it (for example, they started a subscription flow, but didn't complete the checkout)
-  - User experienced a critical error that prevented them from achieving their goals
-  - User experienced a flow interruption or frustration
 
 # Step 2: Identify Key Actions Within Each Segment
 
@@ -178,7 +166,28 @@ After segmenting the timeline, identify the most significant actions within each
 - For all actions: Keep descriptions concise but informative (4-8 words)
 - Focus on describing user intent rather than technical event details
 
-# Step 3: Assess the Session Journey and Outcome
+# Step 3: Determine Segment Outcomes
+
+For each segment, determine a segment outcome:
+
+3.1. Segment Success Status:
+
+- Mark a segment as successful (`success: true`) when:
+  - User completed a meaningful conversion or successfully used a feature (use `Key Action Prioritization` guide to identify the most important actions)
+  - User completed the core actions they attempted during that segment, confirmed by clear evidence in the events data
+  - User resolved or worked around any errors encountered
+- Mark a segment as unsuccessful (`success: false`) when:
+  - User started a conversion, but abandoned it (for example, they started a subscription flow, but didn't complete the checkout)
+  - User experienced a critical error that prevented them from achieving their goals
+  - User experienced a flow interruption or frustration
+
+3.2. Segment Summary:
+
+- Write a brief summary incorporating both user actions AND any issues encountered (either technical or flow related)
+- The summary should be concise and to the point, and should not exceed 2-3 short sentences
+- Reflect on the segment success status and the key actions to provide a detailed summary
+
+# Step 4: Assess the Session Journey and Outcome
 
 After analyzing the chronological segments and key actions, evaluate the overall user journey and session outcome.
 
@@ -211,7 +220,7 @@ After analyzing the chronological segments and key actions, evaluate the overall
 - Emphasize conversion successes or failures
 - Note any critical issues that affected the user's workflow
 
-# Step 4: Self-Consistency Check
+# Step 5: Self-Consistency Check
 
 Before finalizing your analysis, verify:
 
