@@ -62,10 +62,10 @@ function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
     }
 
     return (
-        <div className="grid grid-cols-2 gap-2 text-xs text-muted mt-2">
+        <div className="grid grid-cols-2 gap-2 text-xs mt-2">
             <div className="flex items-center gap-1">
-                <IconClock className="text-muted" />
-                <span>Duration:</span>
+                <IconClock />
+                <span className="text-muted">Duration:</span>
                 {isValidMetaNumber(meta.duration) && isValidMetaNumber(meta.duration_percentage) && (
                     <span>
                         {formatMsIntoTime(meta.duration * 1000 || 0)} (
@@ -74,8 +74,8 @@ function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
                 )}
             </div>
             <div className="flex items-center gap-1">
-                <IconPointer className="text-muted" />
-                <span>Events:</span>
+                <IconPointer />
+                <span className="text-muted">Events:</span>
                 {isValidMetaNumber(meta.events_count) && isValidMetaNumber(meta.events_percentage) && (
                     <span>
                         {meta.events_count} ({((meta.events_percentage || 0) * 100).toFixed(2)}%)
@@ -83,13 +83,13 @@ function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
                 )}
             </div>
             <div className="flex items-center gap-1">
-                <IconKeyboard className="text-muted" />
-                <span>Key actions:</span>
+                <IconKeyboard />
+                <span className="text-muted">Key actions:</span>
                 {isValidMetaNumber(meta.key_action_count) && <span>{meta.key_action_count}</span>}
             </div>
             <div className="flex items-center gap-1">
-                <IconWarning className={meta.failure_count && meta.failure_count > 0 ? 'text-danger' : 'text-muted'} />
-                <span>Failures:</span>
+                <IconWarning className={meta.failure_count && meta.failure_count > 0 ? 'text-danger' : ''} />
+                <span className="text-muted">Failures:</span>
                 {isValidMetaNumber(meta.failure_count) && <span>{meta.failure_count}</span>}
             </div>
         </div>
