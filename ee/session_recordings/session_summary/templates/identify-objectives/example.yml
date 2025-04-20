@@ -1,32 +1,36 @@
-objectives:
-    - name: 'Example Objective'
+segments:
+    - name: 'Example Segment'
       summary: 'Brief description of what the user was trying to accomplish'
-      success: true # Note: Whether the user was able to complete the objective without critical interruptions or abandonment
-    - name: 'Another Example Objective'
-      summary: 'Description of another goal the user was working toward during the session'
+      success: true # Note: Whether the user was able to achieve segment's goals without critical interruptions or abandonment
+      start_event_id: 'abcd1234'
+      end_event_id: 'defg4567'
+    - name: 'Another Example Segment'
+      summary: 'Description of the next chronological phase in the user journey'
       success: false
-    # Note: The actual number of objectives should be based on your analysis of the session data. This is just an example of the format.
+      start_event_id: 'ghij7890'
+      end_event_id: 'stuv9012'
+    # Note: The actual number of segments should be based on your analysis of the session timeline. This is just an example of the format.
 key_actions:
-    - objective: 'Example Objective' # Must match EXACTLY with an objectives.name value
+    - segment: 'Example Segment' # Must match EXACTLY with a segments.name value
       events:
-          - description: 'First significant action toward this objective'
+          - description: 'First significant action in this segment'
             event_id: 'abcd1234' # Must be copied EXACTLY from event data, never invented
             error: false
-          - description: 'Second action for this objective'
+          - description: 'Second action in this segment'
             event_id: 'defg4567'
             error: false
-          # Note: The actual number of events should be based on your analysis of the objective-related events in the session data. This is just an example of the format.
-    - objective: 'Another Example Objective'
+          # Note: The actual number of events should be based on your analysis of the segment-related events in the session data. This is just an example of the format.
+    - segment: 'Another Example Segment'
       events:
-          - description: 'First significant action toward this objective'
+          - description: 'First significant action in this segment'
             event_id: 'ghij7890'
             error: false
-          - description: 'User attempted to perform an action but encountered an API error, potentially because of incorrect input. The user then corrected the input and tried again successfully'
+          - description: 'User attempted to perform an action but encountered an API error, potentially because of incorrect input'
             event_id: 'mnop3456'
             error: true
-          - description: 'Final action completing this objective'
+          - description: 'Final action in this chronological segment'
             event_id: 'stuv9012'
             error: false
 session_outcome:
-    description: 'Concise session outcome description'
+    description: 'Concise session outcome description focusing on conversion attempts, feature usage, and critical issues'
     success: true # Note: Whether the user's overall experience was successful or not

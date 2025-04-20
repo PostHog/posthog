@@ -81,7 +81,7 @@ CRITICAL WARNING: DO NOT hallucinate errors. Only mark events as errors when the
 
 First, analyze the entire session and divide it into sequential chronological segments. Follow these guidelines:
 
-1.1. Segment the session timeline into 1-7 distinct chronological phases, based on session length and complexity (as described in the `session_metadata_input_format`):
+1.1. Segment the session timeline into distinct chronological phases, based on session length and complexity (as described in the `session_metadata_input_format`):
 
 - Each segment must represent a consecutive period in the timeline
 - Segments should follow the natural progression of the user journey
@@ -91,24 +91,20 @@ First, analyze the entire session and divide it into sequential chronological se
 1.2. For each segment, provide:
 
 - A concise, descriptive name that captures the user's primary activities in that timeframe
-  ✓ GOOD NAMES: "Login to application," "Filter products," "Complete checkout"
-  ✗ BAD NAMES: "Page loaded," "Error occurred," "Session started"
+  ✓ GOOD NAMES: "Logged into application," "Filtered products," "Created a project"
+  ✗ BAD NAMES: "Page loading," "Error occurence," "Session start"
 - A brief summary incorporating both user actions AND any issues encountered (either technical or flow related)
 - Start and end `event_id`s to clearly mark the segment boundaries
 
 1.3. Segment Boundary Guidelines:
 
-✓ DO:
+✓ Create new segments when the user clearly transitions to a different area/activity
+✓ Use natural breakpoints such as page changes, significant pauses, or task completions
+✓ Keep segments to a reasonable size (typically 3-7 minutes of activity)
 
-- Create new segments when the user clearly transitions to a different area/activity
-- Use natural breakpoints such as page changes, significant pauses, or task completions
-- Keep segments to a reasonable size (typically 3-7 minutes of activity)
-
-✗ DO NOT:
-
-- Create segments based on technical events rather than user activity
-- Make segments too granular (single actions) or too broad (half the session)
-- Create overlapping segments (each event belongs to one primary segment)
+✗ DO NOT create segments based on technical events rather than user activity
+✗ DO NOT make segments too granular (single actions) or too broad (half the session)
+✗ DO NOT create overlapping segments (each event belongs to one primary segment)
 
 1.4. Pay special attention to:
 
@@ -119,12 +115,14 @@ First, analyze the entire session and divide it into sequential chronological se
 
 1.5. For each segment, determine a success status (boolean):
 
-- Mark a segment as successful (true) when:
+- Mark a segment as successful (`success: true`) when:
+  - User completed a meaningful conversion or successfully used a feature (use `Key Action Prioritization` guide to identify the most important actions)
   - User completed the core actions they attempted during that segment, confirmed by clear evidence in the events data
-  - Any errors encountered were resolved or worked around
-- Mark a segment as unsuccessful (false) when:
-  - User abandoned activities before completion
-  - Critical errors prevented completion of intended actions
+  - User resolved or worked around any errors encountered
+- Mark a segment as unsuccessful (`success: false`) when:
+  - User started a conversion, but abandoned it (for example, they started a subscription flow, but didn't complete the checkout)
+  - User experienced a critical error that prevented them from achieving their goals
+  - User experienced a flow interruption or frustration
 
 # Step 2: Identify Key Actions Within Each Segment
 
@@ -145,7 +143,7 @@ After segmenting the timeline, identify the most significant actions within each
 
 2.2. Key Actions Guidelines:
 
-- Include 2-5 key actions per segment that follow the prioritization above. The number of key actions should be based on the segment's complexity and duration.
+- Include key actions per segment that follow the prioritization above. The number of key actions should be based on the segment's complexity and duration.
 - For segments without conversion events or critical issues, select actions that best represent the user's primary activities and goals.
 - Actions must be listed in chronological order within each segment
 - Consolidate repeated similar actions.
@@ -209,7 +207,7 @@ After analyzing the chronological segments and key actions, evaluate the overall
 
 3.4. Final Outcome Description:
 
-- Provide a concise summary (2-3 sentences) of the overall user journey
+- Provide a short focused summary (2-3 sentences) of the overall user journey
 - Emphasize conversion successes or failures
 - Note any critical issues that affected the user's workflow
 
