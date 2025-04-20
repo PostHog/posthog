@@ -6,12 +6,13 @@ import openai
 import structlog
 from ee.session_recordings.session_summary.llm.call import stream_llm
 from ee.session_recordings.session_summary.output_data import (
-    enrich_raw_session_summary_with_events_meta,
+    enrich_raw_session_summary_with_meta,
     load_raw_session_summary_from_llm_content,
 )
 from ee.session_recordings.session_summary import ExceptionToRetry
 from prometheus_client import Histogram
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_fixed, wait_random
+from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata
 from posthog.models.user import User
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
@@ -79,7 +80,7 @@ def _convert_llm_content_to_session_summary_json(
     simplified_events_columns: list[str],
     url_mapping_reversed: dict[str, str],
     window_mapping_reversed: dict[str, str],
-    session_start_time: datetime,
+    session_metadata: SessionSummaryMetadata,
     summary_prompt: str,
     final_validation: bool = False,
 ) -> str | None:
@@ -92,13 +93,13 @@ def _convert_llm_content_to_session_summary_json(
         # We'll accumulate more chunks until we get valid YAML again.
         return None
     # Enrich session summary with events metadata
-    session_summary = enrich_raw_session_summary_with_events_meta(
+    session_summary = enrich_raw_session_summary_with_meta(
         raw_session_summary=raw_session_summary,
         simplified_events_mapping=simplified_events_mapping,
         simplified_events_columns=simplified_events_columns,
         url_mapping_reversed=url_mapping_reversed,
         window_mapping_reversed=window_mapping_reversed,
-        session_start_time=session_start_time,
+        session_metadata=session_metadata,
         session_id=session_id,
     )
     # TODO: Remove after testing
@@ -129,7 +130,7 @@ def stream_llm_session_summary(
     simplified_events_columns: list[str],
     url_mapping_reversed: dict[str, str],
     window_mapping_reversed: dict[str, str],
-    session_start_time: datetime,
+    session_metadata: SessionSummaryMetadata,
     system_prompt: str | None = None,
 ) -> Generator[str, None, None]:
     try:
@@ -155,7 +156,7 @@ def stream_llm_session_summary(
                     simplified_events_columns=simplified_events_columns,
                     url_mapping_reversed=url_mapping_reversed,
                     window_mapping_reversed=window_mapping_reversed,
-                    session_start_time=session_start_time,
+                    session_metadata=session_metadata,
                     summary_prompt=summary_prompt,
                 )
                 if not intermediate_summary:
@@ -191,7 +192,7 @@ def stream_llm_session_summary(
             simplified_events_columns=simplified_events_columns,
             url_mapping_reversed=url_mapping_reversed,
             window_mapping_reversed=window_mapping_reversed,
-            session_start_time=session_start_time,
+            session_metadata=session_metadata,
             summary_prompt=summary_prompt,
             final_validation=True,
         )

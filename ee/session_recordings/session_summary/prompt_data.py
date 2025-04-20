@@ -9,9 +9,10 @@ from ee.session_recordings.session_summary.utils import get_column_index, prepar
 
 @dataclasses.dataclass(frozen=True)
 class SessionSummaryMetadata:
-    active_seconds: int | None = None
-    inactive_seconds: int | None = None
     start_time: datetime | None = None
+    duration: int | None = None
+    console_error_count: int | None = None
+    active_seconds: int | None = None
     click_count: int | None = None
     keypress_count: int | None = None
     mouse_activity_count: int | None = None
@@ -89,24 +90,32 @@ class SessionSummaryPromptData:
         # For example, listing 114 errors, increases chances of error hallucination
         session_metadata = raw_session_metadata.copy()  # Avoid mutating the original
         allowed_fields = (
-            "active_seconds",
-            "inactive_seconds",
             "start_time",
+            "duration",
+            "recording_duration",
+            "console_error_count",
+            "active_seconds",
             "click_count",
             "keypress_count",
             "mouse_activity_count",
             "start_url",
-            "console_errors",
         )
         session_metadata = {k: v for k, v in session_metadata.items() if k in allowed_fields}
-        # Start time should be always present
+        # Start time, duration and console error count should be always present
         if "start_time" not in session_metadata:
             raise ValueError(f"start_time is required in session metadata: {session_metadata}")
+        if "console_error_count" not in session_metadata:
+            raise ValueError(f"console_error_count is required in session metadata: {session_metadata}")
         start_time = prepare_datetime(session_metadata["start_time"])
+        console_error_count = session_metadata["console_error_count"]
+        duration = session_metadata.get("duration") or session_metadata.get("recording_duration")
+        if duration is None:
+            raise ValueError(f"duration/recording_duration is required in session metadata: {session_metadata}")
         return SessionSummaryMetadata(
-            active_seconds=session_metadata.get("active_seconds"),
-            inactive_seconds=session_metadata.get("inactive_seconds"),
             start_time=start_time,
+            duration=duration,
+            console_error_count=console_error_count,
+            active_seconds=session_metadata.get("active_seconds"),
             click_count=session_metadata.get("click_count"),
             keypress_count=session_metadata.get("keypress_count"),
             mouse_activity_count=session_metadata.get("mouse_activity_count"),

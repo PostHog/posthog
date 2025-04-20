@@ -120,7 +120,7 @@ class ReplaySummarizer:
             simplified_events_columns=prompt_data.columns,
             url_mapping_reversed=url_mapping_reversed,
             window_mapping_reversed=window_mapping_reversed,
-            session_start_time=prompt_data.metadata.start_time,
+            session_metadata=prompt_data.metadata,
             system_prompt=system_prompt,
         )
         return session_summary_generator

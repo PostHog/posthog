@@ -210,7 +210,7 @@ For each segment, determine a segment outcome:
 3.2. Segment Summary:
 
 - Write a brief summary incorporating both user actions AND any issues encountered (either technical or flow related)
-- The summary should be concise and to the point, and should not exceed 2-3 short sentences
+- The summary should be concise and to the point (1-2 short sentences up to 15 words in total)
 - Reflect on the segment success status and the key actions to provide a detailed summary
 
 # Step 6: Assess the Session Journey and Outcome
@@ -242,7 +242,7 @@ After analyzing the chronological segments and key actions, evaluate the overall
 
 3.4. Final Outcome Description:
 
-- Provide a short focused summary (2-3 sentences) of the overall user journey
+- Provide a short focused summary (1-2 sentences, up to 30 words in total) of the overall user journey
 - Emphasize conversion successes or failures
 - Note any critical issues that affected the user's workflow
 
