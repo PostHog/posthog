@@ -8,7 +8,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { SessionKeyAction, SessionSegment, SessionSegmentKeyActions } from '../player-meta/types'
+import { SessionKeyAction, SessionSegment, SessionSegmentKeyActions, SessionSegmentOutcome } from '../player-meta/types'
 
 function formatEventMetaInfo(event: SessionKeyAction): JSX.Element {
     return (
@@ -39,18 +39,28 @@ const isValidTimestamp = (ms: unknown): ms is number => typeof ms === 'number' &
 
 interface SessionSegmentViewProps {
     segment: SessionSegment
+    segmentOutcome: SessionSegmentOutcome | undefined
     keyActions: SessionSegmentKeyActions[]
     onSeekToTime: (time: number) => void
 }
 
-function SessionSegmentView({ segment, keyActions, onSeekToTime }: SessionSegmentViewProps): JSX.Element {
+function SessionSegmentView({
+    segment,
+    segmentOutcome,
+    keyActions,
+    onSeekToTime,
+}: SessionSegmentViewProps): JSX.Element {
     return (
         <div key={segment.name} className="mb-4">
             <LemonRow fullWidth className="dashboard-row" outlined>
                 <h3 className="mb-0">{segment.name}</h3>
                 <br />
-                <p>{segment.summary}</p>
-                <p>Success: {segment.success ? 'Yes' : 'No'}</p>
+                {segmentOutcome && (
+                    <>
+                        <p>{segmentOutcome.summary}</p>
+                        <p>Success: {segmentOutcome.success ? 'Yes' : 'No'}</p>
+                    </>
+                )}
             </LemonRow>
 
             {keyActions?.map((keyAction) =>
@@ -120,13 +130,17 @@ function SessionSummary(): JSX.Element {
                     <div>
                         <h2>Segments:</h2>
                         {sessionSummary?.segments?.map((segment) => {
+                            const matchingSegmentOutcome = sessionSummary?.segment_outcomes?.find(
+                                (outcome) => outcome.segment_index === segment.index
+                            )
                             const matchingKeyActions = sessionSummary?.key_actions?.filter(
-                                (keyAction) => keyAction.segment === segment.name
+                                (keyAction) => keyAction.segment_index === segment.index
                             )
                             return (
                                 <SessionSegmentView
                                     key={segment.name}
                                     segment={segment}
+                                    segmentOutcome={matchingSegmentOutcome}
                                     keyActions={matchingKeyActions || []}
                                     onSeekToTime={seekToTime}
                                 />
