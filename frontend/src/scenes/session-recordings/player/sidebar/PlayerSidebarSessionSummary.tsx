@@ -1,5 +1,5 @@
 import { IconMagicWand, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
-import { LemonBanner, LemonRow, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 // import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 // import { FEATURE_FLAGS } from 'lib/constants'
@@ -36,7 +36,7 @@ function formatMsIntoTime(ms: number): string {
 }
 
 const isValidTimestamp = (ms: unknown): ms is number => typeof ms === 'number' && !isNaN(ms) && ms >= 0
-
+const isValidMetaNumber = (value: unknown): value is number => typeof value === 'number' && !isNaN(value) && value >= 0
 interface SessionSegmentViewProps {
     segment: SessionSegment
     segmentOutcome: SessionSegmentOutcome | undefined
@@ -52,55 +52,108 @@ function SessionSegmentView({
 }: SessionSegmentViewProps): JSX.Element {
     return (
         <div key={segment.name} className="mb-4">
-            <LemonRow fullWidth className="dashboard-row" outlined>
-                <h3 className="mb-0">{segment.name}</h3>
-                <br />
-                {segmentOutcome && (
-                    <>
-                        <p>{segmentOutcome.summary}</p>
-                        <p>Success: {segmentOutcome.success ? 'Yes' : 'No'}</p>
-                    </>
-                )}
-            </LemonRow>
-
-            {keyActions?.map((keyAction) =>
-                keyAction.events?.map((event: SessionKeyAction, eventIndex: number) =>
-                    isValidTimestamp(event.milliseconds_since_start) ? (
-                        <div
-                            key={`${segment.name}-${eventIndex}`}
-                            className={`border-b cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight ${
-                                event.failure ? 'bg-danger-highlight' : ''
-                            }`}
-                            onClick={() => {
-                                if (!isValidTimestamp(event.milliseconds_since_start)) {
-                                    return
-                                }
-                                onSeekToTime(event.milliseconds_since_start)
-                            }}
-                        >
-                            <div className="flex flex-row gap-2">
-                                <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
-                                    {formatMsIntoTime(event.milliseconds_since_start)}
-                                    <div className="flex flex-row gap-2 mt-1">
-                                        {event.current_url ? (
-                                            <Link to={event.current_url} target="_blank">
-                                                <Tooltip title={event.current_url} placement="top">
-                                                    <span className="font-mono text-xs text-muted-alt">url</span>
-                                                </Tooltip>
-                                            </Link>
-                                        ) : null}
-                                        <Tooltip title={formatEventMetaInfo(event)} placement="top">
-                                            <span className="font-mono text-xs text-muted-alt">meta</span>
-                                        </Tooltip>
+            <LemonCollapse
+                size="medium"
+                className={`border-b cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight ${
+                    segmentOutcome && Object.keys(segmentOutcome).length > 0 && segmentOutcome.success === false
+                        ? 'bg-danger-highlight'
+                        : ''
+                }`}
+                panels={[
+                    {
+                        key: 'previous',
+                        header: (
+                            <div className="py-2">
+                                <div className="flex flex-row gap-2">
+                                    <h3 className="mb-1">{segment.name}</h3>
+                                    {segmentOutcome && Object.keys(segmentOutcome).length > 0 ? (
+                                        <div>Success: {segmentOutcome.success ? 'Yes' : 'No'}</div>
+                                    ) : (
+                                        <Spinner />
+                                    )}
+                                </div>
+                                {segmentOutcome && (
+                                    <>
+                                        <p className="text-sm font-normal mb-0">{segmentOutcome.summary}</p>
+                                    </>
+                                )}
+                                {segment.meta && (
+                                    <div className="text-xs text-muted mt-1">
+                                        {isValidMetaNumber(segment.meta.duration) &&
+                                            isValidMetaNumber(segment.meta.duration_percentage) && (
+                                                <div>
+                                                    Duration: {formatMsIntoTime(segment.meta.duration * 1000 || 0)} (
+                                                    {((segment.meta.duration_percentage || 0) * 100).toFixed(2)}% of
+                                                    session)
+                                                </div>
+                                            )}
+                                        {isValidMetaNumber(segment.meta.events_count) &&
+                                            isValidMetaNumber(segment.meta.events_percentage) && (
+                                                <div>
+                                                    Events: {segment.meta.events_count} (
+                                                    {((segment.meta.events_percentage || 0) * 100).toFixed(2)}% of
+                                                    session)
+                                                </div>
+                                            )}
+                                        {isValidMetaNumber(segment.meta.key_action_count) && (
+                                            <div>Key actions: {segment.meta.key_action_count}</div>
+                                        )}
+                                        {isValidMetaNumber(segment.meta.failure_count) && (
+                                            <div>Failures: {segment.meta.failure_count}</div>
+                                        )}
                                     </div>
-                                </span>
-
-                                <span className="text-xs break-words">{event.description}</span>
+                                )}
                             </div>
-                        </div>
-                    ) : null
-                )
-            )}
+                        ),
+                        content: (
+                            <>
+                                {keyActions?.map((keyAction) =>
+                                    keyAction.events?.map((event: SessionKeyAction, eventIndex: number) =>
+                                        isValidTimestamp(event.milliseconds_since_start) ? (
+                                            <div
+                                                key={`${segment.name}-${eventIndex}`}
+                                                className={`border-b cursor-pointer py-2 px-2 hover:bg-primary-alt-highlight ${
+                                                    event.failure ? 'bg-danger-highlight' : ''
+                                                }`}
+                                                onClick={() => {
+                                                    if (!isValidTimestamp(event.milliseconds_since_start)) {
+                                                        return
+                                                    }
+                                                    onSeekToTime(event.milliseconds_since_start)
+                                                }}
+                                            >
+                                                <div className="flex flex-row gap-2">
+                                                    <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
+                                                        {formatMsIntoTime(event.milliseconds_since_start)}
+                                                        <div className="flex flex-row gap-2 mt-1">
+                                                            {event.current_url ? (
+                                                                <Link to={event.current_url} target="_blank">
+                                                                    <Tooltip title={event.current_url} placement="top">
+                                                                        <span className="font-mono text-xs text-muted-alt">
+                                                                            url
+                                                                        </span>
+                                                                    </Tooltip>
+                                                                </Link>
+                                                            ) : null}
+                                                            <Tooltip title={formatEventMetaInfo(event)} placement="top">
+                                                                <span className="font-mono text-xs text-muted-alt">
+                                                                    meta
+                                                                </span>
+                                                            </Tooltip>
+                                                        </div>
+                                                    </span>
+
+                                                    <span className="text-xs break-words">{event.description}</span>
+                                                </div>
+                                            </div>
+                                        ) : null
+                                    )
+                                )}
+                            </>
+                        ),
+                    },
+                ]}
+            />
         </div>
     )
 }
