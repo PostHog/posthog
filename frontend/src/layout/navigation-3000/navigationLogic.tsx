@@ -34,6 +34,7 @@ import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, isNotNil } from 'lib/utils'
+import { getAppContext } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
 import React from 'react'
 import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
@@ -45,7 +46,7 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { ReplayTabs } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ReplayTabs } from '~/types'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import type { navigation3000LogicType } from './navigationLogicType'
@@ -482,12 +483,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconGraph />,
                             logic: isUsingSidebar ? insightsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.savedInsights(),
-                            sideAction: {
-                                icon: <IconPlusSmall />, // The regular plus is too big
-                                to: urls.insightNew(),
-                                tooltip: 'New insight',
-                                identifier: Scene.Insight,
-                            },
+                            sideAction:
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight] ===
+                                AccessControlLevel.Editor
+                                    ? {
+                                          icon: <IconPlusSmall />, // The regular plus is too big
+                                          to: urls.insightNew(),
+                                          tooltip: 'New insight',
+                                          identifier: Scene.Insight,
+                                      }
+                                    : undefined,
                         },
                         {
                             identifier: Scene.WebAnalytics,

@@ -67,7 +67,7 @@ def rbac_team_access_control_migration(organization_id: int):
                             logger.exception(error_message, exc_info=e)
                             capture_exception(
                                 e,
-                                properties={
+                                additional_properties={
                                     "team_id": team.id,
                                     "organization_id": organization_id,
                                     "team_membership_id": team_membership.id,
@@ -83,12 +83,12 @@ def rbac_team_access_control_migration(organization_id: int):
                 except Exception as e:
                     error_message = f"Failed to migrate team {team.id}"
                     logger.exception(error_message, exc_info=e)
-                    capture_exception(e, properties={"team_id": team.id, "organization_id": organization_id})
+                    capture_exception(e, additional_properties={"team_id": team.id, "organization_id": organization_id})
                     raise
 
         logger.info("Finished RBAC team migrations", organization_id=organization_id)
     except Exception as e:
         error_message = f"Failed to complete RBAC migration for organization {organization_id}"
         logger.exception(error_message, exc_info=e)
-        capture_exception(e, properties={"organization_id": organization_id})
+        capture_exception(e, additional_properties={"organization_id": organization_id})
         raise

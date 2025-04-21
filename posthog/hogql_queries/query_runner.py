@@ -26,6 +26,7 @@ from posthog.hogql_queries.query_cache import QueryCacheManager
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
 from posthog.schema import (
+    WebActiveHoursHeatMapQuery,
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
     CacheMissResponse,
@@ -203,6 +204,17 @@ def get_query_runner(
 
         return PathsQueryRunner(
             query=cast(PathsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+
+    if kind == "WebActiveHoursHeatMapQuery":
+        from .web_analytics.web_active_hours_heatmap_query_runner import WebActiveHoursHeatMapQueryRunner
+
+        return WebActiveHoursHeatMapQueryRunner(
+            query=cast(WebActiveHoursHeatMapQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -414,12 +426,12 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsChurnRateQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_churn_rate_query_runner import (
-            RevenueAnalyticsChurnRateQueryRunner,
+    if kind == "RevenueAnalyticsTopCustomersQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
+            RevenueAnalyticsTopCustomersQueryRunner,
         )
 
-        return RevenueAnalyticsChurnRateQueryRunner(
+        return RevenueAnalyticsTopCustomersQueryRunner(
             query=query,
             team=team,
             timings=timings,
