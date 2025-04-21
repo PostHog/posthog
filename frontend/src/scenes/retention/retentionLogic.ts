@@ -4,6 +4,7 @@ import { dayjs } from 'lib/dayjs'
 import { formatDateRange } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { BREAKDOWN_OTHER_DISPLAY, BREAKDOWN_OTHER_STRING_LABEL } from 'scenes/insights/utils'
 import { ProcessedRetentionPayload } from 'scenes/retention/types'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -72,10 +73,15 @@ export const retentionLogic = kea<retentionLogicType>([
                     }),
                 }))
 
-                // Filter out future values for now
+                // Filter out future values and handle breakdown label
                 return results.map((result) => ({
                     ...result,
                     date: dayjs(result.date).tz(timezone),
+                    // Replace internal "other" breakdown value with display value
+                    breakdown_value:
+                        result.breakdown_value === BREAKDOWN_OTHER_STRING_LABEL
+                            ? BREAKDOWN_OTHER_DISPLAY
+                            : result.breakdown_value,
                     values: result.values.filter((value) => !value.isFuture),
                 }))
             },
