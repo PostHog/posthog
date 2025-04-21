@@ -12,6 +12,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
+from posthog.temporal.session_recordings.queries import get_sampled_session_ids
 
 
 @dataclasses.dataclass(frozen=True)
@@ -29,32 +30,6 @@ class CompareRecordingConsoleLogsActivityInputs:
             "started_before": self.started_before,
             "sample_size": self.sample_size,
         }
-
-
-def get_sampled_session_ids(
-    started_after: dt.datetime,
-    started_before: dt.datetime,
-    sample_size: int,
-) -> list[tuple[str, int]]:  # [(session_id, team_id), ...]
-    """Get a random sample of session IDs from the specified time range."""
-    query = """
-        SELECT DISTINCT session_id, team_id
-        FROM session_replay_events
-        WHERE min_first_timestamp >= %(started_after)s
-        AND max_last_timestamp <= %(started_before)s
-        ORDER BY rand()  -- Random sampling
-        LIMIT %(sample_size)s
-    """
-
-    results = sync_execute(
-        query,
-        {
-            "started_after": started_after.strftime("%Y-%m-%d %H:%M:%S"),
-            "started_before": started_before.strftime("%Y-%m-%d %H:%M:%S"),
-            "sample_size": sample_size,
-        },
-    )
-    return [(str(row[0]), int(row[1])) for row in results]
 
 
 def get_console_logs(
