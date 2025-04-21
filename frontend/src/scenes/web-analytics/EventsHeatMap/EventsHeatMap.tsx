@@ -235,7 +235,7 @@ function renderAggregationCells(
                 value={xAggregations[x]}
                 maxValue={maxXAggregation}
                 backgroundColor={aggregationColor}
-                dayAndTime={`All - ${String(x).padStart(2, '0')}:00`}
+                dayAndTime={`${AllLabel} - ${String(x).padStart(2, '0')}:00`}
             />
         </td>
     ))
@@ -257,7 +257,7 @@ function renderYAggregationCell(
                 value={value}
                 maxValue={maxYAggregation}
                 backgroundColor={aggregationColor}
-                dayAndTime={`All - ${day}`}
+                dayAndTime={`${AllLabel} - ${day}`}
             />
         </td>
     )
