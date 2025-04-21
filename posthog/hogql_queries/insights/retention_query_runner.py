@@ -621,7 +621,8 @@ class RetentionQueryRunner(QueryRunner):
 
             results = final_results
         else:
-            result_dict: dict[tuple[int, int], dict[str, float]] = {
+            # Rename this variable to avoid conflict with the one in the if block
+            results_by_interval_pair: dict[tuple[int, int], dict[str, float]] = {
                 (start_event_matching_interval, intervals_from_base): {
                     "count": correct_result_for_sampling(count, self.query.samplingFactor)
                 }
@@ -631,7 +632,7 @@ class RetentionQueryRunner(QueryRunner):
                 {
                     "values": [
                         {
-                            **result_dict.get((start_interval, return_interval), {"count": 0.0}),
+                            **results_by_interval_pair.get((start_interval, return_interval), {"count": 0.0}),
                             "label": f"{self.query_date_range.interval_name.title()} {return_interval}",
                         }
                         for return_interval in range(self.query_date_range.lookahead)
