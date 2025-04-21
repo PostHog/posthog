@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0709_alter_integration_kind"),
+        ("posthog", "0710_add_salesforce_tables"),
     ]
 
     operations = [
