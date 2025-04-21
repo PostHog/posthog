@@ -676,7 +676,7 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
                 )
             else:
                 expr = ast.CompareOperation(
-                    op=ast.CompareOperationOp.ILike,
+                    op=ast.CompareOperationOp.Like,
                     left=ast.Field(
                         chain=[events_alias, "properties", "$current_url"]
                         if events_alias
