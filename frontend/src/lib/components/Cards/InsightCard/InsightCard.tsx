@@ -76,6 +76,7 @@ export interface InsightCardProps extends Resizeable {
     className?: string
     style?: React.CSSProperties
     children?: React.ReactNode
+    noCache?: boolean
 }
 
 function InsightCardInternal(
@@ -107,6 +108,7 @@ function InsightCardInternal(
         doNotLoad,
         variablesOverride,
         children,
+        noCache,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -176,7 +178,7 @@ function InsightCardInternal(
                         <div className="InsightCard__viz">
                             <Query
                                 query={insight.query}
-                                cachedResults={insight}
+                                cachedResults={noCache ? undefined : insight}
                                 context={{
                                     insightProps: insightLogicProps,
                                 }}

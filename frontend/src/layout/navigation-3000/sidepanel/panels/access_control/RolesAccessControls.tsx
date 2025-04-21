@@ -5,15 +5,13 @@ import {
     LemonInput,
     LemonInputSelect,
     LemonModal,
-    LemonSelect,
     LemonTable,
     LemonTableColumns,
     ProfileBubbles,
     ProfilePicture,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter, Form } from 'kea-forms'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { Form } from 'kea-forms'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -21,66 +19,21 @@ import { fullName } from 'lib/utils'
 import { useMemo, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature } from '~/types'
+import { RoleType } from '~/types'
 
-import { roleBasedAccessControlLogic, RoleWithResourceAccessControls } from './roleBasedAccessControlLogic'
+import { roleAccessControlLogic } from './roleAccessControlLogic'
 
-export type RolesAndResourceAccessControlsProps = {
-    noAccessControls?: boolean
-}
+export function RolesAccessControls(): JSX.Element {
+    const { roles, rolesLoading, selectedRoleId } = useValues(roleAccessControlLogic)
 
-export function RolesAndResourceAccessControls({ noAccessControls }: RolesAndResourceAccessControlsProps): JSX.Element {
-    const {
-        rolesWithResourceAccessControls,
-        rolesLoading,
-        roleBasedAccessControlsLoading,
-        resources,
-        availableLevels,
-        selectedRoleId,
-        defaultAccessLevel,
-    } = useValues(roleBasedAccessControlLogic)
+    const { selectRoleId, setEditingRoleId } = useActions(roleAccessControlLogic)
 
-    const { updateRoleBasedAccessControls, selectRoleId, setEditingRoleId } = useActions(roleBasedAccessControlLogic)
-
-    const roleColumns = noAccessControls
-        ? []
-        : resources.map((resource) => ({
-              title: resource.replace(/_/g, ' ') + 's',
-              key: resource,
-              width: 0,
-              render: (_: any, { accessControlByResource, role }: RoleWithResourceAccessControls) => {
-                  const ac = accessControlByResource[resource]
-
-                  return (
-                      <LemonSelect
-                          size="small"
-                          placeholder="No override"
-                          className="my-1 whitespace-nowrap"
-                          value={role ? ac?.access_level : ac?.access_level ?? defaultAccessLevel}
-                          onChange={(newValue) =>
-                              updateRoleBasedAccessControls([
-                                  {
-                                      resource,
-                                      role: role?.id ?? null,
-                                      access_level: newValue,
-                                  },
-                              ])
-                          }
-                          options={availableLevels.map((level) => ({
-                              value: level,
-                              label: capitalizeFirstLetter(level ?? ''),
-                          }))}
-                      />
-                  )
-              },
-          }))
-
-    const columns: LemonTableColumns<RoleWithResourceAccessControls> = [
+    const columns: LemonTableColumns<RoleType> = [
         {
             title: 'Role',
             key: 'role',
             width: 0,
-            render: (_, { role }) => (
+            render: (_, role) => (
                 <span className="whitespace-nowrap">
                     <LemonTableLink
                         onClick={
@@ -96,7 +49,7 @@ export function RolesAndResourceAccessControls({ noAccessControls }: RolesAndRes
         {
             title: 'Members',
             key: 'members',
-            render: (_, { role }) => {
+            render: (_, role) => {
                 return role ? (
                     role.members.length ? (
                         <ProfileBubbles
@@ -115,43 +68,42 @@ export function RolesAndResourceAccessControls({ noAccessControls }: RolesAndRes
                 )
             },
         },
-
-        ...roleColumns,
     ]
 
     return (
         <div className="deprecated-space-y-2">
-            <p>Use roles to group your organization members and assign them permissions.</p>
+            <p>
+                Use roles to group your organization members and assign them permissions. Roles are currently used for
+                access control but we will be expanding their uses in the future.
+            </p>
 
-            <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                <div className="deprecated-space-y-2">
-                    <LemonTable
-                        columns={columns}
-                        dataSource={rolesWithResourceAccessControls}
-                        loading={rolesLoading || roleBasedAccessControlsLoading}
-                        expandable={{
-                            isRowExpanded: ({ role }) => !!selectedRoleId && role?.id === selectedRoleId,
-                            onRowExpand: ({ role }) => (role ? selectRoleId(role.id) : undefined),
-                            onRowCollapse: () => selectRoleId(null),
-                            expandedRowRender: ({ role }) => (role ? <RoleDetails roleId={role?.id} /> : null),
-                            rowExpandable: ({ role }) => !!role,
-                        }}
-                    />
+            <div className="deprecated-space-y-2">
+                <LemonTable
+                    columns={columns}
+                    dataSource={roles ?? []}
+                    loading={rolesLoading}
+                    expandable={{
+                        isRowExpanded: (role) => !!selectedRoleId && role?.id === selectedRoleId,
+                        onRowExpand: (role) => (role ? selectRoleId(role.id) : undefined),
+                        onRowCollapse: () => selectRoleId(null),
+                        expandedRowRender: (role) => (role ? <RoleDetails roleId={role?.id} /> : null),
+                        rowExpandable: (role) => !!role,
+                    }}
+                />
 
-                    <LemonButton type="primary" onClick={() => setEditingRoleId('new')} icon={<IconPlus />}>
-                        Add a role
-                    </LemonButton>
-                    <RoleModal />
-                </div>
-            </PayGateMini>
+                <LemonButton type="primary" onClick={() => setEditingRoleId('new')} icon={<IconPlus />}>
+                    Add a role
+                </LemonButton>
+                <RoleModal />
+            </div>
         </div>
     )
 }
 
 function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const { sortedMembers, roles, canEditRoleBasedAccessControls } = useValues(roleBasedAccessControlLogic)
-    const { addMembersToRole, removeMemberFromRole, setEditingRoleId } = useActions(roleBasedAccessControlLogic)
+    const { sortedMembers, roles, canEditRoles } = useValues(roleAccessControlLogic)
+    const { addMembersToRole, removeMemberFromRole, setEditingRoleId } = useActions(roleAccessControlLogic)
     const [membersToAdd, setMembersToAdd] = useState<string[]>([])
 
     const role = roles?.find((role) => role.id === roleId)
@@ -183,7 +135,7 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                             value={membersToAdd}
                             onChange={(newValues: string[]) => setMembersToAdd(newValues)}
                             mode="multiple"
-                            disabled={!canEditRoleBasedAccessControls}
+                            disabled={!canEditRoles}
                             options={usersLemonSelectOptions(
                                 membersNotInRole.map((member) => member.user),
                                 'uuid'
@@ -195,7 +147,7 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                         type="primary"
                         onClick={onSubmit}
                         disabledReason={
-                            !canEditRoleBasedAccessControls
+                            !canEditRoles
                                 ? 'You cannot edit this'
                                 : !onSubmit
                                 ? 'Please select members to add'
@@ -209,7 +161,7 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                     <LemonButton
                         type="secondary"
                         onClick={() => setEditingRoleId(role.id)}
-                        disabledReason={!canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined}
+                        disabledReason={!canEditRoles ? 'You cannot edit this' : undefined}
                     >
                         Edit
                     </LemonButton>
@@ -250,9 +202,7 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                                         status="danger"
                                         size="small"
                                         type="tertiary"
-                                        disabledReason={
-                                            !canEditRoleBasedAccessControls ? 'You cannot edit this' : undefined
-                                        }
+                                        disabledReason={!canEditRoles ? 'You cannot edit this' : undefined}
                                         onClick={() => removeMemberFromRole(role, member.id)}
                                     >
                                         Remove
@@ -269,8 +219,8 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
 }
 
 function RoleModal(): JSX.Element {
-    const { editingRoleId } = useValues(roleBasedAccessControlLogic)
-    const { setEditingRoleId, submitEditingRole, deleteRole } = useActions(roleBasedAccessControlLogic)
+    const { editingRoleId } = useValues(roleAccessControlLogic)
+    const { setEditingRoleId, submitEditingRole, deleteRole } = useActions(roleAccessControlLogic)
     const isEditing = editingRoleId !== 'new'
 
     const onDelete = (): void => {
@@ -289,7 +239,7 @@ function RoleModal(): JSX.Element {
     }
 
     return (
-        <Form logic={roleBasedAccessControlLogic} formKey="editingRole" enableFormOnSubmit>
+        <Form logic={roleAccessControlLogic} formKey="editingRole" enableFormOnSubmit>
             <LemonModal
                 isOpen={!!editingRoleId}
                 onClose={() => setEditingRoleId(null)}

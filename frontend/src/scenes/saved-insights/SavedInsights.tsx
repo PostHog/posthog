@@ -47,6 +47,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNonEmptyObject } from 'lib/utils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -59,6 +60,7 @@ import { urls } from 'scenes/urls'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isNodeWithSource } from '~/queries/utils'
 import {
+    AccessControlLevel,
     AccessControlResourceType,
     ActivityScope,
     InsightType,
@@ -491,7 +493,7 @@ export function InsightIcon({
 
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
     return (
-        <LemonButton
+        <AccessControlledLemonButton
             type="primary"
             to={urls.insightNew()}
             sideAction={{
@@ -506,9 +508,12 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
             data-attr="saved-insights-new-insight-button"
             size="small"
             icon={<IconPlusSmall />}
+            resourceType={AccessControlResourceType.Insight}
+            minAccessLevel={AccessControlLevel.Editor}
+            userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]}
         >
             New insight
-        </LemonButton>
+        </AccessControlledLemonButton>
     )
 }
 
@@ -591,7 +596,7 @@ export function SavedInsights(): JSX.Element {
 
                                     <AccessControlledLemonButton
                                         userAccessLevel={insight.user_access_level}
-                                        minAccessLevel="editor"
+                                        minAccessLevel={AccessControlLevel.Editor}
                                         resourceType={AccessControlResourceType.Insight}
                                         className="ml-1"
                                         size="xsmall"
@@ -662,7 +667,7 @@ export function SavedInsights(): JSX.Element {
 
                                 <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
-                                    minAccessLevel="editor"
+                                    minAccessLevel={AccessControlLevel.Editor}
                                     resourceType={AccessControlResourceType.Insight}
                                     to={urls.insightEdit(insight.short_id)}
                                     fullWidth
@@ -672,7 +677,7 @@ export function SavedInsights(): JSX.Element {
 
                                 <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
-                                    minAccessLevel="editor"
+                                    minAccessLevel={AccessControlLevel.Editor}
                                     resourceType={AccessControlResourceType.Insight}
                                     onClick={() => renameInsight(insight)}
                                     data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
@@ -693,7 +698,7 @@ export function SavedInsights(): JSX.Element {
 
                                 <AccessControlledLemonButton
                                     userAccessLevel={insight.user_access_level}
-                                    minAccessLevel="editor"
+                                    minAccessLevel={AccessControlLevel.Editor}
                                     resourceType={AccessControlResourceType.Insight}
                                     status="danger"
                                     onClick={() =>
