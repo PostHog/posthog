@@ -258,15 +258,21 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (props.id && props.id !== 'new') {
                     try {
                         const survey = await api.surveys.get(props.id)
+                        const currentFilters = values.answerFilters
                         actions.reportSurveyViewed(survey)
                         // Initialize answer filters for all questions - first for index-based, then for id-based
                         actions.setAnswerFilters(
-                            survey.questions.map((question, index) => ({
-                                key: getResponseFieldWithId(index, question?.id).indexBasedKey,
-                                operator: DEFAULT_OPERATORS[question.type].value,
-                                type: PropertyFilterType.Event as const,
-                                value: [],
-                            })),
+                            survey.questions.map((question, index) => {
+                                const currentFilterForQuestion = currentFilters.find(
+                                    (filter) => filter.key === getResponseFieldWithId(index, question?.id).indexBasedKey
+                                )
+                                return {
+                                    key: getResponseFieldWithId(index, question?.id).indexBasedKey,
+                                    operator: DEFAULT_OPERATORS[question.type].value,
+                                    type: PropertyFilterType.Event as const,
+                                    value: currentFilterForQuestion?.value ?? [],
+                                }
+                            }),
                             false
                         )
                         return survey
@@ -825,6 +831,7 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         propertyFilters: [
             [] as AnyPropertyFilter[],
+            { persist: true },
             {
                 setPropertyFilters: (_, { propertyFilters }) => propertyFilters,
             },
@@ -1046,6 +1053,7 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         answerFilters: [
             [] as EventPropertyFilter[],
+            { persist: true },
             {
                 setAnswerFilters: (_, { filters }) => filters,
             },
