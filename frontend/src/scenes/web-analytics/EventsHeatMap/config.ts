@@ -1,4 +1,6 @@
-export const AllLabel = 'All'
+export enum AggregationLabel {
+    All = 'All',
+}
 export interface AxisConfig {
     values: string[]
     startIndex?: number

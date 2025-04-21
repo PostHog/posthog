@@ -29,7 +29,7 @@ class WebActiveHoursHeatMapQueryRunner(WebAnalyticsQueryRunner):
             """
             WITH (
                 SELECT
-                    uniqMap(map((toHour(timestamp) + toDayOfWeek(timestamp) * 1000), events.person_id)) as hoursAndDays,
+                    uniqMap(map(concat(toString(toDayOfWeek(timestamp)), ',' ,toString(toHour(timestamp))), events.person_id)) as hoursAndDays,
                     uniqMap(map(toHour(timestamp), events.person_id)) as hours,
                     uniqMap(map(toDayOfWeek(timestamp), events.person_id)) as days,
                     uniq(person_id) as total
@@ -72,7 +72,7 @@ class WebActiveHoursHeatMapQueryRunner(WebAnalyticsQueryRunner):
         days: list[WebActiveHoursHeatMapDayResult] = []
         hours: list[WebActiveHoursHeatMapHourResult] = []
 
-        if not response.results or len(response.results) == 0:
+        if not response.results:
             return WebActiveHoursHeatMapQueryResponse(
                 results=WebActiveHoursHeatMapStructuredResult(
                     dayAndHours=day_and_hours, days=days, hours=hours, total=0
@@ -92,9 +92,8 @@ class WebActiveHoursHeatMapQueryRunner(WebAnalyticsQueryRunner):
         totalOverall = row[6]
         # Process day-hour combinations
         for i in range(len(hours_and_days_keys)):
-            key = int(hours_and_days_keys[i])
-            day = key // 1000
-            hour = key % 1000
+            key = hours_and_days_keys[i]
+            day, hour = map(int, key.split(","))
             total = int(hours_and_days_values[i])
             day_and_hours.append(WebActiveHoursHeatMapDayAndHourResult(day=day, hour=hour, total=total))
 

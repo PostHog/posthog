@@ -16,7 +16,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { AllLabel, DaysAbbreviated, HoursAbbreviated } from './config'
+import { AggregationLabel, DaysAbbreviated, HoursAbbreviated } from './config'
 import { HeatMapCell } from './HeatMapCell'
 
 interface EventsHeatMapProps {
@@ -98,7 +98,9 @@ export function EventsHeatMap({ query, context, cachedResults }: EventsHeatMapPr
                         {HoursAbbreviated.values.map((label, i) => (
                             <th key={i}>{label}</th>
                         ))}
-                        {yAggregations[0] !== undefined && <th className="aggregation-border">{AllLabel}</th>}
+                        {yAggregations[0] !== undefined && (
+                            <th className="aggregation-border">{AggregationLabel.All}</th>
+                        )}
                     </tr>
 
                     {/* Data rows */}
@@ -119,7 +121,9 @@ export function EventsHeatMap({ query, context, cachedResults }: EventsHeatMapPr
 
                     {/* Aggregation row */}
                     <tr className="aggregation-border">
-                        {xAggregations[0] !== undefined && <td className="EventsHeatMap__TextTab">{AllLabel}</td>}
+                        {xAggregations[0] !== undefined && (
+                            <td className="EventsHeatMap__TextTab">{AggregationLabel.All}</td>
+                        )}
                         {renderAggregationCells(
                             xAggregations,
                             maxXAggregation,
@@ -214,7 +218,7 @@ function renderOverallCell(
                 value={overallValue}
                 maxValue={overallValue}
                 backgroundColor={backgroundColorOverall}
-                dayAndTime={AllLabel}
+                dayAndTime={AggregationLabel.All}
             />
         </td>
     )
@@ -235,7 +239,7 @@ function renderAggregationCells(
                 value={xAggregations[x]}
                 maxValue={maxXAggregation}
                 backgroundColor={aggregationColor}
-                dayAndTime={`${AllLabel} - ${String(x).padStart(2, '0')}:00`}
+                dayAndTime={`${AggregationLabel.All} - ${String(x).padStart(2, '0')}:00`}
             />
         </td>
     ))
@@ -257,7 +261,7 @@ function renderYAggregationCell(
                 value={value}
                 maxValue={maxYAggregation}
                 backgroundColor={aggregationColor}
-                dayAndTime={`${AllLabel} - ${day}`}
+                dayAndTime={`${AggregationLabel.All} - ${day}`}
             />
         </td>
     )
