@@ -852,15 +852,16 @@ class Resolver(CloningVisitor):
     # Used to find events table in current scope for action functions
     def _get_events_table_current_scope(self) -> tuple[Optional[str], Optional[EventsTable]]:
         scope = self.scopes[-1]
-        for alias, table in scope.tables.items():
-            if (
-                isinstance(table.table_type, ast.TableAliasType)
-                and isinstance(table.table_type.table_type, ast.TableType)
-                and isinstance(table.table_type.table_type.table, EventsTable)
-            ):
-                return alias, table.table_type.table_type.table
-            if isinstance(table.table_type, ast.TableType) and isinstance(table.table_type.table, EventsTable):
-                return alias, table.table_type.table
+        for alias, table_type in scope.tables.items():
+            if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
+                return alias, table_type.table
+
+            if isinstance(table_type, ast.TableAliasType):
+                if isinstance(table_type.table_type, ast.TableType) and isinstance(
+                    table_type.table_type.table, EventsTable
+                ):
+                    return alias, table_type.table_type.table
+
         return None, None
 
     def _is_events_table(self, node: ast.Expr) -> bool:
