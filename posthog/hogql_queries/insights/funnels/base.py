@@ -502,7 +502,7 @@ class FunnelBase(ABC):
                 exclusion_col_expr = self._get_exclusions_col(exclusions, index, entity_name)
                 all_step_cols.append(exclusion_col_expr)
 
-        breakdown_select_prop = self._get_breakdown_select_prop(for_udf=False)
+        breakdown_select_prop = self._get_breakdown_select_prop(for_udf=True)
 
         if breakdown_select_prop:
             all_step_cols.extend(breakdown_select_prop)
