@@ -14,8 +14,7 @@ from posthog.schema import (
 )
 from dataclasses import dataclass
 from posthog.exceptions_capture import capture_exception
-from posthog.plugins.plugin_server_api import create_hog_invocation_test
-from posthog.api.hog_function import HogFunctionSerializer
+from posthog.cdp.internal_events import produce_internal_event, InternalEventEvent
 
 logger = structlog.get_logger(__name__)
 
@@ -118,7 +117,7 @@ def next_check_time(alert: AlertConfiguration) -> datetime:
 
 
 def trigger_alert_hog_functions(alert: AlertConfiguration, event_name: str, properties: dict) -> None:
-    """Trigger all HogFunctions linked to the alert as notification destinations."""
+    """Trigger all HogFunctions linked to the alert as notification destinations by producing an internal event."""
     invocation_globals = {
         "alert": {
             "id": str(alert.id),
@@ -133,7 +132,7 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, event_name: str, prop
             "properties": {
                 "$alert_id": str(alert.id),
                 "$alert_name": alert.name,
-                **properties,  # Include specific properties like breaches or error
+                **properties,
             },
             "timestamp": datetime.now(UTC).isoformat(),
         },
@@ -142,35 +141,45 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, event_name: str, prop
 
     for hog_function in alert.notification_destinations.filter(enabled=True):
         logger.info(
-            "Triggering HogFunction for alert notification",
+            "Triggering HogFunction for alert notification via internal event",
             alert_id=alert.id,
             hog_function_id=hog_function.id,
             hog_function_name=hog_function.name,
             event_name=event_name,
         )
         try:
-            api_payload = {
-                "configuration": HogFunctionSerializer(hog_function).data,
+            internal_event_properties = {
+                "hog_function_id": str(hog_function.id),
                 "globals": invocation_globals,
                 "mock_async_functions": False,  # Ensure this is false for production
             }
 
-            response = create_hog_invocation_test(
-                team_id=alert.team_id,
-                hog_function_id=str(hog_function.id),
-                payload=api_payload,
+            internal_event = InternalEventEvent(
+                event="$trigger_hog_function",
+                properties=internal_event_properties,
             )
-            response.raise_for_status()
+
+            produce_internal_event(
+                team_id=alert.team_id,
+                event=internal_event,
+            )
 
         except Exception as e:
+            capture_exception(
+                e,
+                tags={
+                    "alert_id": str(alert.id),
+                    "hog_function_id": str(hog_function.id),
+                    "feature": "alert-hog-function-trigger",
+                },
+            )
             logger.error(
-                "Failed to trigger HogFunction invocation via API",
+                "Failed to produce internal event for HogFunction trigger",
                 alert_id=alert.id,
                 hog_function_id=hog_function.id,
                 error=str(e),
                 exc_info=True,
             )
-            capture_exception(e, tags={"alert_id": str(alert.id), "hog_function_id": str(hog_function.id)})
 
 
 def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str]) -> None:
@@ -200,7 +209,6 @@ def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[st
         logger.info(f"Send notifications about {len(breaches)} anomalies", alert_id=alert.id)
         message.send()
 
-    # Trigger Hog Function destinations
     trigger_alert_hog_functions(alert=alert, event_name="$alert_fired", properties={"$alert_breaches": breaches})
 
 
