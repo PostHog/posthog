@@ -654,8 +654,7 @@ export class IngestionConsumer {
                 const breadcrumb = this.createBreadcrumb(message)
                 const allBreadcrumbs = [...existingBreadcrumbs, breadcrumb]
                 headers.push({
-                    key: 'kafka-consumer-breadcrumbs',
-                    value: Buffer.from(JSON.stringify(allBreadcrumbs)),
+                    'kafka-consumer-breadcrumbs': Buffer.from(JSON.stringify(allBreadcrumbs)),
                 })
                 return this.kafkaOverflowProducer!.produce({
                     topic: this.overflowTopic!,
