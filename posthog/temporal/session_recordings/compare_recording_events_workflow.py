@@ -19,6 +19,10 @@ from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.storage.session_recording_v2_object_storage import client as v2_client
 from posthog.models import Team
 from posthog.temporal.session_recordings.queries import get_session_metadata
+from posthog.temporal.session_recordings.session_comparer import (
+    transform_v2_snapshot,
+    transform_v1_snapshots,
+)
 
 
 def decompress_and_parse_gzipped_json(data: bytes) -> list[Any]:
@@ -103,29 +107,6 @@ class CompareRecordingSnapshotsActivityInputs:
             "team_id": self.team_id,
             "sample_size": self.sample_size,
         }
-
-
-def transform_v2_snapshot(raw_snapshot: list) -> dict:
-    """Transform v2 snapshot format [windowId, serializedEvent] into {window_id, data} format."""
-    if not isinstance(raw_snapshot, list) or len(raw_snapshot) != 2:
-        raise ValueError("Invalid v2 snapshot format")
-
-    window_id, event = raw_snapshot
-    return {"window_id": window_id, "data": event}
-
-
-def transform_v1_snapshots(snapshots: list[dict]) -> list[dict]:
-    """Transform v1 snapshots from [{windowId, data: [event]}] to [{windowId, data: event}]."""
-    flattened = []
-    for snapshot in snapshots:
-        window_id = snapshot.get("window_id")
-        data_array = snapshot.get("data", [])
-        if not isinstance(data_array, list):
-            continue
-
-        for event in data_array:
-            flattened.append({"window_id": window_id, "data": event})
-    return flattened
 
 
 @temporalio.activity.defn
