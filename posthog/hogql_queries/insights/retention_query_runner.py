@@ -199,25 +199,12 @@ class RetentionQueryRunner(QueryRunner):
             # Default to event properties
             properties_chain = ["events", "properties", property_name]
 
-        # Just use the field chain directly, HogQL will handle the property access efficiently
-        return ast.Call(
-            name="toString",
-            args=[
-                ast.Call(
-                    name="ifNull",
-                    args=[
-                        ast.Call(
-                            name="nullIf",
-                            args=[
-                                ast.Field(chain=cast(list[str | int], properties_chain)),
-                                ast.Constant(value=""),
-                            ],
-                        ),
-                        ast.Constant(value=""),
-                    ],
-                ),
-            ],
-        )
+        # Convert the property to String first, then handle NULLs.
+        # This avoids potential type mismatches (e.g., mixing Float64 and String for NULLs).
+        property_field = ast.Field(chain=cast(list[str | int], properties_chain))
+        to_string_expr = ast.Call(name="toString", args=[property_field])
+        # Replace NULL with empty string ''
+        return ast.Call(name="ifNull", args=[to_string_expr, ast.Constant(value="")])
 
     def actor_query(
         self,
