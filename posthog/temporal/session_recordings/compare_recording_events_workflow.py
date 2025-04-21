@@ -228,29 +228,94 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
                 and event.get("data", {}).get("source") == 5  # RRWebEventSource.Input
             )
 
-        # Count clicks, mouse activity, and keypresses in v1
+        def is_console_log(event: dict) -> bool:
+            return (
+                event.get("type") == 6  # RRWebEventType.Plugin
+                and event.get("data", {}).get("plugin") == "rrweb/console@1"
+            )
+
+        def get_console_level(event: dict) -> str | None:
+            if not is_console_log(event):
+                return None
+            return event.get("data", {}).get("payload", {}).get("level")
+
+        # Count clicks, mouse activity, keypresses, and console logs in v1
         v1_click_count = 0
         v1_mouse_activity_count = 0
         v1_keypress_count = 0
-        for snapshot in v1_snapshots:
-            if is_click(snapshot["data"]):
-                v1_click_count += 1
-            if is_mouse_activity(snapshot["data"]):
-                v1_mouse_activity_count += 1
-            if is_keypress(snapshot["data"]):
-                v1_keypress_count += 1
+        v1_console_log_count = 0
+        v1_console_warn_count = 0
+        v1_console_error_count = 0
 
-        # Count clicks, mouse activity, and keypresses in v2
+        for snapshot in v1_snapshots:
+            data = snapshot["data"]
+            if is_click(data):
+                v1_click_count += 1
+            if is_mouse_activity(data):
+                v1_mouse_activity_count += 1
+            if is_keypress(data):
+                v1_keypress_count += 1
+            if is_console_log(data):
+                level = get_console_level(data)
+                if level in [
+                    "log",
+                    "info",
+                    "count",
+                    "timeEnd",
+                    "trace",
+                    "dir",
+                    "dirxml",
+                    "group",
+                    "groupCollapsed",
+                    "debug",
+                    "timeLog",
+                ]:
+                    v1_console_log_count += 1
+                elif level in ["warn", "countReset"]:
+                    v1_console_warn_count += 1
+                elif level in ["error", "assert"]:
+                    v1_console_error_count += 1
+                else:  # default to log level for unknown levels
+                    v1_console_log_count += 1
+
+        # Count clicks, mouse activity, keypresses, and console logs in v2
         v2_click_count = 0
         v2_mouse_activity_count = 0
         v2_keypress_count = 0
+        v2_console_log_count = 0
+        v2_console_warn_count = 0
+        v2_console_error_count = 0
+
         for snapshot in v2_snapshots:
-            if is_click(snapshot["data"]):
+            data = snapshot["data"]
+            if is_click(data):
                 v2_click_count += 1
-            if is_mouse_activity(snapshot["data"]):
+            if is_mouse_activity(data):
                 v2_mouse_activity_count += 1
-            if is_keypress(snapshot["data"]):
+            if is_keypress(data):
                 v2_keypress_count += 1
+            if is_console_log(data):
+                level = get_console_level(data)
+                if level in [
+                    "log",
+                    "info",
+                    "count",
+                    "timeEnd",
+                    "trace",
+                    "dir",
+                    "dirxml",
+                    "group",
+                    "groupCollapsed",
+                    "debug",
+                    "timeLog",
+                ]:
+                    v2_console_log_count += 1
+                elif level in ["warn", "countReset"]:
+                    v2_console_warn_count += 1
+                elif level in ["error", "assert"]:
+                    v2_console_error_count += 1
+                else:  # default to log level for unknown levels
+                    v2_console_log_count += 1
 
         # Get metadata counts
         def get_metadata_counts(team_id: int, session_id: str, table_name: str) -> dict[str, int]:
@@ -287,13 +352,24 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
                 },
             )
             if not result:
-                return {"click_count": 0, "mouse_activity_count": 0, "keypress_count": 0, "event_count": 0}
+                return {
+                    "click_count": 0,
+                    "mouse_activity_count": 0,
+                    "keypress_count": 0,
+                    "event_count": 0,
+                    "console_log_count": 0,
+                    "console_warn_count": 0,
+                    "console_error_count": 0,
+                }
 
             row = result[0]
             return {
                 "click_count": row[7],  # click_count index
                 "keypress_count": row[8],  # keypress_count index
                 "mouse_activity_count": row[9],  # mouse_activity_count index
+                "console_log_count": row[11],  # console_log_count index
+                "console_warn_count": row[12],  # console_warn_count index
+                "console_error_count": row[13],  # console_error_count index
                 "event_count": row[14],  # event_count index
             }
 
@@ -346,6 +422,42 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
             metadata_difference=v2_metadata["keypress_count"] - v1_metadata["keypress_count"],
             snapshot_vs_metadata_v1_difference=v1_keypress_count - v1_metadata["keypress_count"],
             snapshot_vs_metadata_v2_difference=v2_keypress_count - v2_metadata["keypress_count"],
+        )
+
+        await logger.ainfo(
+            "Console log count comparison",
+            v1_snapshot_count=v1_console_log_count,
+            v2_snapshot_count=v2_console_log_count,
+            v1_metadata_count=v1_metadata["console_log_count"],
+            v2_metadata_count=v2_metadata["console_log_count"],
+            snapshot_difference=v2_console_log_count - v1_console_log_count,
+            metadata_difference=v2_metadata["console_log_count"] - v1_metadata["console_log_count"],
+            snapshot_vs_metadata_v1_difference=v1_console_log_count - v1_metadata["console_log_count"],
+            snapshot_vs_metadata_v2_difference=v2_console_log_count - v2_metadata["console_log_count"],
+        )
+
+        await logger.ainfo(
+            "Console warn count comparison",
+            v1_snapshot_count=v1_console_warn_count,
+            v2_snapshot_count=v2_console_warn_count,
+            v1_metadata_count=v1_metadata["console_warn_count"],
+            v2_metadata_count=v2_metadata["console_warn_count"],
+            snapshot_difference=v2_console_warn_count - v1_console_warn_count,
+            metadata_difference=v2_metadata["console_warn_count"] - v1_metadata["console_warn_count"],
+            snapshot_vs_metadata_v1_difference=v1_console_warn_count - v1_metadata["console_warn_count"],
+            snapshot_vs_metadata_v2_difference=v2_console_warn_count - v2_metadata["console_warn_count"],
+        )
+
+        await logger.ainfo(
+            "Console error count comparison",
+            v1_snapshot_count=v1_console_error_count,
+            v2_snapshot_count=v2_console_error_count,
+            v1_metadata_count=v1_metadata["console_error_count"],
+            v2_metadata_count=v2_metadata["console_error_count"],
+            snapshot_difference=v2_console_error_count - v1_console_error_count,
+            metadata_difference=v2_metadata["console_error_count"] - v1_metadata["console_error_count"],
+            snapshot_vs_metadata_v1_difference=v1_console_error_count - v1_metadata["console_error_count"],
+            snapshot_vs_metadata_v2_difference=v2_console_error_count - v2_metadata["console_error_count"],
         )
 
         # Compare total count
