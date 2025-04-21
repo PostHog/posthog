@@ -5,49 +5,34 @@ ViewSet for Editor Proxy
 import json
 import logging
 from collections.abc import Callable, Generator
-from typing import Any
+from typing import Any, TypedDict, TypeGuard
 
 import posthoganalytics
+from anthropic.types import MessageParam
 from django.http import StreamingHttpResponse
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.renderers import BaseRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.rate_limit import EditorProxyBurstRateThrottle, EditorProxySustainedRateThrottle
+from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from products.editor.backend.providers.anthropic import AnthropicConfig, AnthropicProvider
-from products.editor.backend.providers.codestral import CodestralProvider
-from products.editor.backend.providers.inkeep import InkeepProvider
+from products.editor.backend.providers.codestral import CodestralConfig, CodestralProvider
+from products.editor.backend.providers.gemini import GeminiConfig, GeminiProvider
+from products.editor.backend.providers.inkeep import InkeepConfig, InkeepProvider
+from products.editor.backend.providers.openai import OpenAIConfig, OpenAIProvider
 
 logger = logging.getLogger(__name__)
 
 
-class ServerSentEventRenderer(BaseRenderer):
-    media_type = "text/event-stream"
-    format = "txt"
-
-    def render(self, data, accepted_media_type=None, renderer_context=None):
-        if isinstance(data, dict | list):
-            return None
-        return data
-
-
-class JSONRenderer(BaseRenderer):
-    media_type = "application/json"
-    format = "json"
-
-    def render(self, data, accepted_media_type=None, renderer_context=None):
-        if isinstance(data, dict | list):
-            return json.dumps(data).encode()
-        return None
-
-
-SUPPORTED_MODELS_WITH_THINKING = AnthropicConfig.SUPPORTED_MODELS_WITH_THINKING
+SUPPORTED_MODELS_WITH_THINKING = (
+    AnthropicConfig.SUPPORTED_MODELS_WITH_THINKING + OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING
+)
 
 
 class LLMProxyCompletionSerializer(serializers.Serializer):
@@ -64,6 +49,13 @@ class LLMProxyFIMSerializer(serializers.Serializer):
     stop = serializers.ListField(child=serializers.CharField())
 
 
+class ProviderData(TypedDict):
+    model: str
+    system: str
+    messages: list[dict[str, Any]]
+    thinking: bool
+
+
 class LLMProxyViewSet(viewsets.ViewSet):
     """
     ViewSet for Editor Proxy
@@ -72,7 +64,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
     authentication_classes = [PersonalAPIKeyAuthentication]
     permission_classes = [IsAuthenticated]
-    renderer_classes = [JSONRenderer, ServerSentEventRenderer]
+    renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
     def get_throttles(self):
         return [EditorProxyBurstRateThrottle(), EditorProxySustainedRateThrottle()]
@@ -83,6 +75,14 @@ class LLMProxyViewSet(viewsets.ViewSet):
             return False
         user, _ = result
         return posthoganalytics.feature_enabled("llm-editor-proxy", user.email, person_properties={"email": user.email})
+
+    def validate_messages(self, messages: list[dict[str, Any]]) -> TypeGuard[list[MessageParam]]:
+        if not messages:
+            return False
+        for msg in messages:
+            if "role" not in msg or "content" not in msg:
+                return False
+        return True
 
     def _create_stream_generator(
         self, provider_stream: Generator[str, None, None], request
@@ -112,14 +112,14 @@ class LLMProxyViewSet(viewsets.ViewSet):
         self,
         request: Request,
         serializer_class: type[LLMProxyCompletionSerializer] | type[LLMProxyFIMSerializer],
-        provider_factory: Callable[[dict], Any],
+        provider_factory: Callable[[ProviderData], Any],
         mode: str = "completion",
     ) -> StreamingHttpResponse | Response:
         """Generic handler for LLM proxy requests"""
         try:
             valid_feature_flag = self.validate_feature_flag(request)
             if not valid_feature_flag:
-                return Response({"error": "You are not authorized to use this feature"}, status=400)
+                return Response({"error": "You are not authorized to use this feature"}, status=401)
 
             serializer = serializer_class(data=request.data)
             if not serializer.is_valid():
@@ -130,11 +130,14 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 return provider
 
             if mode == "completion" and hasattr(provider, "stream_response"):
+                messages = serializer.validated_data.get("messages")
+                if not self.validate_messages(messages):
+                    return Response({"error": "Invalid messages"}, status=400)
                 stream = self._create_stream_generator(
                     provider.stream_response(
                         **{
                             "system": serializer.validated_data.get("system"),
-                            "messages": serializer.validated_data.get("messages"),
+                            "messages": messages,
                             "thinking": serializer.validated_data.get("thinking", False),
                         }
                     ),
@@ -160,7 +163,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
             logger.exception(f"Error in LLM proxy: {e}")
             return Response({"error": "An internal error occurred"}, status=500)
 
-    def _get_completion_provider(self, data: dict) -> Any:
+    def _get_completion_provider(self, data: ProviderData) -> Any:
         """Factory method for completion providers"""
         model_id = data.get("model")
         thinking = data.get("thinking", False)
@@ -169,25 +172,23 @@ class LLMProxyViewSet(viewsets.ViewSet):
             return Response({"error": "Thinking is not supported for this model"}, status=400)
 
         match model_id:
-            case (
-                "claude-3-7-sonnet-20250219"
-                | "claude-3-5-sonnet-20241022"
-                | "claude-3-5-haiku-20241022"
-                | "claude-3-opus-20240229"
-                | "claude-3-haiku-20240307"
-            ):
+            case model_id if model_id in AnthropicConfig.SUPPORTED_MODELS:
                 return AnthropicProvider(model_id)
-            case "inkeep-qa-expert":
+            case model_id if model_id in InkeepConfig.SUPPORTED_MODELS:
                 return InkeepProvider(model_id)
+            case model_id if model_id in OpenAIConfig.SUPPORTED_MODELS:
+                return OpenAIProvider(model_id)
+            case model_id if model_id in GeminiConfig.SUPPORTED_MODELS:
+                return GeminiProvider(model_id)
             case _:
                 return Response({"error": "Unsupported model"}, status=400)
 
-    def _get_fim_provider(self, data: dict) -> Any:
+    def _get_fim_provider(self, data: ProviderData) -> Any:
         """Factory method for FIM providers"""
-        model = data.get("model")
-        match model:
-            case "codestral-latest":
-                return CodestralProvider(model)
+        model_id = data.get("model")
+        match model_id:
+            case model_id if model_id in CodestralConfig.SUPPORTED_MODELS:
+                return CodestralProvider(model_id)
             case _:
                 return Response({"error": "Unsupported model"}, status=400)
 

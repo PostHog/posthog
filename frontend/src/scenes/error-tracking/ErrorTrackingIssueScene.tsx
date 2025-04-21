@@ -1,6 +1,6 @@
 import './ErrorTracking.scss'
 
-import { LemonCard } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect } from 'react'
@@ -8,7 +8,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { AssigneeSelect } from './AssigneeSelect'
+import { AssigneeIconDisplay, AssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
+import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
 import { IssueCard } from './components/IssueCard'
 import { DateRangeFilter, FilterGroup, InternalAccountsFilter } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
@@ -49,12 +50,18 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 buttons={
                     <div className="flex gap-x-2">
                         {!issueLoading && issue?.status == 'active' && (
-                            <AssigneeSelect
-                                assignee={issue?.assignee}
-                                onChange={updateAssignee}
-                                type="secondary"
-                                showName
-                            />
+                            <AssigneeSelect assignee={issue?.assignee} onChange={updateAssignee}>
+                                {(displayAssignee) => {
+                                    return (
+                                        <LemonButton
+                                            type="secondary"
+                                            icon={<AssigneeIconDisplay assignee={displayAssignee} />}
+                                        >
+                                            <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Unassigned" />
+                                        </LemonButton>
+                                    )
+                                }}
+                            </AssigneeSelect>
                         )}
                         {!issueLoading && (
                             <GenericSelect

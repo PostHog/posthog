@@ -305,7 +305,6 @@ services:
                 condition: service_healthy
             elasticsearch:
                 condition: service_started
-
     temporal-admin-tools:
         environment:
             - TEMPORAL_CLI_ADDRESS=temporal:7233
