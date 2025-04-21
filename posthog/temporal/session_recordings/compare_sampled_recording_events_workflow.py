@@ -84,8 +84,29 @@ async def compare_sampled_recording_events_activity(inputs: CompareSampledRecord
             recording = await sync_to_async(SessionRecording.get_or_build)(session_id=session_id, team=team)
 
             # Get v1 and v2 snapshots using the shared utility functions
-            v1_snapshots = await asyncio.to_thread(fetch_v1_snapshots, recording)
-            v2_snapshots = await asyncio.to_thread(fetch_v2_snapshots, recording)
+            try:
+                v1_snapshots = await asyncio.to_thread(fetch_v1_snapshots, recording)
+            except Exception as e:
+                await logger.awarn(
+                    "Skipping session due to error when fetching v1 snapshots",
+                    session_id=session_id,
+                    team_id=team_id,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                continue
+
+            try:
+                v2_snapshots = await asyncio.to_thread(fetch_v2_snapshots, recording)
+            except Exception as e:
+                await logger.awarn(
+                    "Skipping session due to error when fetching v2 snapshots",
+                    session_id=session_id,
+                    team_id=team_id,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                continue
 
             # Convert snapshots to dictionaries for counting duplicates
             v1_events: dict[str, int] = {}
