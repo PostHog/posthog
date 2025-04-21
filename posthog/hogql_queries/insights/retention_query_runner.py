@@ -593,14 +593,16 @@ class RetentionQueryRunner(QueryRunner):
                 ordered_breakdown_keys.append(BREAKDOWN_OTHER_STRING_LABEL)
 
             for breakdown_value in ordered_breakdown_keys:
-                intervals_data: defaultdict[int, defaultdict[int, float]] = aggregated_data.get(breakdown_value, {})
+                intervals_data: defaultdict[int, defaultdict[int, float]] = aggregated_data.get(
+                    breakdown_value, defaultdict(lambda: defaultdict(float))
+                )
 
                 breakdown_results = []
                 for start_interval in range(self.query_date_range.intervals_between):
-                    result_dict: defaultdict[int, float] = intervals_data.get(start_interval, {})
+                    result_dict: defaultdict[int, float] = intervals_data.get(start_interval, defaultdict(float))
                     values = [
                         {
-                            "count": result_dict.get(return_interval, 0),
+                            "count": result_dict.get(return_interval, 0.0),
                             "label": f"{self.query_date_range.interval_name.title()} {return_interval}",
                         }
                         for return_interval in range(self.query_date_range.lookahead)
@@ -619,7 +621,7 @@ class RetentionQueryRunner(QueryRunner):
 
             results = final_results
         else:
-            result_dict = {
+            result_dict: dict[tuple[int, int], dict[str, float]] = {
                 (start_event_matching_interval, intervals_from_base): {
                     "count": correct_result_for_sampling(count, self.query.samplingFactor),
                 }
@@ -629,7 +631,7 @@ class RetentionQueryRunner(QueryRunner):
                 {
                     "values": [
                         {
-                            **result_dict.get((start_interval, return_interval), {"count": 0}),
+                            **result_dict.get((start_interval, return_interval), {"count": 0.0}),
                             "label": f"{self.query_date_range.interval_name.title()} {return_interval}",
                         }
                         for return_interval in range(self.query_date_range.lookahead)
