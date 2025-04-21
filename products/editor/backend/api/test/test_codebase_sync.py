@@ -4,7 +4,9 @@ from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, Team
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import APIBaseTest
 from products.editor.backend.chunking.types import Chunk
 from products.editor.backend.models.codebase import Codebase
@@ -123,3 +125,88 @@ class TestCodebaseSync(APIBaseTest):
             team_id=self.team.id,
         )
         self.assertEqual(len(res), 2)
+
+    @patch(
+        "products.editor.backend.tasks.chunk_and_embed",
+        return_value=[[Chunk(text="test", line_start=0, line_end=10, context=None, content="test"), [0.1, 0.2, 0.3]]],
+    )
+    def test_codebase_sync_with_personal_api_key(self, chunk_and_embed_mock):
+        """Test that CodebaseSyncViewset endpoints are accessible using a personal API key."""
+        # Create a personal API key with full access
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test CodebaseSync Key",
+            user=self.user,
+            secure_value=hash_key_value(api_key_value),
+            scopes=["*"],  # Full access scope
+        )
+
+        # Create a codebase first
+        response = self.client.post(
+            f"/api/projects/@current/codebases/", {}, HTTP_AUTHORIZATION=f"Bearer {api_key_value}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        codebase_id = response.json()["id"]
+
+        # Test sync endpoint with the API key
+        response = self.client.patch(
+            f"/api/projects/@current/codebases/{codebase_id}/sync/",
+            {
+                "branch": "main",
+                "tree": [
+                    {
+                        "id": "root",
+                        "type": "dir",
+                    },
+                    {
+                        "id": "file1",
+                        "type": "file",
+                        "parent_id": "root",
+                    },
+                ],
+            },
+            HTTP_AUTHORIZATION=f"Bearer {api_key_value}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["synced"])
+        self.assertCountEqual(response.json()["diverging_files"], ["file1"])
+
+        # Test upload artifact endpoint with the API key
+        response = self.client.post(
+            f"/api/projects/@current/codebases/{codebase_id}/upload_artifact/",
+            {
+                "id": "file1",
+                "path": "path/to/file.py",
+                "extension": "py",
+                "content": "print('API key test')",
+            },
+            HTTP_AUTHORIZATION=f"Bearer {api_key_value}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(chunk_and_embed_mock.call_count, 1)
+
+        # Test with scoped API key (limited to just this team)
+        scoped_api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Scoped CodebaseSync Key",
+            user=self.user,
+            secure_value=hash_key_value(scoped_api_key_value),
+            scopes=["*"],
+            scoped_teams=[self.team.id],
+        )
+
+        # Create another codebase with the scoped key
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/codebases/", {}, HTTP_AUTHORIZATION=f"Bearer {scoped_api_key_value}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # Create a different organization and team
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(name="Other Team", organization=other_org)
+
+        # Test that the scoped key can't access endpoints for other teams
+        response = self.client.post(
+            f"/api/projects/{other_team.id}/codebases/", {}, HTTP_AUTHORIZATION=f"Bearer {scoped_api_key_value}"
+        )
+        self.assertIn(response.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
