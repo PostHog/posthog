@@ -211,7 +211,7 @@ group4_created_at,
 person_mode,
 _timestamp,
 _offset,
-arrayFirst(x -> x.1 = 'kafka-consumer-breadcrumb', _headers).2 as _kafka_consumer_breadcrumbs
+CAST(arrayFirst(x -> x.1 = 'kafka-consumer-breadcrumb', _headers).2 AS Nullable(String)) as _kafka_consumer_breadcrumbs
 FROM {database}.kafka_events_json
 """.format(
         target_table=WRITABLE_EVENTS_DATA_TABLE(),
