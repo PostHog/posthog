@@ -31,7 +31,6 @@ from posthog.schema import (
     EntityType,
 )
 from posthog.schema import RetentionQuery, RetentionType, Breakdown
-from collections import defaultdict
 from posthog.hogql.constants import get_breakdown_limit_for_context
 from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
 
@@ -553,12 +552,12 @@ class RetentionQueryRunner(QueryRunner):
 
         if self.breakdowns_in_query:
             # Step 1: Calculate total cohort size for each breakdown value (size at intervals_from_base = 0)
-            breakdown_totals: defaultdict[str, int] = defaultdict(int)
+            breakdown_totals: dict[str, int] = {}
             original_results = response.results or []
             for row in original_results:
                 start_interval, intervals_from_base, breakdown_value, count = row
                 if intervals_from_base == 0:
-                    breakdown_totals[breakdown_value] += count
+                    breakdown_totals[breakdown_value] = breakdown_totals.get(breakdown_value, 0) + count
 
             # Step 2: Rank breakdowns and determine top N and 'Other'
             breakdown_limit = (
@@ -571,9 +570,7 @@ class RetentionQueryRunner(QueryRunner):
             other_values = {item[0] for item in sorted_breakdowns[breakdown_limit:]}
 
             # Step 3: Aggregate results, grouping less frequent breakdowns into 'Other'
-            aggregated_data: defaultdict[str, defaultdict[int, defaultdict[int, float]]] = defaultdict(
-                lambda: defaultdict(lambda: defaultdict(float))
-            )
+            aggregated_data: dict[str, dict[int, dict[int, float]]] = {}
             for row in original_results:
                 start_interval, intervals_from_base, breakdown_value, count = row
 
@@ -583,7 +580,12 @@ class RetentionQueryRunner(QueryRunner):
 
                 # Apply sampling correction when aggregating into the final structure
                 corrected_count = correct_result_for_sampling(count, self.query.samplingFactor)
-                aggregated_data[target_breakdown][start_interval][intervals_from_base] += corrected_count
+                aggregated_data[target_breakdown] = aggregated_data.get(target_breakdown, {})
+                breakdown_data = aggregated_data[target_breakdown]
+
+                breakdown_data[start_interval] = breakdown_data.get(start_interval, {})
+                interval_data = breakdown_data[start_interval]
+                interval_data[intervals_from_base] = interval_data.get(intervals_from_base, 0.0) + corrected_count
 
             # Step 4: Format final output
             final_results: list[dict[str, Any]] = []
@@ -593,13 +595,11 @@ class RetentionQueryRunner(QueryRunner):
                 ordered_breakdown_keys.append(BREAKDOWN_OTHER_STRING_LABEL)
 
             for breakdown_value in ordered_breakdown_keys:
-                intervals_data: defaultdict[int, defaultdict[int, float]] = aggregated_data.get(
-                    breakdown_value, defaultdict(lambda: defaultdict(float))
-                )
+                intervals_data: dict[int, dict[int, float]] = aggregated_data.get(breakdown_value, {})
 
                 breakdown_results = []
                 for start_interval in range(self.query_date_range.intervals_between):
-                    result_dict: defaultdict[int, float] = intervals_data.get(start_interval, defaultdict(float))
+                    result_dict: dict[int, float] = intervals_data.get(start_interval, {})
                     values = [
                         {
                             "count": result_dict.get(return_interval, 0.0),
@@ -623,7 +623,7 @@ class RetentionQueryRunner(QueryRunner):
         else:
             result_dict: dict[tuple[int, int], dict[str, float]] = {
                 (start_event_matching_interval, intervals_from_base): {
-                    "count": correct_result_for_sampling(count, self.query.samplingFactor),
+                    "count": correct_result_for_sampling(count, self.query.samplingFactor)
                 }
                 for (start_event_matching_interval, intervals_from_base, count) in response.results
             }
