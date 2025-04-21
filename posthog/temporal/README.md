@@ -17,4 +17,4 @@ The easiest way to get this to work locally is by running `mprocs`. You'll be mi
 
 ## UI
 
-You can access Temporal's UI running on port `8081`
+You can access Temporal's UI at http://localhost:8081
