@@ -1,9 +1,8 @@
 import asyncio
 import dataclasses
 import datetime as dt
-import gzip
 import json
-from typing import Any, cast
+from typing import Any
 
 import temporalio.activity
 import temporalio.common
@@ -14,82 +13,10 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_internal_logger
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.storage import object_storage
-from posthog.session_recordings.session_recording_v2_service import list_blocks
-from posthog.storage.session_recording_v2_object_storage import client as v2_client
 from posthog.models import Team
 from posthog.temporal.session_recordings.queries import get_session_metadata
-from posthog.temporal.session_recordings.session_comparer import (
-    transform_v2_snapshot,
-    transform_v1_snapshots,
-)
-
-
-def decompress_and_parse_gzipped_json(data: bytes) -> list[Any]:
-    try:
-        decompressed = gzip.decompress(data).decode("utf-8")
-        return parse_jsonl_with_broken_newlines(decompressed)
-    except Exception as e:
-        # If decompression fails, try parsing as plain JSON
-        # as some older recordings might not be compressed
-        try:
-            text = data.decode("utf-8")
-            return parse_jsonl_with_broken_newlines(text)
-        except Exception:
-            raise e
-
-
-def find_line_break(text: str, pos: int) -> str:
-    """Find the line break sequence at the given position."""
-    if text[pos : pos + 2] == "\r\n":
-        return "\r\n"
-    return "\n"
-
-
-def parse_jsonl_with_broken_newlines(text: str) -> list[Any]:
-    """Parse JSONL that might have broken newlines within JSON objects."""
-    results = []
-    buffer = ""
-    pos = 0
-
-    while pos < len(text):
-        # Find next line break
-        next_pos = text.find("\n", pos)
-        if next_pos == -1:
-            # No more line breaks, process remaining text
-            line = text[pos:]
-            if line.strip():
-                buffer = f"{buffer}{line}" if buffer else line
-            break
-
-        # Get the line break sequence for this line
-        line_break = find_line_break(text, next_pos - 1)
-        line = text[pos : next_pos + (2 if line_break == "\r\n" else 1) - 1]
-
-        if not line.strip():
-            pos = next_pos + len(line_break)
-            continue
-
-        buffer = f"{buffer}{line_break}{line}" if buffer else line
-
-        try:
-            parsed = json.loads(buffer)
-            results.append(parsed)
-            buffer = ""  # Reset buffer after successful parse
-        except json.JSONDecodeError:
-            # If we can't parse, keep accumulating in buffer
-            pass
-
-        pos = next_pos + len(line_break)
-
-    # Try to parse any remaining buffer
-    if buffer:
-        try:
-            results.append(json.loads(buffer))
-        except json.JSONDecodeError:
-            pass  # Discard unparseable final buffer
-
-    return results
+from posthog.temporal.session_recordings.snapshot_utils import fetch_v1_snapshots, fetch_v2_snapshots
+from posthog.temporal.session_recordings.session_comparer import count_events_per_window
 
 
 @dataclasses.dataclass(frozen=True)
@@ -123,46 +50,9 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
         team = await sync_to_async(Team.objects.get)(id=inputs.team_id)
         recording = await sync_to_async(SessionRecording.get_or_build)(session_id=inputs.session_id, team=team)
 
-        # Get v1 snapshots
-        v1_snapshots = []
-        if recording.object_storage_path:
-            blob_prefix = recording.object_storage_path
-            blob_keys = object_storage.list_objects(cast(str, blob_prefix))
-            if blob_keys:
-                for full_key in blob_keys:
-                    blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
-                    file_key = f"{recording.object_storage_path}/{blob_key}"
-                    snapshots_data = object_storage.read_bytes(file_key)
-                    if snapshots_data:
-                        raw_snapshots = decompress_and_parse_gzipped_json(snapshots_data)
-                        v1_snapshots.extend(transform_v1_snapshots(raw_snapshots))
-        else:
-            # Try ingestion storage path
-            blob_prefix = recording.build_blob_ingestion_storage_path()
-            blob_keys = object_storage.list_objects(blob_prefix)
-            if blob_keys:
-                for full_key in blob_keys:
-                    blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
-                    file_key = f"{blob_prefix}/{blob_key}"
-                    snapshots_data = object_storage.read_bytes(file_key)
-                    if snapshots_data:
-                        raw_snapshots = decompress_and_parse_gzipped_json(snapshots_data)
-                        v1_snapshots.extend(transform_v1_snapshots(raw_snapshots))
-
-        # Get v2 snapshots
-        v2_snapshots: list[dict[str, Any]] = []
-        blocks = list_blocks(recording)
-        if blocks:
-            for block in blocks:
-                try:
-                    decompressed_block = v2_client().fetch_block(block["url"])
-                    if decompressed_block:
-                        # Parse the block using the same line parsing logic as v1
-                        raw_snapshots = parse_jsonl_with_broken_newlines(decompressed_block)
-                        # Transform each snapshot to match v1 format
-                        v2_snapshots.extend(transform_v2_snapshot(snapshot) for snapshot in raw_snapshots)
-                except Exception as e:
-                    await logger.aexception("Failed to fetch v2 block", exception=e)
+        # Get v1 and v2 snapshots using the shared utility functions
+        v1_snapshots = await asyncio.to_thread(fetch_v1_snapshots, recording)
+        v2_snapshots = await asyncio.to_thread(fetch_v2_snapshots, recording)
 
         # Compare snapshots
         snapshot_differences = []
@@ -452,12 +342,6 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
                 }
             )
 
-        # Log structure of first snapshot from each version
-        if v1_snapshots:
-            await logger.ainfo("V1 snapshot structure", structure=_get_structure(v1_snapshots))
-        if v2_snapshots:
-            await logger.ainfo("V2 snapshot structure", structure=_get_structure(v2_snapshots))
-
         # Convert snapshots to dictionaries for counting duplicates
         v1_events: dict[str, int] = {}
         v2_events: dict[str, int] = {}
@@ -496,16 +380,6 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
         common_by_type = group_events_by_type({k: min(v1, v2) for k, (v1, v2) in common_events.items()})
 
         # Analyze events per window
-        def count_events_per_window(events: dict[str, int]) -> dict[str | None, int]:
-            window_counts: dict[str | None, int] = {}
-            for event_json, count in events.items():
-                window_id, _ = json.loads(event_json)
-                # Convert "null" string to None if needed (in case of JSON serialization)
-                if isinstance(window_id, str) and window_id.lower() == "null":
-                    window_id = None
-                window_counts[window_id] = window_counts.get(window_id, 0) + count
-            return window_counts
-
         v1_window_counts = count_events_per_window(v1_events)
         v2_window_counts = count_events_per_window(v2_events)
 
@@ -533,110 +407,6 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
             windows_in_v2=len(v2_window_counts),
             windows_in_both=len(set(v1_window_counts.keys()) & set(v2_window_counts.keys())),
         )
-
-        # Sample differing events
-        def find_differences(obj1: Any, obj2: Any, path: str = "$") -> list[dict[str, Any]]:
-            """
-            Recursively compare two objects and return list of differences with jq-style paths.
-            Example paths: $.key, $.array[0], $.nested.key, etc.
-            """
-            differences = []
-
-            if type(obj1) is not type(obj2):
-                differences.append(
-                    {
-                        "path": path,
-                        "type": "type_mismatch",
-                        "v1_type": type(obj1).__name__,
-                        "v2_type": type(obj2).__name__,
-                        "v1_value": obj1,
-                        "v2_value": obj2,
-                    }
-                )
-                return differences
-
-            if isinstance(obj1, dict):
-                all_keys = set(obj1.keys()) | set(obj2.keys())
-                for key in all_keys:
-                    key_path = f"{path}.{key}"
-                    if key not in obj1:
-                        differences.append(
-                            {
-                                "path": key_path,
-                                "type": "key_missing_in_v1",
-                                "v2_value": obj2[key],
-                            }
-                        )
-                    elif key not in obj2:
-                        differences.append(
-                            {
-                                "path": key_path,
-                                "type": "key_missing_in_v2",
-                                "v1_value": obj1[key],
-                            }
-                        )
-                    else:
-                        differences.extend(find_differences(obj1[key], obj2[key], key_path))
-
-            elif isinstance(obj1, list):
-                if len(obj1) != len(obj2):
-                    differences.append(
-                        {
-                            "path": path,
-                            "type": "array_length_mismatch",
-                            "v1_length": len(obj1),
-                            "v2_length": len(obj2),
-                        }
-                    )
-                for i, (item1, item2) in enumerate(zip(obj1, obj2)):
-                    differences.extend(find_differences(item1, item2, f"{path}[{i}]"))
-
-            elif obj1 != obj2:
-                differences.append(
-                    {
-                        "path": path,
-                        "type": "value_mismatch",
-                        "v1_value": obj1,
-                        "v2_value": obj2,
-                    }
-                )
-
-            return differences
-
-        # def sample_events(events: dict[str, int], size: int) -> list[tuple[str, dict, list[dict]]]:
-        #     """Sample events and include their differences."""
-        #     samples = []
-        #     for event_json, _ in list(events.items())[:size]:
-        #         window_id, data = json.loads(event_json)
-        #         # Try to find matching event in other version by window_id
-        #         matching_event = None
-        #         if event_json in only_in_v1:
-        #             # Look for matching window_id in v2
-        #             for v2_json, _ in v2_events.items():
-        #                 v2_window_id, v2_data = json.loads(v2_json)
-        #                 if v2_window_id == window_id:
-        #                     matching_event = v2_data
-        #                     break
-        #         else:
-        #             # Look for matching window_id in v1
-        #             for v1_json, _ in v1_events.items():
-        #                 v1_window_id, v1_data = json.loads(v1_json)
-        #                 if v1_window_id == window_id:
-        #                     matching_event = v1_data
-        #                     break
-
-        #         differences = []
-        #         if matching_event:
-        #             differences = find_differences(data, matching_event)
-
-        #         samples.append((window_id, data, differences))
-        #     return samples
-
-        # await logger.ainfo(
-        #     "Sample of differing events",
-        #     v1_exclusive_samples=[(window_id, str(data)[:100], differences) for window_id, data, differences in sample_events(only_in_v1, inputs.sample_size)],
-        #     v2_exclusive_samples=[(window_id, str(data)[:100], differences) for window_id, data, differences in sample_events(only_in_v2, inputs.sample_size)],
-        # )
 
         await logger.ainfo(
             "Event type comparison",
@@ -701,25 +471,6 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
             sessions_differ=sessions_differ,
             metadata_snapshot_differences=metadata_differences,
         )
-
-
-def _get_structure(obj: Any, max_depth: int = 10) -> Any:
-    """Get the structure of an object without its values."""
-    if max_depth <= 0:
-        return "..."
-
-    if isinstance(obj, dict):
-        return {k: _get_structure(v, max_depth - 1) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        if not obj:
-            return []
-        # Just show structure of first item for arrays
-        return [_get_structure(obj[0], max_depth - 1)]
-    elif isinstance(obj, str | int | float | bool):
-        return type(obj).__name__
-    elif obj is None:
-        return None
-    return type(obj).__name__
 
 
 @dataclasses.dataclass(frozen=True)
