@@ -61,15 +61,9 @@ impl OverflowLimiter {
         let forced_key_match = self.keys_to_reroute.contains(event_key);
 
         // is the token (first component of the event key) in the forced_keys list?
-        let forced_token_match = {
-            let parts = event_key
-                .split(':')
-                .filter(|s| !s.trim().is_empty())
-                .collect::<Vec<&str>>();
-            match parts.first() {
-                Some(token) => !token.is_empty() && self.keys_to_reroute.contains(*token),
-                None => false,
-            }
+        let forced_token_match = match event_key.split(':').find(|s| !s.trim().is_empty()) {
+            Some(token) => self.keys_to_reroute.contains(token),
+            None => false,
         };
 
         // should rate limiting be triggered for this event?
