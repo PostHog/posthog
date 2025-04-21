@@ -4647,10 +4647,7 @@
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
-                    "items": {
-                        "$ref": "#/definitions/WebActiveHoursHeatMapResult"
-                    },
-                    "type": "array"
+                    "$ref": "#/definitions/WebActiveHoursHeatMapStructuredResult"
                 },
                 "timezone": {
                     "type": "string"
@@ -6314,10 +6311,7 @@
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
                                 "results": {
-                                    "items": {
-                                        "$ref": "#/definitions/WebActiveHoursHeatMapResult"
-                                    },
-                                    "type": "array"
+                                    "$ref": "#/definitions/WebActiveHoursHeatMapStructuredResult"
                                 },
                                 "timings": {
                                     "description": "Measured timings for different parts of the query generation process",
@@ -13663,10 +13657,7 @@
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {
-                            "items": {
-                                "$ref": "#/definitions/WebActiveHoursHeatMapResult"
-                            },
-                            "type": "array"
+                            "$ref": "#/definitions/WebActiveHoursHeatMapStructuredResult"
                         },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
@@ -14314,10 +14305,7 @@
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {
-                            "items": {
-                                "$ref": "#/definitions/WebActiveHoursHeatMapResult"
-                            },
-                            "type": "array"
+                            "$ref": "#/definitions/WebActiveHoursHeatMapStructuredResult"
                         },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
@@ -16307,11 +16295,18 @@
             "required": ["results"],
             "type": "object"
         },
+        "RevenueAnalyticsTopCustomersGroupBy": {
+            "enum": ["month", "all"],
+            "type": "string"
+        },
         "RevenueAnalyticsTopCustomersQuery": {
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "groupBy": {
+                    "$ref": "#/definitions/RevenueAnalyticsTopCustomersGroupBy"
                 },
                 "kind": {
                     "const": "RevenueAnalyticsTopCustomersQuery",
@@ -16325,7 +16320,7 @@
                     "$ref": "#/definitions/RevenueAnalyticsTopCustomersQueryResponse"
                 }
             },
-            "required": ["kind"],
+            "required": ["groupBy", "kind"],
             "type": "object"
         },
         "RevenueAnalyticsTopCustomersQueryResponse": {
@@ -17767,6 +17762,9 @@
                     },
                     "type": "array"
                 },
+                "minDecimalPlaces": {
+                    "type": "number"
+                },
                 "resultCustomizationBy": {
                     "$ref": "#/definitions/ResultCustomizationBy",
                     "default": "value",
@@ -17869,6 +17867,9 @@
                         ]
                     },
                     "type": "object"
+                },
+                "min_decimal_places": {
+                    "type": "number"
                 },
                 "show_alert_threshold_lines": {
                     "type": "boolean"
@@ -18199,6 +18200,48 @@
             },
             "type": "object"
         },
+        "WebActiveHoursHeatMapDayAndHourResult": {
+            "additionalProperties": false,
+            "properties": {
+                "day": {
+                    "$ref": "#/definitions/integer"
+                },
+                "hour": {
+                    "$ref": "#/definitions/integer"
+                },
+                "total": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["day", "hour", "total"],
+            "type": "object"
+        },
+        "WebActiveHoursHeatMapDayResult": {
+            "additionalProperties": false,
+            "properties": {
+                "day": {
+                    "$ref": "#/definitions/integer"
+                },
+                "total": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["day", "total"],
+            "type": "object"
+        },
+        "WebActiveHoursHeatMapHourResult": {
+            "additionalProperties": false,
+            "properties": {
+                "hour": {
+                    "$ref": "#/definitions/integer"
+                },
+                "total": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["hour", "total"],
+            "type": "object"
+        },
         "WebActiveHoursHeatMapQuery": {
             "additionalProperties": false,
             "properties": {
@@ -18290,10 +18333,7 @@
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
-                    "items": {
-                        "$ref": "#/definitions/WebActiveHoursHeatMapResult"
-                    },
-                    "type": "array"
+                    "$ref": "#/definitions/WebActiveHoursHeatMapStructuredResult"
                 },
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
@@ -18306,20 +18346,32 @@
             "required": ["results"],
             "type": "object"
         },
-        "WebActiveHoursHeatMapResult": {
+        "WebActiveHoursHeatMapStructuredResult": {
             "additionalProperties": false,
             "properties": {
-                "day": {
-                    "$ref": "#/definitions/integer"
+                "dayAndHours": {
+                    "items": {
+                        "$ref": "#/definitions/WebActiveHoursHeatMapDayAndHourResult"
+                    },
+                    "type": "array"
                 },
-                "hour": {
-                    "$ref": "#/definitions/integer"
+                "days": {
+                    "items": {
+                        "$ref": "#/definitions/WebActiveHoursHeatMapDayResult"
+                    },
+                    "type": "array"
+                },
+                "hours": {
+                    "items": {
+                        "$ref": "#/definitions/WebActiveHoursHeatMapHourResult"
+                    },
+                    "type": "array"
                 },
                 "total": {
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["day", "hour", "total"],
+            "required": ["dayAndHours", "days", "hours", "total"],
             "type": "object"
         },
         "WebAnalyticsConversionGoal": {

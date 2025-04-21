@@ -10,9 +10,10 @@ use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagGroupType};
 use crate::metrics::consts::{
     DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
     FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
-    FLAG_GET_MATCH_TIME, FLAG_GROUP_FETCH_TIME, FLAG_HASH_KEY_PROCESSING_TIME,
-    FLAG_HASH_KEY_WRITES_COUNTER, FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME,
-    PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
+    FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME, FLAG_GROUP_DB_FETCH_TIME,
+    FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
+    FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME, PROPERTY_CACHE_HITS_COUNTER,
+    PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::metrics::utils::parse_exception_for_prometheus_label;
 use crate::properties::property_models::PropertyFilter;
@@ -203,6 +204,7 @@ impl FeatureFlagMatcher {
         hash_key_override: Option<String>,
         request_id: Uuid,
     ) -> FlagsResponse {
+        let group_type_mapping_timer = common_metrics::timing_guard(FLAG_GROUP_DB_FETCH_TIME, &[]);
         let mut errors_while_computing_flags = false;
         if (self
             .group_type_mapping_cache
@@ -212,9 +214,18 @@ impl FeatureFlagMatcher {
         {
             errors_while_computing_flags = true;
         }
+        group_type_mapping_timer
+            .label(
+                "outcome",
+                if errors_while_computing_flags {
+                    "error"
+                } else {
+                    "success"
+                },
+            )
+            .fin();
 
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
-
         let flags_have_experience_continuity_enabled = feature_flags
             .flags
             .iter()
@@ -1263,7 +1274,7 @@ impl FeatureFlagMatcher {
 
         // Then prepare group mappings and properties
         // This should be _wicked_ fast since it's async and is just pulling from a cache that's already in memory
-        let group_timer = common_metrics::timing_guard(FLAG_GROUP_FETCH_TIME, &[]);
+        let group_timer = common_metrics::timing_guard(FLAG_GROUP_CACHE_FETCH_TIME, &[]);
         let group_data = self.prepare_group_data(flags)?;
         group_timer.fin();
 

@@ -41,11 +41,7 @@ function Header(): JSX.Element {
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
 
     // NB this relies on `updateSearchParams` being the only prop needed to pick the correct "Recent" tab list logic
-    const { filters, totalFiltersCount } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
-    const saveFiltersPlaylistHandler = useAsyncHandler(async () => {
-        await createPlaylist({ filters }, true)
-        reportRecordingPlaylistCreated('filters')
-    })
+    const { filters } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
 
     const newPlaylistHandler = useAsyncHandler(async () => {
         await createPlaylist({}, true)
@@ -75,23 +71,6 @@ function Header(): JSX.Element {
                                 }}
                                 type="secondary"
                             />
-                            <LemonButton
-                                fullWidth={false}
-                                data-attr="session-recordings-filters-save-as-playlist"
-                                type="primary"
-                                disabledReason={
-                                    totalFiltersCount === 0 ? 'Apply filters to save them as a playlist' : undefined
-                                }
-                                onClick={(e) =>
-                                    // choose the type of playlist handler so that analytics correctly report
-                                    // whether filters have been changed before saving
-                                    totalFiltersCount === 0
-                                        ? newPlaylistHandler.onEvent?.(e)
-                                        : saveFiltersPlaylistHandler.onEvent?.(e)
-                                }
-                            >
-                                Save as playlist
-                            </LemonButton>
                         </>
                     )}
 

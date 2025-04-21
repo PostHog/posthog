@@ -30,6 +30,7 @@ import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLo
 import { groupsModel } from '~/models/groupsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import {
+    AccessControlLevel,
     ActivityScope,
     AvailableFeature,
     Breadcrumb,
@@ -104,7 +105,7 @@ const NEW_FLAG: FeatureFlagType = {
     surveys: null,
     performed_rollback: false,
     can_edit: true,
-    user_access_level: 'editor',
+    user_access_level: AccessControlLevel.Editor,
     tags: [],
     is_remote_configuration: false,
     has_encrypted_payloads: false,
