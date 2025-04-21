@@ -886,3 +886,63 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         mock_sync_execute.assert_called_once()
         self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
+
+    def test_no_previous_when_comparison_disabled_but_conversion_goal_enabled(self):
+        # See: https://posthoghelp.zendesk.com/agent/tickets/29100
+        s1 = str(uuid7("2023-12-01"))
+        s2 = str(uuid7("2023-12-01"))
+        s3 = str(uuid7("2023-12-01"))
+
+        self._create_events(
+            [
+                (
+                    "p1",
+                    [
+                        ("2023-12-01", s1, "https://www.example.com/foo"),
+                        ("2023-12-01", s1, "https://www.example.com/foo"),
+                    ],
+                ),
+                (
+                    "p2",
+                    [
+                        ("2023-12-01", s2, "https://www.example.com/foo"),
+                        ("2023-12-01", s2, "https://www.example.com/bar"),
+                    ],
+                ),
+                ("p3", [("2023-12-01", s3, "https://www.example.com/bar")]),
+            ]
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Visited Foo",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "url": "https://www.example.com/foo",
+                    "url_matching": "regex",
+                }
+            ],
+        )
+
+        results = self._run_web_overview_query("2023-12-01", "2023-12-03", action=action, compare=False).results
+
+        visitors = results[0]
+        assert visitors.value == 3
+        assert visitors.previous is None
+        assert visitors.changeFromPreviousPct is None
+
+        conversion = results[1]
+        assert conversion.value == 3
+        assert conversion.previous is None
+        assert conversion.changeFromPreviousPct is None
+
+        unique_conversions = results[2]
+        assert unique_conversions.value == 2
+        assert unique_conversions.previous is None
+        assert unique_conversions.changeFromPreviousPct is None
+
+        conversion_rate = results[3]
+        self.assertAlmostEqual(conversion_rate.value, 100 * 2 / 3)
+        assert conversion_rate.previous is None
+        assert conversion_rate.changeFromPreviousPct is None

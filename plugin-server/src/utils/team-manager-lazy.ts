@@ -31,6 +31,14 @@ export class TeamManagerLazy {
         return this.lazyLoader.get(token)
     }
 
+    public async getTeams(teamIds: number[]): Promise<Record<string, Team | null>> {
+        return this.lazyLoader.getMany(teamIds.map(String))
+    }
+
+    public async getTeamsByTokens(tokens: string[]): Promise<Record<string, Team | null>> {
+        return this.lazyLoader.getMany(tokens)
+    }
+
     public async hasAvailableFeature(teamId: number, feature: string): Promise<boolean> {
         const team = await this.getTeam(teamId)
         return team?.available_features?.includes(feature) || false
@@ -89,13 +97,18 @@ export class TeamManagerLazy {
         return null
     }
 
-    private async fetchTeams(teamIdOrTokens: string[]): Promise<Record<string, Team>> {
+    private async fetchTeams(teamIdOrTokens: string[]): Promise<Record<string, Team | null>> {
         const [teamIds, tokens] = teamIdOrTokens.reduce(
             ([teamIds, tokens], idOrToken) => {
                 // TRICKY: We are caching ids and tokens so we need to determine which is which
-                // Fix this to be a prefix based lookup
-                if (/^\d+$/.test(idOrToken)) {
-                    teamIds.push(parseInt(idOrToken))
+                // Fix this to be a prefix based lookup. Added hack to limit to positive integer
+                // that shouldn't overflow 32-bit integer in DB column.
+                if (/^\d{1,10}$/.test(idOrToken)) {
+                    const parsed = parseInt(idOrToken)
+                    // TODO: stat if this happens
+                    if (!isNaN(parsed) && parsed > 0 && parsed <= 2147483647) {
+                        teamIds.push(parsed)
+                    }
                 } else {
                     tokens.push(idOrToken)
                 }
@@ -106,7 +119,7 @@ export class TeamManagerLazy {
 
         const result = await this.postgres.query<RawTeam>(
             PostgresUse.COMMON_READ,
-            `SELECT 
+            `SELECT
                 t.id,
                 t.project_id,
                 t.uuid,
@@ -131,7 +144,14 @@ export class TeamManagerLazy {
             'fetch-teams-with-features'
         )
 
-        return result.rows.reduce((acc, row) => {
+        // Initialize result record with nulls for all requested IDs/tokens
+        const resultRecord: Record<string, Team | null> = {}
+        for (const idOrToken of teamIdOrTokens) {
+            resultRecord[idOrToken] = null
+        }
+
+        // Fill in actual teams where they exist
+        result.rows.forEach((row) => {
             const { available_product_features, ...teamPartial } = row
             const team = {
                 ...teamPartial,
@@ -139,10 +159,10 @@ export class TeamManagerLazy {
                 project_id: Number(teamPartial.project_id) as ProjectId,
                 available_features: available_product_features?.map((f) => f.key) || [],
             }
-            // We assign to the cache both ID and api_token as keys
-            acc[row.id] = team
-            acc[row.api_token] = team
-            return acc
-        }, {} as Record<string, Team>)
+            resultRecord[row.id] = team
+            resultRecord[row.api_token] = team
+        })
+
+        return resultRecord as Record<string, Team | null>
     }
 }

@@ -72,6 +72,7 @@ from openai.types.chat import (
 from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
+from posthog.exceptions_capture import capture_exception
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -369,7 +370,7 @@ def clean_referer_url(current_url: str | None) -> str:
         path = re.sub("/", "-", path)
         return path or "unknown"
     except Exception as e:
-        posthoganalytics.capture_exception(e, distinct_id="clean_referer_url", properties={"current_url": current_url})
+        capture_exception(e, additional_properties={"current_url": current_url, "function_name": "clean_referer_url"})
         return "unknown"
 
 

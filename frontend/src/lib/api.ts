@@ -1070,7 +1070,7 @@ class ApiRequest {
 
     // Insight Variables
     public insightVariables(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('insight_variables')
+        return this.environmentsDetail(teamId).addPathComponent('insight_variables')
     }
     public insightVariable(variableId: string, teamId?: TeamType['id']): ApiRequest {
         return this.insightVariables(teamId).addPathComponent(variableId)

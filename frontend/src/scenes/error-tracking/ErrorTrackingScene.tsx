@@ -1,6 +1,7 @@
-import { IconGear } from '@posthog/icons'
+import { IconChevronDown, IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCheckbox, LemonDivider, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyLargeNumber } from 'lib/utils'
@@ -16,7 +17,9 @@ import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
-import { AssigneeSelect } from './AssigneeSelect'
+import { AssigneeIconDisplay, AssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
+import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
+import { RuntimeIcon } from './components/RuntimeIcon'
 import { errorTrackingDataNodeLogic } from './errorTrackingDataNodeLogic'
 import { DateRangeFilter, ErrorTrackingFilters, FilterGroup, InternalAccountsFilter } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
@@ -122,6 +125,7 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const { assignIssue } = useActions(errorTrackingDataNodeLogic)
     const record = props.record as ErrorTrackingIssue
     const checked = selectedIssueIds.includes(record.id)
+    const runtime = getRuntimeFromLib(record.library)
 
     return (
         <div className="flex items-start gap-x-2 group my-1">
@@ -147,8 +151,9 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                         issueLogic.actions.setIssue(record)
                     }}
                 >
-                    <div className="flex items-center font-semibold h-[1.2rem] text-[1.2em]">
-                        {record.name || 'Unknown Type'}
+                    <div className="flex items-center h-[1.2rem] gap-2">
+                        <RuntimeIcon runtime={runtime} fontSize="0.8rem" />
+                        <span className="font-semibold text-[1.2em]">{record.name || 'Unknown Type'}</span>
                     </div>
                 </Link>
                 <div className="line-clamp-1 text-secondary">{record.description}</div>
@@ -164,12 +169,26 @@ const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
                     )}
                     <span>|</span>
                     <AssigneeSelect
-                        showName={true}
-                        showIcon={false}
                         assignee={record.assignee}
                         onChange={(assignee) => assignIssue(record.id, assignee)}
-                        size="xsmall"
-                    />
+                    >
+                        {(anyAssignee) => {
+                            return (
+                                <div
+                                    className="flex items-center hover:bg-fill-button-tertiary-hover p-[0.1rem] rounded cursor-pointer"
+                                    role="button"
+                                >
+                                    <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />
+                                    <AssigneeLabelDisplay
+                                        assignee={anyAssignee}
+                                        className="ml-1 text-xs text-secondary"
+                                        size="xsmall"
+                                    />
+                                    <IconChevronDown />
+                                </div>
+                            )
+                        }}
+                    </AssigneeSelect>
                 </div>
             </div>
         </div>

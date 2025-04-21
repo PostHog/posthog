@@ -367,11 +367,11 @@ export const SOURCE_DETAILS: Record<ExternalDataSourceType, SourceConfig> = {
     },
     MSSQL: {
         name: 'MSSQL',
-        label: 'Azure SQL Server',
+        label: 'Microsoft SQL Server',
         caption: (
             <>
-                Enter your MS SQL Server/Azure SQL Server credentials to automatically pull your SQL data into the
-                PostHog Data warehouse.
+                Enter your Microsoft SQL Server/Azure SQL Server credentials to automatically pull your SQL data into
+                the PostHog Data warehouse.
             </>
         ),
         fields: [
@@ -1386,7 +1386,8 @@ export const getErrorsForFields = (
         errorsObj: Record<string, any>
     ): void => {
         if (field.type === 'switch-group') {
-            if (valueObj[field.name]?.['enabled']) {
+            // handle string value coming down from the backend for an update
+            if (valueObj[field.name]?.['enabled'] && valueObj[field.name]?.['enabled'] !== 'False') {
                 errorsObj[field.name] = {}
                 field.fields.forEach((f) => validateField(f, valueObj[field.name], errorsObj[field.name]))
             }
