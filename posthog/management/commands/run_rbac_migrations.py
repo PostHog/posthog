@@ -40,7 +40,7 @@ class Command(BaseCommand):
         if options["org_ids"]:
             org_ids_input = options["org_ids"]
             # Parse comma-separated list of organization IDs
-            org_ids = [int(org_id.strip()) for org_id in org_ids_input.split(",")]
+            org_ids = [org_id.strip() for org_id in org_ids_input.split(",")]
         else:  # backfill option
             self.stdout.write("Finding organizations that need RBAC migration...")
             org_ids = self.find_organizations_needing_migration()
@@ -112,7 +112,7 @@ class Command(BaseCommand):
         """
         # Find organizations with teams that have access_control = True
         orgs_with_team_access_control = (
-            Organization.objects.filter(teams__access_control=True).values_list("id", flat=True).distinct()
+            Organization.objects.filter(team__access_control=True).values_list("id", flat=True).distinct()
         )
 
         # Find organizations with OrganizationResourceAccess rows
@@ -122,7 +122,7 @@ class Command(BaseCommand):
 
         # Find organizations with roles that have feature flag access
         orgs_with_feature_flag_roles = (
-            Role.objects.filter(Q(feature_flags_access_level__isnull=False) | Q(feature_flag_role_access__isnull=False))
+            Role.objects.filter(Q(feature_flags_access_level__isnull=False) | Q(feature_flag_access__isnull=False))
             .values_list("organization_id", flat=True)
             .distinct()
         )
