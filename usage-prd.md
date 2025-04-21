@@ -8,24 +8,73 @@ This document outlines the requirements and implementation approach for the Usag
 ### Data Sources
 - Primary table: `billing_usagereport`
 - Key columns:
-  - `report` (JSONB): Contains both aggregated and team-level metrics
   - `date`: Daily timestamp for the data point
   - `organization_id`: Organization identifier
+  - `reported_to_period_end`: Timestamp indicating when the current usage period ends
+  - `report` (JSONB): Contains both aggregated and team-level metrics. Below are the key usage properties (partial list):
+    ```json
+    {
+        "event_count_in_period": int,
+        "exceptions_captured_in_period": int,
+        "recording_count_in_period": int,
+        "rows_synced_in_period": int,
+        "survey_responses_count_in_period": int,
+        "mobile_recording_count_in_period": int,
+        "billable_feature_flag_requests_count_in_period": int,
+        "enhanced_persons_event_count_in_period": int,
+        "teams": {
+            "$team_id": {
+                // Same properties as above available per team
+            }
+        }
+    }
+    ```
+  - `org_usage_summary` (JSONB): Daily aggregated usage metrics:
+    ```json
+    {
+        "events": int,
+        "exceptions": int,
+        "recordings": int,
+        "rows_synced": int,
+        "survey_responses": int,
+        "mobile_recordings": int,
+        "feature_flag_requests": int,
+        "enhanced_persons_events": int
+    }
+    ```
+  - `usage_sent_to_stripe` (JSONB): Cumulative usage data for a billing period sent to Stripe:
+    ```json
+    {
+        "product_analytics": int,
+        "error_tracking": int,
+        "session_replay": int,
+        "data_warehouse": int,
+        "surveys": int,
+        "mobile_replay": int,
+        "feature_flags": int,
+        "enhanced_persons": int
+    }
+    ```
+  - `custom_limits_map` (JSONB): Contains custom billing limits for specific features:
+    ```json
+    {
+        "data_warehouse": int,    // Limit for rows_synced_in_period
+        // ... other potential limits, same fields as in usage_sent_to_stripe
+    }
+    ```
 
-### Usage Types
-Available usage types (from `report`):
-- event_count_in_period
-- exceptions_captured_in_period
-- recording_count_in_period
-- rows_synced_in_period
-- survey_responses_count_in_period
-- mobile_recording_count_in_period
-- billable_feature_flag_requests_count_in_period
-- enhanced_persons_event_count_in_period
+#### Field Mappings
 
-These usage types are available both:
-- At the top level for organization-wide totals
-- Under `teams` object for team-specific breakdowns
+| report field                                  | org_usage_summary field  | usage_sent_to_stripe field |
+|----------------------------------------------|-------------------------|--------------------------|
+| event_count_in_period                        | events                 | product_analytics        |
+| enhanced_persons_event_count_in_period      | enhanced_persons_events | enhanced_persons         |
+| recording_count_in_period                    | recordings             | session_replay           |
+| mobile_recording_count_in_period            | mobile_recordings      | mobile_replay            |
+| rows_synced_in_period                       | rows_synced            | data_warehouse           |
+| survey_responses_count_in_period            | survey_responses       | surveys                  |
+| billable_feature_flag_requests_count_in_period | feature_flag_requests  | feature_flags            |
+| exceptions_captured_in_period                | exceptions             | error_tracking           |
 
 ### API Requirements
 
@@ -35,10 +84,11 @@ These usage types are available both:
 GET /api/billing/usage/
 
 # In billing service
-GET /api/usage-v2/
+GET /api/usage-v2/            # For usage volumes
+GET /api/usage-v2/spend/      # For calculated spend
 ```
 
-#### Query Parameters
+#### Query Parameters (Usage Volume: `/api/usage-v2/`)
 - `organization_id`: string (required)
 - `start_date`: string (required, ISO format)
 - `end_date`: string (required, ISO format)
@@ -52,7 +102,15 @@ GET /api/usage-v2/
 
 Note: When breaking down by 'type' (by including 'type' in the `breakdowns` parameter), the `usage_type` parameter is ignored as all types are returned.
 
-#### Response Format
+#### Query Parameters (Spend: `/api/usage-v2/spend/`)
+- `organization_id`: string (required)
+- `start_date`: string (required, ISO format YYYY-MM-DD)
+- `end_date`: string (required, ISO format YYYY-MM-DD)
+- `breakdowns`: string (optional) - JSON array of breakdown dimensions (e.g. '["type"]', '["team"]', or '["type","team"]'). Omitting returns total spend.
+- `interval`: string (optional, default='day')
+  - Supported values: 'day', 'week', 'month'
+
+#### Response Format (Usage Volume)
 ```typescript
 interface UsageResponse {
     status: "ok";
@@ -70,6 +128,31 @@ interface UsageResponse {
     next?: string;  // Cursor for pagination if needed
 }
 ```
+
+#### Response Format (Spend: `/api/usage-v2/spend/`)
+
+The spend endpoint returns data in the same time series format as the usage volume endpoint. The `results` array contains objects representing different series based on the requested breakdown.
+
+```typescript
+interface SpendResponse {
+    status: "ok";
+    type: "timeseries";
+    results: Array<{
+        id: number;           // Unique identifier for the series
+        label: string;        // Display name for the series (see examples below)
+        data: number[];       // Array of calculated spend values (float, representing USD)
+        dates: string[];      // Array of corresponding dates in ISO 8601 format (YYYY-MM-DD) for the start of the interval (day/week/month)
+        breakdown_type: 'type' | 'team' | 'multiple' | null;  // Dimension(s) represented by this series
+        breakdown_value: string | string[] | null;            // Identifier(s) for the breakdown dimension(s)
+    }>;
+}
+```
+
+**Label Examples for Spend:**
+- **No Breakdown:** `label: "Total Spend"`, `breakdown_type: null`, `breakdown_value: null`
+- **Breakdown by Type:** `label: "Spend: Events"`, `breakdown_type: "type"`, `breakdown_value: "product_analytics"`
+- **Breakdown by Team:** `label: "Team 123"`, `breakdown_type: "team"`, `breakdown_value: "123"`
+- **Breakdown by Type & Team:** `label: "Spend: Events::Team 123"`, `breakdown_type: "multiple"`, `breakdown_value: ["product_analytics", "123"]`
 
 ### Multiple Breakdowns Support
 
@@ -107,8 +190,8 @@ WITH usage_types AS (
 ),
 team_usage AS (
     SELECT 
-        date::date,
-        team_id::text,
+        date,
+        team_id,
         type,
         (report->'teams'->team_id->>type)::numeric as value
     FROM billing_usagereport
@@ -818,11 +901,20 @@ def handle_usage_errors(func):
 - Custom metric combinations
 - Real-time data updates
 
-3. Planned Spend API Endpoint
-- A new endpoint `/api/usage-v2/spend` is planned for querying monetary values
-- Will support aggregation across usage types (unlike volumes endpoint)
-- Will allow all combinations of breakdowns (total, by type, by team, and by both)
-- Same time series format and parameter structure as the volumes endpoint
-- Will have additional parameters for currency, pricing tiers, etc.
-- Expected to be implemented once pricing data structure is available
+3. Spend API Endpoint
 
+- The endpoint `/api/usage-v2/spend` is implemented for querying monetary values, returning time-series data representing daily, weekly, or monthly spend.
+- This endpoint provides insights into the monetary cost associated with product usage over time.
+- It uses the cumulative `usage_sent_to_stripe` field from `billing_usagereport`.
+- The calculation approach involves:
+    - Fetching relevant `UsageReport` records using the Django ORM.
+    - Fetching `stripe.Price` objects using `customer.get_product_to_price_map()`.
+    - Iterating through the requested date range + 1 prior day.
+    - Calculating daily spend per product type by determining the difference in cumulative cost between the current day and the last known valid cumulative cost baseline within the current billing period. The baseline is tracked and updated daily, resetting only on billing period changes (detected via `reported_to_period_end`). Cumulative cost is calculated using `usage_to_amount_usd` with the fetched prices and the cumulative usage from `usage_sent_to_stripe`.
+    - Aggregating the calculated daily spend based on the requested `interval`.
+- Breakdowns supported:
+    - Total (No Breakdown): Sums the calculated spend across all types for each interval period.
+    - By Type: Returns a separate series for the calculated spend of each billable product type.
+    - By Team: Calculates spend per type, allocates it proportionally to teams based on their volume contribution *for that specific type* within the interval, and then sums the allocated amounts per team across all types.
+    - By Type & Team: Calculates spend per type and allocates it proportionally to teams based on their volume contribution *for that specific type* within the interval. Returns a series for each type/team combination.
+- Parameters are `organization_id`, `start_date`, `end_date`, `breakdowns`, `interval`.

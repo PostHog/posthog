@@ -141,10 +141,22 @@ We've decided to standardize on **BillingUsage4** as our canonical implementatio
 - [ ] Add performance tests for large datasets
 
 ### Planned Spend API Endpoint
-- [ ] Design a new `/api/usage-v2/spend` endpoint for querying monetary values
-  - Will share similar structure as the volumes endpoint
-  - Will support aggregation across usage types
-  - Will need pricing data structure
+
+- [x] Define endpoint `/api/usage-v2/spend`.
+- [x] Create `SpendRequestSerializer` and `SpendResponseSerializer`.
+- [x] Implement `SpendViewSet` in `billing/api/usage_v2.py`.
+- [x] Implement service function `get_spend_data` in `billing/services/usage.py`:
+    - [x] Fetch required data (`date`, `usage_sent_to_stripe`, `report`, `reported_to_period_end`) including 1 day prior.
+    - [x] Fetch `stripe.Price` objects using `customer.get_product_to_price_map()`.
+    - [x] Calculate daily spend per type by diffing cumulative costs (using fetched prices and `usage_to_amount_usd`) considering billing period resets.
+    - [x] Handle total spend aggregation.
+    - [x] Handle breakdown by type.
+    - [x] Handle breakdown by team/type+team via proportional volume allocation based on `report['teams']`.
+    - [x] Implement interval aggregation ('day', 'week', 'month').
+    - [x] Adapt `transform_to_timeseries_format` for spend data (via `_transform_spend_to_timeseries_format` helper).
+- [x] Register URL in `billing/urls.py`.
+- [ ] Add unit tests for `get_spend_data` (tiers, resets, breakdowns, edge cases).
+- [ ] Update PostHog proxy if needed.
 
 ## Best Practices Implemented
 
