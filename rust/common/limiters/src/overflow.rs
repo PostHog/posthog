@@ -20,10 +20,16 @@ use rand::Rng;
 pub struct OverflowLimiter {
     limiter: Arc<RateLimiter<String, DefaultKeyedStateStore<String>, clock::DefaultClock>>,
     keys_to_reroute: HashSet<String>,
+    preserve_locality: bool, // should we retain partition keys when rerouting to overflow?
 }
 
 impl OverflowLimiter {
-    pub fn new(per_second: NonZeroU32, burst: NonZeroU32, keys_to_reroute: Option<String>) -> Self {
+    pub fn new(
+        per_second: NonZeroU32,
+        burst: NonZeroU32,
+        keys_to_reroute: Option<String>,
+        preserve_locality: bool,
+    ) -> Self {
         let quota = Quota::per_second(per_second).allow_burst(burst);
         let limiter = Arc::new(governor::RateLimiter::dashmap(quota));
 
@@ -35,6 +41,7 @@ impl OverflowLimiter {
         OverflowLimiter {
             limiter,
             keys_to_reroute,
+            preserve_locality,
         }
     }
 
@@ -56,6 +63,15 @@ impl OverflowLimiter {
         let rate_limited_key = self.limiter.check_key(event_key).is_err();
 
         forced_key_match || forced_token_match || rate_limited_key
+    }
+
+    // should we retain event partition keys when we reroute to
+    // the overflow topic? by distributing them without a key,
+    // we are likely making overlapping calls to remap persons
+    // to a unified distinct_id more expensive for downstream
+    // processors
+    pub fn should_preserve_locality(&self) -> bool {
+        self.preserve_locality
     }
 
     /// Reports the number of tracked keys to prometheus every 10 seconds,
@@ -97,6 +113,7 @@ mod tests {
             NonZeroU32::new(1).unwrap(),
             NonZeroU32::new(1).unwrap(),
             None,
+            false,
         );
 
         let key = String::from("test:user");
@@ -110,6 +127,7 @@ mod tests {
             NonZeroU32::new(1).unwrap(),
             NonZeroU32::new(3).unwrap(),
             None,
+            false,
         );
 
         let key = String::from("test:user");
@@ -130,6 +148,7 @@ mod tests {
             NonZeroU32::new(1).unwrap(),
             NonZeroU32::new(1).unwrap(),
             forced_keys,
+            false,
         );
 
         // token1:user1 and token2:user2 are limited from the start, token3:user3 is not
@@ -152,6 +171,7 @@ mod tests {
             NonZeroU32::new(10).unwrap(),
             NonZeroU32::new(10).unwrap(),
             forced_keys,
+            false,
         );
 
         // rerouting for token in candidate list should kick in right away
@@ -185,6 +205,7 @@ mod tests {
             NonZeroU32::new(1).unwrap(),
             NonZeroU32::new(1).unwrap(),
             Some(format!("{},{}", token1, key2)),
+            false,
         );
 
         // token1 is limited for all distinct_ids

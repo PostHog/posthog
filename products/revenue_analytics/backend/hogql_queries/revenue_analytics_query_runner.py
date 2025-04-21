@@ -15,6 +15,10 @@ from posthog.schema import (
 )
 from ..models import RevenueAnalyticsRevenueView, CHARGE_REVENUE_VIEW_SUFFIX, CUSTOMER_REVENUE_VIEW_SUFFIX
 
+# If we are running a query that has no date range ("all"/all time),
+# we use this as a fallback for the earliest timestamp that we have data for
+EARLIEST_TIMESTAMP = datetime.fromisoformat("2015-01-01T00:00:00Z")
+
 
 # Base class, empty for now but might include some helpers in the future
 class RevenueAnalyticsQueryRunner(QueryRunner):
@@ -76,9 +80,10 @@ class RevenueAnalyticsQueryRunner(QueryRunner):
             team=self.team,
             interval=None,
             now=datetime.now(),
+            earliest_timestamp_fallback=EARLIEST_TIMESTAMP,
         )
 
-    def where_clause(self) -> ast.Expr:
+    def timestamp_where_clause(self) -> ast.Expr:
         return ast.Call(
             name="and",
             args=[
@@ -90,7 +95,7 @@ class RevenueAnalyticsQueryRunner(QueryRunner):
                 ast.CompareOperation(
                     left=ast.Field(chain=["timestamp"]),
                     right=self.query_date_range.date_to_as_hogql(),
-                    op=ast.CompareOperationOp.Lt,
+                    op=ast.CompareOperationOp.LtEq,
                 ),
             ],
         )

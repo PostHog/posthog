@@ -8,12 +8,15 @@ import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import {
     AnyResponseType,
+    WebActiveHoursHeatMapDayAndHourResult,
+    WebActiveHoursHeatMapDayResult,
+    WebActiveHoursHeatMapHourResult,
     WebActiveHoursHeatMapQuery,
-    WebActiveHoursHeatMapResult,
+    WebActiveHoursHeatMapStructuredResult,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { DaysAbbreviated, HoursAbbreviated, Sum } from './config'
+import { AggregationLabel, DaysAbbreviated, HoursAbbreviated } from './config'
 import { HeatMapCell } from './HeatMapCell'
 
 interface EventsHeatMapProps {
@@ -73,7 +76,7 @@ export function EventsHeatMap({ query, context, cachedResults }: EventsHeatMapPr
         })
     )
 
-    const { matrix, maxValue, xAggregations, yAggregations, maxXAggregation, maxYAggregation, overallValue } =
+    const { matrix, maxOverall, xAggregations, yAggregations, maxXAggregation, maxYAggregation, overallValue } =
         processData(response?.results ?? [])
 
     const rotatedYLabels = [
@@ -95,14 +98,16 @@ export function EventsHeatMap({ query, context, cachedResults }: EventsHeatMapPr
                         {HoursAbbreviated.values.map((label, i) => (
                             <th key={i}>{label}</th>
                         ))}
-                        {yAggregations[0] !== undefined && <th className="aggregation-border">{Sum.label}</th>}
+                        {yAggregations[0] !== undefined && (
+                            <th className="aggregation-border">{AggregationLabel.All}</th>
+                        )}
                     </tr>
 
                     {/* Data rows */}
                     {rotatedYLabels.map((day, yIndex) => (
                         <tr key={yIndex}>
                             <td className="EventsHeatMap__TextTab">{day}</td>
-                            {renderDataCells(matrix[yIndex], maxValue, day, showTooltip, fontSize, heatmapColor)}
+                            {renderDataCells(matrix[yIndex], maxOverall, day, showTooltip, fontSize, heatmapColor)}
                             {renderYAggregationCell(
                                 yAggregations[yIndex],
                                 maxYAggregation,
@@ -116,7 +121,9 @@ export function EventsHeatMap({ query, context, cachedResults }: EventsHeatMapPr
 
                     {/* Aggregation row */}
                     <tr className="aggregation-border">
-                        {xAggregations[0] !== undefined && <td className="EventsHeatMap__TextTab">{Sum.label}</td>}
+                        {xAggregations[0] !== undefined && (
+                            <td className="EventsHeatMap__TextTab">{AggregationLabel.All}</td>
+                        )}
                         {renderAggregationCells(
                             xAggregations,
                             maxXAggregation,
@@ -132,9 +139,9 @@ export function EventsHeatMap({ query, context, cachedResults }: EventsHeatMapPr
     )
 }
 
-function processData(results: WebActiveHoursHeatMapResult[]): {
+function processData(results?: WebActiveHoursHeatMapStructuredResult): {
     matrix: { [key: number]: { [key: number]: number } }
-    maxValue: number
+    maxOverall: number
     xAggregations: { [key: number]: number }
     yAggregations: { [key: number]: number }
     maxXAggregation: number
@@ -142,9 +149,7 @@ function processData(results: WebActiveHoursHeatMapResult[]): {
     overallValue: number
 } {
     const matrix: { [key: number]: { [key: number]: number } } = {}
-    let maxValue = 0
-    let maxXAggregation = 0
-    let maxYAggregation = 0
+    let maxOverall = 0
 
     // Initialize matrix
     for (let i = 0; i < DaysAbbreviated.values.length; i++) {
@@ -154,42 +159,49 @@ function processData(results: WebActiveHoursHeatMapResult[]): {
         }
     }
 
-    // Fill matrix
-    results.forEach((result) => {
-        const adjustedDay =
-            (result.day - (DaysAbbreviated.startIndex || 0) + DaysAbbreviated.values.length) %
-            DaysAbbreviated.values.length
-        matrix[adjustedDay][result.hour] = result.total
-        maxValue = Math.max(maxValue, result.total)
-    })
-
-    // Calculate aggregations
-    const xAggregations = calculateXAggregations(matrix)
-    const yAggregations = calculateYAggregations(matrix)
-    maxXAggregation = Math.max(...Object.values(xAggregations))
-    maxYAggregation = Math.max(...Object.values(yAggregations))
-
-    const allValues = Object.values(matrix).flatMap((row) => Object.values(row))
-    const overallValue = Sum.fn(allValues)
-
-    return { matrix, maxValue, xAggregations, yAggregations, maxXAggregation, maxYAggregation, overallValue }
-}
-
-function calculateXAggregations(matrix: { [key: number]: { [key: number]: number } }): { [key: number]: number } {
-    const xAggregations: { [key: number]: number } = {}
-    for (let x = 0; x < HoursAbbreviated.values.length; x++) {
-        const values = Object.values(matrix).map((day) => day[x])
-        xAggregations[x] = Sum.fn(values)
+    // Fill matrix with day-hour combinations
+    if (results?.dayAndHours) {
+        results.dayAndHours.forEach((result: WebActiveHoursHeatMapDayAndHourResult) => {
+            const adjustedDay =
+                (result.day - (DaysAbbreviated.startIndex || 0) + DaysAbbreviated.values.length) %
+                DaysAbbreviated.values.length
+            matrix[adjustedDay][result.hour] = result.total
+            maxOverall = Math.max(maxOverall, result.total)
+        })
     }
-    return xAggregations
-}
 
-function calculateYAggregations(matrix: { [key: number]: { [key: number]: number } }): { [key: number]: number } {
-    const yAggregations: { [key: number]: number } = {}
-    for (let y = 0; y < DaysAbbreviated.values.length; y++) {
-        yAggregations[y] = Sum.fn(Object.values(matrix[y]))
+    // Calculate x aggregations from hours data
+    const xAggregations: { [key: number]: number } = Array.from({ length: HoursAbbreviated.values.length }, () => 0)
+    if (results?.hours) {
+        results.hours.forEach((result: WebActiveHoursHeatMapHourResult) => {
+            xAggregations[result.hour] = result.total
+        })
     }
-    return yAggregations
+
+    // Calculate y aggregations from days data
+    const yAggregations: { [key: number]: number } = Array.from({ length: DaysAbbreviated.values.length }, () => 0)
+    if (results?.days) {
+        results.days.forEach((result: WebActiveHoursHeatMapDayResult) => {
+            const adjustedDay =
+                (result.day - (DaysAbbreviated.startIndex || 0) + DaysAbbreviated.values.length) %
+                DaysAbbreviated.values.length
+            yAggregations[adjustedDay] = result.total
+        })
+    }
+
+    const maxXAggregation = Math.max(...Object.values(xAggregations), 0)
+    const maxYAggregation = Math.max(...Object.values(yAggregations), 0)
+    const overallValue = results?.total ?? 0
+
+    return {
+        matrix,
+        maxOverall,
+        xAggregations,
+        yAggregations,
+        maxXAggregation,
+        maxYAggregation,
+        overallValue,
+    }
 }
 
 function renderOverallCell(
@@ -206,7 +218,7 @@ function renderOverallCell(
                 value={overallValue}
                 maxValue={overallValue}
                 backgroundColor={backgroundColorOverall}
-                dayAndTime={Sum.label}
+                dayAndTime={AggregationLabel.All}
             />
         </td>
     )
@@ -227,7 +239,7 @@ function renderAggregationCells(
                 value={xAggregations[x]}
                 maxValue={maxXAggregation}
                 backgroundColor={aggregationColor}
-                dayAndTime={`${Sum.label} - ${String(x).padStart(2, '0')}:00`}
+                dayAndTime={`${AggregationLabel.All} - ${String(x).padStart(2, '0')}:00`}
             />
         </td>
     ))
@@ -249,7 +261,7 @@ function renderYAggregationCell(
                 value={value}
                 maxValue={maxYAggregation}
                 backgroundColor={aggregationColor}
-                dayAndTime={`${Sum.label} - ${day}`}
+                dayAndTime={`${AggregationLabel.All} - ${day}`}
             />
         </td>
     )
