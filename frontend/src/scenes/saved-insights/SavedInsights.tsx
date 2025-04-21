@@ -430,6 +430,16 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: false,
     },
+    [NodeKind.CodebaseTreeQuery]: {
+        name: 'Codebase Tree',
+        icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.SyncedArtifactsQuery]: {
+        name: 'Synced Codebase Files',
+        icon: IconHogQL,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
