@@ -28,19 +28,26 @@ class WebActiveHoursHeatMapQueryRunner(WebAnalyticsQueryRunner):
         query = parse_select(
             """
             SELECT
-                mapKeys(uniqMap(map(concat(toString(toDayOfWeek(timestamp)), ',' ,toString(toHour(timestamp))), events.person_id))) as hoursAndDaysKeys,
-                mapValues(uniqMap(map(concat(toString(toDayOfWeek(timestamp)), ',' ,toString(toHour(timestamp))), events.person_id))) as hoursAndDaysValues,
-                mapKeys(uniqMap(map(toHour(timestamp), events.person_id))) as hoursKeys,
-                mapValues(uniqMap(map(toHour(timestamp), events.person_id))) as hoursValues,
-                mapKeys(uniqMap(map(toDayOfWeek(timestamp), events.person_id))) as daysKeys,
-                mapValues(uniqMap(map(toDayOfWeek(timestamp), events.person_id))) as daysValues,
-                uniq(person_id) as total
-            FROM events
-            WHERE and(
-                event = '$pageview',
-                {all_properties},
-                {current_period}
-            )
+                mapKeys(query.hoursAndDays) as hoursAndDaysKeys,
+                mapValues(query.hoursAndDays) as hoursAndDaysValues,
+                mapKeys(query.hours) as hoursKeys,
+                mapValues(query.hours) as hoursValues,
+                mapKeys(query.days) as daysKeys,
+                mapValues(query.days) as daysValues,
+                query.total
+            FROM (
+                SELECT
+                    uniqMap(map(concat(toString(toDayOfWeek(timestamp)), ',' ,toString(toHour(timestamp))), events.person_id)) as hoursAndDays,
+                    uniqMap(map(toHour(timestamp), events.person_id)) as hours,
+                    uniqMap(map(toDayOfWeek(timestamp), events.person_id)) as days,
+                    uniq(person_id) as total
+                FROM events
+                WHERE and(
+                    event = '$pageview',
+                    {all_properties},
+                    {current_period}
+                )
+            ) as query
             """,
             placeholders={
                 "all_properties": self._all_properties(),
