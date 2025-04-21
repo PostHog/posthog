@@ -12,31 +12,32 @@ impl TokenDropper {
     pub fn new(config: &str) -> Self {
         let mut to_drop = HashMap::new();
 
-        for part in config.split(',') {
-            if part.trim().is_empty() {
+        for entry in config.split(',') {
+            if entry.trim().is_empty() {
                 continue;
             }
-            let parts: Vec<&str> = part.split(':').filter(|s| !s.trim().is_empty()).collect();
-            let Some(token) = parts.first() else {
-                warn!("Invalid format in part {}", part);
+            let mut parts = entry.split(':');
+
+            // fetch token if present and nonempty; if no token, we reject this entry
+            let Some(token) = parts.find(|s| !s.trim().is_empty()) else {
+                warn!("Invalid format in part {}", entry);
                 continue;
             };
 
-            match parts.get(1) {
-                Some(id) => {
-                    let entry = to_drop
-                        .entry(token.to_string())
-                        .or_insert_with(|| Some(Vec::new()));
-                    if let Some(ids) = entry {
-                        ids.push(id.to_string());
-                    }
+            // fetch distinct_id if present and nonempty
+            if let Some(id) = parts.find(|s| !s.trim().is_empty()) {
+                let entry = to_drop
+                    .entry(token.to_string())
+                    .or_insert_with(|| Some(Vec::new()));
+                if let Some(ids) = entry {
+                    ids.push(id.to_string());
                 }
-                None => {
-                    // No distinct_id means drop all events for this token
-                    to_drop.insert(token.to_string(), None);
-                }
+            } else {
+                // No distinct_id means drop all events for this token
+                to_drop.insert(token.to_string(), None);
             }
         }
+
         Self { to_drop }
     }
 
