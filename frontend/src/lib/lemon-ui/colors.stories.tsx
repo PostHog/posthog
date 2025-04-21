@@ -93,7 +93,6 @@ const threeThousand = [
     ['bg-brand-key', 'bg-red-500'],
 
     // PostHog 3000
-    ['bg-text-3000-light', 'bg-red-500'],
     ['bg-text-secondary-3000-light', 'bg-red-500'],
     ['bg-muted-3000-light', 'bg-red-500'],
     ['bg-trace-3000-light', 'bg-red-500'],
@@ -125,7 +124,6 @@ const threeThousand = [
     ['bg-danger-3000-button-border-light', 'bg-red-500'],
     ['bg-danger-3000-button-border-hover-light', 'bg-red-500'],
 
-    ['bg-text-3000-dark', 'bg-red-500'],
     ['bg-text-secondary-3000-dark', 'bg-red-500'],
     ['bg-muted-3000-dark', 'bg-red-500'],
     ['bg-trace-3000-dark', 'bg-red-500'],
@@ -148,9 +146,8 @@ const threeThousand = [
     ['bg-danger-3000-button-border-hover-dark', 'bg-red-500'],
 
     // The derived colors
-    // `--default` is a pre-3000 alias for "default text color" (`--text-3000` now)
+    // `--default` is a pre-3000 alias for "default text color" (`--text-primary` now)
     ['bg-default', 'bg-red-500'],
-    ['bg-text-3000', 'bg-red-500'],
     ['bg-text-secondary-3000', 'bg-red-500'],
     ['bg-muted-3000', 'bg-red-500'],
     ['bg-primary-3000', 'bg-red-500'],

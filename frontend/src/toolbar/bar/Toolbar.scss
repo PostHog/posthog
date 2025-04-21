@@ -46,7 +46,7 @@
     }
 
     & .ReactModalPortal {
-        color: var(--text-3000);
+        color: var(--text-primary);
     }
 }
 
@@ -66,7 +66,7 @@
         margin-left: -15rem;
         overflow: hidden;
         overflow-y: auto;
-        color: var(--text-3000);
+        color: var(--text-primary);
         background-color: var(--bg-primary);
         filter: drop-shadow(0 5px 10px var(--trace-3000));
         border-radius: var(--radius);

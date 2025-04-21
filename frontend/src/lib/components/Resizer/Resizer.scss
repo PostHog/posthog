@@ -63,7 +63,7 @@
         }
 
         &::after {
-            background: var(--text-3000);
+            background: var(--text-primary);
             opacity: 0;
             transition: 100ms ease transform;
         }

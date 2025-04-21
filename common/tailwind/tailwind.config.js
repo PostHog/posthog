@@ -15,9 +15,7 @@ const commonColors = {
 
 const deprecatedColors = {
     'primary-highlight-light': 'var(--primary-highlight-light)',
-    'text-3000-light': 'var(--text-3000-light)',
     'text-secondary-3000-light': 'var(--text-secondary-3000-light)',
-    'muted-3000-light': 'var(--muted-3000-light)',
     'trace-3000-light': 'var(--trace-3000-light)',
     'primary-3000-light': 'var(--primary-3000-light)',
     'primary-3000-hover-light': 'var(--primary-3000-hover-light)',
@@ -44,7 +42,6 @@ const deprecatedColors = {
     'danger-3000-button-border-hover-light': 'var(--danger-3000-button-border-hover-light)',
 
     // PostHog 3000 - Dark mode
-    'text-3000-dark': 'var(--text-3000-dark)',
     'text-secondary-3000-dark': 'var(--text-secondary-3000-dark)',
     'muted-3000-dark': 'var(--muted-3000-dark)',
     'trace-3000-dark': 'var(--trace-3000-dark)',
@@ -81,9 +78,7 @@ const deprecatedColors = {
     // --color-shadow-elevation-3000-dark: var(--shadow-elevation-3000-dark);
 
     // The derived colors
-    // `--default` is a pre-3000 alias for "default text color" (`--text-3000` now)
     // --color-default: var(--default);
-    // --color-text-3000: var(--text-3000);
     // --color-text-secondary-3000: var(--text-secondary-3000);
     // --color-muted-3000: var(--muted-3000);
     // --color-primary-3000: var(--primary-3000);
@@ -97,9 +92,9 @@ const deprecatedColors = {
 
     // 'primary': 'var(--primary-3000)',
     'muted': 'var(--muted-3000)',
-    'default': 'var(--text-3000)',
+    'default': 'var(--text-primary)',
     'muted-alt': 'var(--muted-3000)',
-    'primary-alt': 'var(--text-3000)',
+    'primary-alt': 'var(--text-primary)',
 
     // --color-border: var(--border-primary);
     // --color-border-bold: var(--border-bold-3000);
@@ -267,7 +262,6 @@ const deprecatedColors = {
     'brand-yellow': 'var(--brand-yellow)',
     'brand-key': 'var(--brand-key)',
     'accent': 'var(--accent)',
-    'text-3000': 'var(--text-3000)',
     'text-secondary-3000': 'var(--text-secondary-3000)',
     'muted-3000': 'var(--muted-3000)',
     'trace-3000': 'var(--trace-3000)',

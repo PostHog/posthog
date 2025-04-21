@@ -89,7 +89,7 @@
             font-size: 0.8em;
             font-weight: 600;
             color: #fff;
-            background-color: var(--text-3000);
+            background-color: var(--text-primary);
             border-radius: 0.75rem;
             opacity: 0;
             transition-timing-function: cubic-bezier(0.455, 0.03, 0.31, 1.585);
@@ -101,7 +101,7 @@
                 margin-top: -10px;
                 content: ' ';
                 border: 10px solid transparent;
-                border-left-color: var(--text-3000);
+                border-left-color: var(--text-primary);
             }
 
             &.BridgePage__left__message--enter {

@@ -156,7 +156,7 @@ export function AddToDashboardModal({
                     onChange={(newValue) => setSearchQuery(newValue)}
                 />
                 <div className="text-secondary">
-                    This insight is referenced on <strong className="text-text-3000">{currentDashboards.length}</strong>{' '}
+                    This insight is referenced on <strong className="text-primary">{currentDashboards.length}</strong>{' '}
                     {pluralize(currentDashboards.length, 'dashboard', 'dashboards', false)}
                 </div>
                 <div className="min-h-[420px]">
