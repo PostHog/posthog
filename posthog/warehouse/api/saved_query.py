@@ -18,6 +18,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
+from temporalio.client import ScheduleActionExecutionStartWorkflow
 from posthog.warehouse.models import (
     CLICKHOUSE_HOGQL_MAPPING,
     DataWarehouseJoin,
@@ -345,20 +346,34 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         try:
             # Ad-hoc handling
-            workflow_handle = temporal.get_workflow_handle(workflow_id)
-            if workflow_handle:
-                async_to_sync(workflow_handle.cancel)()
+            try:
+                workflow_handle = temporal.get_workflow_handle(workflow_id)
+                if workflow_handle:
+                    async_to_sync(workflow_handle.cancel)()
+            except Exception:
+                logger.info("No ad-hoc workflow to cancel", workflow_id=workflow_id)
 
             # Schedule handling
-            scheduled_workflow_handle = temporal.get_schedule_handle(str(saved_query.id))
-            if scheduled_workflow_handle:
-                desc = async_to_sync(scheduled_workflow_handle.describe)()
-                recent_actions = desc.info.running_actions
-                if len(recent_actions) > 0:
-                    workflow_id_to_cancel = recent_actions[-1].workflow_id
-                    workflow_handle_to_cancel = temporal.get_workflow_handle(workflow_id_to_cancel)
-                    if workflow_handle_to_cancel:
-                        async_to_sync(workflow_handle_to_cancel.cancel)()
+            try:
+                scheduled_workflow_handle = temporal.get_schedule_handle(str(saved_query.id))
+                if scheduled_workflow_handle:
+                    desc = async_to_sync(scheduled_workflow_handle.describe)()
+                    recent_actions = desc.info.running_actions
+                    if len(recent_actions) > 0:
+                        most_recent_action = recent_actions[-1]
+                        if isinstance(most_recent_action, ScheduleActionExecutionStartWorkflow):
+                            workflow_id_to_cancel = most_recent_action.workflow_id
+                        else:
+                            logger.warning(
+                                "Unexpected action type in schedule",
+                                action_type=type(most_recent_action).__name__,
+                            )
+
+                        workflow_handle_to_cancel = temporal.get_workflow_handle(workflow_id_to_cancel)
+                        if workflow_handle_to_cancel:
+                            async_to_sync(workflow_handle_to_cancel.cancel)()
+            except Exception:
+                logger.info("No scheduled workflow to cancel", saved_query_id=str(saved_query.id))
 
             # Update saved query status, but not the data modeling job which occurs in the workflow
             # This is because the saved_query is used by our UI to prevent multiple cancellations
