@@ -150,6 +150,7 @@ We've decided to standardize on **BillingUsage4** as our canonical implementatio
     - [x] Fetch `stripe.Price` objects using `customer.get_product_to_price_map()`.
     - [x] Calculate daily spend per type by diffing cumulative costs (using fetched prices and `usage_to_amount_usd`) considering billing period resets.
     - [x] Handle total spend aggregation.
+    - [x] Apply simple average smoothing for days with missing/empty `usage_sent_to_stripe` data.
     - [x] Handle breakdown by type.
     - [x] Handle breakdown by team/type+team via proportional volume allocation based on `report['teams']`.
     - [x] Implement interval aggregation ('day', 'week', 'month').
@@ -157,6 +158,26 @@ We've decided to standardize on **BillingUsage4** as our canonical implementatio
 - [x] Register URL in `billing/urls.py`.
 - [ ] Add unit tests for `get_spend_data` (tiers, resets, breakdowns, edge cases).
 - [ ] Update PostHog proxy if needed.
+
+## Phase: Implement Separate Spend View
+
+- [ ] Create `billingSpendLogic.ts` based on `billingUsageLogic.ts`:
+  - [ ] Rename logic, paths, keys.
+  - [ ] Rename loader/action to `billingSpendResponse`/`loadBillingSpend`.
+  - [ ] Point loader to new `/api/billing/spend/` endpoint.
+  - [ ] Remove `usage_type` from filters and API params.
+- [ ] Create `BillingSpendView.tsx` based on `BillingUsage4.tsx`:
+  - [ ] Use `billingSpendLogic`.
+  - [ ] Remove "Usage type" filter select.
+  - [ ] Remove usage type banner.
+  - [ ] Adapt graph rendering for currency formatting (Y-axis, tooltips).
+  - [ ] Adapt table rendering for currency formatting (cells, totals).
+- [ ] Add PostHog API endpoint (`ee/api/billing.py`):
+  - [ ] Add `@action` `spend` to `BillingViewset`.
+  - [ ] Implement auth checks.
+  - [ ] Call new `BillingManager.get_spend_data` to proxy to `/api/usage-v2/spend/`.
+- [ ] Add frontend route for `/billing/spend` pointing to `BillingSpendView`.
+- [ ] Add "Spend" tab to billing sub-navigation UI.
 
 ## Best Practices Implemented
 

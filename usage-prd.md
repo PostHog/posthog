@@ -911,10 +911,12 @@ def handle_usage_errors(func):
     - Fetching `stripe.Price` objects using `customer.get_product_to_price_map()`.
     - Iterating through the requested date range + 1 prior day.
     - Calculating daily spend per product type by determining the difference in cumulative cost between the current day and the last known valid cumulative cost baseline within the current billing period. The baseline is tracked and updated daily, resetting only on billing period changes (detected via `reported_to_period_end`). Cumulative cost is calculated using `usage_to_amount_usd` with the fetched prices and the cumulative usage from `usage_sent_to_stripe`.
-    - Aggregating the calculated daily spend based on the requested `interval`.
+    - Applying simple average smoothing: If `usage_sent_to_stripe` is missing or empty for one or more consecutive days, the spend calculated on the *next* day with data is averaged across the gap days (including the update day) to provide a smoother representation.
+    - Aggregating the calculated (and potentially smoothed) daily spend based on the requested `interval`.
 - Breakdowns supported:
     - Total (No Breakdown): Sums the calculated spend across all types for each interval period.
     - By Type: Returns a separate series for the calculated spend of each billable product type.
     - By Team: Calculates spend per type, allocates it proportionally to teams based on their volume contribution *for that specific type* within the interval, and then sums the allocated amounts per team across all types.
     - By Type & Team: Calculates spend per type and allocates it proportionally to teams based on their volume contribution *for that specific type* within the interval. Returns a series for each type/team combination.
 - Parameters are `organization_id`, `start_date`, `end_date`, `breakdowns`, `interval`.
+

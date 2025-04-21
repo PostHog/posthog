@@ -434,6 +434,42 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise
 
+    @action(methods=["GET"], detail=False, url_path="spend")
+    def spend(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        """Endpoint to fetch spend data (proxy to billing service)."""
+        user = self.request.user
+        if not isinstance(user, AbstractUser):
+            raise PermissionDenied("You must be logged in to access spend data")
+
+        organization = self._get_org_required()
+
+        membership = OrganizationMembership.objects.get(user=user, organization=organization)
+        if membership.level < OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied("You need to be an organization admin or owner to access spend data")
+
+        billing_manager = self.get_billing_manager()
+
+        try:
+            # Assume BillingManager has a method to fetch spend data
+            res = billing_manager.get_spend_data(organization, request.GET)
+            return Response(res, status=status.HTTP_200_OK)
+        except Exception as e:
+            if len(e.args) > 2:
+                detail_object = e.args[2]
+                if not isinstance(detail_object, dict):
+                    raise
+                # Re-use the same error formatting
+                return Response(
+                    {
+                        "statusText": e.args[0],
+                        "detail": detail_object.get("error_message", detail_object),
+                        "code": detail_object.get("code"),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            else:
+                raise
+
     def _get_org(self) -> Optional[Organization]:
         org = None if self.request.user.is_anonymous else self.request.user.organization
 

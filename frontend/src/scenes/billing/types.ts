@@ -14,6 +14,7 @@ export type BillingGaugeItemType = {
 
 export type BillingSectionId =
     | 'overview'
+    | 'spend'
     | 'usage'
     | 'usage2'
     | 'usage3'

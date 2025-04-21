@@ -477,3 +477,17 @@ class BillingManager:
         handle_billing_service_error(res)
 
         return res.json()
+
+    def get_spend_data(self, organization: Organization, params: dict[str, Any]) -> dict[str, Any]:
+        """
+        Get spend data from the billing service.
+        """
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/usage-v2/spend/",
+            headers=self.get_auth_headers(organization),
+            params=params,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()

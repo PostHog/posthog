@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { billingLogic } from './billingLogic'
 import { BillingOverview } from './BillingOverview'
+import { BillingSpendView } from './BillingSpendView'
 import { BillingUsage } from './BillingUsage'
 import { BillingUsage2 } from './BillingUsage2'
 import { BillingUsage3 } from './BillingUsage3'
@@ -24,7 +25,9 @@ export function BillingSection(): JSX.Element {
     const { billingLoading } = useValues(billingLogic)
     const { location } = useValues(router)
 
-    const section = location.pathname.includes('usage5')
+    const section = location.pathname.includes('spend')
+        ? 'spend'
+        : location.pathname.includes('usage5')
         ? 'usage5'
         : location.pathname.includes('usage4')
         ? 'usage4'
@@ -49,6 +52,7 @@ export function BillingSection(): JSX.Element {
                 onChange={(key) => router.actions.push(urls.organizationBillingSection(key))}
                 tabs={[
                     { key: 'overview', label: 'Overview' },
+                    { key: 'spend', label: 'Spend' },
                     { key: 'usage', label: 'Usage (LineGraph Insight)' },
                     { key: 'usage2', label: 'Usage (DataViz)' },
                     { key: 'usage3', label: 'Usage (LineGraph DataViz)' },
@@ -58,6 +62,7 @@ export function BillingSection(): JSX.Element {
             />
 
             {section === 'overview' && <BillingOverview />}
+            {section === 'spend' && <BillingSpendView />}
             {section === 'usage' && <BillingUsage />}
             {section === 'usage2' && <BillingUsage2 />}
             {section === 'usage3' && <BillingUsage3 />}
