@@ -17,8 +17,8 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.storage import object_storage
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.storage.session_recording_v2_object_storage import client as v2_client
-from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
+from posthog.temporal.session_recordings.queries import get_session_metadata
 
 
 def decompress_and_parse_gzipped_json(data: bytes) -> list[Any]:
@@ -347,67 +347,8 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
                 add_url(v2_urls, url)
 
         # Get metadata counts
-        def get_metadata_counts(team_id: int, session_id: str, table_name: str) -> dict[str, int]:
-            query = f"""
-                SELECT
-                    session_id,
-                    team_id,
-                    any(distinct_id) as distinct_id,
-                    min(min_first_timestamp) as min_first_timestamp_agg,
-                    max(max_last_timestamp) as max_last_timestamp_agg,
-                    argMinMerge(first_url) as first_url,
-                    groupUniqArrayArray(all_urls) as all_urls,
-                    sum(click_count) as click_count,
-                    sum(keypress_count) as keypress_count,
-                    sum(mouse_activity_count) as mouse_activity_count,
-                    sum(active_milliseconds) as active_milliseconds,
-                    sum(console_log_count) as console_log_count,
-                    sum(console_warn_count) as console_warn_count,
-                    sum(console_error_count) as console_error_count,
-                    sum(event_count) as event_count,
-                    argMinMerge(snapshot_source) as snapshot_source,
-                    argMinMerge(snapshot_library) as snapshot_library
-                FROM {table_name}
-                WHERE team_id = %(team_id)s
-                AND session_id = %(session_id)s
-                GROUP BY session_id, team_id
-                LIMIT 1
-            """
-            result = sync_execute(
-                query,
-                {
-                    "team_id": team_id,
-                    "session_id": session_id,
-                },
-            )
-            if not result:
-                return {
-                    "click_count": 0,
-                    "mouse_activity_count": 0,
-                    "keypress_count": 0,
-                    "event_count": 0,
-                    "console_log_count": 0,
-                    "console_warn_count": 0,
-                    "console_error_count": 0,
-                    "first_url": None,
-                    "all_urls": [],
-                }
-
-            row = result[0]
-            return {
-                "click_count": row[7],  # click_count index
-                "keypress_count": row[8],  # keypress_count index
-                "mouse_activity_count": row[9],  # mouse_activity_count index
-                "console_log_count": row[11],  # console_log_count index
-                "console_warn_count": row[12],  # console_warn_count index
-                "console_error_count": row[13],  # console_error_count index
-                "event_count": row[14],  # event_count index
-                "first_url": row[5],  # first_url index
-                "all_urls": row[6],  # all_urls index
-            }
-
-        v1_metadata = get_metadata_counts(team.pk, recording.session_id, "session_replay_events")
-        v2_metadata = get_metadata_counts(team.pk, recording.session_id, "session_replay_events_v2_test")
+        v1_metadata = get_session_metadata(team.pk, recording.session_id, "session_replay_events")
+        v2_metadata = get_session_metadata(team.pk, recording.session_id, "session_replay_events_v2_test")
 
         # Compare URLs
         await logger.ainfo(
