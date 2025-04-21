@@ -29,6 +29,7 @@ use std::{
     net::IpAddr,
     sync::Arc,
 };
+use urlencoding;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
@@ -70,6 +71,12 @@ pub struct FlagsQueryParams {
     #[serde(alias = "_")]
     pub sent_at: Option<i64>,
 }
+
+#[derive(Deserialize)]
+struct FormData {
+    data: String,
+}
+
 pub struct RequestContext {
     /// Shared state holding services (DB, Redis, GeoIP, etc.)
     pub state: State<router::State>,
@@ -435,22 +442,6 @@ fn decode_form_data(
     body: Bytes,
     compression: Option<Compression>,
 ) -> Result<FlagRequest, FlagError> {
-    #[derive(Deserialize)]
-    struct FormData {
-        data: String,
-    }
-
-    let form_data_str = String::from_utf8(body.to_vec()).map_err(|e| {
-        FlagError::RequestDecodingError(format!("Invalid UTF-8 in form data: {}", e))
-    })?;
-    let form: FormData = serde_urlencoded::from_str(&form_data_str).map_err(|e| {
-        FlagError::RequestDecodingError(format!("Failed to parse form data: {}", e))
-    })?;
-
-    let data_str = urlencoding::decode(&form.data)
-        .map_err(|e| FlagError::RequestDecodingError(format!("URL decode error: {}", e)))?
-        .into_owned();
-
     match compression {
         Some(Compression::Gzip) => Err(FlagError::RequestDecodingError(
             "Gzip compression not supported for form-urlencoded data".to_string(),
@@ -458,11 +449,40 @@ fn decode_form_data(
         Some(Compression::Unsupported) => Err(FlagError::RequestDecodingError(
             "Unsupported compression type".to_string(),
         )),
-        _ => {
-            let decoded_bytes = general_purpose::STANDARD.decode(data_str).map_err(|e| {
+        Some(Compression::Base64) | None => {
+            // Parse form data into a utf-8 string
+            let form_data_str = String::from_utf8(body.to_vec()).map_err(|e| {
+                FlagError::RequestDecodingError(format!("Invalid UTF-8 in form data: {}", e))
+            })?;
+
+            let form: FormData = serde_urlencoded::from_str(&form_data_str).map_err(|e| {
+                FlagError::RequestDecodingError(format!("Failed to parse form data: {}", e))
+            })?;
+
+            // URL decode first (matching Python's unquote)
+            let decoded_form = urlencoding::decode(&form.data)
+                .map_err(|e| FlagError::RequestDecodingError(format!("URL decode error: {}", e)))?
+                .into_owned();
+
+            // Remove spaces only (not all whitespace)
+            let no_spaces = decoded_form.replace(' ', "");
+
+            // Add padding if necessary
+            let padded = match no_spaces.len() % 4 {
+                0 => no_spaces,
+                n => no_spaces + &"=".repeat(4 - n),
+            };
+
+            // Finally decode base64
+            let decoded = general_purpose::STANDARD.decode(&padded).map_err(|e| {
                 FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
             })?;
-            FlagRequest::from_bytes(Bytes::from(decoded_bytes))
+
+            // Use from_utf8_lossy to handle invalid UTF-8 sequences (matching Python's surrogatepass)
+            let decoded_str = String::from_utf8_lossy(&decoded);
+
+            serde_json::from_str(&decoded_str)
+                .map_err(|e| FlagError::RequestDecodingError(format!("JSON parsing error: {}", e)))
         }
     }
 }
@@ -903,6 +923,146 @@ mod tests {
         let request = result.unwrap();
         assert_eq!(request.token, Some("test_token".to_string()));
         assert_eq!(request.distinct_id, Some("user123".to_string()));
+    }
+
+    #[test]
+    fn test_decode_form_data_padding() {
+        let test_cases = vec![
+            // No padding needed
+            ("data=eyJ0b2tlbiI6InRlc3QifQ==", true),
+            // Missing one padding character
+            ("data=eyJ0b2tlbiI6InRlc3QifQ=", true),
+            // Missing two padding characters
+            ("data=eyJ0b2tlbiI6InRlc3QifQ", true),
+            // With whitespace
+            ("data=eyJ0b2tlbiI6I nRlc3QifQ==", true),
+        ];
+
+        for (input, should_succeed) in test_cases {
+            let body = Bytes::from(input);
+            let result = decode_form_data(body, None);
+
+            if should_succeed {
+                assert!(result.is_ok(), "Failed to decode: {}", input);
+                let request = result.unwrap();
+                if input.contains("bio") {
+                    // Verify we can handle newlines in the decoded JSON
+                    let person_properties = request.person_properties.unwrap();
+                    assert_eq!(
+                        person_properties.get("bio").unwrap().as_str().unwrap(),
+                        "line1\nline2"
+                    );
+                } else {
+                    assert_eq!(request.token, Some("test".to_string()));
+                }
+            } else {
+                assert!(result.is_err(), "Expected error for input: {}", input);
+            }
+        }
+    }
+
+    #[test]
+    fn test_decode_form_data_with_emojis() {
+        let json = json!({
+            "token": "test_token",
+            "distinct_id": "test_id",
+            "person_properties": {
+                "bio": "Hello 👋 World 🌍"
+            }
+        });
+
+        let base64 = general_purpose::STANDARD.encode(json.to_string());
+        let body = Bytes::from(format!("data={}", base64));
+
+        let result = decode_form_data(body, None);
+        assert!(result.is_ok(), "Failed to decode emoji content");
+
+        let request = result.unwrap();
+        assert_eq!(request.token, Some("test_token".to_string()));
+        assert_eq!(request.distinct_id, Some("test_id".to_string()));
+
+        let person_properties = request.person_properties.unwrap();
+        assert_eq!(
+            person_properties.get("bio").unwrap(),
+            &Value::String("Hello 👋 World 🌍".to_string())
+        );
+    }
+
+    #[test]
+    fn test_decode_form_data_compression_types() {
+        let input = "data=eyJ0b2tlbiI6InRlc3QifQ==";
+        let body = Bytes::from(input);
+
+        // Base64 compression should work
+        let result = decode_form_data(body.clone(), Some(Compression::Base64));
+        assert!(result.is_ok());
+
+        // No compression should work
+        let result = decode_form_data(body.clone(), None);
+        assert!(result.is_ok());
+
+        // Gzip compression should fail
+        let result = decode_form_data(body.clone(), Some(Compression::Gzip));
+        assert!(matches!(
+            result,
+            Err(FlagError::RequestDecodingError(msg)) if msg.contains("not supported")
+        ));
+
+        // Unsupported compression should fail
+        let result = decode_form_data(body, Some(Compression::Unsupported));
+        assert!(matches!(
+            result,
+            Err(FlagError::RequestDecodingError(msg)) if msg.contains("Unsupported")
+        ));
+    }
+
+    #[test]
+    fn test_decode_form_data_malformed_input() {
+        let test_cases = vec![
+            // Missing data= prefix
+            "eyJ0b2tlbiI6InRlc3QifQ==",
+            // Invalid base64
+            "data=!@#$%",
+            // Valid base64 but invalid JSON
+            "data=eyd9", // encoded '{'
+            // Empty input
+            "data=",
+        ];
+
+        for input in test_cases {
+            let body = Bytes::from(input);
+            let result = decode_form_data(body, None);
+            assert!(
+                result.is_err(),
+                "Expected error for malformed input: {}",
+                input
+            );
+        }
+    }
+
+    #[test]
+    fn test_decode_form_data_real_world_payload() {
+        let input = "data=eyJ0b2tlbiI6InNUTUZQc0ZoZFAxU3NnIiwiZGlzdGluY3RfaWQiOiIkcG9zdGhvZ19jb29raWVsZXNzIiwiZ3JvdXBzIjp7fSwicGVyc29uX3Byb3BlcnRpZXMiOnsiJGluaXRpYWxfcmVmZXJyZXIiOiIkZGlyZWN0IiwiJGluaXRpYWxfcmVmZXJyaW5nX2RvbWFpbiI6IiRkaXJlY3QiLCIkaW5pdGlhbF9jdXJyZW50X3VybCI6Imh0dHBzOi8vcG9zdGhvZy5jb20vIiwiJGluaXRpYWxfaG9zdCI6InBvc3Rob2cuY29tIiwiJGluaXRpYWxfcGF0aG5hbWUiOiIvIiwiJGluaXRpYWxfdXRtX3NvdXJjZSI6bnVsbCwiJGluaXRpYWxfdXRtX21lZGl1bSI6bnVsbCwiJGluaXRpYWxfdXRtX2NhbXBhaWduIjpudWxsLCIkaW5pdGlhbF91dG1fY29udGVudCI6bnVsbCwiJGluaXRpYWxfdXRtX3Rlcm0iOm51bGwsIiRpbml0aWFsX2dhZF9zb3VyY2UiOm51bGwsIiRpbml0aWFsX21jX2NpZCI6bnVsbCwiJGluaXRpYWxfZ2NsaWQiOm51bGwsIiRpbml0aWFsX2djbHNyYyI6bnVsbCwiJGluaXRpYWxfZGNsaWQiOm51bGwsIiRpbml0aWFsX2dicmFpZCI6bnVsbCwiJGluaXRpYWxfd2JyYWlkIjpudWxsLCIkaW5pdGlhbF9mYmNsaWQiOm51bGwsIiRpbml0aWFsX21zY2xraWQiOm51bGwsIiRpbml0aWFsX3R3Y2xpZCI6bnVsbCwiJGluaXRpYWxfbGlfZmF0X2lkIjpudWxsLCIkaW5pdGlhbF9pZ3NoaWQiOm51bGwsIiRpbml0aWFsX3R0Y2xpZCI6bnVsbCwiJGluaXRpYWxfcmR0X2NpZCI6bnVsbCwiJGluaXRpYWxfZXBpayI6bnVsbCwiJGluaXRpYWxfcWNsaWQiOm51bGwsIiRpbml0aWFsX3NjY2lkIjpudWxsLCIkaW5pdGlhbF9pcmNsaWQiOm51bGwsIiRpbml0aWFsX19reCI6bnVsbCwic3F1ZWFrRW1haWwiOiJsdWNhc0Bwb3N0aG9nLmNvbSIsInNxdWVha1VzZXJuYW1lIjoibHVjYXNAcG9zdGhvZy5jb20iLCJzcXVlYWtDcmVhdGVkQXQiOiIyMDI0LTEyLTE2VDE1OjU5OjAzLjQ1MVoiLCJzcXVlYWtQcm9maWxlSWQiOjMyMzg3LCJzcXVlYWtGaXJzdE5hbWUiOiJMdWNhcyIsInNxdWVha0xhc3ROYW1lIjoiRmFyaWEiLCJzcXVlYWtCaW9ncmFwaHkiOiJIb3cgZG8gcGVvcGxlIGRlc2NyaWJlIG1lOlxuXG4tIFNvbWV0aW1lcyBvYnNlc3NpdmVcbi0gT3Zlcmx5IG9wdGltaXN0aWNcbi0gTG9va3MgYXQgc2NyZWVucyBmb3Igd2F5IHRvbyBtYW55IGhvdXJzXG5cblllYWgsIEkgZ290IGFkZGljdGVkIHRvIGNvbXB1dGVycyBwcmV0dHkgeW91bmcgZHVlIHRvIFRpYmlhIGFuZCBSYWduYXJvayBPbmxpbmUg7aC97biFXG5cblRoYXQncyBhY3R1YWxseSBob3cgSSBsZWFybmVkIHRvIHNwZWFrIGVuZ2xpc2ghXG5cbkFueXdheSwgSSdtIEx1Y2FzLCBhIEJyYXppbGlhbiBlbmdpbmVlciB3aG8gbG92ZXMgY29kaW5nLCBhbmltYWxzLCBib29rcyBhbmQgbmF0dXJlLiBbTXkgZnVsbCBhYm91dCBwYWdlIGlzIGhlcmVdKGh0dHBzOi8vbHVjYXNmYXJpYS5kZXYvYWJvdXQpLlxuXG5JIGFsc28gW3B1Ymxpc2ggYSBuZXdzbGV0dGVyXShodHRwOi8vbmV3c2xldHRlci5uYWdyaW5nYS5kZXYvKSBmb3IgQnJhemlsaWFuIGVuZ2luZWVycywgaWYgeW91J3JlIGxvb2tpbmcgdG8gZ2V0IHNvbWUgY2FyZWVyIGluc2lnaHRzLlxuXG5JIGRvbid0IGtub3cgaG93IGRpZCBJIGdldCBoZXJlLCBidXQgSSdsbCB0cnkgbXkgYmVzdCB0byB0ZWFjaCB5b3UgZXZlcnl0aGluZyBJIGxlYXJuIGFsb25nIHRoZSB3YXkuIiwic3F1ZWFrQ29tcGFueSI6bnVsbCwic3F1ZWFrQ29tcGFueVJvbGUiOiJQcm9kdWN0IEVuZ2luZWVyIiwic3F1ZWFrR2l0aHViIjoiaHR0cHM6Ly9naXRodWIuY29tL2x1Y2FzaGVyaXF1ZXMiLCJzcXVlYWtMaW5rZWRJbiI6Imh0dHBzOi8vd3d3LmxpbmtlZGluLmNvbS9pbi9sdWNhcy1mYXJpYS8iLCJzcXVlYWtMb2NhdGlvbiI6IkJyYXppbCIsInNxdWVha1R3aXR0ZXIiOiJodHRwczovL3guY29tL29uZWx1Y2FzZmFyaWEiLCJzcXVlYWtXZWJzaXRlIjoiaHR0cHM6Ly9sdWNhc2ZhcmlhLmRldi8ifSwidGltZXpvbmUiOiJBbWVyaWNhL1Nhb19QYXVsbyJ9";
+        let body = Bytes::from(input);
+        let result = decode_form_data(body, Some(Compression::Base64));
+
+        assert!(result.is_ok(), "Failed to decode real world payload");
+        let request = result.unwrap();
+
+        // Verify key fields from the decoded request
+        assert_eq!(request.token, Some("sTMFPsFhdP1Ssg".to_string()));
+        assert_eq!(request.distinct_id, Some("$posthog_cookieless".to_string()));
+
+        // Verify we can handle the biography with newlines
+        let person_properties = request
+            .person_properties
+            .expect("Missing person_properties");
+        assert!(person_properties
+            .get("squeakBiography")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("\n"));
     }
 
     #[tokio::test]
