@@ -27,28 +27,20 @@ class WebActiveHoursHeatMapQueryRunner(WebAnalyticsQueryRunner):
     def to_query(self) -> ast.SelectQuery:
         query = parse_select(
             """
-            WITH (
-                SELECT
-                    uniqMap(map(concat(toString(toDayOfWeek(timestamp)), ',' ,toString(toHour(timestamp))), events.person_id)) as hoursAndDays,
-                    uniqMap(map(toHour(timestamp), events.person_id)) as hours,
-                    uniqMap(map(toDayOfWeek(timestamp), events.person_id)) as days,
-                    uniq(person_id) as total
-                FROM events
-                WHERE and(
-                    event = '$pageview',
-                    {all_properties},
-                    {current_period}
-                )
-            ) as cte
             SELECT
-                mapKeys(cte.hoursAndDays) as hoursAndDaysKeys,
-                mapValues(cte.hoursAndDays) as hoursAndDaysValues,
-                mapKeys(cte.hours) as hoursKeys,
-                mapValues(cte.hours) as hoursValues,
-                mapKeys(cte.days) as daysKeys,
-                mapValues(cte.days) as daysValues,
-                cte.total
-            FROM cte
+                mapKeys(uniqMap(map(concat(toString(toDayOfWeek(timestamp)), ',' ,toString(toHour(timestamp))), events.person_id))) as hoursAndDaysKeys,
+                mapValues(uniqMap(map(concat(toString(toDayOfWeek(timestamp)), ',' ,toString(toHour(timestamp))), events.person_id))) as hoursAndDaysValues,
+                mapKeys(uniqMap(map(toHour(timestamp), events.person_id))) as hoursKeys,
+                mapValues(uniqMap(map(toHour(timestamp), events.person_id))) as hoursValues,
+                mapKeys(uniqMap(map(toDayOfWeek(timestamp), events.person_id))) as daysKeys,
+                mapValues(uniqMap(map(toDayOfWeek(timestamp), events.person_id))) as daysValues,
+                uniq(person_id) as total
+            FROM events
+            WHERE and(
+                event = '$pageview',
+                {all_properties},
+                {current_period}
+            )
             """,
             placeholders={
                 "all_properties": self._all_properties(),
