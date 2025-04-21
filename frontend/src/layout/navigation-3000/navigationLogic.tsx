@@ -26,7 +26,6 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { lemonToast, Spinner } from '@posthog/lemon-ui'
-import { captureException } from '@sentry/react'
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -35,8 +34,10 @@ import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, isNotNil } from 'lib/utils'
+import { getAppContext } from 'lib/utils/getAppContext'
+import posthog from 'posthog-js'
 import React from 'react'
-import { editorSidebarLogic } from 'scenes/data-warehouse/editor/editorSidebarLogic'
+import { editorSceneLogic } from 'scenes/data-warehouse/editor/editorSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -45,7 +46,7 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { ReplayTabs } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ReplayTabs } from '~/types'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import type { navigation3000LogicType } from './navigationLogicType'
@@ -269,7 +270,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                 }
                 await category.onAdd(itemName)
             } catch (e) {
-                captureException(e)
+                posthog.captureException(e)
                 console.error(e)
                 lemonToast.error('Something went wrong while saving the item. Please try again.')
             } finally {
@@ -482,12 +483,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconGraph />,
                             logic: isUsingSidebar ? insightsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.savedInsights(),
-                            sideAction: {
-                                icon: <IconPlusSmall />, // The regular plus is too big
-                                to: urls.insightNew(),
-                                tooltip: 'New insight',
-                                identifier: Scene.Insight,
-                            },
+                            sideAction:
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight] ===
+                                AccessControlLevel.Editor
+                                    ? {
+                                          icon: <IconPlusSmall />, // The regular plus is too big
+                                          to: urls.insightNew(),
+                                          tooltip: 'New insight',
+                                          identifier: Scene.Insight,
+                                      }
+                                    : undefined,
                         },
                         {
                             identifier: Scene.WebAnalytics,
@@ -521,6 +526,16 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                                 },
                                             }
                                           : undefined,
+                              }
+                            : null,
+
+                        featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]
+                            ? {
+                                  identifier: Scene.RevenueAnalytics,
+                                  label: 'Revenue analytics',
+                                  icon: <IconPiggyBank />,
+                                  to: urls.revenueAnalytics(),
+                                  tag: 'beta' as const,
                               }
                             : null,
                         {
@@ -615,7 +630,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'SQL editor',
                             icon: <IconServer />,
                             to: urls.sqlEditor(),
-                            logic: editorSidebarLogic,
+                            logic: editorSceneLogic,
                         },
                         hasOnboardedAnyProduct
                             ? {
@@ -641,15 +656,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   icon: <IconMegaphone />,
                                   to: urls.messagingBroadcasts(),
                                   tag: 'alpha' as const,
-                              }
-                            : null,
-                        featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]
-                            ? {
-                                  identifier: Scene.RevenueAnalytics,
-                                  label: 'Revenue analytics',
-                                  icon: <IconPiggyBank />,
-                                  to: urls.revenueAnalytics(),
-                                  tag: 'beta' as const,
                               }
                             : null,
                     ].filter(isNotNil) as NavbarItem[],

@@ -1,4 +1,4 @@
-from typing import cast, Optional
+from typing import cast
 
 from posthog.hogql import ast
 from posthog.warehouse.models.external_data_source import ExternalDataSource
@@ -23,6 +23,12 @@ if TYPE_CHECKING:
     pass
 
 STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER = "Charge"
+STRIPE_DATA_WAREHOUSE_CUSTOMER_IDENTIFIER = "Customer"
+STRIPE_CHARGE_SUCCEEDED_STATUS = "succeeded"
+
+# Keep in sync with `revenueAnalyticsLogic.ts`
+CHARGE_REVENUE_VIEW_SUFFIX = "charge_revenue_view"
+CUSTOMER_REVENUE_VIEW_SUFFIX = "customer_revenue_view"
 
 # Stripe represents most currencies with integer amounts multiplied by 100,
 # since most currencies have its smallest unit as 1/100 of their base unit
@@ -47,9 +53,10 @@ ZERO_DECIMAL_CURRENCIES_IN_STRIPE: list[str] = [
     CurrencyCode.XPF.value,
 ]
 
-FIELDS: dict[str, FieldOrTable] = {
+CHARGE_FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id"),
     "timestamp": DateTimeDatabaseField(name="timestamp"),
+    "customer_id": StringDatabaseField(name="customer_id"),
     "original_amount": DecimalDatabaseField(name="original_amount"),
     "original_currency": StringDatabaseField(name="original_currency"),
     "currency_is_zero_decimal": BooleanDatabaseField(name="currency_is_zero_decimal"),
@@ -59,35 +66,51 @@ FIELDS: dict[str, FieldOrTable] = {
     "amount": DecimalDatabaseField(name="amount"),
 }
 
-STRIPE_CHARGE_SUCCEEDED_STATUS = "succeeded"
+CUSTOMER_FIELDS: dict[str, FieldOrTable] = {
+    "id": StringDatabaseField(name="id"),
+    "timestamp": DateTimeDatabaseField(name="timestamp"),
+    "name": StringDatabaseField(name="name"),
+    "email": StringDatabaseField(name="email"),
+    "phone": StringDatabaseField(name="phone"),
+}
 
 
 class RevenueAnalyticsRevenueView(SavedQuery):
     @staticmethod
-    def for_schema_source(source: ExternalDataSource) -> Optional["RevenueAnalyticsRevenueView"]:
+    def for_schema_source(source: ExternalDataSource) -> list["RevenueAnalyticsRevenueView"]:
         # Currently only works for stripe sources
         if not source.source_type == ExternalDataSource.Type.STRIPE:
-            return None
+            return []
 
-        # The table we care about is the one with schema `Charge` since from there we can get
-        # the data we need in our view
-        schema = next(
-            (schema for schema in source.schemas.all() if schema.name == STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER), None
-        )
+        views: list[RevenueAnalyticsRevenueView] = []
+        schema_dict = {schema.name: schema for schema in source.schemas.all()}
 
-        if schema is None:
-            return None
+        charge_schema = schema_dict.get(STRIPE_DATA_WAREHOUSE_CHARGE_IDENTIFIER)
+        if charge_schema is not None:
+            charge_schema = cast(ExternalDataSchema, charge_schema)
+            if charge_schema.table is not None:
+                table = cast(DataWarehouseTable, charge_schema.table)
+                views.append(RevenueAnalyticsRevenueView.__for_charge_table(source, table))
 
-        # Casts because pydantic is weird and we need to guarantee it's not Optional
-        # even though we've checked for None above
-        schema = cast(ExternalDataSchema, schema)
+        customer_schema = schema_dict.get(STRIPE_DATA_WAREHOUSE_CUSTOMER_IDENTIFIER)
+        if customer_schema is not None:
+            customer_schema = cast(ExternalDataSchema, customer_schema)
+            if customer_schema.table is not None:
+                table = cast(DataWarehouseTable, customer_schema.table)
+                views.append(RevenueAnalyticsRevenueView.__for_customer_table(source, table))
 
-        if schema.table is None:
-            return None
+        return views
 
-        # Same as above, need to guarantee it's not None
-        table = cast(DataWarehouseTable, schema.table)
+    @staticmethod
+    def __get_view_name_for(source: ExternalDataSource, view_name: str) -> str:
+        if not source.prefix:
+            return f"{source.source_type.lower()}.{view_name}"
+        else:
+            prefix = source.prefix.strip("_")
+            return f"{source.source_type.lower()}.{prefix}.{view_name}"
 
+    @staticmethod
+    def __for_charge_table(source: ExternalDataSource, table: DataWarehouseTable) -> "RevenueAnalyticsRevenueView":
         team = table.team
         revenue_config = team.revenue_config
 
@@ -101,6 +124,8 @@ class RevenueAnalyticsRevenueView(SavedQuery):
                 # Base fields to allow insights to work (need `distinct_id` AND `timestamp` fields)
                 ast.Alias(alias="id", expr=ast.Field(chain=["id"])),
                 ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
+                # Useful for cross joins
+                ast.Alias(alias="customer_id", expr=ast.Field(chain=["customer_id"])),
                 # Compute the original amount in the original currency
                 # by looking at the captured amount, effectively ignoring refunded value
                 ast.Alias(
@@ -196,7 +221,33 @@ class RevenueAnalyticsRevenueView(SavedQuery):
 
         return RevenueAnalyticsRevenueView(
             id=str(table.id),
-            name=f"stripe_{source.prefix or source.id}_revenue",
+            name=RevenueAnalyticsRevenueView.__get_view_name_for(source, CHARGE_REVENUE_VIEW_SUFFIX),
             query=query.to_hogql(),
-            fields=FIELDS,
+            fields=CHARGE_FIELDS,
+        )
+
+    @staticmethod
+    def __for_customer_table(source: ExternalDataSource, table: DataWarehouseTable) -> "RevenueAnalyticsRevenueView":
+        # Even though we need a string query for the view,
+        # using an ast allows us to comment what each field means, and
+        # avoid manual interpolation of constants, leaving that to the HogQL printer
+        #
+        # These are all pretty basic, they're simply here to allow future extensions
+        # once we start adding fields from sources other than Stripe
+        query = ast.SelectQuery(
+            select=[
+                ast.Alias(alias="id", expr=ast.Field(chain=["id"])),
+                ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
+                ast.Alias(alias="name", expr=ast.Field(chain=["name"])),
+                ast.Alias(alias="email", expr=ast.Field(chain=["email"])),
+                ast.Alias(alias="phone", expr=ast.Field(chain=["phone"])),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=[table.name])),
+        )
+
+        return RevenueAnalyticsRevenueView(
+            id=str(table.id),
+            name=RevenueAnalyticsRevenueView.__get_view_name_for(source, CUSTOMER_REVENUE_VIEW_SUFFIX),
+            query=query.to_hogql(),
+            fields=CUSTOMER_FIELDS,
         )

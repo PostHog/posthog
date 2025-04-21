@@ -25,6 +25,7 @@ from posthog.schema import (
     CustomEventConversionGoal,
     EventPropertyFilter,
     WebOverviewQuery,
+    WebPageURLSearchQuery,
     WebStatsTableQuery,
     PersonPropertyFilter,
     SamplingRate,
@@ -32,11 +33,18 @@ from posthog.schema import (
     WebGoalsQuery,
     WebExternalClicksTableQuery,
     WebVitalsPathBreakdownQuery,
+    WebActiveHoursHeatMapQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
 WebQueryNode = Union[
-    WebOverviewQuery, WebStatsTableQuery, WebGoalsQuery, WebExternalClicksTableQuery, WebVitalsPathBreakdownQuery
+    WebOverviewQuery,
+    WebStatsTableQuery,
+    WebGoalsQuery,
+    WebExternalClicksTableQuery,
+    WebVitalsPathBreakdownQuery,
+    WebPageURLSearchQuery,
+    WebActiveHoursHeatMapQuery,
 ]
 
 
@@ -86,7 +94,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
                 ast.CompareOperation(
                     left=ast.Field(chain=[field]),
                     right=self.query_date_range.date_to_as_hogql(),
-                    op=ast.CompareOperationOp.Lt,
+                    op=ast.CompareOperationOp.LtEq,
                 ),
             ],
         )
@@ -107,7 +115,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
                 ast.CompareOperation(
                     left=ast.Field(chain=[field]),
                     right=self.query_compare_to_date_range.date_to_as_hogql(),
-                    op=ast.CompareOperationOp.Lt,
+                    op=ast.CompareOperationOp.LtEq,
                 ),
             ],
         )
@@ -259,7 +267,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
                             right=start,
                         ),
                         ast.CompareOperation(
-                            op=ast.CompareOperationOp.Lt,
+                            op=ast.CompareOperationOp.LtEq,
                             left=ast.Field(chain=["start_timestamp"]),
                             right=end,
                         ),
@@ -276,7 +284,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
     def session_where(self, include_previous_period: Optional[bool] = None):
         properties = [
             parse_expr(
-                "events.timestamp < {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
+                "events.timestamp <= {date_to} AND events.timestamp >= minus({date_from}, toIntervalHour(1))",
                 placeholders={
                     "date_from": self.query_date_range.previous_period_date_from_as_hogql()
                     if include_previous_period
@@ -350,7 +358,7 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
                     placeholders={"date_from": self.query_date_range.date_from_as_hogql()},
                 ),
                 parse_expr(
-                    "events.timestamp < {date_to}",
+                    "events.timestamp <= {date_to}",
                     placeholders={"date_to": self.query_date_range.date_to_as_hogql()},
                 ),
             ],

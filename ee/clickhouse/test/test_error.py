@@ -37,9 +37,9 @@ from posthog.errors import wrap_query_error
         ),
         (
             ServerException("Too many simultaneous queries. Maximum: 100.", code=202),
-            "CHQueryErrorTooManySimultaneousQueries",
-            "Code: 202.\nToo many simultaneous queries. Try again later.",
-            202,
+            "ClickhouseAtCapacity",
+            "Clickhouse cluster is at capacity. Please try this query again later.",
+            None,
         ),
     ],
 )

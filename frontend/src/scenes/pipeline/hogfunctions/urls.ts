@@ -9,7 +9,7 @@ export function hogFunctionNewUrl(type: HogFunctionTypeType, template?: string):
         ? urls.errorTrackingAlert(template)
         : type === 'internal_destination' && template?.includes('insight-alert-firing')
         ? urls.insightAlertDestination(template)
-        : urls.pipelineNodeNew(hogFunctionTypeToPipelineStage(type), template ? `hog-${template}` : undefined)
+        : urls.pipelineNodeNew(hogFunctionTypeToPipelineStage(type), { id: template ? `hog-${template}` : undefined })
 }
 
 export function hogFunctionUrl(

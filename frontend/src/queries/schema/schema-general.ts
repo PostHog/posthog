@@ -104,6 +104,13 @@ export enum NodeKind {
     WebGoalsQuery = 'WebGoalsQuery',
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
+    WebPageURLSearchQuery = 'WebPageURLSearchQuery',
+    WebActiveHoursHeatMapQuery = 'WebActiveHoursHeatMapQuery',
+
+    // Revenue analytics queries
+    RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
+    RevenueAnalyticsGrowthRateQuery = 'RevenueAnalyticsGrowthRateQuery',
+    RevenueAnalyticsTopCustomersQuery = 'RevenueAnalyticsTopCustomersQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -140,12 +147,16 @@ export type AnyDataNode =
     | HogQLQuery
     | HogQLMetadata
     | HogQLAutocomplete
+    | RevenueAnalyticsOverviewQuery
+    | RevenueAnalyticsGrowthRateQuery
+    | RevenueAnalyticsTopCustomersQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
+    | WebPageURLSearchQuery
     | SessionAttributionExplorerQuery
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
@@ -155,6 +166,7 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | VectorSearchQuery
+    | WebActiveHoursHeatMapQuery
 
 /**
  * @discriminator kind
@@ -191,6 +203,13 @@ export type QuerySchema =
     | WebGoalsQuery
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
+    | WebPageURLSearchQuery
+    | WebActiveHoursHeatMapQuery
+
+    // Revenue analytics
+    | RevenueAnalyticsOverviewQuery
+    | RevenueAnalyticsGrowthRateQuery
+    | RevenueAnalyticsTopCustomersQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -688,7 +707,11 @@ export interface DataTableNode
                     | WebGoalsQuery
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
+                    | WebActiveHoursHeatMapQuery
                     | SessionAttributionExplorerQuery
+                    | RevenueAnalyticsOverviewQuery
+                    | RevenueAnalyticsGrowthRateQuery
+                    | RevenueAnalyticsTopCustomersQuery
                     | RevenueExampleEventsQuery
                     | RevenueExampleDataWarehouseTablesQuery
                     | ErrorTrackingQuery
@@ -714,7 +737,11 @@ export interface DataTableNode
         | WebGoalsQuery
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
+        | WebActiveHoursHeatMapQuery
         | SessionAttributionExplorerQuery
+        | RevenueAnalyticsOverviewQuery
+        | RevenueAnalyticsGrowthRateQuery
+        | RevenueAnalyticsTopCustomersQuery
         | RevenueExampleEventsQuery
         | RevenueExampleDataWarehouseTablesQuery
         | ErrorTrackingQuery
@@ -960,6 +987,7 @@ export type TrendsFilter = {
     aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
     aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
     decimalPlaces?: TrendsFilterLegacy['decimal_places']
+    minDecimalPlaces?: TrendsFilterLegacy['min_decimal_places']
     /** @default false */
     showValuesOnSeries?: TrendsFilterLegacy['show_values_on_series']
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
@@ -1085,6 +1113,7 @@ export type FunnelsFilter = {
     breakdownAttributionType?: FunnelsFilterLegacy['breakdown_attribution_type']
     breakdownAttributionValue?: integer
     funnelAggregateByHogQL?: FunnelsFilterLegacy['funnel_aggregate_by_hogql']
+    /** To select the range of steps for trends & time to convert funnels, 0-indexed */
     funnelToStep?: integer
     funnelFromStep?: integer
     /** @default ordered */
@@ -1157,6 +1186,7 @@ export type RetentionFilter = {
 
 export interface RetentionValue {
     count: integer
+    label?: string
 }
 
 export interface RetentionResult {
@@ -1794,6 +1824,51 @@ export interface RevenueExampleDataWarehouseTablesQueryResponse extends Analytic
 export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
     CachedQueryResponse<RevenueExampleDataWarehouseTablesQueryResponse>
 
+/*
+ * Revenue Analytics Queries
+ */
+export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extends DataNode<R> {
+    dateRange?: DateRange
+}
+
+export interface RevenueAnalyticsOverviewQuery
+    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsOverviewQuery
+}
+
+export type RevenueAnalyticsOverviewItemKey = 'revenue' | 'paying_customer_count' | 'avg_revenue_per_customer'
+export interface RevenueAnalyticsOverviewItem {
+    key: RevenueAnalyticsOverviewItemKey
+    value: number
+}
+
+export interface RevenueAnalyticsOverviewQueryResponse
+    extends AnalyticsQueryResponseBase<RevenueAnalyticsOverviewItem[]> {}
+export type CachedRevenueAnalyticsOverviewQueryResponse = CachedQueryResponse<RevenueAnalyticsOverviewQueryResponse>
+
+export interface RevenueAnalyticsGrowthRateQuery
+    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsGrowthRateQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsGrowthRateQuery
+}
+
+export interface RevenueAnalyticsGrowthRateQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    columns?: string[]
+}
+export type CachedRevenueAnalyticsGrowthRateQueryResponse = CachedQueryResponse<RevenueAnalyticsGrowthRateQueryResponse>
+
+export type RevenueAnalyticsTopCustomersGroupBy = 'month' | 'all'
+export interface RevenueAnalyticsTopCustomersQuery
+    extends RevenueAnalyticsBaseQuery<RevenueAnalyticsTopCustomersQueryResponse> {
+    kind: NodeKind.RevenueAnalyticsTopCustomersQuery
+    groupBy: RevenueAnalyticsTopCustomersGroupBy
+}
+
+export interface RevenueAnalyticsTopCustomersQueryResponse extends AnalyticsQueryResponseBase<unknown> {
+    columns?: string[]
+}
+export type CachedRevenueAnalyticsTopCustomersQueryResponse =
+    CachedQueryResponse<RevenueAnalyticsTopCustomersQueryResponse>
+
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     issueId?: ErrorTrackingIssue['id']
@@ -1838,6 +1913,7 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     last_seen: string
     earliest?: string
     aggregations: ErrorTrackingIssueAggregations
+    library: string | null
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {
@@ -2262,7 +2338,7 @@ export interface DatabaseSchemaField {
 }
 
 export interface DatabaseSchemaTableCommon {
-    type: 'posthog' | 'data_warehouse' | 'view' | 'batch_export' | 'materialized_view'
+    type: 'posthog' | 'data_warehouse' | 'view' | 'batch_export' | 'materialized_view' | 'managed_view'
     id: string
     name: string
     fields: Record<string, DatabaseSchemaField>
@@ -2270,6 +2346,11 @@ export interface DatabaseSchemaTableCommon {
 
 export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
     type: 'view'
+    query: HogQLQuery
+}
+
+export interface DatabaseSchemaManagedViewTable extends DatabaseSchemaTableCommon {
+    type: 'managed_view'
     query: HogQLQuery
 }
 
@@ -2300,6 +2381,7 @@ export type DatabaseSchemaTable =
     | DatabaseSchemaPostHogTable
     | DatabaseSchemaDataWarehouseTable
     | DatabaseSchemaViewTable
+    | DatabaseSchemaManagedViewTable
     | DatabaseSchemaBatchExportTable
     | DatabaseSchemaMaterializedViewTable
 
@@ -2326,6 +2408,7 @@ export type DatabaseSerializedFieldType =
     | 'expression'
     | 'view'
     | 'materialized_view'
+    | 'unknown'
 
 export type HogQLExpression = string
 
@@ -2800,3 +2883,39 @@ export interface RevenueTrackingConfig {
      */
     events: RevenueTrackingEventItem[]
 }
+
+export interface PageURL {
+    url: string
+    count: number
+}
+
+export interface WebPageURLSearchQuery extends WebAnalyticsQueryBase<WebPageURLSearchQueryResponse> {
+    kind: NodeKind.WebPageURLSearchQuery
+    searchTerm?: string
+    stripQueryParams?: boolean
+    limit?: integer
+}
+
+export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBase<PageURL[]> {
+    hasMore?: boolean
+    limit?: integer
+}
+
+export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
+
+export interface WebActiveHoursHeatMapQuery extends WebAnalyticsQueryBase<WebActiveHoursHeatMapQueryResponse> {
+    kind: NodeKind.WebActiveHoursHeatMapQuery
+}
+
+export interface WebActiveHoursHeatMapQueryResponse extends AnalyticsQueryResponseBase<WebActiveHoursHeatMapResult[]> {
+    hasMore?: boolean
+    limit?: integer
+}
+
+export interface WebActiveHoursHeatMapResult {
+    day: integer
+    hour: integer
+    total: integer
+}
+
+export type CachedWebActiveHoursHeatMapQueryResponse = CachedQueryResponse<WebActiveHoursHeatMapQueryResponse>

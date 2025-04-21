@@ -335,15 +335,30 @@
     // Used for interactive elements and highlights, inputs, toggles, charts, etc.
     // //////////////////////////////////////////////////////////
     --accent: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
+    --accent-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        var(--primitive-posthog-brand-yellow-lightness)
+    );
     --accent-hover: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 10%)
     );
+    --accent-hover-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        calc(var(--primitive-posthog-brand-yellow-lightness) + 10%)
+    );
     --accent-active: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 15%)
+    );
+    --accent-active-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        calc(var(--primitive-posthog-brand-yellow-lightness) + 15%)
     );
     --accent-highlight-primary: hsla(
         var(--brand-primary-hue),
@@ -592,6 +607,7 @@
     --z-raised: 5;
 
     // Elements
+    --side-panel-bar-width: 3rem;
     --project-navbar-width: 250px;
     --project-navbar-width-collapsed: 45px;
     --project-panel-width: 320px;
@@ -779,15 +795,30 @@
     // Accent colors (dark mode)
     // //////////////////////////////////////////////////////////
     --accent: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
+    --accent-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        var(--primitive-posthog-brand-orange-lightness)
+    );
     --accent-hover: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 10%)
     );
+    --accent-hover-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        calc(var(--primitive-posthog-brand-orange-lightness) + 10%)
+    );
     --accent-active: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 15%)
+    );
+    --accent-active-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        calc(var(--primitive-posthog-brand-orange-lightness) + 15%)
     );
 
     // Used for highlighting search results, and other subtle accent sitations
@@ -1528,6 +1559,30 @@
 
     .animate-float {
         animation: float 3s infinite ease-in-out;
+    }
+
+    // Primitive classes
+
+    // Used for ui/dropdown-menu and ui/context-menu
+    .primitive-menu-content {
+        z-index: var(--z-popover);
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        min-width: 8rem;
+        max-width: 200px;
+        max-height: calc(90vh - 100px);
+        overflow: hidden;
+        color: var(--text-primary);
+        background-color: var(--bg-surface-primary);
+        border: 1px solid var(--border-secondary);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow);
+    }
+
+    .primitive-menu-content-inner {
+        max-height: calc(90vh - 100px);
+        padding: var(--spacing);
     }
 
     // Highlight background blink

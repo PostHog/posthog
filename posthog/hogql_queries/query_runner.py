@@ -26,6 +26,7 @@ from posthog.hogql_queries.query_cache import QueryCacheManager
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
 from posthog.schema import (
+    WebActiveHoursHeatMapQuery,
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
     CacheMissResponse,
@@ -208,6 +209,17 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
+
+    if kind == "WebActiveHoursHeatMapQuery":
+        from .web_analytics.web_active_hours_heatmap_query_runner import WebActiveHoursHeatMapQueryRunner
+
+        return WebActiveHoursHeatMapQueryRunner(
+            query=cast(WebActiveHoursHeatMapQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
     if kind == "StickinessQuery":
         from .insights.stickiness_query_runner import StickinessQueryRunner
 
@@ -366,10 +378,60 @@ def get_query_runner(
             team=team,
         )
 
+    if kind == "WebPageURLSearchQuery":
+        from .web_analytics.page_url_search_query_runner import PageUrlSearchQueryRunner
+
+        return PageUrlSearchQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "SessionAttributionExplorerQuery":
         from .web_analytics.session_attribution_explorer_query_runner import SessionAttributionExplorerQueryRunner
 
         return SessionAttributionExplorerQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "RevenueAnalyticsOverviewQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
+            RevenueAnalyticsOverviewQueryRunner,
+        )
+
+        return RevenueAnalyticsOverviewQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "RevenueAnalyticsGrowthRateQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_growth_rate_query_runner import (
+            RevenueAnalyticsGrowthRateQueryRunner,
+        )
+
+        return RevenueAnalyticsGrowthRateQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
+    if kind == "RevenueAnalyticsTopCustomersQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
+            RevenueAnalyticsTopCustomersQueryRunner,
+        )
+
+        return RevenueAnalyticsTopCustomersQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -661,7 +723,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if self.is_cached_response(cached_response_candidate):
             cached_response_candidate["is_cached"] = True
-            cached_response = CachedResponse(**cached_response_candidate)
+            # When rolling out schema changes, cached responses may not match the new schema.
+            # Trigger recomputation in this case.
+            try:
+                cached_response = CachedResponse(**cached_response_candidate)
+            except Exception as e:
+                capture_exception(Exception(f"Error parsing cached response: {e}"))
+                cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
         elif cached_response_candidate is None:
             cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
         else:

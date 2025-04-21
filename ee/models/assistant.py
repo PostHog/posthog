@@ -16,9 +16,14 @@ class Conversation(UUIDModel):
         IN_PROGRESS = "in_progress", "In progress"
         CANCELING = "canceling", "Canceling"
 
+    class Type(models.TextChoices):
+        ASSISTANT = "assistant", "Assistant"
+        TOOL_CALL = "tool_call", "Tool call"
+
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.IDLE)
+    type = models.CharField(max_length=20, choices=Type.choices, default=Type.ASSISTANT)
 
     @property
     def is_locked(self) -> bool:

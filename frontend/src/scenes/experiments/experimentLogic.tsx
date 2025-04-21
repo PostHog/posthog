@@ -73,12 +73,7 @@ import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
-import {
-    featureFlagEligibleForExperiment,
-    getMinimumDetectableEffect,
-    percentageDistribution,
-    transformFiltersForWinningVariant,
-} from './utils'
+import { featureFlagEligibleForExperiment, percentageDistribution, transformFiltersForWinningVariant } from './utils'
 
 const NEW_EXPERIMENT: Experiment = {
     id: 'new',
@@ -101,7 +96,12 @@ const NEW_EXPERIMENT: Experiment = {
     created_by: null,
     updated_at: null,
     holdout_id: null,
+    exposure_criteria: {
+        filterTestAccounts: true,
+    },
 }
+
+export const DEFAULT_MDE = 30
 
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
@@ -1518,14 +1518,9 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         minimumDetectableEffect: [
-            (s) => [s.experiment, s.getInsightType, s.conversionMetrics, s.trendResults, s.firstPrimaryMetric],
-            (newExperiment, getInsightType, conversionMetrics, trendResults, firstPrimaryMetric): number => {
-                return (
-                    newExperiment?.parameters?.minimum_detectable_effect ||
-                    // :KLUDGE: extracted the method due to difficulties with logic tests
-                    getMinimumDetectableEffect(getInsightType(firstPrimaryMetric), conversionMetrics, trendResults) ||
-                    0
-                )
+            (s) => [s.experiment],
+            (newExperiment): number => {
+                return newExperiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE
             },
         ],
         minimumSampleSizePerVariant: [
