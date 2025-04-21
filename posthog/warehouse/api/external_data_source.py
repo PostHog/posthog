@@ -171,6 +171,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "source_type",
             "latest_error",
             "prefix",
+            "revenue_analytics_enabled",
             "last_run_at",
             "schemas",
             "job_inputs",
@@ -547,6 +548,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             team=self.team,
             status="Running",
             source_type=source_type,
+            revenue_analytics_enabled=True,
             job_inputs={"stripe_secret_key": client_secret, "stripe_account_id": account_id},
             prefix=prefix,
         )
