@@ -32,8 +32,7 @@ export interface BillingUsageFilters {
 }
 
 export const DEFAULT_BILLING_USAGE_FILTERS: BillingUsageFilters = {
-    usage_type: 'event_count_in_period',
-    breakdowns: ['team'],
+    breakdowns: ['type', 'team'],
     interval: 'day',
 }
 
