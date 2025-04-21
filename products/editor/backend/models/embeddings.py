@@ -34,6 +34,7 @@ def CODEBASE_EMBEDDINGS_TABLE_SQL(on_cluster=True):
         + """
     -- artifact_id for uniqueness
     ORDER BY (team_id, user_id, codebase_id, artifact_id, chunk_id)
+    SETTINGS index_granularity=1024
     """
     ).format(
         table_name=CODEBASE_EMBEDDINGS_TABLE_NAME(),
