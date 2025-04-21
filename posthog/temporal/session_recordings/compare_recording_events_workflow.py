@@ -172,26 +172,7 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
         v2_snapshots: list[dict[str, Any]] = []
         blocks = list_blocks(recording)
         if blocks:
-            # Check for unique blocks and log their ranges
-            unique_blocks = {}  # url -> block
             for block in blocks:
-                if block["url"] not in unique_blocks:
-                    unique_blocks[block["url"]] = block
-
-            await logger.ainfo(
-                "V2 blocks info",
-                total_blocks=len(blocks),
-                unique_blocks=len(unique_blocks),
-                time_ranges=[
-                    {
-                        "start": block["start_time"].isoformat() if block.get("start_time") else None,
-                        "end": block["end_time"].isoformat() if block.get("end_time") else None,
-                    }
-                    for block in unique_blocks.values()
-                ],
-            )
-
-            for block in unique_blocks.values():
                 try:
                     decompressed_block = v2_client().fetch_block(block["url"])
                     if decompressed_block:
@@ -239,6 +220,40 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
                 return None
             return event.get("data", {}).get("payload", {}).get("level")
 
+        def get_url_from_event(event: dict) -> str | None:
+            """Extract URL from event using same logic as hrefFrom in rrweb-types.ts."""
+            data = event.get("data", {})
+            if not isinstance(data, dict):
+                return None
+
+            meta_href = data.get("href", "")
+            meta_href = meta_href.strip() if isinstance(meta_href, str) else ""
+
+            payload = data.get("payload", {})
+            payload_href = payload.get("href", "") if isinstance(payload, dict) else ""
+            payload_href = payload_href.strip() if isinstance(payload_href, str) else ""
+
+            return meta_href or payload_href or None
+
+        # Track URLs for both versions
+        v1_urls: set[str] = set()
+        v1_first_url: str | None = None
+        v2_urls: set[str] = set()
+        v2_first_url: str | None = None
+
+        # Constants from snappy-session-recorder.ts
+        MAX_URL_LENGTH = 4 * 1024  # 4KB
+        MAX_URLS_COUNT = 25
+
+        def add_url(url_set: set[str], url: str) -> None:
+            """Add URL to set with same constraints as snappy-session-recorder.ts."""
+            if not url:
+                return
+            if len(url) > MAX_URL_LENGTH:
+                url = url[:MAX_URL_LENGTH]
+            if len(url_set) < MAX_URLS_COUNT:
+                url_set.add(url)
+
         # Count clicks, mouse activity, keypresses, and console logs in v1
         v1_click_count = 0
         v1_mouse_activity_count = 0
@@ -278,6 +293,13 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
                 else:  # default to log level for unknown levels
                     v1_console_log_count += 1
 
+            # Extract URL
+            url = get_url_from_event(data)
+            if url:
+                if v1_first_url is None:
+                    v1_first_url = url[:MAX_URL_LENGTH] if len(url) > MAX_URL_LENGTH else url
+                add_url(v1_urls, url)
+
         # Count clicks, mouse activity, keypresses, and console logs in v2
         v2_click_count = 0
         v2_mouse_activity_count = 0
@@ -316,6 +338,13 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
                     v2_console_error_count += 1
                 else:  # default to log level for unknown levels
                     v2_console_log_count += 1
+
+            # Extract URL
+            url = get_url_from_event(data)
+            if url:
+                if v2_first_url is None:
+                    v2_first_url = url[:MAX_URL_LENGTH] if len(url) > MAX_URL_LENGTH else url
+                add_url(v2_urls, url)
 
         # Get metadata counts
         def get_metadata_counts(team_id: int, session_id: str, table_name: str) -> dict[str, int]:
@@ -360,6 +389,8 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
                     "console_log_count": 0,
                     "console_warn_count": 0,
                     "console_error_count": 0,
+                    "first_url": None,
+                    "all_urls": [],
                 }
 
             row = result[0]
@@ -371,10 +402,39 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
                 "console_warn_count": row[12],  # console_warn_count index
                 "console_error_count": row[13],  # console_error_count index
                 "event_count": row[14],  # event_count index
+                "first_url": row[5],  # first_url index
+                "all_urls": row[6],  # all_urls index
             }
 
         v1_metadata = get_metadata_counts(team.pk, recording.session_id, "session_replay_events")
         v2_metadata = get_metadata_counts(team.pk, recording.session_id, "session_replay_events_v2_test")
+
+        # Compare URLs
+        await logger.ainfo(
+            "URL comparison",
+            v1_first_url=v1_first_url,
+            v2_first_url=v2_first_url,
+            first_url_matches=v1_first_url == v2_first_url,
+            v1_url_count=len(v1_urls),
+            v2_url_count=len(v2_urls),
+            urls_in_both=len(v1_urls & v2_urls),
+            only_in_v1=sorted(v1_urls - v2_urls)[:5],  # Show up to 5 examples
+            only_in_v2=sorted(v2_urls - v1_urls)[:5],  # Show up to 5 examples
+            metadata_comparison={
+                "v1": {
+                    "first_url": v1_metadata["first_url"],
+                    "all_urls": v1_metadata["all_urls"],
+                    "first_url_matches_snapshot": v1_metadata["first_url"] == v1_first_url,
+                    "all_urls_match_snapshot": set(v1_metadata["all_urls"]) == v1_urls,
+                },
+                "v2": {
+                    "first_url": v2_metadata["first_url"],
+                    "all_urls": v2_metadata["all_urls"],
+                    "first_url_matches_snapshot": v2_metadata["first_url"] == v2_first_url,
+                    "all_urls_match_snapshot": set(v2_metadata["all_urls"]) == v2_urls,
+                },
+            },
+        )
 
         await logger.ainfo(
             "Total event count comparison",
@@ -674,6 +734,41 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
         end_time = dt.datetime.now()
         duration = (end_time - start_time).total_seconds()
 
+        # Check for differences in metadata vs snapshots
+        metadata_differences = any(
+            [
+                v1_metadata["click_count"] != v1_click_count,
+                v1_metadata["mouse_activity_count"] != v1_mouse_activity_count,
+                v1_metadata["keypress_count"] != v1_keypress_count,
+                v1_metadata["console_log_count"] != v1_console_log_count,
+                v1_metadata["console_warn_count"] != v1_console_warn_count,
+                v1_metadata["console_error_count"] != v1_console_error_count,
+                v2_metadata["click_count"] != v2_click_count,
+                v2_metadata["mouse_activity_count"] != v2_mouse_activity_count,
+                v2_metadata["keypress_count"] != v2_keypress_count,
+                v2_metadata["console_log_count"] != v2_console_log_count,
+                v2_metadata["console_warn_count"] != v2_console_warn_count,
+                v2_metadata["console_error_count"] != v2_console_error_count,
+            ]
+        )
+
+        # Check if sessions differ in any way
+        sessions_differ = any(
+            [
+                len(v1_snapshots) != len(v2_snapshots),
+                v1_click_count != v2_click_count,
+                v1_mouse_activity_count != v2_mouse_activity_count,
+                v1_keypress_count != v2_keypress_count,
+                v1_console_log_count != v2_console_log_count,
+                v1_console_warn_count != v2_console_warn_count,
+                v1_console_error_count != v2_console_error_count,
+                v1_urls != v2_urls,
+                v1_first_url != v2_first_url,
+                bool(only_in_v1),
+                bool(only_in_v2),
+            ]
+        )
+
         # Log summary
         await logger.ainfo(
             "Completed snapshot comparison activity",
@@ -681,6 +776,8 @@ async def compare_recording_snapshots_activity(inputs: CompareRecordingSnapshots
             session_id=inputs.session_id,
             v1_snapshot_count=len(v1_snapshots),
             v2_snapshot_count=len(v2_snapshots),
+            sessions_differ=sessions_differ,
+            metadata_snapshot_differences=metadata_differences,
         )
 
 
