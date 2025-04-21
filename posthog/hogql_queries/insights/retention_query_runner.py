@@ -553,7 +553,7 @@ class RetentionQueryRunner(QueryRunner):
 
         if self.breakdowns_in_query:
             # Step 1: Calculate total cohort size for each breakdown value (size at intervals_from_base = 0)
-            breakdown_totals = defaultdict(int)
+            breakdown_totals: defaultdict[str, int] = defaultdict(int)
             original_results = response.results or []
             for row in original_results:
                 start_interval, intervals_from_base, breakdown_value, count = row
@@ -571,7 +571,9 @@ class RetentionQueryRunner(QueryRunner):
             other_values = {item[0] for item in sorted_breakdowns[breakdown_limit:]}
 
             # Step 3: Aggregate results, grouping less frequent breakdowns into 'Other'
-            aggregated_data = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
+            aggregated_data: defaultdict[str, defaultdict[int, defaultdict[int, float]]] = defaultdict(
+                lambda: defaultdict(lambda: defaultdict(float))
+            )
             for row in original_results:
                 start_interval, intervals_from_base, breakdown_value, count = row
 
@@ -591,11 +593,11 @@ class RetentionQueryRunner(QueryRunner):
                 ordered_breakdown_keys.append(BREAKDOWN_OTHER_STRING_LABEL)
 
             for breakdown_value in ordered_breakdown_keys:
-                intervals_data = aggregated_data.get(breakdown_value, {})
+                intervals_data: defaultdict[int, defaultdict[int, float]] = aggregated_data.get(breakdown_value, {})
 
                 breakdown_results = []
                 for start_interval in range(self.query_date_range.intervals_between):
-                    result_dict = intervals_data.get(start_interval, {})
+                    result_dict: defaultdict[int, float] = intervals_data.get(start_interval, {})
                     values = [
                         {
                             "count": result_dict.get(return_interval, 0),
