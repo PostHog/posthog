@@ -665,6 +665,7 @@
   
       -- artifact_id for uniqueness
       ORDER BY (team_id, user_id, codebase_id, artifact_id, chunk_id)
+      SETTINGS index_granularity=1024
       
   '''
 # ---
@@ -3517,6 +3518,7 @@
   
       -- artifact_id for uniqueness
       ORDER BY (team_id, user_id, codebase_id, artifact_id, chunk_id)
+      SETTINGS index_granularity=1024
       
   '''
 # ---
