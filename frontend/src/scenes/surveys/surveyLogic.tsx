@@ -1105,6 +1105,17 @@ export const surveyLogic = kea<surveyLogicType>([
                 )
             },
         ],
+        defaultAnswerFilters: [
+            (s) => [s.survey],
+            (survey: Survey): EventPropertyFilter[] => {
+                return survey.questions.map((question, index) => ({
+                    key: getResponseFieldWithId(index, question?.id).indexBasedKey,
+                    operator: DEFAULT_OPERATORS[question.type].value,
+                    type: PropertyFilterType.Event as const,
+                    value: [],
+                }))
+            },
+        ],
         isSurveyRunning: [
             (s) => [s.survey],
             (survey: Survey): boolean => {

@@ -67,9 +67,14 @@ function CopyResponseKeyButton({ questionId }: { questionId: string }): JSX.Elem
 }
 
 function _SurveyResponseFilters(): JSX.Element {
-    const { survey, answerFilters, propertyFilters } = useValues(surveyLogic)
+    const { survey, answerFilters, propertyFilters, defaultAnswerFilters } = useValues(surveyLogic)
     const { setAnswerFilters, setPropertyFilters } = useActions(surveyLogic)
     const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
+
+    const handleResetFilters = (): void => {
+        setAnswerFilters(defaultAnswerFilters)
+        setPropertyFilters([])
+    }
 
     const handleUpdateFilter = (questionIndex: number, field: 'operator' | 'value', value: any): void => {
         const newFilters = [...answerFilters]
@@ -186,13 +191,22 @@ function _SurveyResponseFilters(): JSX.Element {
                     </div>
                 </div>
             )}
-            <div className="w-fit">
+            <div className="flex gap-2 justify-between">
                 <PropertyFilters
                     propertyFilters={propertyFilters}
                     onChange={setPropertyFilters}
                     pageKey="survey-results"
                     buttonText={questionWithFiltersAvailable.length > 1 ? 'More filters' : 'Add filters'}
                 />
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    icon={<IconCode />}
+                    onClick={handleResetFilters}
+                    className="self-start"
+                >
+                    Reset all filters
+                </LemonButton>
             </div>
 
             <SurveySQLHelper isOpen={sqlHelperOpen} onClose={() => setSqlHelperOpen(false)} />
