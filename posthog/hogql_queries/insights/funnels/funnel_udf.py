@@ -17,9 +17,11 @@ from typing import Protocol
 class FunnelProtocol(Protocol):
     context: FunnelQueryContext
 
-    def _query_has_array_breakdown(self) -> bool: ...
+    def _query_has_array_breakdown(self) -> bool:
+        ...
 
-    def _default_breakdown_selector(self) -> str: ...
+    def _default_breakdown_selector(self) -> str:
+        ...
 
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -28,34 +30,7 @@ HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 
 class FunnelUDFMixin:
     def _add_breakdown_attribution_subquery(self: FunnelProtocol, inner_query: ast.SelectQuery) -> ast.SelectQuery:
-        breakdown, breakdownAttributionType = (
-            self.context.breakdown,
-            self.context.breakdownAttributionType,
-        )
-
-        if breakdownAttributionType in [
-            BreakdownAttributionType.FIRST_TOUCH,
-            BreakdownAttributionType.LAST_TOUCH,
-        ]:
-            # When breaking down by first/last touch, each person can only have one prop value
-            # so just select that. Except for the empty case, where we select the default.
-
-            if self._query_has_array_breakdown():
-                assert isinstance(breakdown, list)
-                default_breakdown_value = f"""[{','.join(["''" for _ in range(len(breakdown or []))])}]"""
-                # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
-                breakdown_selector = parse_expr(
-                    f"if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, {default_breakdown_value})"
-                )
-            else:
-                breakdown_selector = ast.Field(chain=["prop_vals"])
-
-            return ast.SelectQuery(
-                select=[ast.Field(chain=["*"]), ast.Alias(alias="prop", expr=breakdown_selector)],
-                select_from=ast.JoinExpr(table=inner_query),
-            )
-
-        return inner_query
+        raise Exception("UDF doesn't use this")
 
     def _prop_vals(self: FunnelProtocol):
         prop_vals = f"[{self._default_breakdown_selector()}]"

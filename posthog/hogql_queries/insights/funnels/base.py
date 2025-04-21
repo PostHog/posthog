@@ -164,8 +164,11 @@ class FunnelBase(ABC):
                     )
 
                 final_select = parse_expr(f"prop_{funnelsFilter.breakdownAttributionValue} as prop")
-            prop_window = parse_expr("groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals")
 
+            if for_udf:
+                return [prop_basic, *select_columns, final_select]
+
+            prop_window = parse_expr("groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals")
             return [prop_basic, *select_columns, final_select, prop_window]
         elif breakdownAttributionType in [
             BreakdownAttributionType.FIRST_TOUCH,
@@ -182,6 +185,8 @@ class FunnelBase(ABC):
             )
 
             breakdown_window_selector = f"{aggregate_operation}(prop, timestamp, {prop_conditional})"
+            if for_udf:
+                return [prop_basic, ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"]))]
             prop_window = parse_expr(f"{breakdown_window_selector} over (PARTITION by aggregation_target) as prop_vals")
             return [
                 prop_basic,
@@ -512,10 +517,6 @@ class FunnelBase(ABC):
             assert isinstance(funnel_events_query.where, ast.Expr)
             steps_conditions = self._get_steps_conditions_for_udf(all_exclusions, length=len(entities_to_use))
             funnel_events_query.where = ast.And(exprs=[funnel_events_query.where, steps_conditions])
-
-        if breakdown and breakdownAttributionType != BreakdownAttributionType.ALL_EVENTS:
-            # ALL_EVENTS attribution is the old default, which doesn't need the subquery
-            return self._add_breakdown_attribution_subquery(funnel_events_query)
 
         return funnel_events_query
 
