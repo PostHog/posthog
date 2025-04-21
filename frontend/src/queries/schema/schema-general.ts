@@ -2907,14 +2907,32 @@ export interface WebActiveHoursHeatMapQuery extends WebAnalyticsQueryBase<WebAct
     kind: NodeKind.WebActiveHoursHeatMapQuery
 }
 
-export interface WebActiveHoursHeatMapQueryResponse extends AnalyticsQueryResponseBase<WebActiveHoursHeatMapResult[]> {
+export interface WebActiveHoursHeatMapQueryResponse
+    extends AnalyticsQueryResponseBase<WebActiveHoursHeatMapStructuredResult> {
     hasMore?: boolean
     limit?: integer
 }
 
-export interface WebActiveHoursHeatMapResult {
+export interface WebActiveHoursHeatMapDayAndHourResult {
     day: integer
     hour: integer
+    total: integer
+}
+
+export interface WebActiveHoursHeatMapDayResult {
+    day: integer
+    total: integer
+}
+
+export interface WebActiveHoursHeatMapHourResult {
+    hour: integer
+    total: integer
+}
+
+export interface WebActiveHoursHeatMapStructuredResult {
+    dayAndHours: WebActiveHoursHeatMapDayAndHourResult[]
+    days: WebActiveHoursHeatMapDayResult[]
+    hours: WebActiveHoursHeatMapHourResult[]
     total: integer
 }
 
