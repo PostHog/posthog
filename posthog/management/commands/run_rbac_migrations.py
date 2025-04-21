@@ -40,7 +40,7 @@ class Command(BaseCommand):
         if options["org_ids"]:
             org_ids_input = options["org_ids"]
             # Parse comma-separated list of organization IDs
-            org_ids = [org_id.strip() for org_id in org_ids_input.split(",")]
+            org_ids = [int(org_id.strip()) for org_id in org_ids_input.split(",")]
         else:  # backfill option
             self.stdout.write("Finding organizations that need RBAC migration...")
             org_ids = self.find_organizations_needing_migration()
@@ -144,10 +144,10 @@ class Command(BaseCommand):
         Returns:
             Dictionary with summary of migration results
         """
-        results = {"total": len(organization_ids), "successful": 0, "failed": 0, "details": []}
+        results: dict[str, Any] = {"total": len(organization_ids), "successful": 0, "failed": 0, "details": []}
 
         for org_id in organization_ids:
-            org_result = {
+            org_result: dict[str, Any] = {
                 "organization_id": org_id,
                 "team_migration": {"success": False, "error": None},
                 "feature_flag_migration": {"success": False, "error": None},
