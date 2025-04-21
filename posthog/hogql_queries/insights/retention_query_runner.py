@@ -31,6 +31,9 @@ from posthog.schema import (
     EntityType,
 )
 from posthog.schema import RetentionQuery, RetentionType, Breakdown
+from collections import defaultdict
+from posthog.hogql.constants import get_breakdown_limit_for_context
+from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
 
 DEFAULT_INTERVAL = IntervalType("day")
 DEFAULT_TOTAL_INTERVALS = 7
@@ -562,41 +565,70 @@ class RetentionQueryRunner(QueryRunner):
         )
 
         if self.breakdowns_in_query:
-            breakdown_value_to_counts: dict[str, list[tuple[int, int, int]]] = {}
-            for row in response.results:
+            # Step 1: Calculate total cohort size for each breakdown value (size at intervals_from_base = 0)
+            breakdown_totals = defaultdict(int)
+            original_results = response.results or []
+            for row in original_results:
+                start_interval, intervals_from_base, breakdown_value, count = row
+                if intervals_from_base == 0:
+                    breakdown_totals[breakdown_value] += count
+
+            # Step 2: Rank breakdowns and determine top N and 'Other'
+            breakdown_limit = (
+                self.query.breakdownFilter.breakdown_limit
+                if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_limit is not None
+                else get_breakdown_limit_for_context(self.limit_context)
+            )
+            # Sort by count descending, then by breakdown value ascending for stability
+            sorted_breakdowns = sorted(breakdown_totals.items(), key=lambda item: (-item[1], item[0]), reverse=False)
+            other_values = {item[0] for item in sorted_breakdowns[breakdown_limit:]}
+
+            # Step 3: Aggregate results, grouping less frequent breakdowns into 'Other'
+            aggregated_data = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))
+            for row in original_results:
                 start_interval, intervals_from_base, breakdown_value, count = row
 
-                if breakdown_value not in breakdown_value_to_counts:
-                    breakdown_value_to_counts[breakdown_value] = []
+                target_breakdown = breakdown_value
+                if breakdown_value in other_values:
+                    target_breakdown = BREAKDOWN_OTHER_STRING_LABEL
 
-                breakdown_value_to_counts[breakdown_value].append((start_interval, intervals_from_base, count))
+                # Apply sampling correction when aggregating into the final structure
+                corrected_count = correct_result_for_sampling(count, self.query.samplingFactor)
+                aggregated_data[target_breakdown][start_interval][intervals_from_base] += corrected_count
 
-            results: list[dict[str, Any]] = []
-            for breakdown_value, intervals in breakdown_value_to_counts.items():
-                result_dict = {
-                    (start_interval, intervals_from_base): {
-                        "count": correct_result_for_sampling(count, self.query.samplingFactor),
-                    }
-                    for (start_interval, intervals_from_base, count) in intervals
-                }
+            # Step 4: Format final output
+            final_results: list[dict[str, Any]] = []
+            # Keep track of the order based on the ranking
+            ordered_breakdown_keys = [item[0] for item in sorted_breakdowns[:breakdown_limit]]
+            if other_values:
+                ordered_breakdown_keys.append(BREAKDOWN_OTHER_STRING_LABEL)
 
-                breakdown_results = [
-                    {
-                        "values": [
-                            {
-                                **result_dict.get((start_interval, return_interval), {"count": 0}),
-                                "label": f"{self.query_date_range.interval_name.title()} {return_interval}",
-                            }
-                            for return_interval in range(self.query_date_range.lookahead)
-                        ],
-                        "label": f"{self.query_date_range.interval_name.title()} {start_interval}",
-                        "date": self.get_date(start_interval),
-                        "breakdown_value": breakdown_value,
-                    }
-                    for start_interval in range(self.query_date_range.intervals_between)
-                ]
+            for breakdown_value in ordered_breakdown_keys:
+                intervals_data = aggregated_data.get(breakdown_value, {})
 
-                results.extend(breakdown_results)
+                breakdown_results = []
+                for start_interval in range(self.query_date_range.intervals_between):
+                    result_dict = intervals_data.get(start_interval, {})
+                    values = [
+                        {
+                            "count": result_dict.get(return_interval, 0),
+                            "label": f"{self.query_date_range.interval_name.title()} {return_interval}",
+                        }
+                        for return_interval in range(self.query_date_range.lookahead)
+                    ]
+
+                    breakdown_results.append(
+                        {
+                            "values": values,
+                            "label": f"{self.query_date_range.interval_name.title()} {start_interval}",
+                            "date": self.get_date(start_interval),
+                            "breakdown_value": breakdown_value,
+                        }
+                    )
+
+                final_results.extend(breakdown_results)
+
+            results = final_results
         else:
             result_dict = {
                 (start_event_matching_interval, intervals_from_base): {
