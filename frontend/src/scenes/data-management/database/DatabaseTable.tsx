@@ -39,6 +39,7 @@ const editSchemaOptions: Record<Exclude<DatabaseSerializedFieldType, NonEditable
     boolean: 'Boolean',
     array: 'Array',
     json: 'JSON',
+    unknown: 'Unknown',
 }
 const editSchemaOptionsAsArray = Object.keys(editSchemaOptions).map((n) => ({ value: n, label: editSchemaOptions[n] }))
 

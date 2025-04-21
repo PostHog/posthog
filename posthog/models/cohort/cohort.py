@@ -218,7 +218,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
         from posthog.models.cohort.util import recalculate_cohortpeople
-        from posthog.tasks.calculate_cohort import clear_stale_cohort
 
         use_hogql_cohorts = posthoganalytics.feature_enabled(
             "enable_hogql_cohort_calculation",
@@ -273,8 +272,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             version=pending_version,
             duration=(time.monotonic() - start_time),
         )
-
-        clear_stale_cohort.delay(self.pk, before_version=pending_version)
 
     def insert_users_by_list(self, items: list[str], *, team_id: Optional[int] = None) -> None:
         """
