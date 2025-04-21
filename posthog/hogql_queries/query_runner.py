@@ -630,12 +630,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
         query_id: Optional[str] = None,
+        extract_modifiers=lambda query: (query.modifiers if hasattr(query, "modifiers") else None),
     ):
         self.team = team
         self.timings = timings or HogQLTimings()
         self.limit_context = limit_context or LimitContext.QUERY
-        _modifiers = modifiers or (query.modifiers if hasattr(query, "modifiers") else None)
-        self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         self.query_id = query_id
 
         if not self.is_query_node(query):
@@ -651,6 +650,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             else:
                 query = self.query_type.model_validate(query)
                 assert isinstance(query, self.query_type)
+
+        _modifiers = modifiers or extract_modifiers(query)
+        self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         self.query = query
 
     @property

@@ -1,5 +1,4 @@
-from typing import cast, Optional
-
+from typing import cast, Optional, Any
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
@@ -36,17 +35,21 @@ class InsightActorsQueryRunner(QueryRunner):
 
     def __init__(
         self,
-        query: InsightActorsQueryNode,
+        query: InsightActorsQueryNode | dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
         query_id: Optional[str] = None,
     ):
-        if modifiers is None:
-            modifiers = query.source.modifiers if hasattr(query.source, "modifiers") else None
         super().__init__(
-            query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, query_id=query_id
+            query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            query_id=query_id,
+            extract_modifiers=lambda query: query.source.modifiers if hasattr(query.source, "modifiers") else None,
         )
 
     @cached_property
