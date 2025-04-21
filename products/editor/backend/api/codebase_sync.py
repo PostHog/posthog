@@ -56,7 +56,7 @@ class CodebaseArtifactSerializer(serializers.Serializer):
         try:
             lang = guess_language(attrs["extension"])
             attrs["programming_language"] = lang
-        except UnsupportedLanguage:
+        except (KeyError, UnsupportedLanguage):
             attrs["programming_language"] = None
         return attrs
 
@@ -64,7 +64,7 @@ class CodebaseArtifactSerializer(serializers.Serializer):
 class CodebaseSyncViewset(TeamAndOrgViewSetMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     scope_object = "editor_codebase"
     scope_object_read_actions: list[str] = []
-    scope_object_write_actions: list[str] = ["sync", "upload_artifact"]
+    scope_object_write_actions: list[str] = ["create", "sync", "upload_artifact"]
 
     queryset = Codebase.objects.all()
 
