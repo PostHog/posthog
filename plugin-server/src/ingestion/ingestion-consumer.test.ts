@@ -163,8 +163,7 @@ describe('IngestionConsumer', () => {
             }
             messages[0].headers = [
                 {
-                    key: 'kafka-consumer-breadcrumbs',
-                    value: JSON.stringify([existingBreadcrumb]),
+                    'kafka-consumer-breadcrumbs': Buffer.from(JSON.stringify([existingBreadcrumb])),
                 },
             ]
             await ingester.handleKafkaBatch(messages)
@@ -173,11 +172,14 @@ describe('IngestionConsumer', () => {
             expect(producedMessages.length).toBe(1)
 
             const headers = producedMessages[0].headers || []
-            const breadcrumbHeader = headers.find((h) => h.key === 'kafka-consumer-breadcrumbs')
+            const breadcrumbHeader = headers.find((h) => 'kafka-consumer-breadcrumbs' in h)
 
             expect(breadcrumbHeader).toBeDefined()
 
-            const parsedBreadcrumbs = parseJSON(breadcrumbHeader?.value.toString() || '')
+            const value = breadcrumbHeader?.['kafka-consumer-breadcrumbs'] as Buffer
+            expect(value).toBeInstanceOf(Buffer)
+
+            const parsedBreadcrumbs = parseJSON(value.toString())
             expect(Array.isArray(parsedBreadcrumbs)).toBe(true)
             expect(parsedBreadcrumbs.length).toBe(2)
 
