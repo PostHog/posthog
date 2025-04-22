@@ -72,9 +72,6 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
             {
                 clearConversation: () => [],
                 submitPrompt: (state) => {
-                    if (!state.length || state[state.length - 1].role !== 'user') {
-                        return state
-                    }
                     return state
                 },
                 addAssistantMessage: (state, { message }) => {

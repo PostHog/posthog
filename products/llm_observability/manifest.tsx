@@ -30,7 +30,7 @@ export const manifest: ProductManifest = {
         LLMObservabilityPlayground: {
             import: () => import('./frontend/LLMObservabilityPlaygroundScene'),
             projectBased: true,
-            name: 'LLM Playground',
+            name: 'LLM playground',
             activityScope: 'LLMObservability',
             layout: 'app-container',
             defaultDocsPath: '/docs/ai-engineering/observability',

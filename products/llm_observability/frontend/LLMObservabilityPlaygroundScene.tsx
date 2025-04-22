@@ -127,7 +127,7 @@ function PromptPanel(): JSX.Element {
                     <LemonButton
                         type="primary"
                         icon={<IconSend />}
-                        onClick={submitPrompt}
+                        htmlType="submit"
                         disabledReason={!prompt.trim() ? 'Enter a prompt' : undefined}
                         loading={generationResponseLoading}
                     />

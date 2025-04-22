@@ -38,8 +38,8 @@ class LLMPlaygroundSerializer(serializers.Serializer):
 class LLMPlaygroundViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     permission_classes = [IsAuthenticated, TeamMemberAccessPermission]
     throttle_classes = [LLMPlaygroundRateThrottle]
-    scope_object = "feature_flag"  # Using a similar scope to other features
-    param_derived_from_user_current_team = "team_id"  # Use the user's current team
+    scope_object = "feature_flag"
+    param_derived_from_user_current_team = "team_id"
 
     @action(methods=["GET"], detail=False)
     def models(self, request: Request, **kwargs) -> Response:
@@ -81,22 +81,6 @@ class LLMPlaygroundViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         openai = OpenAI(posthog_client=posthog_client)
 
         try:
-            # Create the request parameters - handling distinct_id and properties separately
-            # request_params = {
-            #     "model": data["model"],
-            #     "messages": messages,
-            #     "temperature": data.get("temperature", 0.7),
-            #     "max_tokens": data.get("max_tokens", 1024),
-            # }
-
-            # # Add PostHog-specific parameters
-            # distinct_id = getattr(request.user, "distinct_id", str(request.user.pk))
-            # posthog_properties = {
-            #     "ai_product": "llm_playground",
-            #     "ai_feature": "generate",
-            #     "team_id": team.pk,  # Use .pk instead of .id
-            # }
-
             result = openai.chat.completions.create(
                 model=data["model"],
                 messages=messages,
