@@ -267,7 +267,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     for (const result of results.slice(-1 * lastCount)) {
                         const folder = joinPath(splitPath(result.path).slice(0, -1))
                         if (newState[folder]) {
-                            newState[folder] = [...newState[folder], result]
+                            const existingItem = newState[folder].find((item) => item.id === result.id)
+                            if (existingItem) {
+                                newState[folder] = newState[folder].map((file) =>
+                                    file.id === result.id ? result : file
+                                )
+                            } else {
+                                newState[folder] = [...newState[folder], result]
+                            }
                         } else {
                             newState[folder] = [result]
                         }
