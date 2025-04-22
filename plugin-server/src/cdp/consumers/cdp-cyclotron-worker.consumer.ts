@@ -40,15 +40,16 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         )
 
         // TODO: We can parallelize all this right??
+        await this.queueInvocationResults(invocationResults)
         await this.hogWatcher.observeResults(invocationResults)
         await this.hogFunctionMonitoringService.processInvocationResults(invocationResults)
-        await this.queueInvocationResults(invocationResults)
         await this.hogFunctionMonitoringService.produceQueuedMessages()
 
         return invocationResults
     }
 
     protected async queueInvocationResults(invocations: HogFunctionInvocationResult[]) {
+        await this.cyclotronJobQueue.queueInvocationResults(invocations)
         invocations.forEach((item) => {
             if (item.invocation.queue === 'fetch') {
                 // Track a metric purely to say a fetch was attempted (this may be what we bill on in the future)
@@ -61,8 +62,6 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
                 })
             }
         })
-
-        await this.cyclotronJobQueue.queueInvocationResults(invocations)
     }
 
     public async start() {

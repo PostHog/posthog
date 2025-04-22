@@ -116,18 +116,16 @@ export class CyclotronJobQueue {
         if (!this.hub.CYCLOTRON_DATABASE_URL) {
             throw new Error('Cyclotron database URL not set! This is required for the CDP services to work.')
         }
-        this.cyclotronManager = this.hub.CYCLOTRON_DATABASE_URL
-            ? new CyclotronManager({
-                  shards: [
-                      {
-                          dbUrl: this.hub.CYCLOTRON_DATABASE_URL,
-                      },
-                  ],
-                  shardDepthLimit: this.hub.CYCLOTRON_SHARD_DEPTH_LIMIT ?? 1000000,
-                  shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
-                  shouldUseBulkJobCopy: this.hub.CDP_CYCLOTRON_USE_BULK_COPY_JOB,
-              })
-            : undefined
+        this.cyclotronManager = new CyclotronManager({
+            shards: [
+                {
+                    dbUrl: this.hub.CYCLOTRON_DATABASE_URL,
+                },
+            ],
+            shardDepthLimit: this.hub.CYCLOTRON_SHARD_DEPTH_LIMIT ?? 1000000,
+            shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
+            shouldUseBulkJobCopy: this.hub.CDP_CYCLOTRON_USE_BULK_COPY_JOB,
+        })
 
         await this.cyclotronManager?.connect()
     }
