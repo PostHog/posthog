@@ -1235,7 +1235,7 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(len(results), 2)
             # Old funnels incorrectly return None instead of empty string for empty breakdown values in these two attribution modes
             # Not worth fixing for now
-            if response.isUdf or attribution_type in ("all_events", "step"):
+            if response.isUdf or attribution_type not in ("all_events", "step"):
                 self.assertEqual(results[0]["breakdown_value"], [""])
             self.assertEqual(results[0]["data"], [0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
             self.assertEqual(results[1]["breakdown_value"], ["foo"])
