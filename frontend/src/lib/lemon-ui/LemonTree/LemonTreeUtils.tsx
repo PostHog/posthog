@@ -14,7 +14,8 @@ type TreeNodeDisplayIconWrapperProps = {
     defaultNodeIcon?: React.ReactNode
     handleClick: (item: TreeDataItem) => void
     enableMultiSelection: boolean
-    depthOffset: number
+    defaultOffset: number
+    multiSelectionOffset: number
     checkedItemCount?: number
     onItemChecked?: (id: string, checked: boolean) => void
 }
@@ -25,9 +26,10 @@ export const TreeNodeDisplayIconWrapper = ({
     defaultNodeIcon,
     handleClick,
     enableMultiSelection,
-    depthOffset,
     checkedItemCount,
     onItemChecked,
+    defaultOffset,
+    multiSelectionOffset,
 }: TreeNodeDisplayIconWrapperProps): JSX.Element => {
     return (
         <>
@@ -56,7 +58,7 @@ export const TreeNodeDisplayIconWrapper = ({
                             checkedItemCount === 0,
                     })}
                     style={{
-                        left: `${depthOffset + 5}px`,
+                        left: `${defaultOffset}px`,
                     }}
                 />
 
@@ -65,7 +67,10 @@ export const TreeNodeDisplayIconWrapper = ({
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         // If multi-selection is enabled, we need to offset the icon to the right to make space for the checkbox
-                        left: enableMultiSelection ? `${depthOffset + 28}px` : `${depthOffset + 5}px`,
+                        left:
+                            enableMultiSelection && !item.disableSelect
+                                ? `${multiSelectionOffset}px`
+                                : `${defaultOffset}px`,
                     }}
                     // Since we need to make this element hoverable, we cannot pointer-events: none, so we pass onClick to mimic the sibling button click
                     onClick={() => {
@@ -107,8 +112,9 @@ export const TreeNodeDisplayCheckbox = ({
             <div className={ICON_CLASSES}>
                 <LemonCheckbox
                     className={cn('size-5 ml-[2px]', {
-                        // Hide the checkbox if the item is disabled from being checked
-                        hidden: item.disableSelect || item.record?.type === 'folder',
+                        // Hide the checkbox if the item is disabled from being checked and is a folder
+                        // When searching we disable folders from being checked
+                        hidden: item.disableSelect && item.record?.type === 'folder',
                     })}
                     checked={isChecked ?? false}
                     onChange={(checked) => {
