@@ -22,7 +22,8 @@ pub const FLAG_HASH_KEY_PROCESSING_TIME: &str = "flags_hash_key_processing_time"
 pub const FLAG_LOCAL_PROPERTY_OVERRIDE_MATCH_TIME: &str =
     "flags_local_property_override_match_time";
 pub const FLAG_DB_PROPERTIES_FETCH_TIME: &str = "flags_properties_db_fetch_time";
-pub const FLAG_GROUP_FETCH_TIME: &str = "flags_groups_cache_fetch_time";
+pub const FLAG_GROUP_DB_FETCH_TIME: &str = "flags_groups_db_fetch_time"; // this is how long it takes to fetch the group type mappings from the DB
+pub const FLAG_GROUP_CACHE_FETCH_TIME: &str = "flags_groups_cache_fetch_time"; // this is how long it takes to fetch the group type mappings from the cache
 pub const FLAG_GET_MATCH_TIME: &str = "flags_get_match_time";
 pub const FLAG_EVALUATE_ALL_CONDITIONS_TIME: &str = "flags_evaluate_all_conditions_time";
 pub const FLAG_PERSON_QUERY_TIME: &str = "flags_person_query_time";

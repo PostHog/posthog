@@ -63,7 +63,7 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     job_inputs = EncryptedJSONField(null=True, blank=True)
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
-    revenue_analytics_enabled = models.BooleanField(default=False)
+    revenue_analytics_enabled = models.BooleanField(default=False, blank=True, null=True)
 
     __repr__ = sane_repr("id")
 

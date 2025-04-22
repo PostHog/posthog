@@ -158,6 +158,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     latest_error = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     schemas = serializers.SerializerMethodField(read_only=True)
+    revenue_analytics_enabled = serializers.BooleanField(default=False)
 
     class Meta:
         model = ExternalDataSource
