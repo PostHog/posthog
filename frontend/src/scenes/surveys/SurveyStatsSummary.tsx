@@ -4,7 +4,7 @@ import { humanFriendlyNumber, percentage, pluralize } from 'lib/utils'
 import { memo } from 'react'
 import { StackedBar, StackedBarSegment } from 'scenes/surveys/components/StackedBar'
 
-import { SurveyStats } from '~/types'
+import { SurveyRates, SurveyStats } from '~/types'
 
 import { surveyLogic } from './surveyLogic'
 
@@ -34,8 +34,7 @@ function StatCard({ title, value, description, isLoading }: StatCardProps): JSX.
     )
 }
 
-function UsersCount({ surveyStats }: { surveyStats: SurveyStats }): JSX.Element {
-    const { stats, rates } = surveyStats
+function UsersCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRates }): JSX.Element {
     const uniqueUsersShown = stats['survey shown'].unique_persons
     const uniqueUsersSent = stats['survey sent'].unique_persons
 
@@ -62,8 +61,7 @@ function UsersCount({ surveyStats }: { surveyStats: SurveyStats }): JSX.Element 
     )
 }
 
-function ResponsesCount({ surveyStats }: { surveyStats: SurveyStats }): JSX.Element {
-    const { stats, rates } = surveyStats
+function ResponsesCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRates }): JSX.Element {
     const impressions = stats['survey shown'].total_count
     const sent = stats['survey sent'].total_count
 
@@ -106,14 +104,12 @@ function getTooltip(count: number, total: number, isFilteredByDistinctId: boolea
 }
 
 function SurveyStatsStackedBar({
-    surveyStats,
+    stats,
     filterByDistinctId,
 }: {
-    surveyStats: SurveyStats
+    stats: SurveyStats
     filterByDistinctId: boolean
 }): JSX.Element {
-    const { stats } = surveyStats
-
     const total = !filterByDistinctId ? stats['survey shown'].total_count : stats['survey shown'].unique_persons
     const onlySeen = !filterByDistinctId
         ? stats['survey shown'].total_count_only_seen
@@ -201,13 +197,19 @@ function SurveyStatsSummarySkeleton(): JSX.Element {
 }
 
 function _SurveyStatsSummary(): JSX.Element {
-    const { surveyUserStats, surveyUserStatsLoading, filterSurveyStatsByDistinctId } = useValues(surveyLogic)
+    const {
+        filterSurveyStatsByDistinctId,
+        processedSurveyStats,
+        surveyRates,
+        surveyBaseStatsLoading,
+        surveyDismissedAndSentCountLoading,
+    } = useValues(surveyLogic)
 
-    if (surveyUserStatsLoading) {
+    if (surveyBaseStatsLoading || surveyDismissedAndSentCountLoading) {
         return <SurveyStatsSummarySkeleton />
     }
 
-    if (!surveyUserStats) {
+    if (!processedSurveyStats) {
         return (
             <SurveyStatsContainer>
                 <div className="text-center text-text-secondary">No data available for this survey yet.</div>
@@ -218,11 +220,11 @@ function _SurveyStatsSummary(): JSX.Element {
     return (
         <SurveyStatsContainer>
             {filterSurveyStatsByDistinctId ? (
-                <UsersCount surveyStats={surveyUserStats} />
+                <UsersCount stats={processedSurveyStats} rates={surveyRates} />
             ) : (
-                <ResponsesCount surveyStats={surveyUserStats} />
+                <ResponsesCount stats={processedSurveyStats} rates={surveyRates} />
             )}
-            <SurveyStatsStackedBar surveyStats={surveyUserStats} filterByDistinctId={filterSurveyStatsByDistinctId} />
+            <SurveyStatsStackedBar stats={processedSurveyStats} filterByDistinctId={filterSurveyStatsByDistinctId} />
         </SurveyStatsContainer>
     )
 }
