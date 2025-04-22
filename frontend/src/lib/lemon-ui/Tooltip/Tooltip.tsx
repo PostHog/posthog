@@ -20,6 +20,7 @@ import {
 } from '@floating-ui/react'
 import clsx from 'clsx'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
+import posthog from 'posthog-js'
 import React, { useRef, useState } from 'react'
 
 import { Link } from '../Link'
@@ -158,7 +159,14 @@ export function Tooltip({
                             {typeof title === 'function' ? title() : title}
                             {docLink && (
                                 <p className={`mb-0 ${title ? 'mt-1' : ''}`}>
-                                    <Link to={docLink} target="_blank" className="text-xs">
+                                    <Link
+                                        to={docLink}
+                                        target="_blank"
+                                        className="text-xs"
+                                        data-ph-capture-attribute-autocapture-event-name="clicked tooltip doc link"
+                                        data-ph-capture-attribute-doclink={docLink}
+                                        onClick={() => posthog.capture('clicked tooltip doc link', { docLink })}
+                                    >
                                         Read the docs
                                     </Link>
                                 </p>
