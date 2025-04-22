@@ -146,6 +146,17 @@ class Assistant:
         )
         self._trace_id = trace_id
 
+    def invoke(self, message: str):
+        if SERVER_GATEWAY_INTERFACE == "ASGI":
+            return self._ainvoke()
+        return self._invoke()
+
+    def _ainvoke(self):
+        return self._graph.ainvoke(self._init_or_update_state(), self._get_config())
+
+    def _invoke(self):
+        return self._graph.invoke(self._init_or_update_state(), self._get_config())
+
     def stream(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
             return self._astream()

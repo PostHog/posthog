@@ -108,4 +108,7 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
     tool_call_id: string
 }
 
-export type AssistantContextualTool = 'search_session_recordings' | 'generate_hogql_query'
+export type AssistantContextualTool =
+    | 'search_session_recordings'
+    | 'generate_hogql_query'
+    | 'create_insight_for_dashboard'

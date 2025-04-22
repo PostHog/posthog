@@ -145,7 +145,12 @@ function DashboardScene(): JSX.Element {
                                         {[DashboardPlacement.Public].includes(placement) ? (
                                             <LastRefreshText />
                                         ) : !(dashboardMode === DashboardMode.Edit) ? (
-                                            <DashboardReloadAction />
+                                            <div className="flex gap-2 items-center">
+                                                <DashboardReloadAction />
+                                                {canEditDashboard && dashboard?.id && (
+                                                    <div className="relative min-h-8 min-w-8" />
+                                                )}
+                                            </div>
                                         ) : null}
                                     </div>
                                 </div>

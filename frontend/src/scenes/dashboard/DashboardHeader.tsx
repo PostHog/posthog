@@ -22,6 +22,7 @@ import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
+import MaxTool from 'scenes/max/MaxTool'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -61,7 +62,7 @@ export function DashboardHeader(): JSX.Element | null {
         showTextTileModal,
         textTileId,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
+    const { setDashboardMode, triggerDashboardUpdate, loadDashboard } = useActions(dashboardLogic)
     const { asDashboardTemplate } = useValues(dashboardLogic)
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
@@ -319,39 +320,50 @@ export function DashboardHeader(): JSX.Element | null {
                                 </>
                             )}
                             {dashboard ? (
-                                <AccessControlledLemonButton
-                                    userAccessLevel={dashboard.user_access_level}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    resourceType={AccessControlResourceType.Dashboard}
-                                    onClick={showAddInsightToDashboardModal}
-                                    type="primary"
-                                    data-attr="dashboard-add-graph-header"
-                                    sideAction={{
-                                        dropdown: {
-                                            placement: 'bottom-end',
-                                            overlay: (
-                                                <>
-                                                    <AccessControlledLemonButton
-                                                        userAccessLevel={dashboard.user_access_level}
-                                                        minAccessLevel={AccessControlLevel.Editor}
-                                                        resourceType={AccessControlResourceType.Dashboard}
-                                                        fullWidth
-                                                        onClick={() => {
-                                                            push(urls.dashboardTextTile(dashboard.id, 'new'))
-                                                        }}
-                                                        data-attr="add-text-tile-to-dashboard"
-                                                    >
-                                                        Add text card
-                                                    </AccessControlledLemonButton>
-                                                </>
-                                            ),
-                                        },
-                                        disabled: false,
-                                        'data-attr': 'dashboard-add-dropdown',
+                                <MaxTool
+                                    name="create_insight_for_dashboard"
+                                    displayName="Create insight with natural language"
+                                    context={{
+                                        dashboard_id: dashboard.id,
+                                        user_id: dashboard.created_by?.id,
                                     }}
+                                    callback={() => loadDashboard({ action: 'refresh' })}
+                                    initialMaxPrompt="Create a new insight for this dashboard that shows"
                                 >
-                                    Add insight
-                                </AccessControlledLemonButton>
+                                    <AccessControlledLemonButton
+                                        userAccessLevel={dashboard.user_access_level}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        resourceType={AccessControlResourceType.Dashboard}
+                                        onClick={showAddInsightToDashboardModal}
+                                        type="primary"
+                                        data-attr="dashboard-add-graph-header"
+                                        sideAction={{
+                                            dropdown: {
+                                                placement: 'bottom-end',
+                                                overlay: (
+                                                    <>
+                                                        <AccessControlledLemonButton
+                                                            userAccessLevel={dashboard.user_access_level}
+                                                            minAccessLevel={AccessControlLevel.Editor}
+                                                            resourceType={AccessControlResourceType.Dashboard}
+                                                            fullWidth
+                                                            onClick={() => {
+                                                                push(urls.dashboardTextTile(dashboard.id, 'new'))
+                                                            }}
+                                                            data-attr="add-text-tile-to-dashboard"
+                                                        >
+                                                            Add text card
+                                                        </AccessControlledLemonButton>
+                                                    </>
+                                                ),
+                                            },
+                                            disabled: false,
+                                            'data-attr': 'dashboard-add-dropdown',
+                                        }}
+                                    >
+                                        Add insight
+                                    </AccessControlledLemonButton>
+                                </MaxTool>
                             ) : null}
                         </>
                     )

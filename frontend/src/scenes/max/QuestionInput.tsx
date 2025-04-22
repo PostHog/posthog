@@ -92,7 +92,7 @@ export function QuestionInput(): JSX.Element {
                 {tools.length > 0 && (
                     <div
                         className={clsx(
-                            'flex gap-1 text-xs font-medium cursor-default px-1.5',
+                            'flex flex-wrap gap-x-1 text-xs font-medium cursor-default px-1.5',
                             !isFloating
                                 ? 'w-[calc(100%-1rem)] py-1 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]'
                                 : 'w-full pt-1'
