@@ -67,35 +67,6 @@ const createAsyncResult = (options: {
     }
 }
 
-const createMixedResult = (options: {
-    id: string
-    hogDuration?: number
-    asyncDuration?: number
-    finished?: boolean
-    error?: string
-}): HogFunctionInvocationResult => {
-    return {
-        invocation: {
-            ...createInvocation({ id: options.id }),
-            id: 'invocation-id',
-            teamId: 2,
-            timings: [
-                {
-                    kind: 'hog',
-                    duration_ms: options.hogDuration ?? 0,
-                },
-                {
-                    kind: 'async_function',
-                    duration_ms: options.asyncDuration ?? 0,
-                },
-            ],
-        },
-        finished: options.finished ?? true,
-        error: options.error,
-        logs: [],
-    }
-}
-
 describe('HogWatcher', () => {
     describe('integration', () => {
         let now: number
@@ -116,6 +87,23 @@ describe('HogWatcher', () => {
 
             watcher = new HogWatcherService(hub, redis)
         })
+
+        // Helper function to calculate cost based on duration and type
+        const calculateCost = (durationMs: number, kind: 'hog' | 'async_function'): number => {
+            if (kind === 'hog') {
+                const lowerBound = hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS
+                const upperBound = hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS
+                const costTiming = hub.CDP_WATCHER_HOG_COST_TIMING
+                const ratio = Math.max(0, durationMs - lowerBound) / (upperBound - lowerBound)
+                return Math.round(costTiming * ratio)
+            } else {
+                const lowerBound = hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS
+                const upperBound = hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS
+                const costTiming = hub.CDP_WATCHER_ASYNC_COST_TIMING
+                const ratio = Math.max(0, durationMs - lowerBound) / (upperBound - lowerBound)
+                return Math.round(costTiming * ratio)
+            }
+        }
 
         const advanceTime = (ms: number) => {
             now += ms
@@ -246,20 +234,9 @@ describe('HogWatcher', () => {
                 const hogState = await watcher.getState('hog1')
                 const asyncState = await watcher.getState('async1')
 
-                // Since the implementation now uses fixed costs for both,
-                // calculate expected costs based on the ratio calculation with maximum costs
-                const hogRatio = Math.max(
-                    0,
-                    Math.max(executionDuration - hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS, 0) /
-                        (hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS - hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS)
-                )
-                const asyncRatio = Math.max(
-                    0,
-                    Math.max(executionDuration - hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS, 0) /
-                        (hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS - hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS)
-                )
-                const hogCost = Math.round(hub.CDP_WATCHER_HOG_COST_TIMING * hogRatio)
-                const asyncCost = Math.round(hub.CDP_WATCHER_ASYNC_COST_TIMING * asyncRatio)
+                // Calculate expected costs using the helper
+                const hogCost = calculateCost(executionDuration, 'hog')
+                const asyncCost = calculateCost(executionDuration, 'async_function')
 
                 expect(10000 - hogState.tokens).toBe(hogCost)
                 expect(10000 - asyncState.tokens).toBe(asyncCost)
@@ -279,39 +256,6 @@ describe('HogWatcher', () => {
                 expect(10000 - asyncState.tokens).toBe(0)
             })
 
-            it('should combine costs for mixed functions properly', async () => {
-                // Test combined cost calculation for mixed functions
-                const hogExecutionDuration = 200
-                const asyncExecutionDuration = 1000
-                await watcher.observeResults([
-                    createMixedResult({
-                        id: 'mixed1',
-                        hogDuration: hogExecutionDuration,
-                        asyncDuration: asyncExecutionDuration,
-                    }),
-                ])
-
-                const mixedState = await watcher.getState('mixed1')
-
-                // Calculate expected costs based on the ratio calculation with maximum costs
-                const hogRatio = Math.max(
-                    0,
-                    Math.max(hogExecutionDuration - hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS, 0) /
-                        (hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS - hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS)
-                )
-                const asyncRatio = Math.max(
-                    0,
-                    Math.max(asyncExecutionDuration - hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS, 0) /
-                        (hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS - hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS)
-                )
-                const expectedHogCost = Math.round(hub.CDP_WATCHER_HOG_COST_TIMING * hogRatio)
-                const expectedAsyncCost = Math.round(hub.CDP_WATCHER_ASYNC_COST_TIMING * asyncRatio)
-                const expectedTotalCost = expectedHogCost + expectedAsyncCost
-
-                // Combined cost should match the sum of individual costs
-                expect(10000 - mixedState.tokens).toBe(expectedTotalCost)
-            })
-
             it('should penalize hog functions that exceed threshold by small amounts', async () => {
                 // Test near-threshold values for hog functions
                 await watcher.observeResults([createHogResult({ id: 'hog_60', duration: 60 })])
@@ -327,6 +271,72 @@ describe('HogWatcher', () => {
                 expect(10000 - tokens60).toBeGreaterThan(0) // Just over threshold should have some penalty
                 expect(10000 - tokens80).toBeGreaterThan(10000 - tokens60) // Higher duration = higher penalty
                 expect(10000 - tokens100).toBeGreaterThan(10000 - tokens80) // Even higher penalty
+            })
+
+            it('should calculate costs for multiple entries of the same type', async () => {
+                // Create a result with multiple hog timing entries
+                const result: HogFunctionInvocationResult = {
+                    invocation: {
+                        ...createInvocation({ id: 'multi_hog' }),
+                        id: 'invocation-id',
+                        teamId: 2,
+                        timings: [
+                            { kind: 'hog', duration_ms: 40 }, // Below threshold
+                            { kind: 'hog', duration_ms: 80 }, // Above threshold
+                            { kind: 'hog', duration_ms: 150 }, // Well above threshold
+                        ],
+                    },
+                    finished: true,
+                    logs: [],
+                }
+
+                await watcher.observeResults([result])
+                const multiHogState = await watcher.getState('multi_hog')
+
+                // Calculate expected costs using the helper
+                const cost1 = calculateCost(40, 'hog')
+                const cost2 = calculateCost(80, 'hog')
+                const cost3 = calculateCost(150, 'hog')
+
+                const expectedTotalCost = cost1 + cost2 + cost3
+
+                // Total cost should be sum of individual timing costs
+                expect(10000 - multiHogState.tokens).toBe(expectedTotalCost)
+            })
+
+            it('should handle complex mixed function scenarios correctly', async () => {
+                // Create an invocation with multiple timing entries of both types
+                const complexResult: HogFunctionInvocationResult = {
+                    invocation: {
+                        ...createInvocation({ id: 'complex_mixed' }),
+                        id: 'invocation-id',
+                        teamId: 2,
+                        timings: [
+                            { kind: 'hog', duration_ms: 50 }, // Just below hog threshold
+                            { kind: 'async_function', duration_ms: 120 }, // Just above async threshold
+                            { kind: 'hog', duration_ms: 90 }, // Above hog threshold
+                            { kind: 'async_function', duration_ms: 800 }, // Higher async cost
+                            { kind: 'hog', duration_ms: 200 }, // Higher hog cost
+                        ],
+                    },
+                    finished: true,
+                    logs: [],
+                }
+
+                await watcher.observeResults([complexResult])
+                const complexState = await watcher.getState('complex_mixed')
+
+                // Calculate expected costs using the helper
+                const hogCost1 = calculateCost(50, 'hog')
+                const asyncCost1 = calculateCost(120, 'async_function')
+                const hogCost2 = calculateCost(90, 'hog')
+                const asyncCost2 = calculateCost(800, 'async_function')
+                const hogCost3 = calculateCost(200, 'hog')
+
+                const expectedTotalCost = hogCost1 + asyncCost1 + hogCost2 + asyncCost2 + hogCost3
+
+                // Total cost should be sum of all individual timing costs
+                expect(10000 - complexState.tokens).toBe(expectedTotalCost)
             })
         })
 
