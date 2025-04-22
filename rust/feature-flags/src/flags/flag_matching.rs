@@ -6,7 +6,7 @@ use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
 use crate::flags::flag_group_type_mapping::{GroupTypeIndex, GroupTypeMappingCache};
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
-use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagGroupType};
+use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagPropertyGroup};
 use crate::metrics::consts::{
     DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, FLAG_DB_PROPERTIES_FETCH_TIME,
     FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
@@ -518,11 +518,6 @@ impl FeatureFlagMatcher {
 
         // Step 2: Prepare evaluation data for remaining flags
         if !flags_needing_db_properties.is_empty() {
-            // TRICKY: sometimes we don't have a person_id ingested by the time we get a `/flags` request for a given
-            // distinct_id. In this case, we need to return a "no person found" error for all flags that need DB properties.
-            // We don't need to worry about this for group flags because they don't need person data, nor do we need to
-            // do this for flags have have locally computable properties, since we don't need to fetch DB properties for them.
-            // However, for flags that need DB properties, we need to return a "no person found" error.
             if let Err(e) = self
                 .prepare_flag_evaluation_state(&flags_needing_db_properties)
                 .await
@@ -791,7 +786,7 @@ impl FeatureFlagMatcher {
             }
         }
         // Sort conditions with variant overrides to the top so that we can evaluate them first
-        let mut sorted_conditions: Vec<(usize, &FlagGroupType)> =
+        let mut sorted_conditions: Vec<(usize, &FlagPropertyGroup)> =
             flag.get_conditions().iter().enumerate().collect();
 
         sorted_conditions
@@ -890,7 +885,7 @@ impl FeatureFlagMatcher {
     fn is_condition_match(
         &self,
         feature_flag: &FeatureFlag,
-        condition: &FlagGroupType,
+        condition: &FlagPropertyGroup,
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<(bool, FeatureFlagMatchReason), FlagError> {
@@ -1518,7 +1513,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
                         value: json!("override@example.com"),
@@ -1580,7 +1575,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "industry".to_string(),
                         value: json!("tech"),
@@ -1716,7 +1711,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -1732,7 +1727,7 @@ mod tests {
             None,
         );
 
-        let condition = FlagGroupType {
+        let condition = FlagPropertyGroup {
             variant: None,
             properties: Some(vec![]),
             rollout_percentage: Some(100.0),
@@ -1762,7 +1757,7 @@ mod tests {
             name: Some("Test Flag".to_string()),
             key: "test_flag".to_string(),
             filters: FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: None,
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -1811,7 +1806,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
                         value: json!("test@example.com"),
@@ -1883,7 +1878,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -1943,7 +1938,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![
                         PropertyFilter {
                             key: "age".to_string(),
@@ -2017,7 +2012,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -2060,7 +2055,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(0.0),
                     variant: None,
@@ -2180,7 +2175,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
                         value: json!("test@example.com"),
@@ -2242,7 +2237,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "age".to_string(),
                         value: json!(25),
@@ -2293,7 +2288,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
@@ -2342,7 +2337,7 @@ mod tests {
             Some("complex_flag".to_string()),
             Some(FlagFilters {
                 groups: vec![
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
                             value: json!("user1@example.com"),
@@ -2354,7 +2349,7 @@ mod tests {
                         rollout_percentage: Some(100.0),
                         variant: None,
                     },
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "age".to_string(),
                             value: json!(30),
@@ -2585,7 +2580,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
                         value: json!(cohort_row.id),
@@ -2658,7 +2653,7 @@ mod tests {
             Some("super_condition_flag".to_string()),
             Some(FlagFilters {
                 groups: vec![
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
                             value: json!("fake@posthog.com"),
@@ -2670,7 +2665,7 @@ mod tests {
                         rollout_percentage: Some(0.0),
                         variant: None,
                     },
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
                             value: json!("test@posthog.com"),
@@ -2682,7 +2677,7 @@ mod tests {
                         rollout_percentage: Some(100.0),
                         variant: None,
                     },
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: None,
                         rollout_percentage: Some(50.0),
                         variant: None,
@@ -2691,7 +2686,7 @@ mod tests {
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
-                super_groups: Some(vec![FlagGroupType {
+                super_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "is_enabled".to_string(),
                         value: json!(["true"]),
@@ -2810,7 +2805,7 @@ mod tests {
             Some("super_condition_flag".to_string()),
             Some(FlagFilters {
                 groups: vec![
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
                             value: json!("fake@posthog.com"),
@@ -2822,7 +2817,7 @@ mod tests {
                         rollout_percentage: Some(0.0),
                         variant: None,
                     },
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
                             value: json!("test@posthog.com"),
@@ -2834,7 +2829,7 @@ mod tests {
                         rollout_percentage: Some(100.0),
                         variant: None,
                     },
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: None,
                         rollout_percentage: Some(50.0),
                         variant: None,
@@ -2843,7 +2838,7 @@ mod tests {
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
-                super_groups: Some(vec![FlagGroupType {
+                super_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "is_enabled".to_string(),
                         value: json!("true"),
@@ -2916,7 +2911,7 @@ mod tests {
             Some("super_condition_flag".to_string()),
             Some(FlagFilters {
                 groups: vec![
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
                             value: json!("fake@posthog.com"),
@@ -2928,7 +2923,7 @@ mod tests {
                         rollout_percentage: Some(0.0),
                         variant: None,
                     },
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
                             value: json!("test@posthog.com"),
@@ -2940,7 +2935,7 @@ mod tests {
                         rollout_percentage: Some(100.0),
                         variant: None,
                     },
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: None,
                         rollout_percentage: Some(50.0),
                         variant: None,
@@ -2949,7 +2944,7 @@ mod tests {
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
-                super_groups: Some(vec![FlagGroupType {
+                super_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "is_enabled".to_string(),
                         value: json!(false),
@@ -3091,7 +3086,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
                         value: json!(cohort_row.id),
@@ -3184,7 +3179,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
                         value: json!(cohort_row.id),
@@ -3277,7 +3272,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
                         value: json!(cohort_row.id),
@@ -3391,7 +3386,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
                         value: json!(dependent_cohort_row.id),
@@ -3484,7 +3479,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
                         value: json!(cohort_row.id),
@@ -3570,7 +3565,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
                         value: json!(cohort.id),
@@ -3655,7 +3650,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
                         value: json!(cohort.id),
@@ -3735,7 +3730,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
                         value: json!(cohort.id),
@@ -3828,7 +3823,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
                         value: json!(cohort.id),
@@ -3898,7 +3893,7 @@ mod tests {
             None,
             Some("flag_continuity".to_string()),
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
                         value: json!("user3@example.com"),
@@ -3994,7 +3989,7 @@ mod tests {
             None,
             Some("flag_continuity_missing".to_string()),
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
                         value: json!("user4@example.com"),
@@ -4075,7 +4070,7 @@ mod tests {
             None,
             Some("flag_continuity_mix".to_string()),
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
                         value: json!("user5@example.com"),
@@ -4105,7 +4100,7 @@ mod tests {
             None,
             Some("flag_no_continuity_mix".to_string()),
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "age".to_string(),
                         value: json!(30),
@@ -4204,7 +4199,7 @@ mod tests {
             None,
             Some("test_flag".to_string()),
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
                         value: json!("test@example.com"),
@@ -4275,7 +4270,7 @@ mod tests {
             None,
             Some("test_flag_invalid".to_string()),
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
                         value: json!("test@example.com"),
@@ -4379,7 +4374,7 @@ mod tests {
             Some("Flag with holdout".to_string()),
             Some("flag-with-gt-filter".to_string()),
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "$some_prop".to_string(),
                         value: json!(4),
@@ -4391,7 +4386,7 @@ mod tests {
                     rollout_percentage: Some(100.0),
                     variant: None,
                 }],
-                holdout_groups: Some(vec![FlagGroupType {
+                holdout_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(70.0),
                     variant: Some("holdout".to_string()),
@@ -4412,7 +4407,7 @@ mod tests {
             Some("Other flag with holdout".to_string()),
             Some("other-flag-with-gt-filter".to_string()),
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "$some_prop".to_string(),
                         value: json!(4),
@@ -4424,7 +4419,7 @@ mod tests {
                     rollout_percentage: Some(100.0),
                     variant: None,
                 }],
-                holdout_groups: Some(vec![FlagGroupType {
+                holdout_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(70.0),
                     variant: Some("holdout".to_string()),
@@ -4445,7 +4440,7 @@ mod tests {
             Some("Flag".to_string()),
             Some("other-flag-without-holdout-with-gt-filter".to_string()),
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "$some_prop".to_string(),
                         value: json!(4),
@@ -4457,7 +4452,7 @@ mod tests {
                     rollout_percentage: Some(100.0),
                     variant: None,
                 }],
-                holdout_groups: Some(vec![FlagGroupType {
+                holdout_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(0.0),
                     variant: Some("holdout".to_string()),
@@ -4567,7 +4562,7 @@ mod tests {
             name: Some("Beta feature".to_string()),
             key: "beta-feature".to_string(),
             filters: FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: None,
                     rollout_percentage: None,
                     variant: None,
@@ -4716,7 +4711,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
                         value: json!(cohort.id),
@@ -4776,7 +4771,7 @@ mod tests {
             None,
             None,
             Some(FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "email".to_string(),
                         value: json!("test@example.com"),
@@ -4845,7 +4840,7 @@ mod tests {
             Some("complex_flag".to_string()),
             Some(FlagFilters {
                 groups: vec![
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
                             value: json!("@storytell.ai"),
@@ -4857,7 +4852,7 @@ mod tests {
                         rollout_percentage: Some(100.0),
                         variant: None,
                     },
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
                             value: json!([
@@ -4874,7 +4869,7 @@ mod tests {
                         rollout_percentage: Some(100.0),
                         variant: None,
                     },
-                    FlagGroupType {
+                    FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
                             key: "email".to_string(),
                             value: json!("@posthog.com"),
@@ -4890,7 +4885,7 @@ mod tests {
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
-                super_groups: Some(vec![FlagGroupType {
+                super_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "$feature_enrollment/artificial-hog".to_string(),
                         value: json!(["true"]),
