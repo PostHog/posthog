@@ -232,12 +232,12 @@ export const amplitudePlugin: LegacyDestinationPlugin = {
         mapping_templates: (segmentDestination.presets ?? [])
             .filter((preset) => preset.type === 'automatic')
             .map((preset) => ({
-                name: preset.partnerAction,
+                name: preset.name,
                 include_by_default: true,
                 filters: {
                     events: translateFilters(preset.subscribe)
                 },
-                inputs_schema: translateInputsSchema(segmentDestination.actions.logEventV2.fields)
+                inputs_schema: preset.partnerAction in segmentDestination.actions ? translateInputsSchema(segmentDestination.actions[preset.partnerAction as keyof typeof segmentDestination.actions].fields) : []
             })) as HogFunctionMappingTemplate[]
     }
 }

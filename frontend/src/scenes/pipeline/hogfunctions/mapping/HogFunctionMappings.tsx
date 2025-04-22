@@ -63,7 +63,7 @@ const MappingSummary = memo(function MappingSummary({
             </span>
             <IconArrowRight className="text-secondary" />
             <span>
-                {typeof firstInputValue === 'object' ? JSON.stringify(firstInputValue) : humanize(firstInputValue)}
+                {typeof firstInputValue === 'object' ? JSON.stringify(firstInputValue) : humanize(mapping.name ?? firstInputValue)}
             </span>
             <span className="flex-1" />
             {mapping.disabled ? <LemonTag type="danger">Disabled</LemonTag> : null}
