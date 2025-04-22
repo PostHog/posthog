@@ -6,6 +6,8 @@ import { CyclotronJob, CyclotronManager, CyclotronWorker } from '@posthog/cyclot
 import { chunk } from 'lodash'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
+import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
+import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { HogFunctionInvocation, HogFunctionInvocationJobQueue, HogFunctionInvocationResult } from '../types'
@@ -39,6 +41,8 @@ export class CyclotronJobQueue {
     private implementation: 'cyclotron' | 'kafka' = 'cyclotron'
     private cyclotronWorker?: CyclotronWorker
     private cyclotronManager?: CyclotronManager
+    private kafkaConsumer?: BatchConsumer
+    private heartbeat?: () => void
 
     constructor(
         private hub: Hub,
@@ -92,6 +96,8 @@ export class CyclotronJobQueue {
             await this.updateCyclotronJobs(invocationResults)
         }
     }
+
+    // CYCLOTRON
 
     private async startCyclotronWorker() {
         if (!this.hub.CYCLOTRON_DATABASE_URL) {
@@ -252,5 +258,48 @@ export class CyclotronJobQueue {
                 return worker.releaseJob(id)
             })
         )
+    }
+
+    // KAFKA
+
+    private async startKafkaConsumer() {
+        this.kafkaConsumer = await startBatchConsumer({
+            topic: 'topic',
+            groupId: 'group',
+            connectionConfig: createRdConnectionConfigFromEnvVars(this.hub, 'consumer'),
+            autoCommit: true,
+            sessionTimeout: this.hub.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
+            maxPollIntervalMs: this.hub.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
+            // the largest size of a message that can be fetched by the consumer.
+            // the largest size our MSK cluster allows is 20MB
+            // we only use 9 or 10MB but there's no reason to limit this 🤷️
+            consumerMaxBytes: this.hub.KAFKA_CONSUMPTION_MAX_BYTES,
+            consumerMaxBytesPerPartition: this.hub.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
+            // our messages are very big, so we don't want to buffer too many
+            // queuedMinMessages: this.hub.KAFKA_QUEUE_SIZE,
+            consumerMaxWaitMs: this.hub.KAFKA_CONSUMPTION_MAX_WAIT_MS,
+            consumerErrorBackoffMs: this.hub.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
+            fetchBatchSize: this.hub.INGESTION_BATCH_SIZE,
+            batchingTimeoutMs: this.hub.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
+            topicCreationTimeoutMs: this.hub.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
+            topicMetadataRefreshInterval: this.hub.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
+            eachBatch: async (messages, { heartbeat }) => {
+                this.heartbeat = heartbeat
+
+                // histogramKafkaBatchSize.observe(messages.length)
+                // histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
+
+                await this.consumeKafkaBatch(messages)
+            },
+            callEachBatchWhenEmpty: true,
+        })
+
+        /// TODO: Improve this with signals to the node process
+        // this.kafkaConsumer.consumer.on('disconnected', async (err) => {
+        //     // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
+        //     // we need to listen to disconnect and make sure we're stopped
+        //     logger.info('🔁', `${this.name} batch consumer disconnected, cleaning up`, { err })
+        //     await this.stop()
+        // })
     }
 }

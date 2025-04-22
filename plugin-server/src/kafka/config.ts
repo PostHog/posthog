@@ -14,19 +14,27 @@ export const RDKAFKA_LOG_LEVEL_MAPPING = {
 
 export const createRdConnectionConfigFromEnvVars = (
     kafkaConfig: KafkaConfig,
-    target: 'producer' | 'consumer'
+    target: 'producer' | 'consumer' | 'cdp'
 ): GlobalConfig => {
     const kafkaHosts =
-        target === 'producer' ? kafkaConfig.KAFKA_PRODUCER_HOSTS ?? kafkaConfig.KAFKA_HOSTS : kafkaConfig.KAFKA_HOSTS
+        target === 'producer'
+            ? kafkaConfig.KAFKA_PRODUCER_HOSTS ?? kafkaConfig.KAFKA_HOSTS
+            : target === 'cdp'
+            ? kafkaConfig.CDP_KAFKA_HOSTS
+            : kafkaConfig.KAFKA_HOSTS
 
     const kafkaSecurityProtocol =
         target === 'producer'
             ? kafkaConfig.KAFKA_PRODUCER_SECURITY_PROTOCOL ?? kafkaConfig.KAFKA_SECURITY_PROTOCOL
+            : target === 'cdp'
+            ? kafkaConfig.CDP_KAFKA_SECURITY_PROTOCOL
             : kafkaConfig.KAFKA_SECURITY_PROTOCOL
 
     const kafkaClientId =
         target === 'producer'
             ? kafkaConfig.KAFKA_PRODUCER_CLIENT_ID ?? kafkaConfig.KAFKA_CLIENT_ID
+            : target === 'cdp'
+            ? kafkaConfig.CDP_KAFKA_CLIENT_ID
             : kafkaConfig.KAFKA_CLIENT_ID
 
     // We get the config from the environment variables. This method should
