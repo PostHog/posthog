@@ -120,7 +120,7 @@ export function ProjectTree(): JSX.Element {
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            onItemChecked(item.id, !checkedItems[item.id])
+                            onItemChecked(item.id, !checkedItems[item.id], false)
                         }}
                     >
                         <ButtonPrimitive menuItem>{checkedItems[item.id] ? 'Deselect' : 'Select'}</ButtonPrimitive>

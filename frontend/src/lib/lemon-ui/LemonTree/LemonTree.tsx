@@ -110,7 +110,7 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     /** Whether the item is unapplied */
     isItemUnapplied?: (item: TreeDataItem) => boolean
     /** The function to call when the item is checked. */
-    onItemChecked?: (id: string, checked: boolean) => void
+    onItemChecked?: (id: string, checked: boolean, shift: boolean) => void
     /** Count of checked items */
     checkedItemCount?: number
     /** The render function for the item. */

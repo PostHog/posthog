@@ -49,6 +49,7 @@ SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] =
     DatabaseSerializedFieldType.BOOLEAN: "Bool",
     DatabaseSerializedFieldType.ARRAY: "Array",
     DatabaseSerializedFieldType.JSON: "Map",
+    DatabaseSerializedFieldType.DECIMAL: "Decimal",
 }
 
 ExtractErrors = {
