@@ -1755,6 +1755,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             return [currentLocation.pathname, newSearchParams, currentLocation.hashParams]
         },
+        resetVariables: () => {
+            const { currentLocation } = router.values
+            const newSearchParams = {
+                ...currentLocation.searchParams,
+            }
+            delete newSearchParams[QUERY_VARIABLES_KEY]
+            return [currentLocation.pathname, newSearchParams, currentLocation.hashParams]
+        },
     })),
 
     urlToAction(({ values, actions }) => ({
