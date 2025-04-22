@@ -1,8 +1,8 @@
 import { HogFunctionFilterEvent, HogFunctionInputSchemaType } from '~/src/cdp/types';
 import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from '../../types'
-import segmentDestination from './index'
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold';
 import { HogFunctionMappingTemplate } from '~/src/cdp/templates/types';
+import { destinations } from "@segment/action-destinations/dist/destinations"
 
 const translateFilters = (subscribe: string): HogFunctionFilterEvent[] => {
     let mapped = subscribe
@@ -88,6 +88,21 @@ const translateInputs = (defaultVal: any) => {
         if (modifiedVal.includes('context.library.name')) {
             modifiedVal = modifiedVal.replaceAll('context.library.name', 'properties.$lib')
         }
+        if (modifiedVal.includes('context.library.version')) {
+            modifiedVal = modifiedVal.replaceAll('context.library.version', 'properties.$lib_version')
+        }
+        if (modifiedVal.includes('context.page.url')) {
+            modifiedVal = modifiedVal.replaceAll('context.page.url', 'properties.$current_url')
+        }
+        if (modifiedVal.includes('context.screen.density')) {
+            modifiedVal = modifiedVal.replaceAll('context.screen.density', '')
+        }
+        if (modifiedVal.includes('context.device.adTrackingEnabled')) {
+            modifiedVal = modifiedVal.replaceAll('context.device.adTrackingEnabled', '')
+        }
+        if (modifiedVal.includes('context.timezone')) {
+            modifiedVal = modifiedVal.replaceAll('context.timezone', 'properties.$timezone')
+        }
         if (modifiedVal.includes('context.userAgentData.model')) {
             modifiedVal = modifiedVal.replaceAll('context.userAgentData.model', '')
         }
@@ -101,19 +116,19 @@ const translateInputs = (defaultVal: any) => {
             modifiedVal = modifiedVal.replaceAll('context.page.referrer', 'properties.$referrer')
         }
         if (modifiedVal.includes('context.campaign.source')) {
-            modifiedVal = modifiedVal.replaceAll('context.campaign.source', 'properties.$utm_source')
+            modifiedVal = modifiedVal.replaceAll('context.campaign.source', 'properties.utm_source')
         }
         if (modifiedVal.includes('context.campaign.medium')) {
-            modifiedVal = modifiedVal.replaceAll('context.campaign.medium', 'properties.$utm_medium')
+            modifiedVal = modifiedVal.replaceAll('context.campaign.medium', 'properties.utm_medium')
         }
         if (modifiedVal.includes('context.campaign.name')) {
-            modifiedVal = modifiedVal.replaceAll('context.campaign.name', 'properties.$utm_campaign')
+            modifiedVal = modifiedVal.replaceAll('context.campaign.name', 'properties.utm_campaign')
         }
         if (modifiedVal.includes('context.campaign.term')) {
-            modifiedVal = modifiedVal.replaceAll('context.campaign.term', 'properties.$utm_term')
+            modifiedVal = modifiedVal.replaceAll('context.campaign.term', 'properties.utm_term')
         }
         if (modifiedVal.includes('context.campaign.content')) {
-            modifiedVal = modifiedVal.replaceAll('context.campaign.content', 'utm_content')
+            modifiedVal = modifiedVal.replaceAll('context.campaign.content', 'properties.utm_content')
         }
         if (modifiedVal.includes('event.anonymousId')) {
             modifiedVal = modifiedVal.replaceAll('event.anonymousId', 'event.distinct_id')
@@ -126,6 +141,9 @@ const translateInputs = (defaultVal: any) => {
         }
         if (modifiedVal.includes('event.userId')) {
             modifiedVal = modifiedVal.replaceAll('event.userId', 'event.distinct_id')
+        }
+        if (modifiedVal.includes('event.messageId')) {
+            modifiedVal = modifiedVal.replaceAll('event.messageId', 'event.distinct_id')
         }
 
         if (modifiedVal.endsWith('.')) return ''
@@ -145,14 +163,17 @@ const translateInputs = (defaultVal: any) => {
             else return `{${modifiedVal}}`
         } else if (defaultVal && '@if' in defaultVal) {
             if (JSON.stringify(defaultVal['@if'].exists) === JSON.stringify(defaultVal['@if'].then)) {
-                let val = defaultVal['@if'].then['@path']
-                    .replace('$.', 'event.')
-
+                let val = defaultVal['@if'].then
+                if (typeof val === 'object' && val['@path']) {
+                    val = val['@path'].replace('$.', 'event.')
                     val = normalizeValue(val)
+                }
 
-                let fallbackVal = defaultVal['@if'].else['@path']
-                    .replace('$.', 'event.')
-                fallbackVal = normalizeValue(fallbackVal)
+                let fallbackVal = defaultVal['@if'].else
+                if (typeof fallbackVal === 'object' && fallbackVal['@path']) {
+                    fallbackVal = fallbackVal['@path'].replace('$.', 'event.')
+                    fallbackVal = normalizeValue(fallbackVal)
+                }
 
                 if (val === '' && fallbackVal === '') return ''
                 else if (val === '' && fallbackVal !== '') return `{${fallbackVal}}`
@@ -187,57 +208,59 @@ const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): 
     })) as HogFunctionInputSchemaType[]
 }
 
-export const amplitudePlugin: LegacyDestinationPlugin = {
-    onEvent: async (
-        _event: ProcessedPluginEvent,
-        { config, fetch, logger }: LegacyDestinationPluginMeta
-    ): Promise<void> =>  {
-        segmentDestination.actions.logEventV2.perform(async (endpoint, options) => {
-            await fetch(endpoint, {
-                method: options?.method ?? "POST",
-                headers: {
-                    'Content-Type': 'application/json',
+export const SEGMENT_DESTINATIONS = Object.entries(destinations).filter(([_, destination]) => destination).map(([key, destination]) => {
+    return {
+        onEvent: async (
+            _event: ProcessedPluginEvent,
+            { config, fetch, logger }: LegacyDestinationPluginMeta
+        ): Promise<void> =>  {
+            destination.actions.logEventV2.perform(async (endpoint, options) => {
+                await fetch(endpoint, {
+                    method: options?.method ?? "POST",
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(options?.json),
+                })
+                return Promise.resolve({} as any)
+            }, {
+                payload: {
+                    userId: 'test-user-wxpys9',
+                    event: 'PostHog Test Event Name',
+                    properties: {
+                        property1: 1,
+                        property2: 'test',
+                        property3: true
+                    }
                 },
-                body: JSON.stringify(options?.json),
-            })
-            return Promise.resolve({} as any)
-        }, {
-            payload: {
-                userId: 'test-user-wxpys9',
-                event: 'PostHog Test Event Name',
-                properties: {
-                    property1: 1,
-                    property2: 'test',
-                    property3: true
+                settings: {
+                    apiKey: config.apiKey,
+                    endpoint: config.endpoint,
+                    secretKey: config.secretKey
                 }
-            },
-            settings: {
-                apiKey: config.apiKey,
-                endpoint: config.endpoint,
-                secretKey: config.secretKey
-            }
-        })
-    },
-    template: {
-        free: false,
-        status: 'beta',
-        type: 'destination',
-        id: segmentDestination.slug?.replace('actions-', 'plugin-segment-') ?? `plugin-segment-${segmentDestination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase()}`,
-        name: segmentDestination.name.replace('Actions ', ''),
-        description: `Send event data to ${segmentDestination.name.replace('Actions ', '')}`,
-        icon_url: `https://img.logo.dev/${segmentDestination.slug?.split('-')[1]}.com?token=pk_NiEhY0r4ToO7w_3DQvOALw`,
-        category: [],
-        inputs_schema: translateInputsSchema(segmentDestination.authentication?.fields),
-        hog: 'return event',
-        mapping_templates: (segmentDestination.presets ?? [])
-            .filter((preset) => preset.type === 'automatic')
-            .map((preset) => ({
-                name: preset.name,
-                include_by_default: true,
-                filters: {
-                    events: translateFilters(preset.subscribe)
-                },
-                inputs_schema: preset.partnerAction in segmentDestination.actions ? translateInputsSchema(segmentDestination.actions[preset.partnerAction as keyof typeof segmentDestination.actions].fields) : []
-            })) as HogFunctionMappingTemplate[]
-    }
-}
+            })
+        },
+        template: {
+            free: false,
+            status: 'beta',
+            type: 'destination',
+            id: destination.slug?.replace('actions-', 'plugin-segment-') ?? `plugin-segment-${destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase()}`,
+            name: destination.name.replace('Actions ', ''),
+            description: `Send event data to ${destination.name.replace('Actions ', '')}`,
+            icon_url: `https://img.logo.dev/${destination.slug?.split('-')[1]}.com?token=pk_NiEhY0r4ToO7w_3DQvOALw`,
+            category: [],
+            inputs_schema: translateInputsSchema(destination.authentication?.fields),
+            hog: 'return event',
+            mapping_templates: (destination.presets ?? [])
+                .filter((preset) => preset.type === 'automatic')
+                .map((preset) => ({
+                    name: preset.name,
+                    include_by_default: true,
+                    filters: {
+                        events: translateFilters(preset.subscribe)
+                    },
+                    inputs_schema: preset.partnerAction in destination.actions ? translateInputsSchema(destination.actions[preset.partnerAction as keyof typeof destination.actions].fields) : []
+                })) as HogFunctionMappingTemplate[]
+        }
+    } as LegacyDestinationPlugin
+})

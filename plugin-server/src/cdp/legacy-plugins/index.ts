@@ -13,7 +13,7 @@ import { pubsubPlugin } from './_destinations/pubsub/template'
 import { rudderstackPlugin } from './_destinations/rudderstack-posthog/template'
 import { salesforcePlugin } from './_destinations/salesforce/template'
 import { sendgridPlugin } from './_destinations/sendgrid/template'
-import { amplitudePlugin } from './_segmentDestinations/amplitude/template'
+import { SEGMENT_DESTINATIONS } from './_segmentDestinations/amplitude/template'
 import { currencyNormalizationPlugin } from './_transformations/currency-normalization-plugin/template'
 import { downsamplingPlugin } from './_transformations/downsampling-plugin/template'
 import { dropEventsOnPropertyPlugin } from './_transformations/drop-events-on-property-plugin/template'
@@ -57,8 +57,9 @@ export const DESTINATION_PLUGINS: LegacyDestinationPlugin[] = [
     rudderstackPlugin,
     salesforcePlugin,
     sendgridPlugin,
-    amplitudePlugin,
+    ...SEGMENT_DESTINATIONS,
 ]
+
 export const TRANSFORMATION_PLUGINS: LegacyTransformationPlugin[] = [
     currencyNormalizationPlugin,
     downsamplingPlugin,
