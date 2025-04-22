@@ -845,9 +845,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         movedItem: () => {
             actions.checkSelectedFolders()
         },
-        linkedItem: () => {
-            actions.checkSelectedFolders()
-        },
         checkSelectedFolders: () => {
             // Select items added into folders that are selected
             const checkedItems = values.checkedItems
@@ -871,6 +868,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         }
                     } else {
                         checkingFolder = null
+                        if (item.type === 'folder' && checkedItems[`project-folder/${item.path}`]) {
+                            checkingFolder = item.path
+                        }
                     }
                 }
             }
