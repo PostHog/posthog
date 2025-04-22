@@ -1,5 +1,6 @@
 from typing import Any, Optional
 
+from django.conf import settings
 from django.db import models, transaction
 from django.db.models import F, Q
 
@@ -9,6 +10,8 @@ from ..team import Team
 from .missing_person import uuidFromDistinctId
 
 MAX_LIMIT_DISTINCT_IDS = 2500
+
+READ_DB_FOR_PERSONS = "replica" if "replica" in settings.DATABASES else "default"
 
 
 class PersonManager(models.Manager):
