@@ -56,6 +56,8 @@ from ._internal.template_broadcast import template_new_broadcast as broadcast
 from ._internal.template_campaign import template_new_campaign as campaign
 from ._internal.template_email_template import template_new_email_template as email_template
 from ._internal.template_blank import blank_site_destination, blank_site_app
+from ._internal.template_broadcast import template_new_broadcast as _broadcast
+from ._internal.template_campaign import template_new_campaign as _campaign
 from .snapchat_ads.template_snapchat_ads import template as snapchat_ads
 from .snapchat_ads.template_pixel import template_snapchat_pixel as snapchat_pixel
 from .tiktok_ads.template_tiktok_pixel import template_tiktok_pixel as tiktok_pixel
@@ -64,6 +66,8 @@ from .reddit.template_reddit_pixel import template_reddit_pixel as reddit_pixel
 from .reddit.template_reddit_conversions_api import template_reddit_conversions_api as reddit_conversions_api
 
 HOG_FUNCTION_TEMPLATES = [
+    _broadcast,
+    _campaign,
     blank_site_destination,
     blank_site_app,
     slack,
@@ -121,8 +125,6 @@ HOG_FUNCTION_TEMPLATES = [
     notification_bar,
     pineapple_mode,
     debug_posthog,
-    campaign,
-    broadcast,
 ]
 
 
