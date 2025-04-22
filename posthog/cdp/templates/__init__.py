@@ -121,7 +121,6 @@ HOG_FUNCTION_TEMPLATES = [
     notification_bar,
     pineapple_mode,
     debug_posthog,
-    email_template,
     campaign,
     broadcast,
 ]

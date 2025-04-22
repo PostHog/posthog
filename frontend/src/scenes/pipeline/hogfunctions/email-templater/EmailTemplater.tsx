@@ -10,7 +10,6 @@ import { emailTemplaterLogic, EmailTemplaterLogicProps } from './emailTemplaterL
 
 function EmailTemplaterForm({
     mode,
-    emailMetaFields,
     ...props
 }: EmailTemplaterLogicProps & {
     mode: 'full' | 'preview'
@@ -47,7 +46,7 @@ function EmailTemplaterForm({
                 props={props.formLogicProps}
                 formKey={props.formKey}
             >
-                {(emailMetaFields || ['from', 'to', 'subject']).map((field) => (
+                {['from', 'to', 'subject'].map((field) => (
                     <LemonField
                         key={field}
                         name={`${props.formFieldsPrefix ? props.formFieldsPrefix + '.' : ''}${field}`}
