@@ -48,7 +48,7 @@ jobs:
 
             - name: Start upterm session if test fails
               if: failure()
-              uses: lhotari/action-upterm@36b05a9d28a2071ff3df6e9e947eb4c3cf6eb6f4 # v1
+              uses: lhotari/action-upterm@b0357f2 # v1
               with:
                   limit-access-to-actor: true
 
