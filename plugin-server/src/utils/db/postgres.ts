@@ -47,7 +47,6 @@ export class PostgresRouter {
             [PostgresUse.COMMON_READ, commonClient],
             [PostgresUse.PLUGIN_STORAGE_RW, commonClient],
             [PostgresUse.PERSONS_WRITE, commonClient],
-            [PostgresUse.PERSONS_READ, commonClient],
         ])
 
         if (serverConfig.DATABASE_READONLY_URL) {
@@ -96,6 +95,8 @@ export class PostgresRouter {
                     app_name
                 )
             )
+        } else {
+            this.pools.set(PostgresUse.PERSONS_READ, this.pools.get(PostgresUse.PERSONS_WRITE)!)
         }
     }
 
