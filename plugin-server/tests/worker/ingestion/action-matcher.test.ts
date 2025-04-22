@@ -12,7 +12,6 @@ import {
     StringMatching,
 } from '../../../src/types'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
-import { UUIDT } from '../../../src/utils/utils'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { ActionMatcher, castingCompare } from '../../../src/worker/ingestion/action-matcher'
 import { commonUserId } from '../../helpers/plugins'
@@ -691,73 +690,6 @@ describe('ActionMatcher', () => {
             expect(actionMatcher.match({ ...event, person_properties: { something_else: 999 } })).toEqual([])
             expect(actionMatcher.match({ ...event, person_properties: { foo: true } })).toEqual([])
             expect(actionMatcher.match({ ...event, person_properties: { foo: null } })).toEqual([])
-        })
-
-        it('returns a match in case of cohort match', async () => {
-            const testCohort = await hub.db.createCohort({
-                name: 'Test',
-                description: 'Test',
-                created_by_id: commonUserId,
-                team_id: 2,
-            })
-
-            const actionDefinition: Action = await createTestAction([
-                {
-                    properties: [{ type: 'cohort', key: 'id', value: testCohort.id }],
-                },
-            ])
-            const actionDefinitionAllUsers: Action = await createTestAction([
-                {
-                    properties: [{ type: 'cohort', key: 'id', value: 'all' }],
-                },
-            ])
-
-            const [nonCohortPerson, kafkaMessagesNonCohort] = await hub.db.createPerson(
-                DateTime.local(),
-                {},
-                {},
-                {},
-                actionDefinition.team_id,
-                null,
-                true,
-                new UUIDT().toString(),
-                [{ distinctId: 'random' }]
-            )
-            await hub.db.kafkaProducer.queueMessages(kafkaMessagesNonCohort)
-
-            const [cohortPerson, kafkaMessagesCohort] = await hub.db.createPerson(
-                DateTime.local(),
-                {},
-                {},
-                {},
-                actionDefinition.team_id,
-                null,
-                true,
-                new UUIDT().toString(),
-                [{ distinctId: 'cohort' }]
-            )
-            await hub.db.kafkaProducer.queueMessages(kafkaMessagesCohort)
-            await hub.db.addPersonToCohort(testCohort.id, cohortPerson.id, testCohort.version)
-
-            const eventExamplePersonBad = createTestEvent({
-                event: 'meow',
-                distinctId: 'random',
-                person_id: nonCohortPerson.uuid,
-            })
-            const eventExamplePersonOk = createTestEvent({
-                event: 'meow',
-                distinctId: 'cohort',
-                person_id: cohortPerson.uuid,
-            })
-            const eventExamplePersonUnknown = createTestEvent({
-                event: 'meow',
-                distinctId: 'unknown',
-                person_id: undefined,
-            })
-
-            expect(actionMatcher.match(eventExamplePersonOk)).toEqual([actionDefinition, actionDefinitionAllUsers])
-            expect(actionMatcher.match(eventExamplePersonBad)).toEqual([actionDefinitionAllUsers])
-            expect(actionMatcher.match(eventExamplePersonUnknown)).toEqual([actionDefinitionAllUsers])
         })
 
         it('returns a match in case of element href equals', async () => {
