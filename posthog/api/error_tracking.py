@@ -328,7 +328,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
             queryset = queryset.filter(storage_ptr__isnull=True)
 
         if order_by:
-            allowed_fields = ['created_at', '-created_at', 'ref', '-ref']
+            allowed_fields = ["created_at", "-created_at", "ref", "-ref"]
             if order_by in allowed_fields:
                 queryset = queryset.order_by(order_by)
 
