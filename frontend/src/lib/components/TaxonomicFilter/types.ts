@@ -20,6 +20,8 @@ export interface SimpleOption {
 
 export type ExcludedProperties = { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
 
+export type TooltipOffset = { left?: number; right?: number }
+
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
     value?: TaxonomicFilterValue
@@ -53,6 +55,7 @@ export interface TaxonomicFilterProps {
      */
     useVerticalLayout?: boolean
     initialSearchQuery?: string
+    tooltipOffset?: TooltipOffset
 }
 
 export interface DataWarehousePopoverField {

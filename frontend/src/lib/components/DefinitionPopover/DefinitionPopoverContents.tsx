@@ -1,4 +1,4 @@
-import { hide } from '@floating-ui/react'
+import { hide, Middleware, MiddlewareState } from '@floating-ui/react'
 import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSegmentedButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
@@ -14,6 +14,7 @@ import {
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
+    TooltipOffset,
 } from 'lib/components/TaxonomicFilter/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
@@ -576,11 +577,28 @@ function DefinitionEdit(): JSX.Element {
     )
 }
 
+function handleTooltipOffset(tooltipOffset?: TooltipOffset): Middleware {
+    return {
+        name: 'adjustForSidebar',
+        async fn({ placement, x }: MiddlewareState) {
+            if (tooltipOffset?.left != null && placement.startsWith('left')) {
+                // Shift the tooltip further left to clear the sidebar
+                return { x: x - tooltipOffset.left }
+            } else if (tooltipOffset?.right != null && placement.startsWith('right')) {
+                return { x: x + tooltipOffset.right }
+            }
+
+            return {}
+        },
+    }
+}
+
 interface ControlledDefinitionPopoverContentsProps {
     visible: boolean
     item: TaxonomicDefinitionTypes
     group: TaxonomicFilterGroup
     highlightedItemElement: HTMLDivElement | null
+    tooltipOffset?: TooltipOffset
 }
 
 export function ControlledDefinitionPopover({
@@ -588,6 +606,7 @@ export function ControlledDefinitionPopover({
     item,
     group,
     highlightedItemElement,
+    tooltipOffset,
 }: ControlledDefinitionPopoverContentsProps): JSX.Element | null {
     const { state, singularType, definition } = useValues(definitionPopoverLogic)
     const { setDefinition } = useActions(definitionPopoverLogic)
@@ -633,7 +652,10 @@ export function ControlledDefinitionPopover({
             }
             placement="right"
             fallbackPlacements={['left']}
-            middleware={[hide()]} // Hide the definition popover when the reference is off-screen
+            middleware={[
+                hide(), // Hide the definition popover when the reference is off-screen
+                handleTooltipOffset(tooltipOffset),
+            ]}
         />
     )
 }

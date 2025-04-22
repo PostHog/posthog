@@ -13,6 +13,7 @@ import {
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
+    TooltipOffset,
 } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -30,6 +31,7 @@ import { infiniteListLogic, NO_ITEM_SELECTED } from './infiniteListLogic'
 
 export interface InfiniteListProps {
     popupAnchorElement: HTMLDivElement | null
+    tooltipOffset?: TooltipOffset
 }
 
 const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
@@ -175,7 +177,7 @@ const canSelectItem = (listGroupType?: TaxonomicFilterGroupType): boolean => {
     return !!listGroupType && ![TaxonomicFilterGroupType.DataWarehouse].includes(listGroupType)
 }
 
-export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Element {
+export function InfiniteList({ popupAnchorElement, tooltipOffset }: InfiniteListProps): JSX.Element {
     const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType, eventNames } =
         useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
@@ -348,6 +350,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                         item={selectedItem}
                         group={group}
                         highlightedItemElement={highlightedItemElement}
+                        tooltipOffset={tooltipOffset}
                     />
                 </BindLogic>
             ) : null}

@@ -74,6 +74,7 @@ export const TaxonomicBreakdownPopover = ({
                     eventNames={allEventNames}
                     taxonomicGroupTypes={taxonomicGroupTypes}
                     schemaColumns={currentDataWarehouseSchemaColumns}
+                    tooltipOffset={{ left: 201, right: 13 }}
                 />
             }
             visible={open}

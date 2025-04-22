@@ -2,7 +2,11 @@ import { LemonTag } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import {
+    TaxonomicFilterGroupType,
+    TaxonomicFilterLogicProps,
+    TooltipOffset,
+} from 'lib/components/TaxonomicFilter/types'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { cn } from 'lib/utils/css-classes'
 
@@ -17,6 +21,7 @@ export interface InfiniteSelectResultsProps {
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
     popupAnchorElement: HTMLDivElement | null
     useVerticalLayout?: boolean
+    tooltipOffset?: TooltipOffset
 }
 
 function CategoryPill({
@@ -71,6 +76,7 @@ export function InfiniteSelectResults({
     taxonomicFilterLogicProps,
     popupAnchorElement,
     useVerticalLayout: useVerticalLayoutProp,
+    tooltipOffset,
 }: InfiniteSelectResultsProps): JSX.Element {
     const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
         useValues(taxonomicFilterLogic)
@@ -99,7 +105,7 @@ export function InfiniteSelectResults({
                     {taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}
                 </div>
             )}
-            <InfiniteList popupAnchorElement={popupAnchorElement} />
+            <InfiniteList popupAnchorElement={popupAnchorElement} tooltipOffset={tooltipOffset} />
         </>
     )
 

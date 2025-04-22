@@ -39,6 +39,7 @@ export function TaxonomicFilter({
     showNumericalPropsOnly,
     dataWarehousePopoverFields = defaultDataWarehousePopoverFields,
     useVerticalLayout,
+    tooltipOffset,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -110,6 +111,7 @@ export function TaxonomicFilter({
                     taxonomicFilterLogicProps={taxonomicFilterLogicProps}
                     popupAnchorElement={taxonomicFilterRef.current}
                     useVerticalLayout={useVerticalLayout}
+                    tooltipOffset={tooltipOffset}
                 />
             </div>
         </BindLogic>
