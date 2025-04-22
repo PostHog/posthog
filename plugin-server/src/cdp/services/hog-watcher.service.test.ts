@@ -19,54 +19,71 @@ import { deleteKeysWithPrefix } from '../_tests/redis'
 
 const mockNow: jest.Mock = require('../../../src/utils/now').now as any
 
+/**
+ * Base function to create test invocation results with different timing types
+ */
+const createBaseResult = (options: {
+    id: string
+    timings: Array<{ kind: 'hog' | 'async_function'; duration_ms: number }>
+    finished?: boolean
+    error?: string
+}): HogFunctionInvocationResult => {
+    return {
+        invocation: {
+            ...createInvocation({ id: options.id }),
+            id: 'invocation-id',
+            teamId: 2,
+            timings: options.timings,
+        },
+        finished: options.finished ?? true,
+        error: options.error,
+        logs: [],
+    }
+}
+
+/**
+ * Creates a result with hog VM execution timing
+ */
 const createHogResult = (options: {
     id: string
     duration?: number
     finished?: boolean
     error?: string
 }): HogFunctionInvocationResult => {
-    return {
-        invocation: {
-            ...createInvocation({ id: options.id }),
-            id: 'invocation-id',
-            teamId: 2,
-            timings: [
-                {
-                    kind: 'hog',
-                    duration_ms: options.duration ?? 0,
-                },
-            ],
-        },
-        finished: options.finished ?? true,
-        error: options.error,
-        logs: [],
-    }
+    return createBaseResult({
+        ...options,
+        timings: [
+            {
+                kind: 'hog',
+                duration_ms: options.duration ?? 0,
+            },
+        ],
+    })
 }
 
+/**
+ * Creates a result with async function timing
+ */
 const createAsyncResult = (options: {
     id: string
     duration?: number
     finished?: boolean
     error?: string
 }): HogFunctionInvocationResult => {
-    return {
-        invocation: {
-            ...createInvocation({ id: options.id }),
-            id: 'invocation-id',
-            teamId: 2,
-            timings: [
-                {
-                    kind: 'async_function',
-                    duration_ms: options.duration ?? 0,
-                },
-            ],
-        },
-        finished: options.finished ?? true,
-        error: options.error,
-        logs: [],
-    }
+    return createBaseResult({
+        ...options,
+        timings: [
+            {
+                kind: 'async_function',
+                duration_ms: options.duration ?? 0,
+            },
+        ],
+    })
 }
 
+/**
+ * Creates a result with both hog and async function timings
+ */
 const createMixedResult = (options: {
     id: string
     hogDuration?: number
@@ -74,26 +91,21 @@ const createMixedResult = (options: {
     finished?: boolean
     error?: string
 }): HogFunctionInvocationResult => {
-    return {
-        invocation: {
-            ...createInvocation({ id: options.id }),
-            id: 'invocation-id',
-            teamId: 2,
-            timings: [
-                {
-                    kind: 'hog',
-                    duration_ms: options.hogDuration ?? 0,
-                },
-                {
-                    kind: 'async_function',
-                    duration_ms: options.asyncDuration ?? 0,
-                },
-            ],
-        },
-        finished: options.finished ?? true,
+    return createBaseResult({
+        id: options.id,
+        finished: options.finished,
         error: options.error,
-        logs: [],
-    }
+        timings: [
+            {
+                kind: 'hog',
+                duration_ms: options.hogDuration ?? 0,
+            },
+            {
+                kind: 'async_function',
+                duration_ms: options.asyncDuration ?? 0,
+            },
+        ],
+    })
 }
 
 describe('HogWatcher', () => {
