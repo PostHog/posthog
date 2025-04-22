@@ -53,7 +53,7 @@ export class KafkaConsumer {
             groupId,
             topic,
             autoCommit = true,
-            autoOffsetStore = false,
+            autoOffsetStore = true,
             ...additionalConfig
         }: KafkaConsumerConfig = config
         this.autoCommit = autoCommit
