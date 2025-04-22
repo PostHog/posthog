@@ -254,13 +254,6 @@ export class KafkaConsumer {
             await this.consumerLoop
         }
 
-        await new Promise<void>((resolve, reject) => {
-            this.rdKafkaConsumer.disconnect((error) => {
-                if (error) {
-                    reject(error)
-                }
-                resolve()
-            })
-        })
+        await new Promise<void>((res, rej) => this.rdKafkaConsumer.disconnect((e) => (e ? rej(e) : res())))
     }
 }
