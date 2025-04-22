@@ -58,6 +58,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 'setCommonFilters',
                 'setHeatmapFixedPositionMode',
                 'setHref as setDataHref',
+                'setHrefMatchType',
                 'resetHeatmapData',
                 'patchHeatmapFilters',
                 'loadHeatmap',
@@ -412,12 +413,14 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         setHref: ({ href }) => {
             if (values.heatmapEnabled) {
+                actions.setHrefMatchType(href === window.location.href ? 'exact' : 'pattern')
                 actions.setDataHref(href)
             }
             actions.maybeLoadClickmap()
         },
         setWildcardHref: ({ href }) => {
             if (values.heatmapEnabled) {
+                actions.setHrefMatchType(href === window.location.href ? 'exact' : 'pattern')
                 actions.setDataHref(href)
             }
             actions.maybeLoadClickmap()
