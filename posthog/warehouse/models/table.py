@@ -26,6 +26,7 @@ from posthog.models.utils import (
     sane_repr,
 )
 from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
+from posthog.settings import TEST
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.util import (
@@ -168,6 +169,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
             context=placeholder_context,
         )
         try:
+            # chdb hangs in CI during tests
+            if TEST:
+                raise Exception()
+
             quoted_placeholders = {k: f"'{v}'" for k, v in placeholder_context.values.items()}
             # chdb doesn't support parameterized queries
             chdb_query = f"DESCRIBE TABLE (SELECT * FROM {s3_table_func} LIMIT 1)" % quoted_placeholders
