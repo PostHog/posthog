@@ -1,7 +1,6 @@
 import {
     ClientMetrics,
     ConsumerGlobalConfig,
-    ConsumerTopicConfig,
     KafkaConsumer as RdKafkaConsumer,
     LibrdKafkaError,
     Message,
@@ -42,8 +41,6 @@ export class KafkaConsumer {
     private lastHeartbeatTime = 0
     private rdKafkaConsumer: RdKafkaConsumer
     private consumerConfig: ConsumerGlobalConfig
-    private groupId: string
-    private topic: string
     private autoCommit: boolean
     private autoOffsetStore: boolean
     private fetchBatchSize: number
@@ -59,8 +56,6 @@ export class KafkaConsumer {
             autoOffsetStore = false,
             ...additionalConfig
         }: KafkaConsumerConfig = config
-        this.groupId = groupId
-        this.topic = topic
         this.autoCommit = autoCommit
         this.autoOffsetStore = autoOffsetStore
         this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE || DEFAULT_FETCH_BATCH_SIZE
@@ -97,15 +92,13 @@ export class KafkaConsumer {
     public heartbeat() {
         // Can be called externally to update the heartbeat time and keep the consumer alive
         this.lastHeartbeatTime = Date.now()
-
-        // this is called as a readiness and a liveness probe
-        const isWithinInterval = Date.now() - this.lastHeartbeatTime < MAX_HEALTH_HEARTBEAT_INTERVAL_MS
-        const isConnected = this.rdKafkaConsumer.isConnected()
-        return isConnected && isWithinInterval
     }
 
     public isHealthy() {
-        return this.rdKafkaConsumer.isConnected()
+        // this is called as a readiness and a liveness probe
+        const isWithinInterval = Date.now() - this.lastHeartbeatTime < this.maxHealthHeartbeatIntervalMs
+        const isConnected = this.rdKafkaConsumer.isConnected()
+        return isConnected && isWithinInterval
     }
 
     private createConsumer() {
@@ -157,15 +150,6 @@ export class KafkaConsumer {
         })
         this.heartbeat() // Setup the heartbeat so we are healthy since connection is established
 
-        // Before subscribing, we need to ensure that the topic exists. We don't
-        // currently have a way to manage topic creation elsewhere (we handle this
-        // via terraform in production but this isn't applicable e.g. to hobby
-        // deployments) so we use the Kafka admin client to do so. We don't use the
-        // Kafka `enable.auto.create.topics` option as the behaviour of this doesn't
-        // seem to be well documented and it seems to not function as expected in
-        // our testing of it, we end up getting "Unknown topic or partition" errors
-        // on consuming, possibly similar to
-        // https://github.com/confluentinc/confluent-kafka-dotnet/issues/1366.
         await ensureTopicExists(this.config, this.config.topic)
 
         // The consumer has an internal pre-fetching queue that sequentially pools
@@ -175,8 +159,6 @@ export class KafkaConsumer {
         // timeout, to return messages even if fetchBatchSize is not reached.
         this.rdKafkaConsumer.setDefaultConsumeTimeout(this.config.batchTimeoutMs || DEFAULT_BATCH_TIMEOUT_MS)
         this.rdKafkaConsumer.subscribe([this.config.topic])
-
-        // TODO: Make this a new
 
         const startConsuming = async () => {
             try {
@@ -253,7 +235,11 @@ export class KafkaConsumer {
             }
         }
 
-        this.consumerLoop = startConsuming()
+        this.consumerLoop = startConsuming().catch((error) => {
+            logger.error('🔁', 'consumer_loop_error', { error })
+            // We re-throw the error as that way it will be caught in server.ts and trigger a full shutdown
+            throw error
+        })
     }
 
     public async disconnect() {

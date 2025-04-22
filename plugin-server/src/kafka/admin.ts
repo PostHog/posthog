@@ -4,10 +4,15 @@ import { isDevEnv } from '../utils/env-utils'
 import { logger } from '../utils/logger'
 
 export const ensureTopicExists = async (connectionConfig: GlobalConfig, topic: string) => {
-    // Ensures that a topic exists. If it doesn't, it will be created. If it
-    // does, this is a no-op. We use -1 for the number of partitions and
-    // replication factor as this will use the default values configured in
-    // the Kafka broker config.
+    // Before subscribing, we need to ensure that the topic exists. We don't
+    // currently have a way to manage topic creation elsewhere (we handle this
+    // via terraform in production but this isn't applicable e.g. to hobby
+    // deployments) so we use the Kafka admin client to do so. We don't use the
+    // Kafka `enable.auto.create.topics` option as the behaviour of this doesn't
+    // seem to be well documented and it seems to not function as expected in
+    // our testing of it, we end up getting "Unknown topic or partition" errors
+    // on consuming, possibly similar to
+    // https://github.com/confluentinc/confluent-kafka-dotnet/issues/1366.
 
     const client = AdminClient.create(connectionConfig)
     const timeout = isDevEnv() ? 30_000 : 5_000
