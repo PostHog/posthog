@@ -113,6 +113,7 @@ export function BillingSpendView(): JSX.Element {
                         isLoading={billingSpendResponseLoading} // Use spend loading state
                         hiddenSeries={hiddenSeries}
                         valueFormatter={currencyFormatter} // Pass the currency formatter
+                        showLegend={false} // Disable legend
                     />
                 </div>
 

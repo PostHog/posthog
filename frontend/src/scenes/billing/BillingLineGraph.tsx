@@ -1,7 +1,9 @@
-import { Chart, ChartDataset, ChartOptions, TooltipItem } from 'chart.js'
+import { Chart, ChartDataset, ChartOptions, TooltipModel } from 'chart.js'
 import { getSeriesColor } from 'lib/colors'
-import { dayjs } from 'lib/dayjs'
-import { useEffect, useRef } from 'react'
+import React, { useEffect, useRef } from 'react'
+import { createRoot, Root } from 'react-dom/client'
+
+import { BillingLineGraphTooltip } from './BillingLineGraphTooltip'
 
 // Interfaces (potentially move to a shared types file later)
 export interface BillingSeriesType {
@@ -13,6 +15,10 @@ export interface BillingSeriesType {
     compare?: boolean
     compare_label?: string
     breakdown_value?: string | string[]
+    /** Function to format the display of graph values (Y-axis and tooltips) */
+    valueFormatter?: (value: number) => string
+    /** Whether to show the chart legend (default: true) */
+    showLegend?: boolean
 }
 
 export interface BillingLineGraphProps {
@@ -22,6 +28,8 @@ export interface BillingLineGraphProps {
     hiddenSeries: number[]
     /** Function to format the display of graph values (Y-axis and tooltips) */
     valueFormatter?: (value: number) => string
+    /** Whether to show the chart legend (default: true) */
+    showLegend?: boolean
 }
 
 // Default formatter using locale string
@@ -39,9 +47,49 @@ export function BillingLineGraph({
     isLoading,
     hiddenSeries,
     valueFormatter = defaultFormatter,
+    showLegend = true, // Default legend to true
 }: BillingLineGraphProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const chartRef = useRef<Chart | null>(null)
+
+    // Tooltip state
+    const tooltipRootRef = useRef<Root | null>(null)
+    const tooltipElRef = useRef<HTMLElement | null>(null)
+
+    // Ensure tooltip elements exist
+    function ensureBillingTooltip(): [Root, HTMLElement] {
+        if (!tooltipElRef.current) {
+            tooltipElRef.current = document.createElement('div')
+            tooltipElRef.current.id = 'BillingTooltipWrapper'
+            // Initial style: hidden but present
+            tooltipElRef.current.className =
+                'BillingTooltipWrapper hidden absolute z-10 p-2 bg-bg-light rounded shadow-md text-xs pointer-events-none border border-border'
+            document.body.appendChild(tooltipElRef.current)
+        }
+        if (!tooltipRootRef.current) {
+            tooltipRootRef.current = createRoot(tooltipElRef.current)
+        }
+        return [tooltipRootRef.current, tooltipElRef.current]
+    }
+
+    // Hide tooltip
+    function hideBillingTooltip(): void {
+        if (tooltipElRef.current) {
+            tooltipElRef.current.classList.add('hidden')
+            tooltipElRef.current.classList.remove('block') // Ensure block is removed
+        }
+    }
+
+    // Cleanup tooltip on unmount
+    useEffect(() => {
+        return () => {
+            if (tooltipRootRef.current) {
+                // Wait for potential renders to finish before unmounting
+                setTimeout(() => tooltipRootRef.current?.unmount(), 0)
+            }
+            tooltipElRef.current?.remove()
+        }
+    }, [])
 
     useEffect(() => {
         if (!canvasRef.current) {
@@ -101,27 +149,82 @@ export function BillingLineGraph({
             },
             plugins: {
                 tooltip: {
+                    enabled: false, // Disable default tooltip
+                    external: ({ tooltip }: { chart: Chart; tooltip: TooltipModel<'line'> }) => {
+                        if (!canvasRef.current) {
+                            return
+                        }
+
+                        const [tooltipRoot, tooltipEl] = ensureBillingTooltip()
+
+                        if (tooltip.opacity === 0 || !tooltip.body?.length) {
+                            hideBillingTooltip()
+                            return
+                        }
+
+                        // Process data points
+                        try {
+                            const title = tooltip.title?.[0] || ''
+                            const dataPoints = tooltip.dataPoints || []
+
+                            const sortedSeries = dataPoints
+                                .map((point) => {
+                                    // Add checks for dataset existence
+                                    const dataset =
+                                        point.datasetIndex < series.length ? series[point.datasetIndex] : null
+                                    if (!dataset) {
+                                        return null
+                                    } // Skip if dataset index is out of bounds
+                                    const value = point.parsed.y
+                                    return {
+                                        id: dataset.id,
+                                        label: dataset.label,
+                                        value: value,
+                                        formattedValue: valueFormatter(value),
+                                        color: getSeriesColor(dataset.id % 15),
+                                        datasetIndex: point.datasetIndex,
+                                    }
+                                })
+                                .filter((item): item is NonNullable<typeof item> => item !== null) // Filter out nulls
+                                .sort((a, b) => b.value - a.value) // Sort descending by value
+
+                            // Render custom tooltip content using the dedicated component
+                            tooltipRoot.render(<BillingLineGraphTooltip title={title} sortedSeries={sortedSeries} />)
+
+                            // Position tooltip AFTER rendering to get dimensions
+                            tooltipEl.classList.remove('hidden') // Make visible before positioning
+                            tooltipEl.classList.add('block')
+
+                            const bounds = canvasRef.current.getBoundingClientRect()
+                            const tooltipWidth = tooltipEl.offsetWidth
+                            const tooltipHeight = tooltipEl.offsetHeight
+
+                            let tooltipX = bounds.left + window.pageXOffset + tooltip.caretX + 8
+                            let tooltipY = bounds.top + window.pageYOffset + tooltip.caretY - tooltipHeight / 2 // Center vertically
+
+                            // Prevent tooltip going off-screen right
+                            if (tooltipX + tooltipWidth > bounds.right + window.pageXOffset) {
+                                tooltipX = bounds.left + window.pageXOffset + tooltip.caretX - tooltipWidth - 8
+                            }
+                            // Prevent tooltip going off-screen left
+                            tooltipX = Math.max(tooltipX, bounds.left + window.pageXOffset)
+                            // Prevent tooltip going off-screen top
+                            tooltipY = Math.max(tooltipY, bounds.top + window.pageYOffset)
+                            // Prevent tooltip going off-screen bottom
+                            tooltipY = Math.min(tooltipY, bounds.bottom + window.pageYOffset - tooltipHeight)
+
+                            tooltipEl.style.top = `${tooltipY}px`
+                            tooltipEl.style.left = `${tooltipX}px`
+                        } catch (e) {
+                            console.error('[Billing Tooltip] Error during rendering:', e)
+                            hideBillingTooltip()
+                        }
+                    },
                     mode: 'index',
                     intersect: false,
-                    callbacks: {
-                        title: (context) => {
-                            // Ensure context and parsed value exist
-                            return context[0]?.parsed?.x ? dayjs(context[0].parsed.x).format('MMMM D, YYYY') : ''
-                        },
-                        label: (context: TooltipItem<'line'>) => {
-                            let label = context.dataset.label || ''
-                            if (label) {
-                                label += ': '
-                            }
-                            if (context.parsed.y !== null) {
-                                // Use the provided formatter
-                                label += valueFormatter(context.parsed.y)
-                            }
-                            return label
-                        },
-                    },
                 },
                 legend: {
+                    display: showLegend, // Control legend display via prop
                     position: 'bottom',
                     labels: {
                         usePointStyle: true,
@@ -147,8 +250,9 @@ export function BillingLineGraph({
             if (chartRef.current) {
                 chartRef.current.destroy()
             }
+            // No need to cleanup tooltip here, handled by component unmount effect
         }
-    }, [series, dates, hiddenSeries, valueFormatter])
+    }, [series, dates, hiddenSeries, valueFormatter, showLegend])
 
     return (
         <div className="relative h-96">

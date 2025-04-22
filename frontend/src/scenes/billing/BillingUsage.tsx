@@ -116,6 +116,7 @@ export function BillingUsage(): JSX.Element {
                             dates={dates}
                             isLoading={billingUsageResponseLoading}
                             hiddenSeries={hiddenSeries}
+                            showLegend={false}
                         />
                     </div>
 
