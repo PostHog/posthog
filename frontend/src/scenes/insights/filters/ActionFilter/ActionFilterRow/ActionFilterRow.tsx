@@ -133,6 +133,8 @@ export interface ActionFilterRowProps {
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
     /** Whether to add left padding to the filters div to align with suffix content */
     filtersLeftPadding?: boolean
+    /** Doc link to show in the tooltip of the New Filter button */
+    addFilterDocLink?: string
 }
 
 export function ActionFilterRow({
@@ -165,6 +167,7 @@ export function ActionFilterRow({
     allowedMathTypes,
     dataWarehousePopoverFields = defaultDataWarehousePopoverFields,
     filtersLeftPadding = false,
+    addFilterDocLink,
 }: ActionFilterRowProps): JSX.Element {
     const { entityFilterVisible } = useValues(logic)
     const {
@@ -324,6 +327,7 @@ export function ActionFilterRow({
                         : undefined
                 }}
                 disabledReason={filter.id === 'empty' ? 'Please select an event first' : undefined}
+                tooltipDocLink={addFilterDocLink}
             />
         </IconWithCount>
     )
@@ -646,6 +650,7 @@ export function ActionFilterRow({
                                 ? Object.values(dataWarehouseTablesMap[filter.name]?.fields ?? [])
                                 : []
                         }
+                        addFilterDocLink={addFilterDocLink}
                     />
                 </div>
             )}

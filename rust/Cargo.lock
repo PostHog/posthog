@@ -2246,6 +2246,7 @@ dependencies = [
  "metrics",
  "moka",
  "once_cell",
+ "percent-encoding",
  "petgraph",
  "rand",
  "rayon",
@@ -2256,7 +2257,6 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
- "serde_urlencoded",
  "sha1",
  "sqlx",
  "strum",
@@ -2266,7 +2266,6 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
- "urlencoding",
  "uuid",
 ]
 
