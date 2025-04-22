@@ -9,9 +9,12 @@ import time
 
 import digitalocean
 import requests
-
+from requests.exceptions import SSLError, ConnectionError
+from urllib3.exceptions import InsecureRequestWarning
+import urllib3
 
 DOMAIN = "posthog.cc"
+urllib3.disable_warnings(category=InsecureRequestWarning)
 
 
 class HobbyTester:
@@ -126,22 +129,36 @@ class HobbyTester:
         print(f"We will time out after {timeout} minutes")
         url = f"https://{self.hostname}/_health"
         start_time = datetime.datetime.now()
-        while datetime.datetime.now() < start_time + datetime.timedelta(minutes=timeout):
+        end_time = start_time + datetime.timedelta(minutes=timeout)
+        last_exception = None
+
+        attempt = 0
+        while datetime.datetime.now() < end_time:
+            attempt += 1
             try:
                 # verify is set False here because we are hitting the staging endoint for Let's Encrypt
                 # This endpoint doesn't have the strict rate limiting that the production endpoint has
                 # This mitigates the chances of getting throttled or banned
-                r = requests.get(url, verify=False)
+                r = requests.get(url, verify=False, timeout=10)
+                if r.status_code == 200:
+                    print("✅ Success - received heartbeat from the instance")
+                    return True
+                else:
+                    print(f"⚠️ Got non-200 status code: {r.status_code} — retrying")
+            except SSLError as ssl_err:
+                last_exception = ssl_err
+                print(f"🔐 SSL Error on attempt {attempt}: {ssl_err}")
+            except ConnectionError as conn_err:
+                last_exception = conn_err
+                print(f"🔌 Connection Error on attempt {attempt}: {conn_err}")
             except Exception as e:
-                print(f"Host is probably not up. Received exception\n{e}")
-                time.sleep(retry_interval)
-                continue
-            if r.status_code == 200:
-                print("Success - received heartbeat from the instance")
-                return True
-            print("Instance not ready - sleeping")
+                last_exception = e
+                print(f"❓ Unknown exception on attempt {attempt}: {e}")
+            print("💤 Instance not ready - sleeping...")
             time.sleep(retry_interval)
-        print("Failure - we timed out before receiving a heartbeat")
+
+        print("❌ Failure - we timed out before receiving a heartbeat")
+        print(f"🧨 Last exception was: {last_exception}")
         return False
 
     def create_dns_entry(self, type, name, data, ttl=30):
@@ -213,6 +230,9 @@ class HobbyTester:
         self.block_until_droplet_is_started()
         self.create_dns_entry_for_instance()
         self.export_droplet()
+
+        print("⏳ Waiting 60 seconds to allow droplet to stabilize...")
+        time.sleep(60)
 
 
 def main():
