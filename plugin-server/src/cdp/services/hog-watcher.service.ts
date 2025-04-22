@@ -131,7 +131,7 @@ export class HogWatcherService {
             let cost = (costs[result.invocation.hogFunction.id] = costs[result.invocation.hogFunction.id] || 0)
 
             if (result.finished) {
-                // If it is finished we can calculate the score based off of the timingsi
+                // If it is finished we can calculate the score based off of the timings
                 // Separate the duration calculations for 'hog' and 'async_function' kinds
                 const hogDurationMs = result.invocation.timings
                     .filter((timing) => timing.kind === 'hog')
