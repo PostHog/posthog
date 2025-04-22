@@ -6,6 +6,7 @@ from django.db import models
 from django.db.models import Q
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_query_error
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
@@ -166,6 +167,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
                 context=placeholder_context,
             )
 
+            tag_queries(team_id=str(self.team.pk), table_id=str(self.id), warehouse_query=True)
+
             result = sync_execute(
                 f"""DESCRIBE TABLE (
                     SELECT *
@@ -226,6 +229,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
                 access_secret=self.credential.access_secret,
                 context=placeholder_context,
             )
+
+            tag_queries(team_id=str(self.team.pk), table_id=str(self.id), warehouse_query=True)
 
             result = sync_execute(
                 f"SELECT count() FROM {s3_table_func}",
