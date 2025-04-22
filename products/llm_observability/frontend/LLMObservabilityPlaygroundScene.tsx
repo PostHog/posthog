@@ -76,7 +76,6 @@ function PromptPanel(): JSX.Element {
     return (
         <div className="rounded border p-4 flex flex-col h-[700px]">
             <h3 className="text-base font-semibold mb-2">Input</h3>
-
             <div className="mb-4">
                 <label className="font-semibold mb-1 block">System Prompt</label>
                 <LemonTextArea
@@ -169,7 +168,6 @@ function ResponsePanel(): JSX.Element {
                     </div>
                 )}
             </div>
-
             {generationResponse && (
                 <div className="mt-4">
                     <h4 className="text-sm font-semibold">Usage Stats</h4>

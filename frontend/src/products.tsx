@@ -44,6 +44,9 @@ export const productScenes: Record<string, () => Promise<any>> = {
     MessagingCampaigns: () => import('../../products/messaging/frontend/Campaigns'),
     LLMObservabilityPlayground: () =>
         import('../../products/llm_observability/frontend/LLMObservabilityPlaygroundScene'),
+    LLMObservabilityPlayground: () =>
+        import('../../products/llm_observability/frontend/LLMObservabilityPlaygroundScene'),
+    MessagingAutomations: () => import('../../products/messaging/frontend/Automations'),
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
     MessagingLibrary: () => import('../../products/messaging/frontend/Library'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),

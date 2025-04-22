@@ -20,6 +20,7 @@ import { isEventsQuery } from '~/queries/utils'
 
 import { LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID, llmObservabilityLogic } from './llmObservabilityLogic'
 import { LLMObservabilityPlaygroundScene } from './LLMObservabilityPlaygroundScene'
+import { LLMObservabilityPlaygroundScene } from './LLMObservabilityPlaygroundScene'
 import { LLMObservabilityReloadAction } from './LLMObservabilityReloadAction'
 import { LLMObservabilityTraces } from './LLMObservabilityTracesScene'
 import { LLMObservabilityUsers } from './LLMObservabilityUsers'
