@@ -221,14 +221,20 @@ export const elementsLogic = kea<elementsLogicType>([
             (heatmapElements, inspectElements, actionElements, actionsListElements): ElementMap => {
                 const elementMap = new Map<HTMLElement, ElementWithMetadata>()
 
-                    ;[...inspectElements, ...heatmapElements, ...actionElements, ...actionsListElements].forEach((e) => {
-                        const elementWithMetadata: ElementWithMetadata = { ...e }
-                        if (elementMap.get(e.element)) {
-                            elementMap.set(e.element, { ...elementMap.get(e.element), ...elementWithMetadata })
-                        } else {
-                            elementMap.set(e.element, elementWithMetadata)
-                        }
-                    })
+                const addElements = (e: ElementWithMetadata): void => {
+                    const elementWithMetadata: ElementWithMetadata = { ...e }
+                    if (elementMap.get(e.element)) {
+                        elementMap.set(e.element, { ...elementMap.get(e.element), ...elementWithMetadata })
+                    } else {
+                        elementMap.set(e.element, elementWithMetadata)
+                    }
+                }
+
+                inspectElements.forEach(addElements)
+                heatmapElements.forEach(addElements)
+                actionElements.forEach(addElements)
+                actionsListElements.forEach(addElements)
+
                 return elementMap
             },
         ],
@@ -318,13 +324,13 @@ export const elementsLogic = kea<elementsLogicType>([
                             ...element,
                             // being able to hover over elements might rely on their original z-index
                             // so we copy it over to the toolbar element
-                            apparentZIndex: getMaxZIndex(element.element)
+                            apparentZIndex: getMaxZIndex(element.element),
                         })
                     }
                 })
 
                 return result
-            }
+            },
         ],
 
         labelsToDisplay: [
