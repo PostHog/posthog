@@ -18,6 +18,20 @@ export interface ConvertProps {
     disableFolderSelect?: boolean
 }
 
+export function sortFilesAndFolders(a: FileSystemEntry, b: FileSystemEntry): number {
+    const parentA = a.path.substring(0, a.path.lastIndexOf('/'))
+    const parentB = b.path.substring(0, b.path.lastIndexOf('/'))
+    if (parentA === parentB) {
+        if (a.type === 'folder' && b.type !== 'folder') {
+            return -1
+        }
+        if (b.type === 'folder' && a.type !== 'folder') {
+            return 1
+        }
+    }
+    return a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' })
+}
+
 export function wrapWithShortutIcon(item: FileSystemImport | FileSystemEntry, icon: JSX.Element): JSX.Element {
     if (item.shortcut) {
         return (

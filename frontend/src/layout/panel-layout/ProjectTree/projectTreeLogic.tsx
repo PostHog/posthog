@@ -20,7 +20,13 @@ import { panelLayoutLogic } from '../panelLayoutLogic'
 import { getDefaultTreeExplore, getDefaultTreeNew } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
 import { FolderState, ProjectTreeAction } from './types'
-import { convertFileSystemEntryToTreeDataItem, findInProjectTree, joinPath, splitPath } from './utils'
+import {
+    convertFileSystemEntryToTreeDataItem,
+    findInProjectTree,
+    joinPath,
+    sortFilesAndFolders,
+    splitPath,
+} from './utils'
 
 const PAGINATION_LIMIT = 100
 const MOVE_ALERT_LIMIT = 50
@@ -125,7 +131,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                                 ? values.searchResults.results
                                 : []),
                             ...response.results.slice(0, PAGINATION_LIMIT),
-                        ],
+                        ].sort(sortFilesAndFolders),
                         hasMore: response.results.length > PAGINATION_LIMIT,
                         lastCount: Math.min(response.results.length, PAGINATION_LIMIT),
                     }
@@ -518,20 +524,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         sortedItems: [
             (s) => [s.viableItems],
-            (viableItems): FileSystemEntry[] =>
-                [...viableItems].sort((a, b) => {
-                    const parentA = a.path.substring(0, a.path.lastIndexOf('/'))
-                    const parentB = b.path.substring(0, b.path.lastIndexOf('/'))
-                    if (parentA === parentB) {
-                        if (a.type === 'folder' && b.type !== 'folder') {
-                            return -1
-                        }
-                        if (b.type === 'folder' && a.type !== 'folder') {
-                            return 1
-                        }
-                    }
-                    return a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' })
-                }),
+            (viableItems): FileSystemEntry[] => [...viableItems].sort(sortFilesAndFolders),
         ],
         viableItemsById: [
             (s) => [s.viableItems],
@@ -903,12 +896,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             ])
         },
         onItemChecked: ({ id, checked, shift }) => {
-            const { sortedItems, viableItemsById, lastCheckedItem, checkedItems: prevChecked } = values
+            const { sortedItems, searchResults, viableItemsById, lastCheckedItem, checkedItems: prevChecked } = values
             const clickedItem = viableItemsById[id]
             if (!clickedItem) {
                 // should never happen
                 return
             }
+            const isSearching = !!values.searchTerm
+            const shownItems = isSearching ? searchResults.results : sortedItems
 
             const checkedItems = { ...prevChecked }
 
@@ -920,9 +915,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
 
             const markFolderContents = (folder: FileSystemEntry, value: boolean): void => {
-                const startIdx = sortedItems.findIndex((i) => i.id === folder.id)
-                for (let i = startIdx + 1; i < sortedItems.length; i++) {
-                    const entry = sortedItems[i]
+                if (isSearching) {
+                    return
+                }
+                const startIdx = shownItems.findIndex((i) => i.id === folder.id)
+                for (let i = startIdx + 1; i < shownItems.length; i++) {
+                    const entry = shownItems[i]
                     if (!entry.path.startsWith(folder.path + '/')) {
                         // left the folder
                         break
@@ -939,12 +937,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
 
             if (shift && lastCheckedItem) {
-                const prevIdx = sortedItems.findIndex((it) => itemKey(it) === lastCheckedItem.id)
-                const currIdx = sortedItems.findIndex((it) => it.id === clickedItem.id)
+                const prevIdx = shownItems.findIndex((it) => itemKey(it) === lastCheckedItem.id)
+                const currIdx = shownItems.findIndex((it) => it.id === clickedItem.id)
                 const [start, end] = [Math.min(prevIdx, currIdx), Math.max(prevIdx, currIdx)]
 
                 for (let i = start; i <= end; i++) {
-                    applyToItem(sortedItems[i])
+                    applyToItem(shownItems[i])
                 }
             } else {
                 applyToItem(clickedItem)
