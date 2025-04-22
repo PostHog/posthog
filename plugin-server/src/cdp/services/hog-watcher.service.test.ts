@@ -239,8 +239,9 @@ describe('HogWatcher', () => {
         describe('function type cost differences', () => {
             it('should apply higher cost to hog functions than async for same duration', async () => {
                 // Same duration (300ms) but different function types
-                await watcher.observeResults([createHogResult({ id: 'hog1', duration: 300 })])
-                await watcher.observeResults([createAsyncResult({ id: 'async1', duration: 300 })])
+                const executionDuration = 300
+                await watcher.observeResults([createHogResult({ id: 'hog1', duration: executionDuration })])
+                await watcher.observeResults([createAsyncResult({ id: 'async1', duration: executionDuration })])
 
                 const hogState = await watcher.getState('hog1')
                 const asyncState = await watcher.getState('async1')
@@ -249,16 +250,16 @@ describe('HogWatcher', () => {
                 // calculate expected costs based on the ratio calculation with maximum costs
                 const hogRatio = Math.min(
                     1,
-                    Math.max(300 - hub.CDP_WATCHER_COST_TIMING_LOWER_MS, 0) /
+                    Math.max(executionDuration - hub.CDP_WATCHER_COST_TIMING_LOWER_MS, 0) /
                         (hub.CDP_WATCHER_COST_TIMING_UPPER_MS - hub.CDP_WATCHER_COST_TIMING_LOWER_MS)
                 )
                 const asyncRatio = Math.min(
                     1,
-                    Math.max(300 - hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS, 0) /
+                    Math.max(executionDuration - hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS, 0) /
                         (hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS - hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS)
                 )
                 const hogCost = Math.round(hub.CDP_WATCHER_COST_TIMING * hogRatio)
-                const asyncCost = Math.round(20 * asyncRatio)
+                const asyncCost = Math.round(hub.CDP_WATCHER_ASYNC_COST_TIMING * asyncRatio)
 
                 expect(10000 - hogState.tokens).toBe(hogCost)
                 expect(10000 - asyncState.tokens).toBe(asyncCost)
@@ -280,17 +281,31 @@ describe('HogWatcher', () => {
 
             it('should combine costs for mixed functions properly', async () => {
                 // Test combined cost calculation for mixed functions
+                const hogExecutionDuration = 200
+                const asyncExecutionDuration = 1000
                 await watcher.observeResults([
-                    createMixedResult({ id: 'mixed1', hogDuration: 200, asyncDuration: 1000 }),
+                    createMixedResult({
+                        id: 'mixed1',
+                        hogDuration: hogExecutionDuration,
+                        asyncDuration: asyncExecutionDuration,
+                    }),
                 ])
 
                 const mixedState = await watcher.getState('mixed1')
 
                 // Calculate expected costs based on the ratio calculation with maximum costs
-                const hogRatio = Math.min(1, Math.max(200 - 50, 0) / (500 - 50))
-                const asyncRatio = Math.min(1, Math.max(1000 - 150, 0) / (5000 - 150))
-                const expectedHogCost = Math.round(40 * hogRatio)
-                const expectedAsyncCost = Math.round(20 * asyncRatio)
+                const hogRatio = Math.min(
+                    1,
+                    Math.max(hogExecutionDuration - hub.CDP_WATCHER_COST_TIMING_LOWER_MS, 0) /
+                        (hub.CDP_WATCHER_COST_TIMING_UPPER_MS - hub.CDP_WATCHER_COST_TIMING_LOWER_MS)
+                )
+                const asyncRatio = Math.min(
+                    1,
+                    Math.max(asyncExecutionDuration - hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS, 0) /
+                        (hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS - hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS)
+                )
+                const expectedHogCost = Math.round(hub.CDP_WATCHER_COST_TIMING * hogRatio)
+                const expectedAsyncCost = Math.round(hub.CDP_WATCHER_ASYNC_COST_TIMING * asyncRatio)
                 const expectedTotalCost = expectedHogCost + expectedAsyncCost
 
                 // Combined cost should match the sum of individual costs
