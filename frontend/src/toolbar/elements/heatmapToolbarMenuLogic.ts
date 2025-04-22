@@ -317,7 +317,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                             existing.rageclickCount += countedElement.type === '$rageclick' ? countedElement.count : 0
                             existing.deadclickCount += countedElement.type === '$dead_click' ? countedElement.count : 0
                             existing.visible = metrics.visible
-                            existing.rect = metrics.rect
                         }
                     } else {
                         normalisedElements.set(trimmedElement, {
@@ -328,7 +327,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                             element: trimmedElement,
                             actionStep: elementToActionStep(trimmedElement, dataAttributes),
                             visible: metrics.visible,
-                            rect: metrics.rect,
                         })
                     }
 
@@ -406,10 +404,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         maybeLoadHeatmap: async () => {
-            if (values.heatmapEnabled) {
-                if (values.heatmapFilters.enabled && values.heatmapFilters.type) {
-                    actions.loadHeatmap()
-                }
+            if (values.heatmapEnabled && values.heatmapFilters.enabled && values.heatmapFilters.type) {
+                actions.loadHeatmap()
             }
         },
 
