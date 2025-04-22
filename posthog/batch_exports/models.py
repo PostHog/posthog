@@ -281,8 +281,12 @@ class BatchExport(UUIDModel):
         elif self.interval == "week":
             return timedelta(days=1)
         elif self.interval.startswith("every"):
-            # 5 minute batch exports = 1.25 minutes of jitter
-            return self.interval_time_delta / 4
+            # This yields 1 minute for 5 minute batch exports, which is the only
+            # "every" interval in use currently.
+            # In the future, we can extend this to have different handling for
+            # different "every" intervals.
+            return self.interval_time_delta / 5
+
         raise ValueError(f"Invalid interval: '{self.interval}'")
 
 
