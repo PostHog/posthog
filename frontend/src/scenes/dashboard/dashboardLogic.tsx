@@ -1677,6 +1677,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         overrideVariableValue: ({ reload }) => {
             if (reload) {
                 actions.loadDashboard({ action: 'preview' })
+                actions.setDashboardMode(DashboardMode.Edit, null)
             }
         },
         [variableDataLogic.actionTypes.getVariablesSuccess]: ({ variables }) => {
