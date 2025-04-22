@@ -12,7 +12,12 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="MessageTemplate",
             fields=[
-                ("id", models.UUIDField(default=posthog.models.utils.uuid7, primary_key=True, serialize=False)),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=posthog.models.utils.UUIDT, editable=False, primary_key=True, serialize=False
+                    ),
+                ),
                 ("name", models.CharField(max_length=400)),
                 ("description", models.TextField(blank=True, default="")),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
