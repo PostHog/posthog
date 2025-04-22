@@ -198,6 +198,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     : taxonomicGroupTypes.length > VERTICAL_LAYOUT_THRESHOLD
             },
         ],
+        hasVerticalCategories: [
+            (s) => [s.hasMultipleGroups, s.hasVerticalLayout],
+            (hasMultipleGroups, hasVerticalLayout) => hasMultipleGroups && hasVerticalLayout,
+        ],
         taxonomicGroups: [
             (s) => [
                 s.currentTeamId,

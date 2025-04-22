@@ -176,7 +176,7 @@ const canSelectItem = (listGroupType?: TaxonomicFilterGroupType): boolean => {
 }
 
 export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Element {
-    const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType, eventNames, hasVerticalLayout } =
+    const { mouseInteractionsEnabled, activeTab, searchQuery, value, groupType, eventNames, hasVerticalCategories } =
         useValues(taxonomicFilterLogic)
     const { selectItem } = useActions(taxonomicFilterLogic)
     const {
@@ -348,7 +348,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                         item={selectedItem}
                         group={group}
                         highlightedItemElement={highlightedItemElement}
-                        hasVerticalLayout={hasVerticalLayout}
+                        hasVerticalCategories={hasVerticalCategories}
                     />
                 </BindLogic>
             ) : null}

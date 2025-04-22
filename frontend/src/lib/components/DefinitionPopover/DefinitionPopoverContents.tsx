@@ -581,9 +581,7 @@ function adjustOffset(): Middleware {
         name: 'adjustForSidebar',
         async fn({ placement, x }: MiddlewareState) {
             if (placement.startsWith('left')) {
-                return { x: x - 201 }
-            } else if (placement.startsWith('right')) {
-                return { x: x + 13 }
+                return { x: x - 188 }
             }
 
             return {}
@@ -596,7 +594,7 @@ interface ControlledDefinitionPopoverContentsProps {
     item: TaxonomicDefinitionTypes
     group: TaxonomicFilterGroup
     highlightedItemElement: HTMLDivElement | null
-    hasVerticalLayout: boolean
+    hasVerticalCategories: boolean
 }
 
 export function ControlledDefinitionPopover({
@@ -604,7 +602,7 @@ export function ControlledDefinitionPopover({
     item,
     group,
     highlightedItemElement,
-    hasVerticalLayout,
+    hasVerticalCategories,
 }: ControlledDefinitionPopoverContentsProps): JSX.Element | null {
     const { state, singularType, definition } = useValues(definitionPopoverLogic)
     const { setDefinition } = useActions(definitionPopoverLogic)
@@ -652,7 +650,7 @@ export function ControlledDefinitionPopover({
             fallbackPlacements={['left']}
             middleware={[
                 hide(), // Hide the definition popover when the reference is off-screen
-                ...(hasVerticalLayout ? [adjustOffset()] : []), // Shift the definition popover further left to clear the categories sidebar
+                ...(hasVerticalCategories ? [adjustOffset()] : []), // Shift the definition popover further left to clear the categories sidebar
             ]}
         />
     )
