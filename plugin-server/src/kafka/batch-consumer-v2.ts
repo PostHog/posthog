@@ -32,11 +32,24 @@ export class KafkaConsumer {
         const consumerConfig: ConsumerGlobalConfig = {
             // Default settings
             'enable.auto.offset.store': false,
+            'enable.auto.commit': true,
             'partition.assignment.strategy': 'cooperative-sticky',
             rebalance_cb: true,
             offset_commit_cb: true,
             'enable.partition.eof': true,
             'group.id': groupId,
+
+            // NOTE: These values can be overridden with env vars rather than by hard coded config values
+            // This makes it much easier to tune kafka without needless code changes
+            'session.timeout.ms': 30_000,
+            'max.poll.interval.ms': 300_000,
+            'max.partition.fetch.bytes': 1_048_576,
+            'fetch.error.backoff.ms': 100,
+            'fetch.message.max.bytes': 10_485_760,
+            'fetch.wait.max.ms': 50,
+            'queued.min.messages': 100000,
+            'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
+
             // Custom settings and overrides - this is where most configuration should be done
             ...getConsumerConfigFromEnv(),
             ...config,
