@@ -110,7 +110,7 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     /** Whether the item is unapplied */
     isItemUnapplied?: (item: TreeDataItem) => boolean
     /** The function to call when the item is checked. */
-    onItemChecked?: (id: string, checked: boolean) => void
+    onItemChecked?: (id: string, checked: boolean, shift: boolean) => void
     /** Count of checked items */
     checkedItemCount?: number
     /** The render function for the item. */
@@ -187,7 +187,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
         },
         ref
     ): JSX.Element => {
-        const DEPTH_OFFSET = depth === 0 ? 0 : 16 * depth
+        const DEPTH_OFFSET = 16 * depth
 
         const [isContextMenuOpenForItem, setIsContextMenuOpenForItem] = useState<string | undefined>(undefined)
 
@@ -218,6 +218,10 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                     const displayName = item.displayName ?? item.name
                     const isFolder = item.record?.type === 'folder'
                     const isEmptyFolder = item.type === 'empty-folder'
+                    const folderLinesOffset = DEPTH_OFFSET
+                    const emptySpaceOffset = DEPTH_OFFSET + 16
+                    const iconWrapperOffset = DEPTH_OFFSET + 5
+                    const iconWrapperOffsetMultiSelection = DEPTH_OFFSET + 28
 
                     // If table mode, renders: "tree item: Name: My App Dashboard, Created at: Mar 28, 2025, Created by: Adam etc"
                     // If empty folder, renders: "empty folder"
@@ -277,7 +281,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             <div
                                                 className="folder-line absolute border-r border-primary h-[calc(100%+2px)] -top-px pointer-events-none z-0"
                                                 // eslint-disable-next-line react/forbid-dom-props
-                                                style={{ width: `${DEPTH_OFFSET}px` }}
+                                                style={{ width: `${folderLinesOffset}px` }}
                                             />
                                         )}
 
@@ -295,7 +299,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                         defaultNodeIcon={defaultNodeIcon}
                                                         handleClick={handleClick}
                                                         enableMultiSelection={enableMultiSelection}
-                                                        depthOffset={DEPTH_OFFSET}
+                                                        defaultOffset={iconWrapperOffset}
+                                                        multiSelectionOffset={iconWrapperOffsetMultiSelection}
                                                         checkedItemCount={checkedItemCount}
                                                         onItemChecked={onItemChecked}
                                                     />
@@ -311,15 +316,12 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     }}
                                                     className={cn(
                                                         'group/lemon-tree-button',
-                                                        'pl-8 z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)] motion-safe:transition-[padding] duration-50',
+                                                        'z-1 focus-visible:bg-fill-button-tertiary-hover h-[var(--button-height-base)] motion-safe:transition-[padding] duration-50',
                                                         {
                                                             'bg-fill-button-tertiary-hover':
                                                                 selectedId === item.id ||
                                                                 isContextMenuOpenForItem === item.id,
                                                             'bg-fill-button-tertiary-active': getItemActiveState(item),
-                                                            'pl-13': enableMultiSelection,
-                                                            'pl-4 italic text-tertiary pointer-events-none cursor-default h-[var(--button-height-base)]':
-                                                                isEmptyFolder,
                                                             'group-hover/lemon-tree-button-group:bg-fill-button-tertiary-hover cursor-pointer':
                                                                 !isEmptyFolder,
                                                         }
@@ -360,16 +362,18 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     aria-label={ariaLabel}
                                                 >
                                                     {/* Spacer to offset button padding */}
-                                                    {depth !== 0 && (
-                                                        <div
-                                                            className="h-full bg-transparent pointer-events-none flex-shrink-0"
-                                                            // -6 is to offset button padding (to match folder lines)
-                                                            // eslint-disable-next-line react/forbid-dom-props
-                                                            style={{
-                                                                width: `${DEPTH_OFFSET - 6}px`,
-                                                            }}
-                                                        />
-                                                    )}
+                                                    <div
+                                                        className="h-full bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50"
+                                                        // the 26 the width of the icon `size-5` + 6px gap in button primitive
+                                                        // Make the background of this non-transparent to debug
+                                                        // eslint-disable-next-line react/forbid-dom-props
+                                                        style={{
+                                                            width:
+                                                                enableMultiSelection && !item.disableSelect
+                                                                    ? `${emptySpaceOffset + 26}px`
+                                                                    : `${emptySpaceOffset}px`,
+                                                        }}
+                                                    />
 
                                                     {/* Render contents */}
                                                     <span

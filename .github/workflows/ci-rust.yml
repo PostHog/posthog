@@ -64,7 +64,7 @@ jobs:
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
-              uses: mozilla-actions/sccache-action@2e7f9ec7921547d4b46598398ca573513895d0bd # v0.0.4
+              uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
             - name: Configure sccache
               if: needs.changes.outputs.rust == 'true'
@@ -116,7 +116,7 @@ jobs:
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
-              uses: mozilla-actions/sccache-action@2e7f9ec7921547d4b46598398ca573513895d0bd # v0.0.4
+              uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
             - name: Configure sccache
               if: needs.changes.outputs.rust == 'true'
@@ -197,7 +197,7 @@ jobs:
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
-              uses: mozilla-actions/sccache-action@2e7f9ec7921547d4b46598398ca573513895d0bd # v0.0.4
+              uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
             - name: Configure sccache
               if: needs.changes.outputs.rust == 'true'

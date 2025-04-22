@@ -1,3 +1,5 @@
+import { Histogram } from 'prom-client'
+
 import { Hub } from '../../types'
 import { now } from '../../utils/now'
 import { UUIDT } from '../../utils/utils'
@@ -21,6 +23,13 @@ export type HogWatcherFunctionState = {
     tokens: number
     rating: number
 }
+
+export const hogFunctionExecutionTimeSummary = new Histogram({
+    name: 'cdp_hog_watcher_timings',
+    help: 'Processing time of hog function execution by kind',
+    labelNames: ['kind'],
+    buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, Infinity],
+})
 
 // TODO: Future follow up - we should swap this to an API call or something.
 // Having it as a celery task ID based on a file path is brittle and hard to test.
@@ -131,15 +140,24 @@ export class HogWatcherService {
             let cost = (costs[result.invocation.hogFunction.id] = costs[result.invocation.hogFunction.id] || 0)
 
             if (result.finished) {
-                // If it is finished we can calculate the score based off of the timings
+                // Calculate cost based on individual timings, not the total
+                let costForTimings = 0
 
-                const totalDurationMs = result.invocation.timings.reduce((acc, timing) => acc + timing.duration_ms, 0)
+                // Calculate cost for this individual timing
                 const lowerBound = this.hub.CDP_WATCHER_COST_TIMING_LOWER_MS
                 const upperBound = this.hub.CDP_WATCHER_COST_TIMING_UPPER_MS
                 const costTiming = this.hub.CDP_WATCHER_COST_TIMING
-                const ratio = Math.max(totalDurationMs - lowerBound, 0) / (upperBound - lowerBound)
 
-                cost += Math.round(costTiming * ratio)
+                for (const timing of result.invocation.timings) {
+                    // Record metrics for this timing entry
+                    hogFunctionExecutionTimeSummary.labels(timing.kind).observe(timing.duration_ms)
+                    const ratio = Math.max(timing.duration_ms - lowerBound, 0) / (upperBound - lowerBound)
+
+                    // Add to the total cost for this result
+                    costForTimings += Math.round(costTiming * ratio)
+                }
+
+                cost += costForTimings
             }
 
             if (result.error) {
