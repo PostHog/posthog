@@ -38,55 +38,55 @@ const translateInputs = (defaultVal: any) => {
             modifiedVal = modifiedVal.replaceAll('event.traits', 'person.properties')
         }
         if (modifiedVal.includes('context.app.version')) {
-            modifiedVal = modifiedVal.replaceAll('context.app.version', '$app_version')
+            modifiedVal = modifiedVal.replaceAll('context.app.version', 'properties.$app_version')
         }
         if (modifiedVal.includes('context.device.type')) {
-            modifiedVal = modifiedVal.replaceAll('context.device.type', '$device_type')
+            modifiedVal = modifiedVal.replaceAll('context.device.type', 'properties.$device_type')
         }
         if (modifiedVal.includes('context.os.name')) {
-            modifiedVal = modifiedVal.replaceAll('context.os.name', '$os')
+            modifiedVal = modifiedVal.replaceAll('context.os.name', 'properties.$os')
         }
         if (modifiedVal.includes('context.os.version')) {
-            modifiedVal = modifiedVal.replaceAll('context.os.version', '$os_version')
+            modifiedVal = modifiedVal.replaceAll('context.os.version', 'properties.$os_version')
         }
         if (modifiedVal.includes('context.device.brand')) {
             modifiedVal = modifiedVal.replaceAll('context.device.brand', '')
         }
         if (modifiedVal.includes('context.device.manufacturer')) {
-            modifiedVal = modifiedVal.replaceAll('context.device.manufacturer', 'device_manufacturer')
+            modifiedVal = modifiedVal.replaceAll('context.device.manufacturer', 'properties.$device_manufacturer')
         }
         if (modifiedVal.includes('context.device.model')) {
-            modifiedVal = modifiedVal.replaceAll('context.device.model', '$device_model')
+            modifiedVal = modifiedVal.replaceAll('context.device.model', 'properties.$device_model')
         }
         if (modifiedVal.includes('context.network.carrier')) {
             modifiedVal = modifiedVal.replaceAll('context.network.carrier', '')
         }
         if (modifiedVal.includes('context.location.country')) {
-            modifiedVal = modifiedVal.replaceAll('context.location.country', '$geoip_country_name')
+            modifiedVal = modifiedVal.replaceAll('context.location.country', 'properties.$geoip_country_name')
         }
         if (modifiedVal.includes('context.location.region')) {
             modifiedVal = modifiedVal.replaceAll('context.location.region', '')
         }
         if (modifiedVal.includes('context.location.city')) {
-            modifiedVal = modifiedVal.replaceAll('context.location.city', '$geoip_city_name')
+            modifiedVal = modifiedVal.replaceAll('context.location.city', 'properties.$geoip_city_name')
         }
         if (modifiedVal.includes('context.locale')) {
-            modifiedVal = modifiedVal.replaceAll('context.locale', '$locale')
+            modifiedVal = modifiedVal.replaceAll('context.locale', 'properties.$locale')
         }
         if (modifiedVal.includes('context.location.latitude')) {
-            modifiedVal = modifiedVal.replaceAll('context.location.latitude', '$geoip_latitude')
+            modifiedVal = modifiedVal.replaceAll('context.location.latitude', 'properties.$geoip_latitude')
         }
         if (modifiedVal.includes('context.location.longitude')) {
-            modifiedVal = modifiedVal.replaceAll('context.location.longitude', '$geoip_longitude')
+            modifiedVal = modifiedVal.replaceAll('context.location.longitude', 'properties.$geoip_longitude')
         }
         if (modifiedVal.includes('context.ip')) {
-            modifiedVal = modifiedVal.replaceAll('context.ip', '$ip')
+            modifiedVal = modifiedVal.replaceAll('context.ip', 'properties.$ip')
         }
         if (modifiedVal.includes('context.device.id')) {
-            modifiedVal = modifiedVal.replaceAll('context.device.id', '$device_id')
+            modifiedVal = modifiedVal.replaceAll('context.device.id', 'properties.$device_id')
         }
         if (modifiedVal.includes('context.library.name')) {
-            modifiedVal = modifiedVal.replaceAll('context.library.name', '$lib')
+            modifiedVal = modifiedVal.replaceAll('context.library.name', 'properties.$lib')
         }
         if (modifiedVal.includes('context.userAgentData.model')) {
             modifiedVal = modifiedVal.replaceAll('context.userAgentData.model', '')
@@ -95,22 +95,22 @@ const translateInputs = (defaultVal: any) => {
             modifiedVal = modifiedVal.replaceAll('context.userAgentData.platformVersion', '')
         }
         if (modifiedVal.includes('context.userAgent')) {
-            modifiedVal = modifiedVal.replaceAll('context.userAgent', '$raw_user_agent')
+            modifiedVal = modifiedVal.replaceAll('context.userAgent', 'properties.$raw_user_agent')
         }
         if (modifiedVal.includes('context.page.referrer')) {
-            modifiedVal = modifiedVal.replaceAll('context.page.referrer', '$referrer')
+            modifiedVal = modifiedVal.replaceAll('context.page.referrer', 'properties.$referrer')
         }
         if (modifiedVal.includes('context.campaign.source')) {
-            modifiedVal = modifiedVal.replaceAll('context.campaign.source', 'utm_source')
+            modifiedVal = modifiedVal.replaceAll('context.campaign.source', 'properties.$utm_source')
         }
         if (modifiedVal.includes('context.campaign.medium')) {
-            modifiedVal = modifiedVal.replaceAll('context.campaign.medium', 'utm_medium')
+            modifiedVal = modifiedVal.replaceAll('context.campaign.medium', 'properties.$utm_medium')
         }
         if (modifiedVal.includes('context.campaign.name')) {
-            modifiedVal = modifiedVal.replaceAll('context.campaign.name', 'utm_campaign')
+            modifiedVal = modifiedVal.replaceAll('context.campaign.name', 'properties.$utm_campaign')
         }
         if (modifiedVal.includes('context.campaign.term')) {
-            modifiedVal = modifiedVal.replaceAll('context.campaign.term', 'utm_term')
+            modifiedVal = modifiedVal.replaceAll('context.campaign.term', 'properties.$utm_term')
         }
         if (modifiedVal.includes('context.campaign.content')) {
             modifiedVal = modifiedVal.replaceAll('context.campaign.content', 'utm_content')
@@ -123,6 +123,9 @@ const translateInputs = (defaultVal: any) => {
         }
         if (modifiedVal.includes('integrations.Actions Amplitude.session_id')) {
             modifiedVal = modifiedVal.replaceAll('integrations.Actions Amplitude.session_id', '')
+        }
+        if (modifiedVal.includes('event.userId')) {
+            modifiedVal = modifiedVal.replaceAll('event.userId', 'event.distinct_id')
         }
 
         if (modifiedVal.endsWith('.')) return ''
@@ -164,20 +167,38 @@ const translateInputs = (defaultVal: any) => {
     return JSON.stringify(defaultVal)
 }
 
+const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): HogFunctionInputSchemaType[] => {
+    if (!inputs_schema) return []
+    return Object.entries(inputs_schema).map(([key, field]) => ({
+        key,
+        label: field.label,
+        type: field.choices ? 'choice'
+            : field.type === 'object' ? 'dictionary'
+            : ['number', 'integer', 'datetime'].includes(field.type) ? 'string'
+            : field.type ?? 'string',
+        description: field.description,
+        default: field.type !== 'object' ? translateInputs(field.default) : Object.fromEntries(Object.entries(field.properties ?? {}).map(([key, _]) => {
+            const defaultVal = field.default as Record<string, object> ?? {}
+            return [key, translateInputs(defaultVal[key])]
+        })),
+        required: field.required ?? false,
+        secret: false,
+        ...(field.choices ? { choices: field.choices } : {}),
+    })) as HogFunctionInputSchemaType[]
+}
+
 export const amplitudePlugin: LegacyDestinationPlugin = {
     onEvent: async (
         _event: ProcessedPluginEvent,
         { config, fetch, logger }: LegacyDestinationPluginMeta
     ): Promise<void> =>  {
-        segmentDestination.actions.logEventV2.perform((endpoint, options) => {
-            logger.warn('This is a test', { options })
-            void fetch('https://webhook.site/1d50dcac-28d0-4b7b-95ed-0a2a3e26ab45', {
-                method: 'POST',
+        segmentDestination.actions.logEventV2.perform(async (endpoint, options) => {
+            await fetch(endpoint, {
+                method: options?.method ?? "POST",
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${config.secretKey}`
                 },
-                body: JSON.stringify({ endpoint, options }),
+                body: JSON.stringify(options?.json),
             })
             return Promise.resolve({} as any)
         }, {
@@ -201,46 +222,22 @@ export const amplitudePlugin: LegacyDestinationPlugin = {
         free: false,
         status: 'beta',
         type: 'destination',
-        id: segmentDestination.slug?.replace('actions-', 'plugin-segment-') ?? 'plugin-segment-amplitude',
+        id: segmentDestination.slug?.replace('actions-', 'plugin-segment-') ?? `plugin-segment-${segmentDestination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase()}`,
         name: segmentDestination.name.replace('Actions ', ''),
-        description: 'Send event data to Amplitude',
-        icon_url: 'https://raw.githubusercontent.com/rudderlabs/rudderstack-posthog-plugin/main/logo.png',
+        description: `Send event data to ${segmentDestination.name.replace('Actions ', '')}`,
+        icon_url: `https://img.logo.dev/${segmentDestination.slug?.split('-')[1]}.com?token=pk_NiEhY0r4ToO7w_3DQvOALw`,
         category: [],
+        inputs_schema: translateInputsSchema(segmentDestination.authentication?.fields),
         hog: 'return event',
-        inputs_schema: Object.entries(segmentDestination.authentication?.fields ?? { fallback: { label: 'Fallback', type: 'string', description: 'Fallback', default: 'fallback', required: true } }).map(([key, field]) => ({
-            key,
-            label: field.label,
-            type: field.choices ? 'choice' : field.type ?? 'string',
-            description: field.description,
-            default: translateInputs(field.default),
-            required: field.required ?? false,
-            secret: false,
-            ...(field.choices ? { choices: field.choices } : {}),
-        })) as HogFunctionInputSchemaType[],
         mapping_templates: (segmentDestination.presets ?? [])
             .filter((preset) => preset.type === 'automatic')
             .map((preset) => ({
-                name: preset.name,
+                name: preset.partnerAction,
                 include_by_default: true,
                 filters: {
                     events: translateFilters(preset.subscribe)
                 },
-                inputs_schema: Object.entries(segmentDestination.actions.logEventV2.fields ?? { fallback: { label: 'Fallback', type: 'string', description: 'Fallback', default: 'fallback', required: true } }).map(([key, field]) => ({
-                    key,
-                    label: field.label,
-                    type: field.choices ? 'choice'
-                        : field.type === 'object' ? 'dictionary'
-                        : ['number', 'integer', 'datetime'].includes(field.type) ? 'string'
-                        : field.type ?? 'string',
-                    description: field.description,
-                    default: field.type !== 'object' ? translateInputs(field.default) : Object.fromEntries(Object.entries(field.properties ?? {}).map(([key, _]) => {
-                        const defaultVal = field.default as Record<string, object> ?? {}
-                        return [key, translateInputs(defaultVal[key])]
-                    })),
-                    required: field.required ?? false,
-                    secret: false,
-                    ...(field.choices ? { choices: field.choices } : {}),
-                })) as HogFunctionInputSchemaType[],
+                inputs_schema: translateInputsSchema(segmentDestination.actions.logEventV2.fields)
             })) as HogFunctionMappingTemplate[]
     }
 }
