@@ -54,9 +54,9 @@ class FunnelUDFMixin:
                 # self.context.breakdownAttributionType == BreakdownAttributionType.ALL_EVENTS
                 prop = "prop_basic"
             if self._query_has_array_breakdown():
-                prop_vals = f"groupUniqArrayIf({prop}, {prop} != [])"
+                prop_vals = f"groupUniqArrayIf(arrayMap(x -> ifNull(x, ''), {prop}), notEmpty({prop}))"
             else:
-                prop_vals = f"groupUniqArray({prop})"
+                prop_vals = f"groupUniqArray(ifNull({prop}, ''))"
         return prop_vals
 
     def _default_breakdown_selector(self: FunnelProtocol) -> str:
