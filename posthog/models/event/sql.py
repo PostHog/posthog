@@ -49,7 +49,8 @@ DROP_DISTRIBUTED_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS events {ON_CLUSTER_CL
 
 INSERTED_AT_COLUMN = ", inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()"
 INSERTED_AT_NOT_NULLABLE_COLUMN = ", inserted_at DateTime64(6, 'UTC') DEFAULT NOW64()"
-KAFKA_CONSUMER_BREADCRUMBS_COLUMN = ", _kafka_consumer_breadcrumbs Nullable(String)"
+# KAFKA_CONSUMER_BREADCRUMBS_COLUMN = ", _kafka_consumer_breadcrumbs Nullable(String)"
+KAFKA_CONSUMER_BREADCRUMBS_COLUMN = ", _headers Array(Tuple(String, String))"
 
 EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
@@ -138,7 +139,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
         table_name=EVENTS_DATA_TABLE(),
         on_cluster_clause=ON_CLUSTER_CLAUSE(),
         engine=EVENTS_DATA_TABLE_ENGINE(),
-        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
+        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
         materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
         indexes=f"""
     , {index_by_kafka_timestamp(EVENTS_DATA_TABLE())}
@@ -176,7 +177,7 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
         table_name="kafka_events_json",
         on_cluster_clause=ON_CLUSTER_CLAUSE(),
         engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
-        extra_fields=", _headers Array(Tuple(String, String))",
+        extra_fields="",
         materialized_columns="",
         indexes="",
     )
@@ -211,7 +212,8 @@ group4_created_at,
 person_mode,
 _timestamp,
 _offset,
-CAST(arrayFirst(x -> x.1 = 'kafka-consumer-breadcrumb', _headers).2 AS Nullable(String)) as _kafka_consumer_breadcrumbs
+_headers.name as header_names,
+_headers.value as header_values
 FROM {database}.kafka_events_json
 """.format(
         target_table=WRITABLE_EVENTS_DATA_TABLE(),
@@ -219,6 +221,8 @@ FROM {database}.kafka_events_json
         database=settings.CLICKHOUSE_DATABASE,
     )
 )
+
+# CAST(arrayFirst(x -> x.1 = 'kafka-consumer-breadcrumbs', _headers).2 AS Nullable(String)) as _kafka_consumer_breadcrumbs
 
 
 def KAFKA_EVENTS_RECENT_TABLE_JSON_SQL():

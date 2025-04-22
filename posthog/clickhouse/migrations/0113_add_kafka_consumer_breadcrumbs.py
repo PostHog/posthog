@@ -7,7 +7,8 @@ from posthog.models.event.sql import (
 
 ALTER_EVENTS_TABLE_ADD_BREADCRUMBS_COLUMN = """
 ALTER TABLE {table_name} {on_cluster_clause}
-    ADD COLUMN IF NOT EXISTS _kafka_consumer_breadcrumbs Nullable(String)
+    ADD COLUMN IF NOT EXISTS header_names Array(String),
+    ADD COLUMN IF NOT EXISTS header_values Array(String)
 """
 
 # DROP KAFKA TABLE
