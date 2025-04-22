@@ -7,6 +7,7 @@ import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import { SessionSummaryResponse } from 'scenes/session-recordings/player/player-meta/types'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
@@ -139,6 +140,7 @@ import {
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameRecord,
     ErrorTrackingSymbolSet,
+    SymbolSetStatusFilter,
 } from './components/Errors/types'
 import {
     ACTIVITY_PAGE_SIZE,
@@ -1069,7 +1071,7 @@ class ApiRequest {
 
     // Insight Variables
     public insightVariables(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('insight_variables')
+        return this.environmentsDetail(teamId).addPathComponent('insight_variables')
     }
     public insightVariable(variableId: string, teamId?: TeamType['id']): ApiRequest {
         return this.insightVariables(teamId).addPathComponent(variableId)
@@ -2232,16 +2234,27 @@ const api = {
                 .create({ data: { ids: mergingIssueIds } })
         },
 
-        async updateSymbolSet(id: ErrorTrackingSymbolSet['id'], data: FormData): Promise<void> {
-            return await new ApiRequest().errorTrackingSymbolSet(id).update({ data })
-        },
+        symbolSets: {
+            async list({
+                status,
+                offset = 0,
+                limit = 100,
+            }: {
+                status?: SymbolSetStatusFilter
+                offset: number
+                limit: number
+            }): Promise<CountedPaginatedResponse<ErrorTrackingSymbolSet>> {
+                const queryString = { order_by: '-created_at', status, offset, limit }
+                return await new ApiRequest().errorTrackingSymbolSets().withQueryString(toParams(queryString)).get()
+            },
 
-        async deleteSymbolSet(id: ErrorTrackingSymbolSet['id']): Promise<void> {
-            return await new ApiRequest().errorTrackingSymbolSet(id).delete()
-        },
+            async update(id: ErrorTrackingSymbolSet['id'], data: FormData): Promise<void> {
+                return await new ApiRequest().errorTrackingSymbolSet(id).update({ data })
+            },
 
-        async symbolSets(): Promise<{ results: ErrorTrackingSymbolSet[] }> {
-            return await new ApiRequest().errorTrackingSymbolSets().get()
+            async delete(id: ErrorTrackingSymbolSet['id']): Promise<void> {
+                return await new ApiRequest().errorTrackingSymbolSet(id).delete()
+            },
         },
 
         async symbolSetStackFrames(
@@ -2303,7 +2316,7 @@ const api = {
             return await new ApiRequest().recording(recordingId).withAction('persist').create()
         },
 
-        async summarize(recordingId: SessionRecordingType['id']): Promise<{ content: string }> {
+        async summarize(recordingId: SessionRecordingType['id']): Promise<SessionSummaryResponse> {
             return await new ApiRequest().recording(recordingId).withAction('summarize').create()
         },
 

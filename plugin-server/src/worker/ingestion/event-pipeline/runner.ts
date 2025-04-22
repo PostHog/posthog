@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
-import { Hub, PipelineEvent, Team } from '../../../types'
+import { Hub, KafkaConsumerBreadcrumb, PipelineEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
@@ -57,12 +57,19 @@ export class EventPipelineRunner {
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
     hogTransformer: HogTransformerService | null
+    breadcrumbs: KafkaConsumerBreadcrumb[]
 
-    constructor(hub: Hub, event: PipelineEvent, hogTransformer: HogTransformerService | null = null) {
+    constructor(
+        hub: Hub,
+        event: PipelineEvent,
+        hogTransformer: HogTransformerService | null = null,
+        breadcrumbs: KafkaConsumerBreadcrumb[] = []
+    ) {
         this.hub = hub
         this.originalEvent = event
         this.eventsProcessor = new EventsProcessor(hub)
         this.hogTransformer = hogTransformer
+        this.breadcrumbs = breadcrumbs
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {
@@ -238,15 +245,15 @@ export class EventPipelineRunner {
             return this.registerLastStep('pluginsProcessEventStep', [postCookielessEvent], kafkaAcks)
         }
 
-        const { event: transformedEvent, messagePromises } = await this.runStep(
+        const { event: transformedEvent, scheduledPromises } = await this.runStep(
             transformEventStep,
             [processedEvent, this.hogTransformer],
             event.team_id
         )
 
         // Add message promises to kafkaAcks
-        if (messagePromises) {
-            kafkaAcks.push(...messagePromises)
+        if (scheduledPromises) {
+            kafkaAcks.push(...scheduledPromises)
         }
 
         if (transformedEvent === null) {

@@ -7,7 +7,7 @@ use crate::properties::property_models::PropertyFilter;
 pub const TEAM_FLAGS_CACHE_PREFIX: &str = "posthog:1:team_feature_flags_";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct FlagGroupType {
+pub struct FlagPropertyGroup {
     pub properties: Option<Vec<PropertyFilter>>,
     pub rollout_percentage: Option<f64>,
     pub variant: Option<String>,
@@ -27,12 +27,12 @@ pub struct MultivariateFlagOptions {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FlagFilters {
-    pub groups: Vec<FlagGroupType>,
+    pub groups: Vec<FlagPropertyGroup>,
     pub multivariate: Option<MultivariateFlagOptions>,
     pub aggregation_group_type_index: Option<i32>,
     pub payloads: Option<serde_json::Value>,
-    pub super_groups: Option<Vec<FlagGroupType>>,
-    pub holdout_groups: Option<Vec<FlagGroupType>>,
+    pub super_groups: Option<Vec<FlagPropertyGroup>>,
+    pub holdout_groups: Option<Vec<FlagPropertyGroup>>,
 }
 
 // TODO: see if you can combine these two structs, like we do with cohort models

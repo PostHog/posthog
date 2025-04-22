@@ -34,7 +34,7 @@ from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 import posthog.session_recordings.queries.sub_queries.events_subquery
 from ..models.product_intent.product_intent import ProductIntent
 import posthog.session_recordings.queries.session_recording_list_from_query
-from ee.session_recordings.session_summary.summarize_session import summarize_recording
+from ee.session_recordings.session_summary.summarize_session import ReplaySummarizer
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
@@ -42,7 +42,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthent
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
-from posthog.models.person.person import PersonDistinctId
+from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -72,6 +72,7 @@ from openai.types.chat import (
 from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
+from posthog.exceptions_capture import capture_exception
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -369,7 +370,7 @@ def clean_referer_url(current_url: str | None) -> str:
         path = re.sub("/", "-", path)
         return path or "unknown"
     except Exception as e:
-        posthoganalytics.capture_exception(e, distinct_id="clean_referer_url", properties={"current_url": current_url})
+        capture_exception(e, additional_properties={"current_url": current_url, "function_name": "clean_referer_url"})
         return "unknown"
 
 
@@ -420,7 +421,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 raise Throttled(detail="Query timeout exceeded. Try again later.")
 
             posthoganalytics.capture_exception(
-                e, distinct_id=user_distinct_id, properties={"replay_feature": "listing_recordings"}
+                e,
+                distinct_id=user_distinct_id,
+                properties={"replay_feature": "listing_recordings", "unfiltered_query": request.GET.dict()},
             )
             return Response({"error": "An internal error has occurred. Please try again later."}, status=500)
 
@@ -812,7 +815,8 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
             raise exceptions.ValidationError("session summary is not enabled for this user")
 
-        summary = summarize_recording(recording, user, self.team)
+        replay_summarizer = ReplaySummarizer(recording, user, self.team)
+        summary = replay_summarizer.summarize_recording()
         timings = summary.pop("timings", None)
         cache.set(cache_key, summary, timeout=30)
 
@@ -1143,8 +1147,10 @@ def list_recordings_from_query(
     with timer("load_persons"):
         # Get the related persons for all the recordings
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
-        person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
-            "person"
+        person_distinct_ids = (
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(distinct_id__in=distinct_ids, team=team)
+            .select_related("person")
         )
 
     with timer("process_persons"):
@@ -1212,7 +1218,7 @@ def safely_read_modifiers_overrides(distinct_id: str, team: Team) -> HogQLQueryM
         #     distinct_id,
         #     groups=groups,
         # )
-        modifier_overrides = (flags_n_bags or {}).get("featureFlagPayloads", {}).get(flag_key, None)
+        modifier_overrides = (flags_n_bags.get("featureFlagPayloads") or {}).get(flag_key, None)
         if modifier_overrides:
             modifiers.optimizeJoinedFilters = json.loads(modifier_overrides).get("optimizeJoinedFilters", None)
     except:

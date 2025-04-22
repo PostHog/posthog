@@ -16,10 +16,10 @@ export function SidePanelPaneHeader({ children, title }: SidePanelPaneHeaderProp
 
     return (
         <header
-            className={clsx('border-b shrink-0 flex items-center justify-end gap-1', {
-                'p-1 h-10': !modalMode,
-                'pb-2 mt-2 mx-3': modalMode,
-            })}
+            className={clsx(
+                'border-b shrink-0 flex items-center justify-end gap-1',
+                !modalMode ? 'sticky top-0 z-10 bg-surface-secondary p-1 h-10' : 'pb-2 mt-2 mx-3'
+            )}
         >
             {title ? (
                 <h3

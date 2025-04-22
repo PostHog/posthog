@@ -100,6 +100,7 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, interval
 
         batch_export = BatchExport.objects.get(id=data["id"])
         assert schedule.schedule.spec.intervals[0].every == batch_export.interval_time_delta
+        assert schedule.schedule.spec.jitter == batch_export.jitter
 
         decoded_payload = async_to_sync(codec.decode)(schedule.schedule.action.args)
         args = json.loads(decoded_payload[0].data)
@@ -108,6 +109,13 @@ def test_create_batch_export_with_interval_schedule(client: HttpClient, interval
         assert args["team_id"] == team.pk
         assert args["batch_export_id"] == data["id"]
         assert args["interval"] == interval
+
+        if interval == "hour":
+            assert batch_export.jitter == dt.timedelta(minutes=15)
+        elif interval == "day":
+            assert batch_export.jitter == dt.timedelta(hours=1)
+        elif interval == "every 5 minutes":
+            assert batch_export.jitter == dt.timedelta(minutes=1)
 
         # S3 specific inputs
         assert args["bucket_name"] == "my-production-s3-bucket"
@@ -259,7 +267,8 @@ SELECT
   team_id AS my_team,
   properties,
   properties.$browser AS browser,
-  properties.custom AS custom
+  properties.custom AS custom,
+  person_id
 FROM events
 """
 
@@ -329,6 +338,7 @@ def test_create_batch_export_with_custom_schema(client: HttpClient, temporal):
                 "expression": "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
                 "alias": "custom",
             },
+            {"alias": "person_id", "expression": "events.person_id"},
         ]
         expected_schema = {
             "fields": expected_fields,

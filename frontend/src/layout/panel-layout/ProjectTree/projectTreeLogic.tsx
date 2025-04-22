@@ -4,8 +4,9 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
-import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { TreeDataItem, TreeTableViewKeys } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -19,7 +20,13 @@ import { panelLayoutLogic } from '../panelLayoutLogic'
 import { getDefaultTreeExplore, getDefaultTreeNew } from './defaultTree'
 import type { projectTreeLogicType } from './projectTreeLogicType'
 import { FolderState, ProjectTreeAction } from './types'
-import { convertFileSystemEntryToTreeDataItem, findInProjectTree, joinPath, splitPath } from './utils'
+import {
+    convertFileSystemEntryToTreeDataItem,
+    findInProjectTree,
+    joinPath,
+    sortFilesAndFolders,
+    splitPath,
+} from './utils'
 
 const PAGINATION_LIMIT = 100
 const MOVE_ALERT_LIMIT = 50
@@ -71,7 +78,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
         assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
         setLastNewOperation: (objectType: string | null, folder: string | null) => ({ objectType, folder }),
-        onItemChecked: (id: string, checked: boolean) => ({ id, checked }),
+        onItemChecked: (id: string, checked: boolean, shift: boolean) => ({ id, checked, shift }),
+        setLastCheckedItem: (id: string, checked: boolean, shift: boolean) => ({ id, checked, shift }),
         setCheckedItems: (checkedItems: Record<string, boolean>) => ({ checkedItems }),
         expandProjectFolder: (path: string) => ({ path }),
         moveCheckedItems: (path: string) => ({ path }),
@@ -123,7 +131,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                                 ? values.searchResults.results
                                 : []),
                             ...response.results.slice(0, PAGINATION_LIMIT),
-                        ],
+                        ].sort(sortFilesAndFolders),
                         hasMore: response.results.length > PAGINATION_LIMIT,
                         lastCount: Math.min(response.results.length, PAGINATION_LIMIT),
                     }
@@ -259,7 +267,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     for (const result of results.slice(-1 * lastCount)) {
                         const folder = joinPath(splitPath(result.path).slice(0, -1))
                         if (newState[folder]) {
-                            newState[folder] = [...newState[folder], result]
+                            const existingItem = newState[folder].find((item) => item.id === result.id)
+                            if (existingItem) {
+                                newState[folder] = newState[folder].map((file) =>
+                                    file.id === result.id ? result : file
+                                )
+                            } else {
+                                newState[folder] = [...newState[folder], result]
+                            }
                         } else {
                             newState[folder] = [result]
                         }
@@ -325,7 +340,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     return newState
                 },
                 updateSyncedFiles: (state, { files }) => {
-                    const filesById = {}
+                    const filesById: Record<string, FileSystemEntry> = {}
                     for (const file of files) {
                         filesById[file.id] = file
                     }
@@ -423,6 +438,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 setCheckedItems: (_, { checkedItems }) => checkedItems,
             },
         ],
+        lastCheckedItem: [
+            null as { id: string; checked: boolean; shift: boolean } | null,
+            {
+                setLastCheckedItem: (_, { id, checked, shift }) => ({ id, checked, shift }),
+            },
+        ],
     }),
     selectors({
         savedItems: [
@@ -510,8 +531,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         ],
         sortedItems: [
             (s) => [s.viableItems],
-            (viableItems): FileSystemEntry[] =>
-                [...viableItems].sort((a, b) => (a.path > b.path ? 1 : a.path < b.path ? -1 : 0)),
+            (viableItems): FileSystemEntry[] => [...viableItems].sort(sortFilesAndFolders),
         ],
         viableItemsById: [
             (s) => [s.viableItems],
@@ -614,11 +634,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 // Create arrays for each category
                 const dataItems = treeItemsNew
                     .filter((item: TreeDataItem) => item.record?.type.includes('hog_function/'))
-                    .sort((a: TreeDataItem, b: TreeDataItem) => a.name.localeCompare(b.name))
+                    .sort((a: TreeDataItem, b: TreeDataItem) =>
+                        a.name.localeCompare(b.name, undefined, { sensitivity: 'accent' })
+                    )
 
                 const insightItems = treeItemsNew
                     .filter((item: TreeDataItem) => item.record?.type === 'insight')
-                    .sort((a: TreeDataItem, b: TreeDataItem) => a.name.localeCompare(b.name))
+                    .sort((a: TreeDataItem, b: TreeDataItem) =>
+                        a.name.localeCompare(b.name, undefined, { sensitivity: 'accent' })
+                    )
 
                 // Get other items (not data or insight)
                 const otherItems = treeItemsNew
@@ -626,7 +650,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         (item: TreeDataItem) =>
                             !item.record?.type.includes('hog_function/') && !item.record?.type.includes('insight')
                     )
-                    .sort((a: TreeDataItem, b: TreeDataItem) => a.name.localeCompare(b.name))
+                    .sort((a: TreeDataItem, b: TreeDataItem) =>
+                        a.name.localeCompare(b.name, undefined, { sensitivity: 'accent' })
+                    )
 
                 // Create the final hierarchical structure with explicit names for grouped items
                 const result = [
@@ -640,7 +666,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     // Always use name for sorting (with fallback to id)
                     const nameA = a.name || a.id.charAt(0).toUpperCase() + a.id.slice(1)
                     const nameB = b.name || b.id.charAt(0).toUpperCase() + b.id.slice(1)
-                    return nameA.localeCompare(nameB)
+                    return nameA.localeCompare(nameB, undefined, { sensitivity: 'accent' })
                 })
             },
         ],
@@ -671,12 +697,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             id: `search-loading/`,
                             name: 'Loading...',
                             icon: <Spinner />,
+                            disableSelect: true,
                         })
                     } else {
                         results.push({
                             id: `search-load-more/${searchResults.searchTerm}`,
                             name: 'Load more...',
                             icon: <IconPlus />,
+                            disableSelect: true,
                             onClick: () =>
                                 projectTreeLogic.actions.loadSearchResults(
                                     searchResults.searchTerm,
@@ -714,6 +742,30 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
                 return projectTree
             },
+        ],
+        // TODO: use treeData + some other logic to determine the keys
+        treeTableKeys: [
+            () => [],
+            (): TreeTableViewKeys => ({
+                headers: [
+                    {
+                        key: 'name',
+                        title: 'Name',
+                        tooltip: (value: string) => value,
+                    },
+                    {
+                        key: 'record.created_at',
+                        title: 'Created at',
+                        formatFunction: (value: string) => dayjs(value).format('MMM D, YYYY'),
+                        tooltip: (value: string) => dayjs(value).format('MMM D, YYYY HH:mm:ss'),
+                    },
+                    {
+                        key: 'record.created_by.first_name',
+                        title: 'Created by',
+                        tooltip: (value: string) => value,
+                    },
+                ],
+            }),
         ],
         checkedItemCountNumeric: [
             (s) => [s.checkedItems],
@@ -793,9 +845,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         movedItem: () => {
             actions.checkSelectedFolders()
         },
-        linkedItem: () => {
-            actions.checkSelectedFolders()
-        },
         checkSelectedFolders: () => {
             // Select items added into folders that are selected
             const checkedItems = values.checkedItems
@@ -819,6 +868,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         }
                     } else {
                         checkingFolder = null
+                        if (item.type === 'folder' && checkedItems[`project-folder/${item.path}`]) {
+                            checkingFolder = item.path
+                        }
                     }
                 }
             }
@@ -852,30 +904,63 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 ...nonExpandedFolders.map((f) => 'project-folder/' + f),
             ])
         },
-        onItemChecked: ({ id, checked }) => {
-            const sortedItems: FileSystemEntry[] = values.sortedItems
-            const clickedItem: FileSystemEntry | undefined = values.viableItemsById[id]
+        onItemChecked: ({ id, checked, shift }) => {
+            const { sortedItems, searchResults, viableItemsById, lastCheckedItem, checkedItems: prevChecked } = values
+            const clickedItem = viableItemsById[id]
             if (!clickedItem) {
+                // should never happen
                 return
             }
-            const checkedItems = { ...values.checkedItems }
-            if (clickedItem.type === 'folder') {
-                const itemIndex = sortedItems.findIndex((i) => i.id === clickedItem.id)
-                for (let i = itemIndex; i < sortedItems.length; i++) {
-                    const item = sortedItems[i]
-                    if (item.path !== clickedItem.path && !item.path.startsWith(clickedItem.path + '/')) {
+            const isSearching = !!values.searchTerm
+            const shownItems = isSearching ? searchResults.results : sortedItems
+
+            const checkedItems = { ...prevChecked }
+
+            const itemKey = (item: FileSystemEntry): string =>
+                item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`
+
+            const markItem = (item: FileSystemEntry, value: boolean): void => {
+                checkedItems[itemKey(item)] = value
+            }
+
+            const markFolderContents = (folder: FileSystemEntry, value: boolean): void => {
+                if (isSearching) {
+                    return
+                }
+                const startIdx = shownItems.findIndex((i) => i.id === folder.id)
+                for (let i = startIdx + 1; i < shownItems.length; i++) {
+                    const entry = shownItems[i]
+                    if (!entry.path.startsWith(folder.path + '/')) {
+                        // left the folder
                         break
                     }
-                    const itemId = item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`
-                    if (checked) {
-                        checkedItems[itemId] = true
-                    } else {
-                        checkedItems[itemId] = false
+                    markItem(entry, value)
+                }
+            }
+
+            const applyToItem = (item: FileSystemEntry): void => {
+                markItem(item, !!checked)
+                if (item.type === 'folder') {
+                    markFolderContents(item, !!checked)
+                }
+            }
+
+            if (shift && lastCheckedItem) {
+                const prevIdx = shownItems.findIndex((it) => itemKey(it) === lastCheckedItem.id)
+                const currIdx = shownItems.findIndex((it) => it.id === clickedItem.id)
+                if (prevIdx !== -1 && currIdx !== -1) {
+                    const [start, end] = [Math.min(prevIdx, currIdx), Math.max(prevIdx, currIdx)]
+                    for (let i = start; i <= end; i++) {
+                        applyToItem(shownItems[i])
                     }
+                } else if (currIdx !== -1) {
+                    applyToItem(shownItems[currIdx])
                 }
             } else {
-                checkedItems[`project/${clickedItem.id}`] = !!checked
+                applyToItem(clickedItem)
             }
+
+            actions.setLastCheckedItem(id, checked, shift)
             actions.setCheckedItems(checkedItems)
         },
         moveCheckedItems: ({ path }) => {

@@ -17,7 +17,7 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.models import Action, Person
 from posthog.models.element import chain_to_elements
-from posthog.models.person.person import get_distinct_ids_for_subquery
+from posthog.models.person.person import READ_DB_FOR_PERSONS, get_distinct_ids_for_subquery
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.schema import DashboardFilter, EventsQuery, EventsQueryResponse, CachedEventsQueryResponse
 from posthog.utils import relative_date_parse
@@ -118,7 +118,7 @@ class EventsQueryRunner(QueryRunner):
                 if self.query.personId:
                     with self.timings.measure("person_id"):
                         person: Optional[Person] = get_pk_or_uuid(
-                            Person.objects.filter(team=self.team), self.query.personId
+                            Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team=self.team), self.query.personId
                         ).first()
                         where_exprs.append(
                             ast.CompareOperation(
