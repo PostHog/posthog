@@ -10,7 +10,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { LemonInput, LemonInputPropsText } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { forwardRef, useEffect, useMemo, useRef } from 'react'
+import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
@@ -73,6 +73,7 @@ export function TaxonomicFilter({
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
     const { activeTab } = useValues(logic)
+    const [refReady, setRefReady] = useState(false)
 
     useEffect(() => {
         if (groupType !== TaxonomicFilterGroupType.HogQLExpression) {
@@ -80,12 +81,17 @@ export function TaxonomicFilter({
         }
     }, [groupType])
 
+    const taxonomicFilterRef = useRef<HTMLInputElement | null>(null)
+    useEffect(() => {
+        if (taxonomicFilterRef.current) {
+            setRefReady(true)
+        }
+    }, [taxonomicFilterRef.current])
+
     const style = {
         ...(width ? { width } : {}),
         ...(height ? { height } : {}),
     }
-
-    const taxonomicFilterRef = useRef<HTMLInputElement | null>(null)
 
     return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
@@ -105,12 +111,14 @@ export function TaxonomicFilter({
                         <TaxonomicFilterSearchInput searchInputRef={searchInputRef} onClose={onClose} />
                     </div>
                 ) : null}
-                <InfiniteSelectResults
-                    focusInput={focusInput}
-                    taxonomicFilterLogicProps={taxonomicFilterLogicProps}
-                    popupAnchorElement={taxonomicFilterRef.current}
-                    useVerticalLayout={useVerticalLayout}
-                />
+                {refReady && (
+                    <InfiniteSelectResults
+                        focusInput={focusInput}
+                        taxonomicFilterLogicProps={taxonomicFilterLogicProps}
+                        popupAnchorElement={taxonomicFilterRef.current}
+                        useVerticalLayout={useVerticalLayout}
+                    />
+                )}
             </div>
         </BindLogic>
     )
