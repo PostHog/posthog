@@ -136,9 +136,11 @@ const RevenueAnalyticsFiltersModal = (): JSX.Element => {
     }
 
     const areAllEventsEnabled = Object.values(events).every((enabled) => enabled)
-    const areAllEventsDisabled = Object.values(events).every((enabled) => !enabled)
+    const areAllEventsDisabled = Object.values(events).length > 0 && Object.values(events).every((enabled) => !enabled)
     const areAllDataWarehouseSourcesEnabled = Object.values(dataWarehouseSources).every((enabled) => enabled)
-    const areAllDataWarehouseSourcesDisabled = Object.values(dataWarehouseSources).every((enabled) => !enabled)
+    const areAllDataWarehouseSourcesDisabled =
+        Object.values(dataWarehouseSources).length > 0 &&
+        Object.values(dataWarehouseSources).every((enabled) => !enabled)
     const areAllEnabled = areAllEventsEnabled && areAllDataWarehouseSourcesEnabled
     const areAllDisabled = areAllEventsDisabled || areAllDataWarehouseSourcesDisabled
 
