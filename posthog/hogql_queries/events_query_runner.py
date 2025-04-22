@@ -224,7 +224,7 @@ class EventsQueryRunner(QueryRunner):
                     and not has_any_aggregation
                 ):
                     inner_query = parse_select(
-                        "SELECT timestamp, event, cityHash64(distinct_id) as did, cityHash64(uuid) as uuid FROM events"
+                        "SELECT timestamp, event, cityHash64(distinct_id), cityHash64(uuid) FROM events"
                     )
                     assert isinstance(inner_query, ast.SelectQuery)
                     inner_query.where = where
