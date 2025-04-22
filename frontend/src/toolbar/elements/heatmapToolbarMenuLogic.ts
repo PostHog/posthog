@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
-import { elementToSelector, escapeRegex } from 'lib/actionUtils'
+import { elementToSelector } from 'lib/actionUtils'
 import { PaginatedResponse } from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { createVersionChecker } from 'lib/utils/semver'
@@ -157,7 +157,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                                       }
                                     : {
                                           key: '$current_url',
-                                          value: `^${wildcardHref.split('*').map(escapeRegex).join('.*')}$`,
+                                          value: `^${wildcardHref.split('*').map(escapeUnescapedRegex).join('.*')}$`,
                                           operator: PropertyOperator.Regex,
                                           type: PropertyFilterType.Event,
                                       },
@@ -485,3 +485,6 @@ function isElementVisible(element: HTMLElement): boolean {
     const style = window.getComputedStyle(element)
     return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0'
 }
+
+export const escapeUnescapedRegex = (str: string): string =>
+    str.replace(/\\.|([.*+?^=!:${}()|[\]/\\])/g, (match, group1) => (group1 ? `\\${group1}` : match))
