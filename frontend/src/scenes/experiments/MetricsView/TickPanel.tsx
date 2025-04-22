@@ -6,13 +6,22 @@ interface TickPanelProps {
     valueToX: (value: number) => number
     viewBoxWidth: number
     tickPanelHeight: number
+    svgRef?: React.RefObject<SVGSVGElement> // Optional ref for resize observation
 }
 
-export function TickPanel({ tickValues, valueToX, viewBoxWidth, tickPanelHeight }: TickPanelProps): JSX.Element {
+export function TickPanel({
+    tickValues,
+    valueToX,
+    viewBoxWidth,
+    tickPanelHeight,
+    svgRef,
+}: TickPanelProps): JSX.Element {
     const TICK_FONT_SIZE = 9
+    const colors = COLORS
 
     return (
         <svg
+            ref={svgRef}
             viewBox={`0 0 ${viewBoxWidth} ${tickPanelHeight}`}
             preserveAspectRatio="xMidYMid meet"
             className="ml-12 max-w-[1000px]"
@@ -29,7 +38,7 @@ export function TickPanel({ tickValues, valueToX, viewBoxWidth, tickPanelHeight 
                             textAnchor="middle"
                             dominantBaseline="middle"
                             fontSize={TICK_FONT_SIZE}
-                            fill={COLORS.TICK_TEXT_COLOR}
+                            fill={colors.TICK_TEXT_COLOR}
                             fontWeight="600"
                         >
                             {formatTickValue(value)}

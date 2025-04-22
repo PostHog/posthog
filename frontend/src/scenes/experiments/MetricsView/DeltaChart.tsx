@@ -2,7 +2,7 @@ import { IconGraph } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
 import { InsightType } from '~/types'
 
@@ -15,6 +15,7 @@ import { useChartColors } from './colors'
 import { EmptyStateTooltip } from './EmptyStateTooltip'
 import { GridLines } from './GridLines'
 import { MetricHeader } from './MetricHeader'
+import { MetricsChartLayout } from './MetricsChartLayout'
 import { SignificanceHighlight } from './SignificanceHighlight'
 import { VariantTooltip } from './VariantTooltip'
 import { generateViolinPath } from './violinUtils'
@@ -80,7 +81,6 @@ export function DeltaChart({
 
     const BAR_HEIGHT = 10 + getScaleAddition(variants.length)
     const BAR_PADDING = 10 + getScaleAddition(variants.length)
-    const TICK_PANEL_HEIGHT = 20
     const VIEW_BOX_WIDTH = 800
     const HORIZONTAL_PADDING = 20
     // Width defined in utility classes: max-w-[1000px]
@@ -96,329 +96,253 @@ export function DeltaChart({
         return HORIZONTAL_PADDING + percentage * (VIEW_BOX_WIDTH - 2 * HORIZONTAL_PADDING)
     }
 
-    const metricTitlePanelWidth = '20%'
+    // Metric title panel to pass to layout component
+    const metricTitlePanel = (
+        <MetricHeader
+            metricIndex={metricIndex}
+            metric={metric}
+            metricType={metricType}
+            isPrimaryMetric={!isSecondary}
+        />
+    )
 
-    const ticksSvgRef = useRef<SVGSVGElement>(null)
-    const chartSvgRef = useRef<SVGSVGElement>(null)
-    // :TRICKY: We need to track SVG heights dynamically because
-    // we're fitting regular divs to match SVG viewports. SVGs scale
-    // based on their viewBox and the viewport size, making it challenging
-    // to match their effective rendered heights with regular div elements.
-    // Use underscore prefix to indicate these state variables are used indirectly
-    const [ticksSvgHeight, setTicksSvgHeight] = useState<number>(0)
-    const [chartSvgHeight, setChartSvgHeight] = useState<number>(0)
-
-    useEffect(() => {
-        const ticksSvg = ticksSvgRef.current
-        const chartSvg = chartSvgRef.current
-
-        // eslint-disable-next-line compat/compat
-        const resizeObserver = new ResizeObserver((entries) => {
-            for (const entry of entries) {
-                if (entry.target === ticksSvg) {
-                    setTicksSvgHeight(entry.contentRect.height)
-                } else if (entry.target === chartSvg) {
-                    setChartSvgHeight(entry.contentRect.height)
-                }
-            }
-        })
-
-        if (ticksSvg) {
-            resizeObserver.observe(ticksSvg)
-        }
-        if (chartSvg) {
-            resizeObserver.observe(chartSvg)
-        }
-
-        return () => {
-            resizeObserver.disconnect()
-        }
-    }, [result])
-
-    return (
-        <div className="rounded bg-[var(--bg-table)]">
-            {/* Metric title panel */}
-            {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div style={{ width: metricTitlePanelWidth, verticalAlign: 'top', display: 'inline-block' }}>
-                {isFirstMetric && (
-                    <svg
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ height: `${ticksSvgHeight}px` }}
-                    />
-                )}
-                {isFirstMetric && <div className="w-full border-t border-primary" />}
-                <div
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ height: `${chartSvgHeight}px`, borderRight: `1px solid ${colors.BOUNDARY_LINES}` }}
-                    className="p-2"
-                >
-                    <MetricHeader
-                        metricIndex={metricIndex}
-                        metric={metric}
-                        metricType={metricType}
-                        isPrimaryMetric={!isSecondary}
-                    />
-                </div>
-            </div>
-            {/* SVGs container */}
-            <div className="inline-block align-top min-w-[780px] w-4/5">
-                {/* Ticks */}
-                {isFirstMetric && (
+    // Chart content as a function that receives the ref from layout
+    const chartContent = (chartSvgRef: React.RefObject<SVGSVGElement>): JSX.Element => {
+        if (result && hasMinimumExposureForResults) {
+            return (
+                <div className="relative">
+                    {/* Chart is z-index 100, so we need to be above it */}
+                    <div className="absolute top-2 left-2 z-[102]">
+                        <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
+                    </div>
+                    {(isSecondary || (!isSecondary && primaryMetricsLengthWithSharedMetrics > 1)) && (
+                        <div
+                            className="absolute bottom-2 left-2 flex justify-center bg-[var(--bg-table)] z-[101]"
+                            // Chart is z-index 100, so we need to be above it
+                        >
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                icon={<IconGraph />}
+                                onClick={() => setIsModalOpen(true)}
+                            >
+                                Details
+                            </LemonButton>
+                        </div>
+                    )}
                     <div className="flex justify-center">
                         <svg
-                            ref={ticksSvgRef}
-                            viewBox={`0 0 ${VIEW_BOX_WIDTH} ${TICK_PANEL_HEIGHT}`}
+                            ref={chartSvgRef}
+                            viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
                             preserveAspectRatio="xMidYMid meet"
-                            className={`${result ? 'ml-12' : ''} min-h-[20px] max-w-[1000px]`}
+                            className="ml-12 max-w-[1000px]"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ minHeight: `${chartHeight}px` }} // Dynamic height based on variant count
                         >
-                            {tickValues.map((value, index) => {
-                                const x = valueToX(value)
+                            {/* Vertical grid lines */}
+                            <GridLines tickValues={tickValues} valueToX={valueToX} height={chartHeight} />
+
+                            {variants.map((variant, index) => {
+                                const interval = credibleIntervalForVariant(result, variant.key, metricType)
+                                const [lower, upper] = interval ? [interval[0] / 100, interval[1] / 100] : [0, 0]
+
+                                let delta: number
+                                if (metricType === InsightType.TRENDS) {
+                                    const controlVariant = result.variants.find((v: any) => v.key === 'control')
+
+                                    const variantData = result.variants.find((v: any) => v.key === variant.key)
+
+                                    if (
+                                        !variantData?.count ||
+                                        !variantData?.absolute_exposure ||
+                                        !controlVariant?.count ||
+                                        !controlVariant?.absolute_exposure
+                                    ) {
+                                        delta = 0
+                                    } else {
+                                        const controlMean = controlVariant.count / controlVariant.absolute_exposure
+                                        const variantMean = variantData.count / variantData.absolute_exposure
+                                        delta = (variantMean - controlMean) / controlMean
+                                    }
+                                } else {
+                                    const variantRate = conversionRateForVariant(result, variant.key)
+                                    const controlRate = conversionRateForVariant(result, 'control')
+                                    delta = variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
+                                }
+
+                                const y = BAR_PADDING + (BAR_HEIGHT + BAR_PADDING) * index
+                                const x1 = valueToX(lower)
+                                const x2 = valueToX(upper)
+                                const deltaX = valueToX(delta)
+
                                 return (
-                                    <g key={index}>
-                                        <text
-                                            x={x}
-                                            y={TICK_PANEL_HEIGHT / 2}
-                                            textAnchor="middle"
-                                            dominantBaseline="middle"
-                                            fontSize={9}
-                                            fill={colors.TICK_TEXT_COLOR}
-                                            fontWeight="600"
+                                    <g
+                                        key={variant.key}
+                                        onMouseEnter={(e) => {
+                                            const rect = e.currentTarget.getBoundingClientRect()
+                                            setTooltipData({
+                                                x: rect.left + rect.width / 2,
+                                                y: rect.top - 10,
+                                                variant: variant.key,
+                                            })
+                                        }}
+                                        onMouseLeave={() => setTooltipData(null)}
+                                        onClick={() => {
+                                            if (featureFlags[FEATURE_FLAGS.EXPERIMENT_INTERVAL_TIMESERIES]) {
+                                                openVariantDeltaTimeseriesModal()
+                                            }
+                                        }}
+                                        className={
+                                            featureFlags[FEATURE_FLAGS.EXPERIMENT_INTERVAL_TIMESERIES]
+                                                ? 'cursor-pointer'
+                                                : ''
+                                        }
+                                    >
+                                        {/* Add variant name using VariantTag */}
+                                        <foreignObject
+                                            x={x1 - 8} // Keep same positioning as the text element
+                                            y={y + BAR_HEIGHT / 2 - 10}
+                                            width="90"
+                                            height="16"
+                                            transform="translate(-90, 0)" // Move left to accommodate tag width
                                         >
-                                            {value === 0 ? '0%' : `${(value * 100).toFixed(value < 0.1 ? 1 : 0)}%`}
-                                        </text>
+                                            <VariantTag
+                                                className="justify-end mt-0.5"
+                                                experimentId={experimentId}
+                                                variantKey={variant.key}
+                                                fontSize={10}
+                                                muted
+                                            />
+                                        </foreignObject>
+
+                                        {/* Violin plot */}
+                                        {variant.key === 'control' ? (
+                                            <path
+                                                d={generateViolinPath(x1, x2, y, BAR_HEIGHT, deltaX)}
+                                                fill={colors.BAR_CONTROL}
+                                                stroke={colors.BOUNDARY_LINES}
+                                                strokeWidth={1}
+                                                strokeDasharray="2,2"
+                                            />
+                                        ) : (
+                                            <>
+                                                <defs>
+                                                    <linearGradient
+                                                        id={`gradient-${metricIndex}-${variant.key}-${
+                                                            isSecondary ? 'secondary' : 'primary'
+                                                        }`}
+                                                        x1="0"
+                                                        x2="1"
+                                                        y1="0"
+                                                        y2="0"
+                                                    >
+                                                        {lower < 0 && upper > 0 ? (
+                                                            <>
+                                                                <stop offset="0%" stopColor={colors.BAR_NEGATIVE} />
+                                                                <stop
+                                                                    offset={`${(-lower / (upper - lower)) * 100}%`}
+                                                                    stopColor={colors.BAR_NEGATIVE}
+                                                                />
+                                                                <stop
+                                                                    offset={`${(-lower / (upper - lower)) * 100}%`}
+                                                                    stopColor={colors.BAR_POSITIVE}
+                                                                />
+                                                                <stop offset="100%" stopColor={colors.BAR_POSITIVE} />
+                                                            </>
+                                                        ) : (
+                                                            <stop
+                                                                offset="100%"
+                                                                stopColor={
+                                                                    upper <= 0
+                                                                        ? colors.BAR_NEGATIVE
+                                                                        : colors.BAR_POSITIVE
+                                                                }
+                                                            />
+                                                        )}
+                                                    </linearGradient>
+                                                </defs>
+                                                <path
+                                                    d={generateViolinPath(x1, x2, y, BAR_HEIGHT, deltaX)}
+                                                    fill={`url(#gradient-${metricIndex}-${variant.key}-${
+                                                        isSecondary ? 'secondary' : 'primary'
+                                                    })`}
+                                                />
+                                            </>
+                                        )}
+
+                                        {/* Delta marker */}
+                                        <g transform={`translate(${deltaX}, 0)`}>
+                                            <line
+                                                x1={0}
+                                                y1={y}
+                                                x2={0}
+                                                y2={y + BAR_HEIGHT}
+                                                stroke={
+                                                    variant.key === 'control'
+                                                        ? colors.BAR_MIDDLE_POINT_CONTROL
+                                                        : colors.BAR_MIDDLE_POINT
+                                                }
+                                                strokeWidth={2}
+                                                vectorEffect="non-scaling-stroke"
+                                                shapeRendering="crispEdges"
+                                            />
+                                        </g>
                                     </g>
                                 )
                             })}
                         </svg>
                     </div>
-                )}
-                {isFirstMetric && <div className="w-full border-t border-primary" />}
 
-                {/* Chart */}
-                {result && hasMinimumExposureForResults ? (
-                    <div className="relative">
-                        {/* Chart is z-index 100, so we need to be above it */}
-                        <div className="absolute top-2 left-2 z-[102]">
-                            <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
-                        </div>
-                        {(isSecondary || (!isSecondary && primaryMetricsLengthWithSharedMetrics > 1)) && (
-                            <div
-                                className="absolute bottom-2 left-2 flex justify-center bg-[var(--bg-table)] z-[101]"
-                                // Chart is z-index 100, so we need to be above it
-                            >
-                                <LemonButton
-                                    type="secondary"
-                                    size="xsmall"
-                                    icon={<IconGraph />}
-                                    onClick={() => setIsModalOpen(true)}
-                                >
-                                    Details
-                                </LemonButton>
-                            </div>
-                        )}
-                        <div className="flex justify-center">
-                            <svg
-                                ref={chartSvgRef}
-                                viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
-                                preserveAspectRatio="xMidYMid meet"
-                                className="ml-12 max-w-[1000px]"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ minHeight: `${chartHeight}px` }} // Dynamic height based on variant count
-                            >
-                                {/* Vertical grid lines */}
-                                <GridLines tickValues={tickValues} valueToX={valueToX} height={chartHeight} />
+                    {/* Variant result tooltip */}
+                    {tooltipData && (
+                        <VariantTooltip
+                            tooltipData={tooltipData}
+                            experimentId={experimentId}
+                            result={result}
+                            metricType={metricType}
+                            conversionRateForVariant={conversionRateForVariant}
+                            countDataForVariant={countDataForVariant}
+                            exposureCountDataForVariant={exposureCountDataForVariant}
+                            credibleIntervalForVariant={credibleIntervalForVariant}
+                        />
+                    )}
 
-                                {variants.map((variant, index) => {
-                                    const interval = credibleIntervalForVariant(result, variant.key, metricType)
-                                    const [lower, upper] = interval ? [interval[0] / 100, interval[1] / 100] : [0, 0]
+                    {/* Empty state tooltip */}
+                    {emptyStateTooltipVisible && error && (
+                        <EmptyStateTooltip
+                            tooltipPosition={tooltipPosition}
+                            error={error}
+                            metric={metric}
+                            setEmptyStateTooltipVisible={setEmptyStateTooltipVisible}
+                        />
+                    )}
+                </div>
+            )
+        } else if (resultsLoading) {
+            return <ChartLoadingState width={VIEW_BOX_WIDTH} height={chartHeight} />
+        }
+        return (
+            <ChartEmptyState
+                width={VIEW_BOX_WIDTH}
+                height={chartHeight}
+                experimentStarted={!!experiment.start_date}
+                hasMinimumExposure={hasMinimumExposureForResults}
+                error={error}
+            />
+        )
+    }
 
-                                    let delta: number
-                                    if (metricType === InsightType.TRENDS) {
-                                        const controlVariant = result.variants.find((v: any) => v.key === 'control')
-
-                                        const variantData = result.variants.find((v: any) => v.key === variant.key)
-
-                                        if (
-                                            !variantData?.count ||
-                                            !variantData?.absolute_exposure ||
-                                            !controlVariant?.count ||
-                                            !controlVariant?.absolute_exposure
-                                        ) {
-                                            delta = 0
-                                        } else {
-                                            const controlMean = controlVariant.count / controlVariant.absolute_exposure
-                                            const variantMean = variantData.count / variantData.absolute_exposure
-                                            delta = (variantMean - controlMean) / controlMean
-                                        }
-                                    } else {
-                                        const variantRate = conversionRateForVariant(result, variant.key)
-                                        const controlRate = conversionRateForVariant(result, 'control')
-                                        delta =
-                                            variantRate && controlRate ? (variantRate - controlRate) / controlRate : 0
-                                    }
-
-                                    const y = BAR_PADDING + (BAR_HEIGHT + BAR_PADDING) * index
-                                    const x1 = valueToX(lower)
-                                    const x2 = valueToX(upper)
-                                    const deltaX = valueToX(delta)
-
-                                    return (
-                                        <g
-                                            key={variant.key}
-                                            onMouseEnter={(e) => {
-                                                const rect = e.currentTarget.getBoundingClientRect()
-                                                setTooltipData({
-                                                    x: rect.left + rect.width / 2,
-                                                    y: rect.top - 10,
-                                                    variant: variant.key,
-                                                })
-                                            }}
-                                            onMouseLeave={() => setTooltipData(null)}
-                                            onClick={() => {
-                                                if (featureFlags[FEATURE_FLAGS.EXPERIMENT_INTERVAL_TIMESERIES]) {
-                                                    openVariantDeltaTimeseriesModal()
-                                                }
-                                            }}
-                                            className={
-                                                featureFlags[FEATURE_FLAGS.EXPERIMENT_INTERVAL_TIMESERIES]
-                                                    ? 'cursor-pointer'
-                                                    : ''
-                                            }
-                                        >
-                                            {/* Add variant name using VariantTag */}
-                                            <foreignObject
-                                                x={x1 - 8} // Keep same positioning as the text element
-                                                y={y + BAR_HEIGHT / 2 - 10}
-                                                width="90"
-                                                height="16"
-                                                transform="translate(-90, 0)" // Move left to accommodate tag width
-                                            >
-                                                <VariantTag
-                                                    className="justify-end mt-0.5"
-                                                    experimentId={experimentId}
-                                                    variantKey={variant.key}
-                                                    fontSize={10}
-                                                    muted
-                                                />
-                                            </foreignObject>
-
-                                            {/* Violin plot */}
-                                            {variant.key === 'control' ? (
-                                                <path
-                                                    d={generateViolinPath(x1, x2, y, BAR_HEIGHT, deltaX)}
-                                                    fill={colors.BAR_CONTROL}
-                                                    stroke={colors.BOUNDARY_LINES}
-                                                    strokeWidth={1}
-                                                    strokeDasharray="2,2"
-                                                />
-                                            ) : (
-                                                <>
-                                                    <defs>
-                                                        <linearGradient
-                                                            id={`gradient-${metricIndex}-${variant.key}-${
-                                                                isSecondary ? 'secondary' : 'primary'
-                                                            }`}
-                                                            x1="0"
-                                                            x2="1"
-                                                            y1="0"
-                                                            y2="0"
-                                                        >
-                                                            {lower < 0 && upper > 0 ? (
-                                                                <>
-                                                                    <stop offset="0%" stopColor={colors.BAR_NEGATIVE} />
-                                                                    <stop
-                                                                        offset={`${(-lower / (upper - lower)) * 100}%`}
-                                                                        stopColor={colors.BAR_NEGATIVE}
-                                                                    />
-                                                                    <stop
-                                                                        offset={`${(-lower / (upper - lower)) * 100}%`}
-                                                                        stopColor={colors.BAR_POSITIVE}
-                                                                    />
-                                                                    <stop
-                                                                        offset="100%"
-                                                                        stopColor={colors.BAR_POSITIVE}
-                                                                    />
-                                                                </>
-                                                            ) : (
-                                                                <stop
-                                                                    offset="100%"
-                                                                    stopColor={
-                                                                        upper <= 0
-                                                                            ? colors.BAR_NEGATIVE
-                                                                            : colors.BAR_POSITIVE
-                                                                    }
-                                                                />
-                                                            )}
-                                                        </linearGradient>
-                                                    </defs>
-                                                    <path
-                                                        d={generateViolinPath(x1, x2, y, BAR_HEIGHT, deltaX)}
-                                                        fill={`url(#gradient-${metricIndex}-${variant.key}-${
-                                                            isSecondary ? 'secondary' : 'primary'
-                                                        })`}
-                                                    />
-                                                </>
-                                            )}
-
-                                            {/* Delta marker */}
-                                            <g transform={`translate(${deltaX}, 0)`}>
-                                                <line
-                                                    x1={0}
-                                                    y1={y}
-                                                    x2={0}
-                                                    y2={y + BAR_HEIGHT}
-                                                    stroke={
-                                                        variant.key === 'control'
-                                                            ? colors.BAR_MIDDLE_POINT_CONTROL
-                                                            : colors.BAR_MIDDLE_POINT
-                                                    }
-                                                    strokeWidth={2}
-                                                    vectorEffect="non-scaling-stroke"
-                                                    shapeRendering="crispEdges"
-                                                />
-                                            </g>
-                                        </g>
-                                    )
-                                })}
-                            </svg>
-                        </div>
-                    </div>
-                ) : resultsLoading ? (
-                    <ChartLoadingState width={VIEW_BOX_WIDTH} height={chartHeight} />
-                ) : (
-                    <ChartEmptyState
-                        width={VIEW_BOX_WIDTH}
-                        height={chartHeight}
-                        experimentStarted={!!experiment.start_date}
-                        hasMinimumExposure={hasMinimumExposureForResults}
-                        error={error}
-                    />
-                )}
-
-                {/* Variant result tooltip */}
-                {tooltipData && (
-                    <VariantTooltip
-                        tooltipData={tooltipData}
-                        experimentId={experimentId}
-                        result={result}
-                        metricType={metricType}
-                        conversionRateForVariant={conversionRateForVariant}
-                        countDataForVariant={countDataForVariant}
-                        exposureCountDataForVariant={exposureCountDataForVariant}
-                        credibleIntervalForVariant={credibleIntervalForVariant}
-                    />
-                )}
-
-                {/* Empty state tooltip */}
-                {emptyStateTooltipVisible && error && (
-                    <EmptyStateTooltip
-                        tooltipPosition={tooltipPosition}
-                        error={error}
-                        metric={metric}
-                        setEmptyStateTooltipVisible={setEmptyStateTooltipVisible}
-                    />
-                )}
-            </div>
+    return (
+        <>
+            <MetricsChartLayout
+                isFirstMetric={isFirstMetric}
+                tickValues={tickValues}
+                chartBound={chartBound}
+                metricTitlePanel={metricTitlePanel}
+                chartContent={chartContent}
+                viewBoxWidth={VIEW_BOX_WIDTH}
+                horizontalPadding={HORIZONTAL_PADDING}
+            />
 
             {/* Modal for metric details */}
             <ChartModal
@@ -430,6 +354,6 @@ export function DeltaChart({
                 result={result}
                 experimentId={experimentId}
             />
-        </div>
+        </>
     )
 }
