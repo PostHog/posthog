@@ -33,15 +33,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
 
     constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-processed-events-consumer') {
         super(hub)
-
-        // connectionConfig: createRdConnectionConfigFromEnvVars(this.hub, 'consumer'),
-
-        this.kafkaConsumer = new KafkaConsumer({
-            groupId,
-            topic,
-            autoCommit: true,
-            autoOffsetStore: false,
-        })
+        this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
     }
 
     private async createCyclotronJobs(jobs: CyclotronJobInit[]) {
@@ -246,5 +238,9 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     public async stop(): Promise<void> {
         await this.kafkaConsumer.disconnect()
         await super.stop()
+    }
+
+    public isHealthy() {
+        return this.kafkaConsumer.isHealthy()
     }
 }
