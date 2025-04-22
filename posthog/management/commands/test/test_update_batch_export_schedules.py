@@ -129,6 +129,6 @@ def test_update_batch_export_schedules(timezone, paused, batch_export, temporal)
     schedule = describe_schedule(temporal, str(batch_export.id))
     assert schedule.schedule.spec.time_zone_name == timezone
     # Check that the jitter was reset
-    assert schedule.schedule.spec.jitter == dt.timedelta(minutes=10)
+    assert schedule.schedule.spec.jitter == dt.timedelta(minutes=15)
     # Ensure the schedule state was preserved
     assert schedule.schedule.state.paused == paused
