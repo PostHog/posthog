@@ -88,7 +88,7 @@ class TestAction(BaseTest):
             self.team,
         )
 
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # t
+        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
         assert response.results is not None
         assert len(response.results) == 1
         assert response.results[0][0] == random_uuid
