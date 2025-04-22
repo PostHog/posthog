@@ -249,7 +249,7 @@ function PageTabs(): JSX.Element {
                     label: (
                         <>
                             {replayTab.label}
-                            {replayTab.label === 'Templates' && shouldShowNewBadge && (
+                            {replayTab.label === ReplayTabs.Templates && shouldShowNewBadge && (
                                 <LemonBadge className="ml-1" size="small" />
                             )}
                         </>

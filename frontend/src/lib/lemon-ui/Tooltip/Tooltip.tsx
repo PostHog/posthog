@@ -24,8 +24,13 @@ import React, { useRef, useState } from 'react'
 
 import { Link } from '../Link'
 
-export interface TooltipProps {
-    title: string | React.ReactNode | (() => string)
+type TooltipTitle = string | React.ReactNode | (() => string)
+
+export interface TooltipProps extends BaseTooltipProps {
+    title?: TooltipTitle
+}
+
+interface BaseTooltipProps {
     delayMs?: number
     closeDelayMs?: number
     offset?: number
@@ -33,9 +38,18 @@ export interface TooltipProps {
     placement?: Placement
     className?: string
     visible?: boolean
+    /**
+     * Defaults to true if docLink is provided
+     */
     interactive?: boolean
     docLink?: string
 }
+
+export type RequiredTooltipProps = (
+    | { title: TooltipTitle; docLink?: string }
+    | { title?: TooltipTitle; docLink: string }
+) &
+    BaseTooltipProps
 
 export function Tooltip({
     children,
@@ -49,7 +63,7 @@ export function Tooltip({
     interactive = false,
     visible: controlledOpen,
     docLink,
-}: React.PropsWithChildren<TooltipProps>): JSX.Element {
+}: React.PropsWithChildren<RequiredTooltipProps>): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
     const [isHoveringTooltip, setIsHoveringTooltip] = useState(false) // Track tooltip hover state
     const caretRef = useRef(null)
@@ -116,9 +130,7 @@ export function Tooltip({
         return <>{child}</>
     }
 
-    if (docLink) {
-        interactive = true
-    }
+    const isInteractive = interactive || !!docLink
 
     return (
         <>
@@ -131,8 +143,8 @@ export function Tooltip({
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ ...context.floatingStyles }}
                         {...getFloatingProps({
-                            onMouseEnter: () => interactive && setIsHoveringTooltip(true), // Keep tooltip open
-                            onMouseLeave: () => interactive && setIsHoveringTooltip(false), // Allow closing
+                            onMouseEnter: () => isInteractive && setIsHoveringTooltip(true), // Keep tooltip open
+                            onMouseLeave: () => isInteractive && setIsHoveringTooltip(false), // Allow closing
                         })}
                     >
                         <div
