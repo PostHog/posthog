@@ -1,12 +1,28 @@
-import { LemonButton, LemonCheckbox, LemonModal, LemonTable } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSwitch, LemonTable, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
+import { syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { ExternalDataSourceSyncSchema } from '~/types'
 
 import { sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { SyncMethodForm } from './SyncMethodForm'
 
 export default function SchemaForm(): JSX.Element {
-    const { toggleSchemaShouldSync, openSyncMethodModal } = useActions(sourceWizardLogic)
-    const { databaseSchema } = useValues(sourceWizardLogic)
+    const { toggleSchemaShouldSync, openSyncMethodModal, updateSyncTimeOfDay, setIsProjectTime } =
+        useActions(sourceWizardLogic)
+    const { databaseSchema, isProjectTime } = useValues(sourceWizardLogic)
+    const { currentTeam } = useValues(teamLogic)
+
+    const onClickCheckbox = (schema: ExternalDataSourceSyncSchema, checked: boolean): void => {
+        if (schema.sync_type === null) {
+            openSyncMethodModal(schema)
+            return
+        }
+        toggleSchemaShouldSync(schema, checked)
+    }
 
     return (
         <>
@@ -19,17 +35,11 @@ export default function SchemaForm(): JSX.Element {
                             {
                                 width: 0,
                                 key: 'enabled',
-                                render: (_, schema) => {
+                                render: function RenderEnabled(_, schema) {
                                     return (
                                         <LemonCheckbox
                                             checked={schema.should_sync}
-                                            onChange={(checked) => {
-                                                if (schema.sync_type === null) {
-                                                    openSyncMethodModal(schema)
-                                                    return
-                                                }
-                                                toggleSchemaShouldSync(schema, checked)
-                                            }}
+                                            onChange={(checked) => onClickCheckbox(schema, checked)}
                                         />
                                     )
                                 },
@@ -38,25 +48,86 @@ export default function SchemaForm(): JSX.Element {
                                 title: 'Table',
                                 key: 'table',
                                 render: function RenderTable(_, schema) {
-                                    return <span className="font-mono">{schema.table}</span>
+                                    return (
+                                        <span
+                                            className="font-mono cursor-pointer"
+                                            onClick={() => onClickCheckbox(schema, !schema.should_sync)}
+                                        >
+                                            {schema.table}
+                                        </span>
+                                    )
                                 },
                             },
                             {
                                 title: 'Rows',
                                 key: 'rows',
                                 isHidden: !databaseSchema.some((schema) => schema.rows),
-                                render: (_, schema) => {
+                                render: function RenderRows(_, schema) {
                                     return schema.rows != null ? schema.rows : 'Unknown'
                                 },
                             },
+                            {
+                                title: (
+                                    <div className="flex items-center gap-2">
+                                        <span>Anchor Time</span>
+                                        <div className="flex items-center gap-1">
+                                            <span>UTC</span>
+                                            {currentTeam?.timezone !== 'UTC' && currentTeam?.timezone !== 'GMT' && (
+                                                <>
+                                                    <LemonSwitch checked={isProjectTime} onChange={setIsProjectTime} />
+                                                    <span>{currentTeam?.timezone || 'UTC'}</span>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+                                ),
+                                key: 'sync_time_of_day',
+                                tooltip:
+                                    'Time of day in which the first sync will run. The sync interval will be offset from the anchor time. This will not apply to sync intervals one hour or less.',
+                                render: function RenderSyncTimeOfDay(_, schema) {
+                                    const utcTime = schema.sync_time_of_day || '00:00:00'
+                                    const localTime = isProjectTime
+                                        ? dayjs
+                                              .utc(`${dayjs().format('YYYY-MM-DD')}T${utcTime}`)
+                                              .local()
+                                              .tz(currentTeam?.timezone || 'UTC')
+                                              .format('HH:mm:00')
+                                        : utcTime
 
+                                    return (
+                                        <LemonInput
+                                            type="time"
+                                            disabled={!schema.should_sync}
+                                            value={localTime.substring(0, 5)}
+                                            onChange={(value) => {
+                                                const newValue = `${value}:00`
+                                                const utcValue = isProjectTime
+                                                    ? dayjs(`${dayjs().format('YYYY-MM-DD')}T${newValue}`)
+                                                          .tz(currentTeam?.timezone || 'UTC')
+                                                          .utc()
+                                                          .format('HH:mm:00')
+                                                    : newValue
+                                                updateSyncTimeOfDay(schema, utcValue)
+                                            }}
+                                            suffix={
+                                                <Tooltip
+                                                    interactive={schema.should_sync}
+                                                    title={syncAnchorIntervalToHumanReadable(utcTime, '6hour')}
+                                                >
+                                                    <IconInfo className="text-muted-alt" />
+                                                </Tooltip>
+                                            }
+                                        />
+                                    )
+                                },
+                            },
                             {
                                 key: 'sync_type',
                                 title: 'Sync method',
                                 align: 'right',
                                 tooltip:
                                     'Full refresh will refresh the full table on every sync, whereas incremental will only sync new and updated rows since the last sync',
-                                render: (_, schema) => {
+                                render: function RenderSyncType(_, schema) {
                                     if (!schema.sync_type) {
                                         return (
                                             <div className="justify-end flex">

@@ -5,26 +5,30 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
+import { JudgeHog } from 'lib/components/hedgehogs'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { humanFriendlyCurrency, toSentenceCase } from 'lib/utils'
+import { toSentenceCase } from 'lib/utils'
 import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BillingCTAHero } from './BillingCTAHero'
+import { BillingPlanType, BillingProductV2Type, ProductKey } from '~/types'
+
+import { BillingHero } from './BillingHero'
 import { billingLogic } from './billingLogic'
 import { BillingProduct } from './BillingProduct'
+import { BillingSummary } from './BillingSummary'
 import { CreditCTAHero } from './CreditCTAHero'
-import { PaymentEntryModal } from './PaymentEntryModal'
+import { StripePortalButton } from './StripePortalButton'
 import { UnsubscribeCard } from './UnsubscribeCard'
 
 export const scene: SceneExport = {
@@ -33,12 +37,19 @@ export const scene: SceneExport = {
 }
 
 export function Billing(): JSX.Element {
-    const { billing, billingLoading, isOnboarding, showLicenseDirectInput, isActivateLicenseSubmitting, billingError } =
-        useValues(billingLogic)
+    const {
+        billing,
+        billingLoading,
+        showLicenseDirectInput,
+        isActivateLicenseSubmitting,
+        billingError,
+        showBillingSummary,
+        showCreditCTAHero,
+        showBillingHero,
+    } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
-
     const { featureFlags } = useValues(featureFlagLogic)
 
     const restrictionReason = useRestrictedArea({
@@ -58,7 +69,7 @@ export function Billing(): JSX.Element {
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
-        1000: 'medium',
+        768: 'medium',
     })
 
     if (!billing && billingLoading) {
@@ -104,11 +115,9 @@ export function Billing(): JSX.Element {
     }
 
     const products = billing?.products
-    const platformAndSupportProduct = products?.find((product) => product.type === 'platform_and_support')
+    const platformAndSupportProduct = products?.find((product) => product.type === ProductKey.PLATFORM_AND_SUPPORT)
     return (
         <div ref={ref}>
-            <PaymentEntryModal />
-
             {showLicenseDirectInput && (
                 <>
                     <Form
@@ -141,163 +150,74 @@ export function Billing(): JSX.Element {
             )}
 
             {billing?.trial ? (
-                <LemonBanner type="info" className="mb-2">
-                    You are currently on a free trial for <b>{toSentenceCase(billing.trial.target)} plan</b> until{' '}
-                    <b>{dayjs(billing.trial.expires_at).format('LL')}</b>. At the end of the trial{' '}
-                    {billing.trial.type === 'autosubscribe'
-                        ? 'you will be automatically subscribed to the plan.'
-                        : 'you will be asked to subscribe. If you choose not to, you will lose access to the features.'}
+                <LemonBanner type="info" hideIcon className="mb-2">
+                    <div className="flex items-center gap-4">
+                        <JudgeHog className="w-20 h-20 flex-shrink-0" />
+                        <div>
+                            <p className="text-lg">You're on (a) trial</p>
+                            <p>
+                                You are currently on a free trial for <b>{toSentenceCase(billing.trial.target)} plan</b>{' '}
+                                until <b>{dayjs(billing.trial.expires_at).format('LL')}</b>.
+                                {billing.trial.type === 'autosubscribe' &&
+                                    ' At the end of the trial you will be automatically subscribed to the plan.'}
+                            </p>
+                        </div>
+                    </div>
                 </LemonBanner>
             ) : null}
 
-            {!billing?.has_active_subscription && platformAndSupportProduct && (
-                <div className="mb-4">
-                    <BillingCTAHero product={platformAndSupportProduct} />
-                </div>
-            )}
-
-            <CreditCTAHero />
-
-            <div
-                className={clsx('flex justify-between', {
-                    'flex-col gap-4': size === 'small',
-                    'flex-row': size !== 'small',
-                })}
-            >
-                <div>
-                    <div
-                        className={clsx('flex flex-wrap gap-6 w-fit mb-4', {
-                            'flex-col items-stretch': size === 'small',
-                            'items-center': size !== 'small',
-                        })}
-                    >
-                        {!isOnboarding && billing?.billing_period && (
-                            <div className="flex-1 pt-2">
-                                <div className="deprecated-space-y-4">
-                                    {billing?.has_active_subscription && (
-                                        <>
-                                            <div className="flex flex-row gap-10 items-end">
-                                                <div>
-                                                    <LemonLabel
-                                                        info={`This is the current amount you have been billed for this ${billing.billing_period.interval} so far. This number updates once daily.`}
-                                                    >
-                                                        Current bill total
-                                                    </LemonLabel>
-                                                    <div className="font-bold text-6xl">
-                                                        {billing.discount_percent
-                                                            ? // if they have a discount percent, we want to show the amount they are due - so the total after discount
-                                                              humanFriendlyCurrency(
-                                                                  billing.current_total_amount_usd_after_discount
-                                                              )
-                                                            : // but if they have credits, we want to show the amount they are due before credits,
-                                                              // so they know what their total deduction will be
-                                                              // We don't let people have credits and discounts at the same time
-                                                              humanFriendlyCurrency(billing.current_total_amount_usd)}
-                                                    </div>
-                                                </div>
-                                                {featureFlags[FEATURE_FLAGS.PROJECTED_TOTAL_AMOUNT] &&
-                                                    billing?.projected_total_amount_usd &&
-                                                    parseFloat(billing?.projected_total_amount_usd) > 0 && (
-                                                        <div>
-                                                            <LemonLabel
-                                                                info="This is roughly calculated based on your current bill and the remaining time left in this billing period. This number updates once daily."
-                                                                className="text-secondary"
-                                                            >
-                                                                Projected total
-                                                            </LemonLabel>
-                                                            <div className="font-semibold text-2xl text-secondary">
-                                                                {billing.discount_percent
-                                                                    ? humanFriendlyCurrency(
-                                                                          billing.projected_total_amount_usd_after_discount
-                                                                      )
-                                                                    : humanFriendlyCurrency(
-                                                                          billing?.projected_total_amount_usd
-                                                                      )}
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                {billing?.discount_amount_usd && (
-                                                    <div>
-                                                        <LemonLabel
-                                                            info={`The total credits remaining in your account. ${
-                                                                billing?.amount_off_expires_at
-                                                                    ? 'Your credits expire on ' +
-                                                                      billing?.amount_off_expires_at?.format('LL')
-                                                                    : null
-                                                            }`}
-                                                            className="text-secondary"
-                                                        >
-                                                            Available credits
-                                                        </LemonLabel>
-                                                        <div className="font-semibold text-2xl text-secondary">
-                                                            {humanFriendlyCurrency(billing?.discount_amount_usd, 0)}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                                {billing?.discount_percent && (
-                                                    <div>
-                                                        <LemonLabel
-                                                            info="The discount applied to your current bill, reflected in the total amount."
-                                                            className="text-secondary"
-                                                        >
-                                                            Applied discount
-                                                        </LemonLabel>
-                                                        <div className="font-semibold text-2xl text-secondary">
-                                                            {billing.discount_percent}%
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </>
-                                    )}
-                                    <div>
-                                        <p className="ml-0 mb-0">
-                                            {billing?.has_active_subscription ? 'Billing period' : 'Cycle'}:{' '}
-                                            <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
-                                            <b>{billing.billing_period.current_period_end.format('LL')}</b> (
-                                            {billing.billing_period.current_period_end.diff(dayjs(), 'days')} days
-                                            remaining)
-                                        </p>
-                                        {!billing.has_active_subscription && (
-                                            <p className="italic ml-0 text-secondary mb-0">
-                                                Monthly free allocation resets at the end of the cycle.
-                                            </p>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    {!isOnboarding && billing?.customer_id && billing?.stripe_portal_url && (
-                        <div className="w-fit">
-                            <LemonButton
-                                type="primary"
-                                htmlType="submit"
-                                to={billing.stripe_portal_url}
-                                disableClientSideRouting
-                                targetBlank
-                                center
-                                data-attr="manage-billing"
-                            >
-                                {billing.has_active_subscription
-                                    ? 'Manage card details and invoices'
-                                    : 'View past invoices'}
-                            </LemonButton>
+            {(showBillingSummary || showCreditCTAHero || showBillingHero) && !!size && (
+                <div
+                    className={clsx(
+                        'flex gap-6 max-w-300',
+                        // If there's no active subscription, BillingSummary is small so we stack it and invert order with CreditCTAHero or BillingHero
+                        billing?.has_active_subscription
+                            ? {
+                                  'flex-col': size === 'small',
+                                  'flex-row': size !== 'small',
+                              }
+                            : 'flex-col-reverse'
+                    )}
+                >
+                    {showBillingSummary && (
+                        <div className={clsx('flex-1', { 'flex-grow-0': showCreditCTAHero })}>
+                            <BillingSummary />
+                        </div>
+                    )}
+                    {(showCreditCTAHero || showBillingHero) && (
+                        <div className={clsx('flex-1', { 'flex-grow-1': showCreditCTAHero })}>
+                            {showCreditCTAHero && <CreditCTAHero />}
+                            {showBillingHero && platformAndSupportProduct && (
+                                <BillingHero product={platformAndSupportProduct} />
+                            )}
                         </div>
                     )}
                 </div>
-            </div>
+            )}
+
+            {!showBillingSummary && <StripePortalButton />}
 
             <LemonDivider className="mt-6 mb-8" />
+
+            {featureFlags[FEATURE_FLAGS.BILLING_FORECASTING_ISSUES] && (
+                <div className="flex mt-6 gap-6 max-w-300 flex-col-reverse">
+                    <LemonBanner type="warning">
+                        <strong>Note:</strong> Our forecasting engine is experiencing an issue. The projected amounts
+                        may appear incorrect. We're working on a fix and it should be resolved soon.
+                    </LemonBanner>
+                </div>
+            )}
 
             <div className="flex justify-between mt-4">
                 <h2>Products</h2>
             </div>
 
             {products
-                ?.filter((product) => !product.inclusion_only || product.plans.some((plan) => !plan.included_if))
-                ?.map((x) => (
+                ?.filter(
+                    (product: BillingProductV2Type) =>
+                        !product.inclusion_only || product.plans.some((plan: BillingPlanType) => !plan.included_if)
+                )
+                ?.map((x: BillingProductV2Type) => (
                     <div key={x.type}>
                         <BillingProduct product={x} />
                     </div>

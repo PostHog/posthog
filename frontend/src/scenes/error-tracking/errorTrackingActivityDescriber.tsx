@@ -17,8 +17,8 @@ import { urls } from 'scenes/urls'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
-import { AssigneeDisplay } from './AssigneeDisplay'
-import { assigneeSelectLogic } from './assigneeSelectLogic'
+import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from './components/Assignee/AssigneeDisplay'
+import { assigneeSelectLogic } from './components/Assignee/assigneeSelectLogic'
 
 type ErrorTrackingIssueAssignee = Exclude<ErrorTrackingIssue['assignee'], null>
 
@@ -27,17 +27,17 @@ function AssigneeRenderer({ assignee }: { assignee: ErrorTrackingIssueAssignee }
 
     useEffect(() => {
         ensureAssigneeTypesLoaded()
-    }, [])
+    }, [ensureAssigneeTypesLoaded])
 
     return (
-        <AssigneeDisplay assignee={assignee}>
-            {({ displayAssignee }) => (
-                <span className="deprecated-space-x-0_5">
-                    {displayAssignee.icon}
-                    <span>{displayAssignee.displayName}</span>
+        <AssigneeResolver assignee={assignee}>
+            {({ assignee }) => (
+                <span className="flex gap-x-0.5">
+                    <AssigneeIconDisplay assignee={assignee} />
+                    <AssigneeLabelDisplay assignee={assignee} />
                 </span>
             )}
-        </AssigneeDisplay>
+        </AssigneeResolver>
     )
 }
 
@@ -116,6 +116,7 @@ const errorTrackingIssueActionsMapping: Record<
     first_seen: () => null,
     last_seen: () => null,
     earliest: () => null,
+    library: () => null,
 }
 
 export function errorTrackingActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
@@ -126,7 +127,6 @@ export function errorTrackingActivityDescriber(logItem: ActivityLogItem, asNotif
 
     if (logItem.activity == 'updated' || logItem.activity == 'assigned') {
         let changes: Description[] = []
-        let changeSuffix: Description | undefined = undefined
 
         for (const change of logItem.detail.changes || []) {
             const field = change.field as keyof ErrorTrackingIssue
@@ -141,24 +141,16 @@ export function errorTrackingActivityDescriber(logItem: ActivityLogItem, asNotif
                 continue // unexpected log from backend is indescribable
             }
 
-            const { description, suffix } = processedChange
+            const { description } = processedChange
             if (description) {
                 changes = changes.concat(description)
-            }
-
-            if (suffix) {
-                changeSuffix = suffix
             }
         }
 
         if (changes.length) {
             return {
                 description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
-                        suffix={changeSuffix}
-                    />
+                    <SentenceList listParts={changes} prefix={<strong>{userNameForLogItem(logItem)}</strong>} />
                 ),
             }
         }

@@ -41,7 +41,7 @@ export function KeyboardShortcut({ className, ...keys }: KeyboardShortcutProps):
     }
 
     return (
-        <kbd className={clsx('KeyboardShortcut deprecated-space-x-0_5', className)}>
+        <kbd className={clsx('KeyboardShortcut gap-x-0.5', className)}>
             {sortedKeys.map((key) => (
                 <span key={key}>{KEY_TO_SYMBOL[key] || key}</span>
             ))}

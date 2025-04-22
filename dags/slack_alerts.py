@@ -1,20 +1,18 @@
-from dagster import (
-    DefaultSensorStatus,
-    RunFailureSensorContext,
-    run_failure_sensor,
-)
-from dagster_slack import SlackResource
+import dagster
+import dagster_slack
+
 from django.conf import settings
 
 from dags.common import JobOwners
 
 notification_channel_per_team = {
     JobOwners.TEAM_CLICKHOUSE.value: "#alerts-clickhouse",
+    JobOwners.TEAM_WEB_ANALYTICS.value: "#alerts-web-analytics",
 }
 
 
-@run_failure_sensor(default_status=DefaultSensorStatus.RUNNING)
-def notify_slack_on_failure(context: RunFailureSensorContext, slack: SlackResource):
+@dagster.run_failure_sensor(default_status=dagster.DefaultSensorStatus.RUNNING)
+def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dagster_slack.SlackResource):
     """Send a notification to Slack when any job fails."""
     # Get the failed run
     failed_run = context.dagster_run
@@ -22,6 +20,7 @@ def notify_slack_on_failure(context: RunFailureSensorContext, slack: SlackResour
     run_id = failed_run.run_id
     job_owner = failed_run.tags.get("owner", "unknown")
     error = context.failure_event.message if context.failure_event.message else "Unknown error"
+    tags = failed_run.tags
 
     # Only send notifications in prod environment
     if not settings.CLOUD_DEPLOYMENT:
@@ -44,7 +43,7 @@ def notify_slack_on_failure(context: RunFailureSensorContext, slack: SlackResour
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"❌ *Dagster job `{job_name}` failed*\n\n*Run ID*: `{run_id}`\n*Run URL*: <{run_url}|View in Dagster>",
+                "text": f"❌ *Dagster job `{job_name}` failed*\n\n*Run ID*: `{run_id}`\n*Run URL*: <{run_url}|View in Dagster>\n*Tags*: {tags}",
             },
         },
         {"type": "section", "text": {"type": "mrkdwn", "text": f"*Error*:\n```{error}```"}},

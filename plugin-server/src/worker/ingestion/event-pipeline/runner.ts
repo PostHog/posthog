@@ -1,15 +1,14 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { HogTransformerService } from '~/src/cdp/hog-transformations/hog-transformer.service'
-
+import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
-import { runInSpan } from '../../../sentry'
-import { Hub, PipelineEvent, Team } from '../../../types'
+import { Hub, KafkaConsumerBreadcrumb, PipelineEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
+import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
-import { status } from '../../../utils/status'
+import { runInSpan } from '../../../utils/sentry'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
 import { cookielessServerHashStep } from './cookielessServerHashStep'
@@ -58,12 +57,19 @@ export class EventPipelineRunner {
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
     hogTransformer: HogTransformerService | null
+    breadcrumbs: KafkaConsumerBreadcrumb[]
 
-    constructor(hub: Hub, event: PipelineEvent, hogTransformer: HogTransformerService | null = null) {
+    constructor(
+        hub: Hub,
+        event: PipelineEvent,
+        hogTransformer: HogTransformerService | null = null,
+        breadcrumbs: KafkaConsumerBreadcrumb[] = []
+    ) {
         this.hub = hub
         this.originalEvent = event
         this.eventsProcessor = new EventsProcessor(hub)
         this.hogTransformer = hogTransformer
+        this.breadcrumbs = breadcrumbs
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {
@@ -239,15 +245,15 @@ export class EventPipelineRunner {
             return this.registerLastStep('pluginsProcessEventStep', [postCookielessEvent], kafkaAcks)
         }
 
-        const { event: transformedEvent, messagePromises } = await this.runStep(
+        const { event: transformedEvent, scheduledPromises } = await this.runStep(
             transformEventStep,
             [processedEvent, this.hogTransformer],
             event.team_id
         )
 
         // Add message promises to kafkaAcks
-        if (messagePromises) {
-            kafkaAcks.push(...messagePromises)
+        if (scheduledPromises) {
+            kafkaAcks.push(...scheduledPromises)
         }
 
         if (transformedEvent === null) {
@@ -366,7 +372,7 @@ export class EventPipelineRunner {
     }
 
     private async handleError(err: any, currentStepName: string, currentArgs: any, teamId: number, sentToDql: boolean) {
-        status.error('🔔', 'step_failed', { currentStepName, err })
+        logger.error('🔔', 'step_failed', { currentStepName, err })
         captureException(err, {
             tags: { team_id: teamId, pipeline_step: currentStepName },
             extra: { currentArgs, originalEvent: this.originalEvent },
@@ -391,7 +397,7 @@ export class EventPipelineRunner {
                 )
                 await this.hub.db.kafkaProducer.queueMessages(message)
             } catch (dlqError) {
-                status.info('🔔', `Errored trying to add event to dead letter queue. Error: ${dlqError}`)
+                logger.info('🔔', `Errored trying to add event to dead letter queue. Error: ${dlqError}`)
                 captureException(dlqError, {
                     tags: { team_id: teamId },
                     extra: { currentStepName, currentArgs, originalEvent: this.originalEvent, err },

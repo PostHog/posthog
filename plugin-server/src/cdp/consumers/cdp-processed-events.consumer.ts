@@ -1,5 +1,7 @@
-import { CyclotronManager } from '@posthog/cyclotron'
+import { CyclotronJobInit, CyclotronManager } from '@posthog/cyclotron'
+import { chunk } from 'lodash'
 import { Message } from 'node-rdkafka'
+import { Histogram } from 'prom-client'
 
 import { Hub, RawClickHouseEvent } from '~/src/types'
 
@@ -10,10 +12,17 @@ import {
 } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { runInstrumentedFunction } from '../../main/utils'
-import { status } from '../../utils/status'
+import { parseJSON } from '../../utils/json-parse'
+import { logger } from '../../utils/logger'
 import { HogWatcherState } from '../services/hog-watcher.service'
 import { HogFunctionInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
+
+export const histogramCyclotronJobsCreated = new Histogram({
+    name: 'cdp_cyclotron_jobs_created_per_batch',
+    help: 'The number of jobs we are creating in a single batch',
+    buckets: [0, 50, 100, 250, 500, 750, 1000, 1500, 2000, 3000, Infinity],
+})
 
 export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpProcessedEventsConsumer'
@@ -25,6 +34,14 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
 
     constructor(hub: Hub) {
         super(hub)
+    }
+
+    private async createCyclotronJobs(jobs: CyclotronJobInit[]) {
+        const cyclotronManager = this.cyclotronManager
+        if (!cyclotronManager) {
+            throw new Error('Cyclotron manager not initialized')
+        }
+        return this.runInstrumented('cyclotronManager.bulkCreateJobs', () => cyclotronManager.bulkCreateJobs(jobs))
     }
 
     public async processBatch(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<HogFunctionInvocation[]> {
@@ -42,15 +59,27 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                 teamId: item.globals.project.id,
                 functionId: item.hogFunction.id,
                 queueName: isLegacyPluginHogFunction(item.hogFunction) ? 'plugin' : 'hog',
-                priority: item.priority,
+                priority: item.queuePriority,
                 vmState: serializeHogFunctionInvocation(item),
             }
         })
         try {
-            await this.cyclotronManager?.bulkCreateJobs(cyclotronJobs)
+            histogramCyclotronJobsCreated.observe(cyclotronJobs.length)
+            // Cyclotron batches inserts into one big INSERT which can lead to contention writing WAL information hence we chunk into batches
+
+            const chunkedCyclotronJobs = chunk(cyclotronJobs, this.hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
+
+            if (this.hub.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
+                // NOTE: It's not super clear the perf tradeoffs of doing this in parallel hence the config option
+                await Promise.all(chunkedCyclotronJobs.map((jobs) => this.createCyclotronJobs(jobs)))
+            } else {
+                for (const jobs of chunkedCyclotronJobs) {
+                    await this.createCyclotronJobs(jobs)
+                }
+            }
         } catch (e) {
-            status.error('⚠️', 'Error creating cyclotron jobs', e)
-            status.warn('⚠️', 'Failed jobs', { jobs: cyclotronJobs })
+            logger.error('⚠️', 'Error creating cyclotron jobs', e)
+            logger.warn('⚠️', 'Failed jobs', { jobs: cyclotronJobs })
             throw e
         }
 
@@ -66,67 +95,70 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     protected async createHogFunctionInvocations(
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<HogFunctionInvocation[]> {
-        return await runInstrumentedFunction({
-            statsKey: `cdpConsumer.handleEachBatch.queueMatchingFunctions`,
-            func: async () => {
-                // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
-                await this.groupsManager.enrichGroups(invocationGlobals)
+        return await this.runInstrumented('handleEachBatch.queueMatchingFunctions', async () => {
+            // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
+            await this.groupsManager.enrichGroups(invocationGlobals)
 
-                const possibleInvocations = (
-                    await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
-                        const { invocations, metrics, logs } = this.hogExecutor.findHogFunctionInvocations(globals)
+            const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
+            const hogFunctionsByTeam = await this.hogFunctionManager.getHogFunctionsForTeams(teamsToLoad, this.hogTypes)
 
-                        this.hogFunctionMonitoringService.produceAppMetrics(metrics)
-                        this.hogFunctionMonitoringService.produceLogs(logs)
+            const possibleInvocations = (
+                await this.runManyWithHeartbeat(invocationGlobals, (globals) => {
+                    const teamHogFunctions = hogFunctionsByTeam[globals.project.id]
 
-                        return invocations
-                    })
-                ).flat()
+                    const { invocations, metrics, logs } = this.hogExecutor.buildHogFunctionInvocations(
+                        teamHogFunctions,
+                        globals
+                    )
 
-                const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFunction.id))
-                const validInvocations: HogFunctionInvocation[] = []
+                    this.hogFunctionMonitoringService.produceAppMetrics(metrics)
+                    this.hogFunctionMonitoringService.produceLogs(logs)
 
-                // Iterate over adding them to the list and updating their priority
-                possibleInvocations.forEach((item) => {
-                    const state = states[item.hogFunction.id].state
-                    if (state >= HogWatcherState.disabledForPeriod) {
-                        this.hogFunctionMonitoringService.produceAppMetric({
-                            team_id: item.globals.project.id,
-                            app_source_id: item.hogFunction.id,
-                            metric_kind: 'failure',
-                            metric_name:
-                                state === HogWatcherState.disabledForPeriod
-                                    ? 'disabled_temporarily'
-                                    : 'disabled_permanently',
-                            count: 1,
-                        })
-                        return
-                    }
-
-                    if (state === HogWatcherState.degraded) {
-                        item.priority = 2
-                    }
-
-                    validInvocations.push(item)
+                    return invocations
                 })
+            ).flat()
 
-                // Now we can filter by masking configs
-                const { masked, notMasked: notMaskedInvocations } = await this.hogMasker.filterByMasking(
-                    validInvocations
-                )
+            const states = await this.hogWatcher.getStates(possibleInvocations.map((x) => x.hogFunction.id))
+            const validInvocations: HogFunctionInvocation[] = []
 
-                this.hogFunctionMonitoringService.produceAppMetrics(
-                    masked.map((item) => ({
+            // Iterate over adding them to the list and updating their priority
+            possibleInvocations.forEach((item) => {
+                const state = states[item.hogFunction.id].state
+                if (state >= HogWatcherState.disabledForPeriod) {
+                    this.hogFunctionMonitoringService.produceAppMetric({
                         team_id: item.globals.project.id,
                         app_source_id: item.hogFunction.id,
-                        metric_kind: 'other',
-                        metric_name: 'masked',
+                        metric_kind: 'failure',
+                        metric_name:
+                            state === HogWatcherState.disabledForPeriod
+                                ? 'disabled_temporarily'
+                                : 'disabled_permanently',
                         count: 1,
-                    }))
-                )
+                    })
+                    return
+                }
 
-                return notMaskedInvocations
-            },
+                if (state === HogWatcherState.degraded) {
+                    item.queuePriority = 2
+                }
+
+                validInvocations.push(item)
+            })
+
+            // Now we can filter by masking configs
+            const { masked, notMasked: notMaskedInvocations } = await this.hogMasker.filterByMasking(validInvocations)
+
+            this.hogFunctionMonitoringService.produceAppMetrics(
+                masked.map((item) => ({
+                    team_id: item.globals.project.id,
+                    app_source_id: item.hogFunction.id,
+                    metric_kind: 'other',
+                    metric_name: 'masked',
+                    count: 1,
+                }))
+            )
+
+            return notMaskedInvocations
         })
     }
 
@@ -137,18 +169,20 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                 statsKey: `cdpConsumer.handleEachBatch.parseKafkaMessages`,
                 func: async () => {
                     const events: HogFunctionInvocationGlobals[] = []
+
                     await Promise.all(
                         messages.map(async (message) => {
                             try {
-                                const clickHouseEvent = JSON.parse(message.value!.toString()) as RawClickHouseEvent
+                                const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
 
-                                if (!this.hogFunctionManager.teamHasHogDestinations(clickHouseEvent.team_id)) {
-                                    // No need to continue if the team doesn't have any functions
-                                    return
-                                }
+                                const [teamHogFunctions, team] = await Promise.all([
+                                    this.hogFunctionManager.getHogFunctionsForTeam(clickHouseEvent.team_id, [
+                                        'destination',
+                                    ]),
+                                    this.hub.teamManager.fetchTeam(clickHouseEvent.team_id),
+                                ])
 
-                                const team = await this.hub.teamManager.fetchTeam(clickHouseEvent.team_id)
-                                if (!team) {
+                                if (!teamHogFunctions.length || !team) {
                                     return
                                 }
                                 events.push(
@@ -159,7 +193,7 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
                                     )
                                 )
                             } catch (e) {
-                                status.error('Error parsing message', e)
+                                logger.error('Error parsing message', e)
                             }
                         })
                     )
@@ -181,10 +215,17 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             },
         })
 
-        const shardDepthLimit = this.hub.CYCLOTRON_SHARD_DEPTH_LIMIT ?? 1000000
-
         this.cyclotronManager = this.hub.CYCLOTRON_DATABASE_URL
-            ? new CyclotronManager({ shards: [{ dbUrl: this.hub.CYCLOTRON_DATABASE_URL }], shardDepthLimit })
+            ? new CyclotronManager({
+                  shards: [
+                      {
+                          dbUrl: this.hub.CYCLOTRON_DATABASE_URL,
+                      },
+                  ],
+                  shardDepthLimit: this.hub.CYCLOTRON_SHARD_DEPTH_LIMIT ?? 1000000,
+                  shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
+                  shouldUseBulkJobCopy: this.hub.CDP_CYCLOTRON_USE_BULK_COPY_JOB,
+              })
             : undefined
 
         await this.cyclotronManager?.connect()

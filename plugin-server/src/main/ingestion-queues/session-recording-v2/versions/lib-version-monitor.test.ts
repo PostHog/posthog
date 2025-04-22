@@ -31,6 +31,8 @@ describe('LibVersionMonitor', () => {
             session_id: 'session1',
             eventsByWindowId: { window1: [] },
             eventsRange: { start: DateTime.fromMillis(0), end: DateTime.fromMillis(0) },
+            snapshot_source: null,
+            snapshot_library: null,
         },
     })
 

@@ -13,7 +13,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { isNotNil, isObject, pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { RevenueTrackingEventItem } from '~/queries/schema/schema-general'
+import { CurrencyCode, RevenueTrackingEventItem } from '~/queries/schema/schema-general'
 import { ActivityScope, TeamSurveyConfigType, TeamType } from '~/types'
 
 import { ThemeName } from './dataThemeLogic'
@@ -71,6 +71,16 @@ const teamActionsMapping: Record<
 
         return {
             description: [<>Changed session replay event triggers</>],
+        }
+    },
+    session_recording_trigger_match_type_config(change: ActivityChange | undefined): ChangeMapping | null {
+        const before = change?.before
+        const after = change?.after
+        if (before === null && after === null) {
+            return null
+        }
+        return {
+            description: [<>Changed session replay trigger match type to {after}</>],
         }
     },
     capture_console_log_opt_in(change: ActivityChange | undefined): ChangeMapping | null {
@@ -148,6 +158,10 @@ const teamActionsMapping: Record<
         const maskAllInputsAfter = isObject(change?.after) ? change?.after.maskAllInputs : !!change?.after
         const maskAllInputsChanged = maskAllInputsBefore !== maskAllInputsAfter
 
+        const blockSelectorBefore = isObject(change?.before) ? change?.before.blockSelector : undefined
+        const blockSelectorAfter = isObject(change?.after) ? change?.after.blockSelector : undefined
+        const blockSelectorChanged = blockSelectorBefore !== blockSelectorAfter
+
         const maskTextSelectorBefore = isObject(change?.before) ? change?.before.maskTextSelector : !!change?.before
         const maskTextSelectorAfter = isObject(change?.after) ? change?.after.maskTextSelector : !!change?.after
         const maskTextSelectorChanged = maskTextSelectorBefore !== maskTextSelectorAfter
@@ -162,6 +176,14 @@ const teamActionsMapping: Record<
                 <>
                     {change?.action === 'created' ? 'set' : 'changed'} masking text selector to {maskTextSelectorAfter}{' '}
                     in session replay
+                </>
+            )
+        }
+
+        if (blockSelectorChanged) {
+            descriptions.push(
+                <>
+                    {change?.action === 'created' ? 'set' : 'changed'} blocking selector to "{blockSelectorAfter}"
                 </>
             )
         }
@@ -400,6 +422,16 @@ const teamActionsMapping: Record<
         if (!change) {
             return null
         }
+
+        const beforeCurrency =
+            typeof change.before === 'object' && change.before && 'baseCurrency' in change.before
+                ? change.before.baseCurrency || CurrencyCode.USD
+                : null
+        const afterCurrency =
+            typeof change.after === 'object' && change.after && 'baseCurrency' in change.after
+                ? change.after.baseCurrency || CurrencyCode.USD
+                : null
+
         const beforeEvents: RevenueTrackingEventItem[] =
             typeof change.before === 'object' && change.before && 'events' in change.before ? change.before.events : []
         const afterEvents: RevenueTrackingEventItem[] =
@@ -412,6 +444,9 @@ const teamActionsMapping: Record<
         const modifiedEvents = afterEventNames?.filter((event) => beforeEventNames?.includes(event))
 
         const changes = [
+            beforeCurrency && afterCurrency && beforeCurrency !== afterCurrency
+                ? `changed base currency from ${beforeCurrency} to ${afterCurrency}`
+                : null,
             addedEvents?.length
                 ? `added ${addedEvents.length} ${pluralize(
                       addedEvents.length,
@@ -457,6 +492,7 @@ const teamActionsMapping: Record<
     data_attributes: () => null,
     effective_membership_level: () => null,
     has_group_types: () => null,
+    group_types: () => null,
     ingested_event: () => null,
     is_demo: () => null,
     live_events_columns: () => null,
@@ -468,7 +504,15 @@ const teamActionsMapping: Record<
     primary_dashboard: () => null,
     slack_incoming_webhook: () => null,
     timezone: () => null,
-    surveys_opt_in: () => null,
+    surveys_opt_in: (change): ChangeMapping | null => {
+        if (!change) {
+            return null
+        }
+
+        return {
+            description: [<>{change?.after ? 'enabled' : 'disabled'} surveys</>],
+        }
+    },
     flags_persistence_default: () => null,
     week_start_day: () => null,
     default_modifiers: () => null,

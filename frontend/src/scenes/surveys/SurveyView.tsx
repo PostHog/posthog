@@ -1,7 +1,7 @@
 import './SurveyView.scss'
 
 import { IconGraph, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -9,36 +9,32 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { PageHeader } from 'lib/components/PageHeader'
-import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
 import { SurveyResponseFilters } from 'scenes/surveys/SurveyResponseFilters'
-import { getSurveyResponseKey } from 'scenes/surveys/utils'
+import { surveysLogic } from 'scenes/surveys/surveysLogic'
+import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema/schema-general'
-import {
-    ActivityScope,
-    PropertyFilterType,
-    PropertyOperator,
-    Survey,
-    SurveyQuestionType,
-    SurveySchedule as SurveyScheduleEnum,
-    SurveyType,
-} from '~/types'
+import { ActivityScope, PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
 
-import { NPS_DETRACTOR_LABEL, NPS_PASSIVE_LABEL, SURVEY_EVENT_NAME, SurveyQuestionLabel } from './constants'
-import { SurveyDisplaySummary } from './Survey'
-import { SurveyAPIEditor } from './SurveyAPIEditor'
-import { SurveyFormAppearance } from './SurveyFormAppearance'
-import { surveyLogic } from './surveyLogic'
-import { surveysLogic } from './surveysLogic'
+import {
+    NPS_DETRACTOR_LABEL,
+    NPS_DETRACTOR_VALUES,
+    NPS_PASSIVE_LABEL,
+    NPS_PASSIVE_VALUES,
+    NPS_PROMOTER_LABEL,
+    NPS_PROMOTER_VALUES,
+    SURVEY_EVENT_NAME,
+} from './constants'
+import { SurveysDisabledBanner } from './SurveySettings'
 import {
     MultipleChoiceQuestionBarChart,
     NPSStackedBar,
@@ -46,58 +42,15 @@ import {
     OpenTextViz,
     RatingQuestionBarChart,
     SingleChoiceQuestionPieChart,
-    Summary,
 } from './surveyViewViz'
-
-function SurveySchedule(): JSX.Element {
-    const { survey } = useValues(surveyLogic)
-    if (survey.schedule === SurveyScheduleEnum.Recurring && survey.iteration_count && survey.iteration_frequency_days) {
-        return (
-            <>
-                <span className="card-secondary">Schedule</span>
-                <span>
-                    Repeats every {survey.iteration_frequency_days}{' '}
-                    {pluralize(survey.iteration_frequency_days, 'day', 'days', false)}, {survey.iteration_count}{' '}
-                    {pluralize(survey.iteration_count, 'time', 'times', false)}
-                </span>
-            </>
-        )
-    }
-
-    if (survey.schedule === SurveyScheduleEnum.Always) {
-        return (
-            <>
-                <span className="card-secondary">Schedule</span>
-                <span>Always</span>
-            </>
-        )
-    }
-
-    // Default case: survey is scheduled to run once
-    return (
-        <>
-            <span className="card-secondary">Schedule</span>
-            <span>Once</span>
-        </>
-    )
-}
 export function SurveyView({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading, selectedPageIndex, targetingFlagFilters } = useValues(surveyLogic)
-    const {
-        editingSurvey,
-        updateSurvey,
-        launchSurvey,
-        stopSurvey,
-        archiveSurvey,
-        resumeSurvey,
-        setSelectedPageIndex,
-        duplicateSurvey,
-    } = useActions(surveyLogic)
-    const { surveyUsesLimit, surveyUsesAdaptiveLimit } = useValues(surveyLogic)
+    const { survey, surveyLoading } = useValues(surveyLogic)
+    const { editingSurvey, updateSurvey, launchSurvey, stopSurvey, archiveSurvey, resumeSurvey, duplicateSurvey } =
+        useActions(surveyLogic)
     const { deleteSurvey } = useActions(surveysLogic)
+    const { showSurveysDisabledBanner } = useValues(surveysLogic)
 
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
-    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
 
     useEffect(() => {
         if (survey.start_date) {
@@ -203,6 +156,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                     <LemonButton
                                         type="primary"
                                         data-attr="launch-survey"
+                                        disabledReason={
+                                            showSurveysDisabledBanner && survey.type !== SurveyType.API
+                                                ? 'Please enable surveys in the banner below before launching'
+                                                : undefined
+                                        }
                                         onClick={() => {
                                             LemonDialog.open({
                                                 title: 'Launch this survey?',
@@ -306,6 +264,7 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                             </>
                         }
                     />
+                    <SurveysDisabledBanner />
                     <LemonTabs
                         activeKey={tabKey}
                         onChange={(key) => setTabKey(key)}
@@ -322,154 +281,41 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                   }
                                 : null,
                             {
-                                content: (
-                                    <div className="flex flex-row">
-                                        <div className="flex flex-col w-full">
-                                            <span className="mt-4 card-secondary">Display mode</span>
-                                            <span>
-                                                {survey.type === SurveyType.API
-                                                    ? survey.type.toUpperCase()
-                                                    : capitalizeFirstLetter(survey.type)}
-                                            </span>
-                                            {survey.questions[0].question && (
-                                                <>
-                                                    <span className="mt-4 card-secondary">Type</span>
-                                                    <span>{SurveyQuestionLabel[survey.questions[0].type]}</span>
-                                                    <span className="mt-4 card-secondary">
-                                                        {pluralize(
-                                                            survey.questions.length,
-                                                            'Question',
-                                                            'Questions',
-                                                            false
-                                                        )}
-                                                    </span>
-                                                    {survey.questions.map((q, idx) => (
-                                                        <li key={q.id ?? idx}>{q.question}</li>
-                                                    ))}
-                                                </>
-                                            )}
-                                            {survey.questions[0].type === SurveyQuestionType.Link && (
-                                                <>
-                                                    <span className="mt-4 card-secondary">Link url</span>
-                                                    <span>{survey.questions[0].link}</span>
-                                                </>
-                                            )}
-                                            <div className="flex flex-row gap-8">
-                                                {survey.start_date && (
-                                                    <div className="flex flex-col">
-                                                        <span className="mt-4 card-secondary">Start date</span>
-                                                        <TZLabel time={survey.start_date} />
-                                                    </div>
-                                                )}
-                                                {survey.end_date && (
-                                                    <div className="flex flex-col">
-                                                        <span className="mt-4 card-secondary">End date</span>
-                                                        <TZLabel time={survey.end_date} />
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <div className="flex flex-row gap-8">
-                                                <div className="flex flex-col mt-4">
-                                                    <SurveySchedule />
-                                                </div>
-                                            </div>
-                                            {surveyUsesLimit && (
-                                                <>
-                                                    <span className="mt-4 card-secondary">Completion conditions</span>
-                                                    <span>
-                                                        The survey will be stopped once <b>{survey.responses_limit}</b>{' '}
-                                                        responses are received.
-                                                    </span>
-                                                </>
-                                            )}
-                                            {surveyUsesAdaptiveLimit && (
-                                                <>
-                                                    <span className="mt-4 card-secondary">Completion conditions</span>
-                                                    <span>
-                                                        Survey response collection is limited to receive{' '}
-                                                        <b>{survey.response_sampling_limit}</b> responses every{' '}
-                                                        {survey.response_sampling_interval}{' '}
-                                                        {survey.response_sampling_interval_type}(s).
-                                                    </span>
-                                                </>
-                                            )}
-                                            <LemonDivider />
-                                            <SurveyDisplaySummary
-                                                id={id}
-                                                survey={survey}
-                                                targetingFlagFilters={targetingFlagFilters}
-                                            />
-                                        </div>
-                                        <div className="flex flex-col items-center w-full">
-                                            {survey.type === SurveyType.API && (
-                                                <div className="p-4 border rounded">
-                                                    <div className="flex flex-row items-center w-full gap-1">
-                                                        Learn how to set up API surveys{' '}
-                                                        <Link
-                                                            data-attr="survey-doc-link"
-                                                            target="_blank"
-                                                            to="https://posthog.com/docs/surveys/implementing-custom-surveys"
-                                                            targetBlankIcon
-                                                        >
-                                                            in the docs
-                                                        </Link>
-                                                    </div>
-                                                </div>
-                                            )}
-                                            {survey.type !== SurveyType.API ? (
-                                                <div className="mt-6 max-w-72">
-                                                    <SurveyFormAppearance
-                                                        previewPageIndex={selectedPageIndex || 0}
-                                                        survey={survey}
-                                                        handleSetSelectedPageIndex={(preview) =>
-                                                            setSelectedPageIndex(preview)
-                                                        }
-                                                    />
-                                                </div>
-                                            ) : (
-                                                <div className="mt-2">
-                                                    <SurveyAPIEditor survey={survey} />
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                ),
+                                content: <SurveyOverview />,
                                 key: 'overview',
                                 label: 'Overview',
                             },
-                            showLinkedHogFunctions
-                                ? {
-                                      key: 'notifications',
-                                      label: 'Notifications',
-                                      content: (
-                                          <div>
-                                              <p>Get notified whenever a survey result is submitted</p>
-                                              <LinkedHogFunctions
-                                                  logicKey="survey"
-                                                  type="destination"
-                                                  subTemplateId="survey-response"
-                                                  filters={{
-                                                      events: [
-                                                          {
-                                                              id: 'survey sent',
-                                                              type: 'events',
-                                                              order: 0,
-                                                              properties: [
-                                                                  {
-                                                                      key: '$survey_id',
-                                                                      type: PropertyFilterType.Event,
-                                                                      value: id,
-                                                                      operator: PropertyOperator.Exact,
-                                                                  },
-                                                              ],
-                                                          },
-                                                      ],
-                                                  }}
-                                              />
-                                          </div>
-                                      ),
-                                  }
-                                : null,
+                            {
+                                key: 'notifications',
+                                label: 'Notifications',
+                                content: (
+                                    <div>
+                                        <p>Get notified whenever a survey result is submitted</p>
+                                        <LinkedHogFunctions
+                                            logicKey="survey"
+                                            type="destination"
+                                            subTemplateId="survey-response"
+                                            filters={{
+                                                events: [
+                                                    {
+                                                        id: 'survey sent',
+                                                        type: 'events',
+                                                        order: 0,
+                                                        properties: [
+                                                            {
+                                                                key: '$survey_id',
+                                                                type: PropertyFilterType.Event,
+                                                                value: id,
+                                                                operator: PropertyOperator.Exact,
+                                                            },
+                                                        ],
+                                                    },
+                                                ],
+                                            }}
+                                        />
+                                    </div>
+                                ),
+                            },
                             {
                                 label: 'History',
                                 key: 'History',
@@ -488,8 +334,6 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         survey,
         dataTableQuery,
         surveyLoading,
-        surveyUserStats,
-        surveyUserStatsLoading,
         surveyRatingResults,
         surveyRatingResultsReady,
         surveyRecurringNPSResults,
@@ -514,7 +358,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                     <Spinner />
                 </div>
             )}
-            <Summary surveyUserStatsLoading={surveyUserStatsLoading} surveyUserStats={surveyUserStats} />
+            <SurveyStatsSummary />
             {survey.questions.map((question, i) => {
                 if (question.type === SurveyQuestionType.Rating) {
                     return (
@@ -524,6 +368,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
                                     survey={survey as Survey}
                                     surveyNPSScore={surveyNPSScore}
                                     questionIndex={i}
+                                    questionId={question.id}
                                 />
                             )}
 
@@ -594,14 +439,45 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
     )
 }
 
+function createNPSTrendSeries(
+    values: string[],
+    label: string,
+    questionIndex: number,
+    questionId?: string
+): {
+    event: string
+    kind: NodeKind.EventsNode
+    custom_name: string
+    properties: Array<{
+        type: PropertyFilterType.HogQL
+        key: string
+    }>
+} {
+    return {
+        event: SURVEY_EVENT_NAME,
+        kind: NodeKind.EventsNode,
+        custom_name: label,
+        properties: [
+            {
+                type: PropertyFilterType.HogQL,
+                key: `getSurveyResponse(${questionIndex}, ${questionId ? `'${questionId}'` : ''}) in (${values.join(
+                    ','
+                )})`,
+            },
+        ],
+    }
+}
+
 function SurveyNPSResults({
     survey,
     surveyNPSScore,
     questionIndex,
+    questionId,
 }: {
     survey: Survey
     surveyNPSScore?: string | null
     questionIndex: number
+    questionId?: string
 }): JSX.Element {
     const { dateRange, interval, compareFilter, defaultInterval, npsBreakdown } = useValues(surveyLogic)
     const { setDateRange, setInterval, setCompareFilter } = useActions(surveyLogic)
@@ -623,13 +499,13 @@ function SurveyNPSResults({
                         Latest NPS Score
                     </div>
                     {npsBreakdown && (
-                        <div className="deprecated-space-y-2 mt-2 mb-4">
+                        <div className="mt-2 mb-4 deprecated-space-y-2">
                             <NPSStackedBar npsBreakdown={npsBreakdown} />
                         </div>
                     )}
                 </>
             )}
-            <div className="deprecated-space-y-2 bg-surface-primary p-2 rounded">
+            <div className="p-2 rounded deprecated-space-y-2 bg-surface-primary">
                 <div className="flex items-center justify-between gap-2">
                     <h4 className="text-lg font-semibold">NPS Trend</h4>
                     <div className="flex items-center gap-2">
@@ -647,12 +523,6 @@ function SurveyNPSResults({
                         <IntervalFilterStandalone
                             interval={interval ?? defaultInterval}
                             onIntervalChange={setInterval}
-                            options={[
-                                { value: 'hour', label: 'Hour' },
-                                { value: 'day', label: 'Day' },
-                                { value: 'week', label: 'Week' },
-                                { value: 'month', label: 'Month' },
-                            ]}
                         />
                         <CompareFilter
                             compareFilter={compareFilter}
@@ -674,45 +544,19 @@ function SurveyNPSResults({
                                     : dayjs().add(1, 'day').format('YYYY-MM-DD'),
                             },
                             series: [
-                                {
-                                    event: SURVEY_EVENT_NAME,
-                                    kind: NodeKind.EventsNode,
-                                    custom_name: NPS_PASSIVE_LABEL,
-                                    properties: [
-                                        {
-                                            type: PropertyFilterType.Event,
-                                            key: getSurveyResponseKey(questionIndex),
-                                            operator: PropertyOperator.Exact,
-                                            value: ['9', '10'],
-                                        },
-                                    ],
-                                },
-                                {
-                                    event: SURVEY_EVENT_NAME,
-                                    kind: NodeKind.EventsNode,
-                                    custom_name: NPS_PASSIVE_LABEL,
-                                    properties: [
-                                        {
-                                            type: PropertyFilterType.Event,
-                                            key: getSurveyResponseKey(questionIndex),
-                                            operator: PropertyOperator.Exact,
-                                            value: ['7', '8'],
-                                        },
-                                    ],
-                                },
-                                {
-                                    event: SURVEY_EVENT_NAME,
-                                    kind: NodeKind.EventsNode,
-                                    custom_name: NPS_DETRACTOR_LABEL,
-                                    properties: [
-                                        {
-                                            type: PropertyFilterType.Event,
-                                            key: getSurveyResponseKey(questionIndex),
-                                            operator: PropertyOperator.Exact,
-                                            value: ['0', '1', '2', '3', '4', '5', '6'],
-                                        },
-                                    ],
-                                },
+                                createNPSTrendSeries(
+                                    NPS_PROMOTER_VALUES,
+                                    NPS_PROMOTER_LABEL,
+                                    questionIndex,
+                                    questionId
+                                ),
+                                createNPSTrendSeries(NPS_PASSIVE_VALUES, NPS_PASSIVE_LABEL, questionIndex, questionId),
+                                createNPSTrendSeries(
+                                    NPS_DETRACTOR_VALUES,
+                                    NPS_DETRACTOR_LABEL,
+                                    questionIndex,
+                                    questionId
+                                ),
                             ],
                             properties: [
                                 {
@@ -728,6 +572,7 @@ function SurveyNPSResults({
                             },
                         },
                     }}
+                    readOnly
                 />
             </div>
         </div>

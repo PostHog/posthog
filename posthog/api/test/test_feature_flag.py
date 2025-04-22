@@ -62,11 +62,6 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             r.delete(key)
         return super().setUp()
 
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-        cls.feature_flag = FeatureFlag.objects.create(team=cls.team, created_by=cls.user, key="red_button")
-
     def test_cant_create_flag_with_more_than_max_values(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags",
@@ -115,6 +110,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
     def test_cant_create_flag_with_duplicate_key(self):
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         count = FeatureFlag.objects.count()
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
@@ -201,6 +197,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_cant_update_flag_with_duplicate_key(self):
+        existing_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         another_feature_flag = FeatureFlag.objects.create(
             team=self.team,
             rollout_percentage=50,
@@ -227,12 +224,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         # Try updating the existing one
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/feature_flags/{self.feature_flag.id}/",
+            f"/api/projects/{self.team.id}/feature_flags/{existing_flag.id}/",
             {"name": "Beta feature 3", "key": "red_button"},
         )
         self.assertEqual(response.status_code, 200)
-        self.feature_flag.refresh_from_db()
-        self.assertEqual(self.feature_flag.name, "Beta feature 3")
+        existing_flag.refresh_from_db()
+        self.assertEqual(existing_flag.name, "Beta feature 3")
 
     def test_is_simple_flag(self):
         feature_flag = self.client.post(
@@ -352,7 +349,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
                     "detail": {
-                        "changes": None,
+                        "changes": [],
                         "trigger": None,
                         "type": None,
                         "name": "alpha-feature",
@@ -782,7 +779,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                     ]
                                 },
                             },
-                            {"action": "changed", "after": 1, "before": 0, "field": "version", "type": "FeatureFlag"},
+                            {"action": "changed", "after": 2, "before": 1, "field": "version", "type": "FeatureFlag"},
                         ],
                         "trigger": None,
                         "type": None,
@@ -800,7 +797,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
                     "detail": {
-                        "changes": None,
+                        "changes": [],
                         "trigger": None,
                         "type": None,
                         "name": "a-feature-flag-that-is-updated",
@@ -809,6 +806,50 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 },
             ],
         )
+
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_partial(self, mock_capture):
+        # Test that we can update a feature flag with only some of the fields
+        # And the unchanged fields are not updated
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {
+                    "name": "original name",
+                    "key": "a-feature-flag-that-is-updated",
+                    "filters": {
+                        "groups": [
+                            {
+                                "variant": None,
+                                "properties": [
+                                    {"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}
+                                ],
+                                "rollout_percentage": 100,
+                            }
+                        ],
+                        "payloads": {},
+                        "multivariate": None,
+                    },
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            flag_id = response.json()["id"]
+
+            frozen_datetime.tick(delta=timedelta(minutes=10))
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {
+                    "name": "Updated name",
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(response.json()["name"], "Updated name")
+        self.assertEqual(response.json()["filters"]["groups"][0]["rollout_percentage"], 100)
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_updating_feature_flag_with_different_user(self, mock_capture):
@@ -856,9 +897,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             flag_id = response.json()["id"]
             original_version = response.json()["version"]
-            self.assertEqual(original_version, 0)
+            self.assertEqual(original_version, 1)
             feature_flag = FeatureFlag.objects.get(id=flag_id)
-            self.assertEqual(feature_flag.version, 0)
+            self.assertEqual(feature_flag.version, 1)
             self.assertEqual(feature_flag.last_modified_by, original_user)
 
             frozen_datetime.tick(delta=timedelta(minutes=10))
@@ -877,18 +918,27 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             updated_version = response.json()["version"]
-            self.assertEqual(updated_version, 1)
+            self.assertEqual(updated_version, 2)
             feature_flag = FeatureFlag.objects.get(id=flag_id)
-            self.assertEqual(feature_flag.version, 1)
+            self.assertEqual(feature_flag.version, 2)
             self.assertEqual(feature_flag.last_modified_by, different_user)
 
             self.client.force_login(original_user)
 
             # Original user tries to update the feature flag with the original version
-            # This should fail because the version has been incremented
+            # This should fail because the version has been incremented and the user is
+            # trying to update the name
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
-                data={"name": "Another Updated name", "version": original_version},
+                data={
+                    "name": "Another Updated name",
+                    "version": original_version,
+                    "original_flag": {
+                        # Name has since been changed, leading to a conflict
+                        "name": "original name",
+                        "key": "a-feature-flag-that-is-updated",
+                    },
+                },
                 format="json",
             )
 
@@ -917,6 +967,101 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(feature_flag.last_modified_by, different_user)
 
     @patch("posthog.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_does_not_fail_concurrency_check_when_changing_different_fields(self, mock_capture):
+        # If another users saves changes, but my changes don't conflict with those changes,
+        # then we should not fail the concurrency check
+        with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
+            # Create flag with original user: version 0
+            original_user = self.user
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {
+                    "name": "original name",
+                    "key": "a-feature-flag-that-is-updated",
+                    "filters": {
+                        "groups": [
+                            {
+                                "variant": None,
+                                "properties": [
+                                    {"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}
+                                ],
+                                "rollout_percentage": 100,
+                            }
+                        ],
+                        "payloads": {},
+                        "multivariate": None,
+                    },
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            flag_id = response.json()["id"]
+            original_version = response.json()["version"]
+
+            frozen_datetime.tick(delta=timedelta(minutes=10))
+
+            # Create and login as different user
+            different_user = User.objects.create_and_join(self.organization, "different_user@posthog.com", None)
+            self.client.force_login(different_user)
+
+            # Successfully update the feature flag with the different user. This will increment the version
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                {"name": "Updated name", "version": original_version},
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.client.force_login(original_user)
+
+            # Original user tries to update the feature flag with the original version
+            # However, the user is changing a field that wasn't changed by the other user
+            # This should succeed
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+                data={
+                    "name": "Updated name",
+                    "filters": {
+                        "groups": [
+                            {
+                                "variant": None,
+                                "properties": [
+                                    {"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}
+                                ],
+                                "rollout_percentage": 45,
+                            }
+                        ],
+                        "payloads": {},
+                        "multivariate": None,
+                    },
+                    "original_flag": {
+                        "name": "original name",  # This is the same as the name (though not the current name)
+                        "filters": {
+                            "groups": [
+                                {
+                                    "variant": None,
+                                    "properties": [
+                                        {"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}
+                                    ],
+                                    "rollout_percentage": 100,
+                                }
+                            ],
+                            "payloads": {},
+                            "multivariate": None,
+                        },
+                    },
+                    "version": original_version,
+                },
+                format="json",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            feature_flag = FeatureFlag.objects.get(id=flag_id)
+            self.assertEqual(feature_flag.name, "Updated name")
+            self.assertEqual(feature_flag.last_modified_by, original_user)
+            self.assertEqual(response.json()["filters"]["groups"][0]["rollout_percentage"], 45)
+
+    @patch("posthog.api.feature_flag.report_user_action")
     def test_updating_feature_flag_does_not_fail_when_version_not_in_request(self, mock_capture):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
             response = self.client.post(
@@ -935,7 +1080,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 format="json",
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["version"], 1)
+            self.assertEqual(response.json()["version"], 2)
 
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
@@ -944,10 +1089,113 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["version"], 2)
+            self.assertEqual(response.json()["version"], 3)
             feature_flag = FeatureFlag.objects.get(id=flag_id)
-            self.assertEqual(feature_flag.version, 2)
+            self.assertEqual(feature_flag.version, 3)
             self.assertEqual(feature_flag.name, "Yet another updated name")
+
+    def test_remote_config_returns_not_found_for_unknown_flag(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/nonexistent_key/remote_config")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_get_conflicting_changes(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="my-flag",
+            name="Beta feature",
+            active=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+
+        serializer = FeatureFlagSerializer(instance=feature_flag, context={"team_id": self.team.id})
+
+        original_flag = {
+            "key": "my-flag",
+            "name": "Alpha feature",  # This has since been changed by another user
+            "active": True,
+            "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+        }
+
+        # Test 1: No conflicts when changing fields that haven't been changed by another user
+        # The name is different from the current value, but the user is not trying to change it
+        validated_data = {"active": False, "key": "my-flag-2", "name": "Alpha feature"}
+        conflicts = serializer._get_conflicting_changes(feature_flag, validated_data, original_flag)
+        self.assertEqual(conflicts, [])
+
+        # Test 2: Detect conflict when changing a field that has been changed by another user
+        feature_flag.active = False
+        feature_flag.save()
+        validated_data = {"name": "Gamma feature"}
+        conflicts = serializer._get_conflicting_changes(feature_flag, validated_data, original_flag)
+        self.assertEqual(conflicts, ["name"])
+
+    def test_get_conflicting_changes_returns_empty_when_original_flag_is_none(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="my-flag",
+            name="Beta feature",
+            active=True,
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+
+        serializer = FeatureFlagSerializer(instance=feature_flag, context={"team_id": self.team.id})
+
+        original_flag = None
+
+        # Should be conflict, but since original_flag is None, it will be ignored
+        feature_flag.active = False
+        feature_flag.save()
+        validated_data = {"name": "Gamma feature"}
+        conflicts = serializer._get_conflicting_changes(feature_flag, validated_data, original_flag)
+        self.assertEqual(conflicts, [])
+
+    def test_get_conflicting_changes_with_filter_changes(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="my-flag",
+            name="Beta feature",
+            active=True,
+            filters={
+                # This has since been changed by another user
+                "groups": [{"properties": [], "rollout_percentage": 45}]
+            },
+        )
+
+        serializer = FeatureFlagSerializer(instance=feature_flag, context={"team_id": self.team.id})
+
+        original_flag = {
+            "key": "my-flag",
+            # This has since been changed by another user
+            "name": "Alpha feature",
+            "active": True,
+            "filters": {
+                # This has since been changed by another user
+                "groups": [{"properties": [], "rollout_percentage": 50}]
+            },
+        }
+
+        # Test 1: No conflicts when changing fields that haven't been changed by another user
+        # The name and fliters are different from the current value, but the user is not trying to change them
+        validated_data = {
+            "active": False,
+            "key": "my-flag-2",
+            "name": "Alpha feature",
+            "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+        }
+        conflicts = serializer._get_conflicting_changes(feature_flag, validated_data, original_flag)
+        self.assertEqual(conflicts, [])
+
+        # Test 2: Detect conflict when changing a field that has been changed by another user
+        feature_flag.active = False
+        feature_flag.save()
+        validated_data = {
+            "name": "Gamma feature",
+            "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+            "active": False,
+            "key": "my-flag-2",
+        }
+        conflicts = serializer._get_conflicting_changes(feature_flag, validated_data, original_flag)
+        self.assertEqual(conflicts, ["name", "filters"])
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_updating_feature_flag_treats_null_version_as_zero(self, mock_capture):
@@ -1103,8 +1351,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "type": "FeatureFlag",
                                 "action": "changed",
                                 "field": "version",
-                                "before": 0,
-                                "after": 1,
+                                "before": 1,
+                                "after": 2,
                             },
                         ],
                         "trigger": None,
@@ -1123,7 +1371,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
                     "detail": {
-                        "changes": None,
+                        "changes": [],
                         "trigger": None,
                         "type": None,
                         "name": "a-feature-flag-that-is-updated",
@@ -1486,7 +1734,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "before": None,
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             },
-                            {"action": "changed", "after": 1, "before": 0, "field": "version", "type": "FeatureFlag"},
+                            {"action": "changed", "after": 2, "before": 1, "field": "version", "type": "FeatureFlag"},
                         ],
                         "trigger": None,
                         "type": None,
@@ -1504,7 +1752,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
                     "detail": {
-                        "changes": None,
+                        "changes": [],
                         "trigger": None,
                         "type": None,
                         "name": "feature_with_activity",
@@ -1567,7 +1815,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     "scope": "FeatureFlag",
                     "item_id": str(second_flag_id),
                     "detail": {
-                        "changes": None,
+                        "changes": [],
                         "trigger": None,
                         "type": None,
                         "name": "flag-two",
@@ -1592,7 +1840,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                                 "before": None,
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             },
-                            {"action": "changed", "after": 1, "before": 0, "field": "version", "type": "FeatureFlag"},
+                            {"action": "changed", "after": 2, "before": 1, "field": "version", "type": "FeatureFlag"},
                         ],
                         "trigger": None,
                         "type": None,
@@ -1610,7 +1858,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     "scope": "FeatureFlag",
                     "item_id": str(flag_id),
                     "detail": {
-                        "changes": None,
+                        "changes": [],
                         "trigger": None,
                         "type": None,
                         "name": "feature_with_activity",
@@ -1959,6 +2207,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @patch("posthog.api.feature_flag.report_user_action")
     def test_my_flags(self, mock_capture):
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
@@ -2083,7 +2332,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(instance.key, "alpha-feature")
 
         dashboard = instance.usage_dashboard
-        tiles = sorted(dashboard.tiles.all(), key=lambda x: x.insight.name)
+        assert dashboard is not None
+        assert dashboard.tiles is not None
+        tiles = sorted(dashboard.tiles.all(), key=lambda x: str(x.insight.name if x.insight is not None else ""))
 
         self.assertEqual(dashboard.name, "Generated Dashboard: alpha-feature Usage")
         self.assertEqual(
@@ -2094,6 +2345,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(dashboard.creation_mode, Dashboard.CreationMode.TEMPLATE)
         self.assertEqual(dashboard.filters, {"date_from": "-30d"})
         self.assertEqual(len(tiles), 2)
+        assert tiles[0].insight is not None
         self.assertEqual(tiles[0].insight.name, "Feature Flag Called Total Volume")
         self.assertEqual(
             tiles[0].insight.query,
@@ -2135,6 +2387,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 },
             },
         )
+        assert tiles[1].insight is not None
         self.assertEqual(tiles[1].insight.name, "Feature Flag calls made by unique users per variant")
         self.assertEqual(
             tiles[1].insight.query,
@@ -2197,7 +2450,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         instance.refresh_from_db()
 
         dashboard = instance.usage_dashboard
-        tiles = sorted(dashboard.tiles.all(), key=lambda x: x.insight.name)
+        assert dashboard is not None
+        assert dashboard.tiles is not None
+        tiles = sorted(dashboard.tiles.all(), key=lambda x: str(x.insight.name if x.insight is not None else ""))
 
         self.assertEqual(dashboard.name, "Generated Dashboard: alpha-feature Usage")
         self.assertEqual(
@@ -2206,6 +2461,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(dashboard.filters, {"date_from": "-30d"})
         self.assertEqual(len(tiles), 4)
+        assert tiles[0].insight is not None
         self.assertEqual(tiles[0].insight.name, "Feature Flag Called Total Volume")
         self.assertEqual(
             tiles[0].insight.query,
@@ -2247,6 +2503,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 },
             },
         )
+        assert tiles[1].insight is not None
         self.assertEqual(tiles[1].insight.name, "Feature Flag calls made by unique users per variant")
         self.assertEqual(
             tiles[1].insight.query,
@@ -2297,6 +2554,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # enriched insights
+        assert tiles[2].insight is not None
         self.assertEqual(tiles[2].insight.name, "Feature Interaction Total Volume")
         self.assertEqual(
             tiles[2].insight.query,
@@ -2346,6 +2604,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 },
             },
         )
+        assert tiles[3].insight is not None
         self.assertEqual(tiles[3].insight.name, "Feature Viewed Total Volume")
         self.assertEqual(
             tiles[3].insight.query,
@@ -4529,6 +4788,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(feature_flag["rollback_conditions"]), 1)
 
     def test_feature_flag_can_edit(self):
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         self.assertEqual(
             (
                 AvailableFeature.ROLE_BASED_ACCESS
@@ -4543,6 +4803,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(res.json()["results"][1]["can_edit"], True)
 
     def test_get_flags_dont_return_survey_targeting_flags(self):
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         survey = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
@@ -4582,6 +4843,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response["results"][0]["id"] is not survey.json()["targeting_flag"]["id"]
 
     def test_get_flags_with_active_and_created_by_id_filters(self):
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         another_user = User.objects.create(email="foo@bar.com")
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="blue_button")
         FeatureFlag.objects.create(team=self.team, created_by=another_user, key="orange_button", active=False)
@@ -4595,8 +4857,9 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response["results"][0]["key"] == "green_button"
 
     def test_get_flags_with_type_filters(self):
+        feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="red_button")
         Experiment.objects.create(
-            team=self.team, created_by=self.user, name="Experiment 1", feature_flag_id=self.feature_flag.id
+            team=self.team, created_by=self.user, name="Experiment 1", feature_flag_id=feature_flag.id
         )
         FeatureFlag.objects.create(
             team=self.team,
@@ -4608,7 +4871,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         filtered_flags_list_boolean = self.client.get(f"/api/projects/@current/feature_flags?type=boolean")
         response = filtered_flags_list_boolean.json()
         assert len(response["results"]) == 1
-        assert response["results"][0]["key"] == self.feature_flag.key
+        assert response["results"][0]["key"] == feature_flag.key
 
         filtered_flags_list_multivariant = self.client.get(f"/api/projects/@current/feature_flags?type=multivariant")
         response = filtered_flags_list_multivariant.json()
@@ -4618,7 +4881,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         filtered_flags_list_experiment = self.client.get(f"/api/projects/@current/feature_flags?type=experiment")
         response = filtered_flags_list_experiment.json()
         assert len(response["results"]) == 1
-        assert response["results"][0]["key"] == self.feature_flag.key
+        assert response["results"][0]["key"] == feature_flag.key
 
     def test_get_flags_with_search(self):
         FeatureFlag.objects.create(team=self.team, created_by=self.user, key="blue_search_term_button")
@@ -5244,7 +5507,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # TODO: Ensure server-side cursors are disabled, since in production we use this with pgbouncer
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(12):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(15):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
         cohort.refresh_from_db()
@@ -5297,7 +5560,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         # Extra queries because each batch adds its own queries
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(14):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(19):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=2)
 
         cohort.refresh_from_db()
@@ -5308,7 +5571,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(response.json()["results"]), 3, response)
 
         # if the batch is big enough, it's fewer queries
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(12):
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk, batchsize=10)
 
         cohort.refresh_from_db()
@@ -5371,7 +5634,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(9):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(12):
             # no queries to evaluate flags, because all evaluated using override properties
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature2", self.team.pk)
 
@@ -5388,7 +5651,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort2",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(9):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(12):
             # person3 doesn't match filter conditions so is pre-filtered out
             get_cohort_actors_for_feature_flag(cohort2.pk, "some-feature-new", self.team.pk)
 
@@ -5481,7 +5744,7 @@ class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             name="some cohort",
         )
 
-        with snapshot_postgres_queries_context(self), self.assertNumQueries(26):
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(29):
             # forced to evaluate flags by going to db, because cohorts need db query to evaluate
             get_cohort_actors_for_feature_flag(cohort.pk, "some-feature-new", self.team.pk)
 
@@ -6057,10 +6320,6 @@ def slow_query(execute, sql, *args, **kwargs):
     return execute(f"SELECT pg_sleep(1); {sql}", *args, **kwargs)
 
 
-@patch(
-    "posthog.models.feature_flag.flag_matching.postgres_healthcheck.is_connected",
-    return_value=True,
-)
 class TestResiliency(TransactionTestCase, QueryMatchingTest):
     def setUp(self) -> None:
         return super().setUp()
@@ -6274,7 +6533,9 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
 
                 mock_counter.labels.assert_not_called()
 
-    def test_feature_flags_v3_with_a_working_slow_db(self, mock_postgres_check):
+    def test_feature_flags_v3_with_a_working_slow_db(
+        self,
+    ):
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
@@ -6346,7 +6607,6 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 500,
             ),
         ):
-            mock_postgres_check.return_value = False
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
 
             self.assertTrue("property-flag" not in all_flags)
@@ -6375,7 +6635,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(all_flags["default-flag"])
                 self.assertFalse(errors)
 
-    def test_feature_flags_v3_with_skip_database_setting(self, mock_postgres_check):
+    def test_feature_flags_v3_with_skip_database_setting(self):
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
         self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
@@ -6432,7 +6692,6 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
         with self.assertNumQueries(0), self.settings(DECIDE_SKIP_POSTGRES_FLAGS=True):
             # No queries because of config parameter
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
-            mock_postgres_check.assert_not_called()
             self.assertTrue("property-flag" not in all_flags)
             self.assertTrue(all_flags["default-flag"])
             self.assertTrue(errors)
@@ -6447,13 +6706,11 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             ),
             self.settings(DECIDE_SKIP_POSTGRES_FLAGS=True),
         ):
-            mock_postgres_check.return_value = False
             all_flags, _, _, errors = get_all_feature_flags(self.team, "example_id")
 
             self.assertTrue("property-flag" not in all_flags)
             self.assertTrue(all_flags["default-flag"])
             self.assertTrue(errors)
-            mock_postgres_check.assert_not_called()
 
             # decide was sent email parameter with correct email
             with self.assertNumQueries(0):
@@ -6465,7 +6722,6 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(all_flags["property-flag"])
                 self.assertTrue(all_flags["default-flag"])
                 self.assertFalse(errors)
-                mock_postgres_check.assert_not_called()
 
             # # now db is down, but decide was sent email parameter with different email
             with self.assertNumQueries(0):
@@ -6477,7 +6733,6 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertFalse(all_flags["property-flag"])
                 self.assertTrue(all_flags["default-flag"])
                 self.assertFalse(errors)
-                mock_postgres_check.assert_not_called()
 
     @patch("posthog.models.feature_flag.flag_matching.FLAG_EVALUATION_ERROR_COUNTER")
     def test_feature_flags_v3_with_slow_db_doesnt_try_to_compute_conditions_again(self, mock_counter, *args):

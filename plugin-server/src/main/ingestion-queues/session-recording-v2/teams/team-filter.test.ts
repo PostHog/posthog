@@ -28,6 +28,8 @@ const createMessage = (token?: string, overrides = {}): ParsedMessageData => ({
         start: DateTime.fromMillis(0),
         end: DateTime.fromMillis(0),
     },
+    snapshot_source: null,
+    snapshot_library: null,
     ...overrides,
 })
 

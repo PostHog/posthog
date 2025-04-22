@@ -4,7 +4,7 @@ from typing import Optional
 
 from clickhouse_driver.errors import ServerException
 
-from posthog.exceptions import EstimatedQueryExecutionTimeTooLong, QuerySizeExceeded
+from posthog.exceptions import EstimatedQueryExecutionTimeTooLong, QuerySizeExceeded, ClickhouseAtCapacity
 
 
 class InternalCHQueryError(ServerException):
@@ -43,6 +43,9 @@ def wrap_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
     if not isinstance(err, ServerException):
         return err
+
+    if err.code == 202:
+        return ClickhouseAtCapacity()
 
     # Return a 512 error for queries which would time out
     match = re.search(r"Estimated query execution time \(.* seconds\) is too long.", err.message)

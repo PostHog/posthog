@@ -35,8 +35,9 @@ export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
         page.setAppContext = async function <K extends keyof AppContext>(key: K, value: AppContext[K]): Promise<void> {
             await page.evaluate(
                 ([key, value]) => {
+                    const appContext = (window as WindowWithPostHog).POSTHOG_APP_CONTEXT
                     // @ts-expect-error - Type safety is handled by the generic constraint
-                    ;(window as WindowWithPostHog).POSTHOG_APP_CONTEXT[key as string] = value
+                    appContext[key] = value
                 },
                 [key, value]
             )
@@ -89,6 +90,8 @@ export const test = base.extend<{ loginBeforeTests: void; page: Page }>({
 
             // Continue with tests
             await use()
+
+            // any teardown would go here
         },
         { auto: true },
     ],

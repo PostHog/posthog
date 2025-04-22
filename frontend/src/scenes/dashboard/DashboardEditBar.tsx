@@ -45,7 +45,6 @@ export function DashboardEditBar(): JSX.Element {
         // Only show preview button for large dashboards where we don't automatically preview filter changes */
         <Popover
             visible={!canAutoPreview && filtersUpdated}
-            className="z-1" // So that Cancel/Apply isn't above filter popovers
             overlay={
                 <div className="flex items-center gap-2 m-1">
                     <LemonButton
@@ -61,14 +60,14 @@ export function DashboardEditBar(): JSX.Element {
                     </LemonButton>
                 </div>
             }
-            placement="top"
+            placement="bottom"
             showArrow
         >
             <div
                 className={clsx(
                     'flex gap-2 items-center justify-between flex-wrap border md:[&>*]:grow-0 [&>*]:grow',
                     dashboardMode === DashboardMode.Edit
-                        ? '-m-1.5 p-1.5 border-border-bold border-dashed rounded-lg'
+                        ? '-m-1.5 p-1.5 border-primary border-dashed rounded-lg'
                         : 'border-transparent'
                 )}
             >
@@ -102,6 +101,7 @@ export function DashboardEditBar(): JSX.Element {
                         TaxonomicFilterGroupType.EventProperties,
                         TaxonomicFilterGroupType.PersonProperties,
                         TaxonomicFilterGroupType.EventFeatureFlags,
+                        TaxonomicFilterGroupType.EventMetadata,
                         ...groupsTaxonomicTypes,
                         TaxonomicFilterGroupType.Cohorts,
                         TaxonomicFilterGroupType.Elements,

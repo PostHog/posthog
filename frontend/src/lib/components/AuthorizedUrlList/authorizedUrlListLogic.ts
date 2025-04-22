@@ -217,10 +217,10 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     path((key) => ['lib', 'components', 'AuthorizedUrlList', 'authorizedUrlListLogic', key]),
     key((props) => `${props.type}-${props.experimentId}-${props.actionId}`), // Some will be undefined but that's ok, this avoids experiment/action with same ID sharing same store
     props({} as AuthorizedUrlListLogicProps),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam', 'currentTeamId']],
         actions: [teamLogic, ['updateCurrentTeam']],
-    }),
+    })),
     actions(() => ({
         setAuthorizedUrls: (authorizedUrls: string[]) => ({ authorizedUrls }),
         addUrl: (url: string, launch?: boolean) => ({ url, launch }),

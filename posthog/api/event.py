@@ -1,5 +1,6 @@
 import json
 import urllib
+import uuid
 from datetime import datetime
 from typing import Any, List, Optional, Union  # noqa: UP035
 from posthog.hogql.query import execute_hogql_query
@@ -269,6 +270,7 @@ class EventViewSet(
 
         key = request.GET.get("key")
         event_names = request.GET.getlist("event_name", None)
+        is_column = request.GET.get("is_column", "false").lower() == "true"
 
         if key == "custom_event":
             system_events = [
@@ -295,6 +297,8 @@ class EventViewSet(
             date_from = relative_date_parse("-7d", team.timezone_info).strftime("%Y-%m-%d 00:00:00")
             date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")
 
+            chain: list[str | int] = [key] if is_column else ["properties", key]
+
             conditions: list[ast.Expr] = [
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
@@ -308,7 +312,7 @@ class EventViewSet(
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.NotEq,
-                    left=ast.Field(chain=["properties", key]),
+                    left=ast.Field(chain=chain),
                     right=ast.Constant(value=None),
                 ),
             ]
@@ -345,7 +349,7 @@ class EventViewSet(
                 conditions.append(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.ILike,
-                        left=ast.Call(name="toString", args=[ast.Field(chain=["properties", key])]),
+                        left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
                         right=ast.Constant(value=f"%{request.GET.get('value')}%"),
                     )
                 )
@@ -354,15 +358,13 @@ class EventViewSet(
             if request.GET.get("value"):
                 order_by = [
                     ast.OrderExpr(
-                        expr=ast.Call(
-                            name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=["properties", key])])]
-                        ),
+                        expr=ast.Call(name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])]),
                         order="ASC",
                     )
                 ]
 
             query = ast.SelectQuery(
-                select=[ast.Field(chain=["properties", key])],
+                select=[ast.Field(chain=chain)],
                 distinct=True,
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                 where=ast.And(exprs=conditions),
@@ -373,10 +375,13 @@ class EventViewSet(
             result = execute_hogql_query(query, team=team)
             values = []
             for value in result.results:
-                try:
-                    values.append(json.loads(value[0]))
-                except json.JSONDecodeError:
+                if isinstance(value[0], float | int | bool | uuid.UUID):
                     values.append(value[0])
+                else:
+                    try:
+                        values.append(json.loads(value[0]))
+                    except json.JSONDecodeError:
+                        values.append(value[0])
 
         return response.Response([{"name": convert_property_value(value)} for value in flatten(values)])
 

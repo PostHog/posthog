@@ -15,7 +15,7 @@ import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
 export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
 
-export const API_KEY_SCOPE_PRESETS = [
+export const API_KEY_SCOPE_PRESETS: { value: string; label: string; scopes: string[]; isCloudOnly?: boolean }[] = [
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     {
         value: 'zapier',
@@ -27,6 +27,12 @@ export const API_KEY_SCOPE_PRESETS = [
         value: 'project_management',
         label: 'Project & user management',
         scopes: ['project:write', 'organization:read', 'organization_member:write'],
+    },
+    {
+        value: 'editor',
+        label: 'PostHog Editor',
+        scopes: ['feature_flag:write', 'insight:read', 'project:read', 'organization:read', 'user:read'],
+        isCloudOnly: true,
     },
     { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]
@@ -50,12 +56,13 @@ export const APIScopes: APIScope[] = [
     { key: 'dashboard_template' },
     { key: 'early_access_feature' },
     { key: 'event_definition' },
+    { key: 'error_tracking' },
     { key: 'experiment' },
     { key: 'export' },
     { key: 'feature_flag' },
     { key: 'group' },
+    { key: 'hog_function' },
     { key: 'insight' },
-    { key: 'query', disabledActions: ['write'] },
     { key: 'notebook' },
     { key: 'organization', disabledWhenProjectScoped: true },
     {
@@ -80,6 +87,7 @@ export const APIScopes: APIScope[] = [
         },
     },
     { key: 'property_definition' },
+    { key: 'query', disabledActions: ['write'] },
     { key: 'session_recording' },
     { key: 'session_recording_playlist' },
     { key: 'sharing_configuration' },
@@ -111,9 +119,9 @@ export type EditingKeyFormValues = Pick<
 
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     path(['lib', 'components', 'PersonalAPIKeys', 'personalAPIKeysLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user']],
-    }),
+    })),
     actions({
         setEditingKeyId: (id: PersonalAPIKeyType['id'] | null) => ({ id }),
         loadKeys: true,

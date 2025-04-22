@@ -3,7 +3,7 @@ import express from 'express'
 import { DateTime } from 'luxon'
 
 import { Hub, PluginServerService } from '../types'
-import { status } from '../utils/status'
+import { logger } from '../utils/logger'
 import { delay, UUID, UUIDT } from '../utils/utils'
 import { HogTransformerService } from './hog-transformations/hog-transformer.service'
 import { createCdpRedisPool } from './redis'
@@ -32,7 +32,7 @@ export class CdpApi {
 
     constructor(private hub: Hub) {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
-        this.hogExecutor = new HogExecutorService(hub, this.hogFunctionManager)
+        this.hogExecutor = new HogExecutorService(hub)
         this.fetchExecutor = new FetchExecutorService(hub)
         this.hogWatcher = new HogWatcherService(hub, createCdpRedisPool(hub))
         this.hogTransformer = new HogTransformerService(hub)
@@ -42,17 +42,9 @@ export class CdpApi {
     public get service(): PluginServerService {
         return {
             id: 'cdp-api',
-            onShutdown: async () => await this.stop(),
+            onShutdown: async () => {},
             healthcheck: () => this.isHealthy() ?? false,
         }
-    }
-
-    async start() {
-        await this.hogFunctionManager.start(['transformation', 'destination', 'internal_destination'])
-    }
-
-    async stop() {
-        await Promise.all([this.hogFunctionManager.stop()])
     }
 
     isHealthy() {
@@ -121,7 +113,7 @@ export class CdpApi {
             const { clickhouse_event, mock_async_functions, configuration, invocation_id } = req.body
             let { globals } = req.body
 
-            status.info('⚡️', 'Received invocation', { id, team_id, body: req.body })
+            logger.info('⚡️', 'Received invocation', { id, team_id, body: req.body })
 
             const invocationID = invocation_id ?? new UUIDT().toString()
 
@@ -185,7 +177,7 @@ export class CdpApi {
                 },
             }
 
-            if (['destination', 'internal_destination'].includes(compoundConfiguration.type)) {
+            if (['destination', 'internal_destination', 'broadcast'].includes(compoundConfiguration.type)) {
                 const {
                     invocations,
                     logs: filterLogs,
@@ -250,7 +242,7 @@ export class CdpApi {
                                     ],
                                 }
                             } else {
-                                response = await this.fetchExecutor.executeLocally(invocation)
+                                response = await this.fetchExecutor.execute(invocation)
                             }
                         } else {
                             response = this.hogExecutor.execute(invocation)
@@ -266,13 +258,25 @@ export class CdpApi {
                         await this.hogFunctionMonitoringService.processInvocationResults([response])
                     }
                 }
+
+                const wasSkipped = filterMetrics.some((m) => m.metric_name === 'filtered')
+
+                res.json({
+                    result: result,
+                    status: errors.length > 0 ? 'error' : wasSkipped ? 'skipped' : 'success',
+                    errors: errors.map((e) => String(e)),
+                    logs: logs,
+                })
             } else if (compoundConfiguration.type === 'transformation') {
                 // NOTE: We override the ID so that the transformer doesn't cache the result
                 // TODO: We could do this with a "special" ID to indicate no caching...
                 compoundConfiguration.id = new UUIDT().toString()
                 const pluginEvent: PluginEvent = {
                     ...triggerGlobals.event,
-                    ip: triggerGlobals.event.properties.$ip,
+                    ip:
+                        typeof triggerGlobals.event.properties.$ip === 'string'
+                            ? triggerGlobals.event.properties.$ip
+                            : null,
                     site_url: triggerGlobals.project.url,
                     team_id: triggerGlobals.project.id,
                     now: '',
@@ -287,16 +291,20 @@ export class CdpApi {
                         errors.push(invocationResult.error)
                     }
                 }
+
+                const wasSkipped = response.invocationResults.some((r) =>
+                    r.metrics?.some((m) => m.metric_name === 'filtered')
+                )
+
+                res.json({
+                    result: result,
+                    status: errors.length > 0 ? 'error' : wasSkipped ? 'skipped' : 'success',
+                    errors: errors.map((e) => String(e)),
+                    logs: logs,
+                })
             } else {
                 return res.status(400).json({ error: 'Invalid function type' })
             }
-
-            res.json({
-                result: result,
-                status: errors.length > 0 ? 'error' : 'success',
-                errors: errors.map((e) => String(e)),
-                logs: logs,
-            })
         } catch (e) {
             console.error(e)
             res.status(500).json({ errors: [e.message] })

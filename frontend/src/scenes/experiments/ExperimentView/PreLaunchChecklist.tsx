@@ -9,11 +9,12 @@ export function PreLaunchChecklist(): JSX.Element {
     const { openDescriptionModal, openPrimaryMetricSourceModal, openCalculateRunningTimeModal } =
         useActions(experimentLogic)
     return (
-        <div className="w-1/2 mt-8 xl:mt-0">
+        <div>
+            <div className="flex items-center deprecated-space-x-2 mb-2">
+                <h2 className="mb-0 font-semibold text-lg leading-6">Pre-launch checklist</h2>
+            </div>
+
             <div className="bg-bg-light rounded p-4 border">
-                <div className="mb-4">
-                    <div className="font-semibold text-lg">Pre-launch checklist</div>
-                </div>
                 <div>
                     {/* Step 1 - Hypothesis */}
                     <div className="flex gap-3 mb-6">

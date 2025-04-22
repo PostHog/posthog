@@ -1,16 +1,17 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
 
 import { CyclotronJob, CyclotronJobUpdate } from '@posthog/cyclotron'
-import { Bytecodes } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
 import RE2 from 're2'
 import { gunzip, gzip } from 'zlib'
 
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { safeClickhouseString } from '../utils/db/utils'
+import { parseJSON } from '../utils/json-parse'
+import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
-import { status } from '../utils/status'
 import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
+import { MAX_GROUP_TYPES_PER_TEAM } from '../worker/ingestion/group-type-manager'
 import { CdpInternalEvent } from './schema'
 import {
     HogFunctionCapturedEvent,
@@ -24,7 +25,6 @@ import {
     HogFunctionLogEntrySerialized,
     HogFunctionType,
 } from './types'
-
 // ID of functions that are hidden from normal users and used by us for special testing
 // For example, transformations use this to only run if in comparison mode
 export const CDP_TEST_ID = '[CDP-TEST-HIDDEN]'
@@ -56,13 +56,13 @@ export function convertToHogFunctionInvocationGlobals(
     team: Team,
     siteUrl: string
 ): HogFunctionInvocationGlobals {
-    const properties = event.properties ? JSON.parse(event.properties) : {}
+    const properties = event.properties ? parseJSON(event.properties) : {}
     const projectUrl = `${siteUrl}/project/${team.id}`
 
     let person: HogFunctionInvocationGlobals['person']
 
     if (event.person_id) {
-        const personProperties = event.person_properties ? JSON.parse(event.person_properties) : {}
+        const personProperties = event.person_properties ? parseJSON(event.person_properties) : {}
         const personDisplayName = getPersonDisplayName(team, event.distinct_id, personProperties)
 
         person = {
@@ -184,6 +184,15 @@ function getElementsChainElements(elementsChain: string): string[] {
 export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationGlobals): HogFunctionFilterGlobals {
     const groups: Record<string, any> = {}
 
+    // We need to add default empty groups so that filtering works as it expects it to always exist
+    for (let i = 0; i < MAX_GROUP_TYPES_PER_TEAM; i++) {
+        groups[`group_${i}`] = {
+            key: null,
+            index: i,
+            properties: {},
+        }
+    }
+
     for (const [_groupType, group] of Object.entries(globals.groups || {})) {
         groups[`group_${group.index}`] = {
             key: group.id,
@@ -284,7 +293,7 @@ export const unGzipObject = async <T extends object>(data: string): Promise<T> =
         gunzip(Buffer.from(data, 'base64'), (err, result) => (err ? rej(err) : res(result)))
     )
 
-    return JSON.parse(res.toString())
+    return parseJSON(res.toString())
 }
 
 export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogFunctionLogEntrySerialized[] => {
@@ -319,8 +328,7 @@ export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogF
 
 export function createInvocation(
     globals: HogFunctionInvocationGlobalsWithInputs,
-    hogFunction: HogFunctionType,
-    functionToExecute?: [string, any[]]
+    hogFunction: HogFunctionType
 ): HogFunctionInvocation {
     return {
         id: new UUIDT().toString(),
@@ -328,9 +336,8 @@ export function createInvocation(
         teamId: hogFunction.team_id,
         hogFunction,
         queue: 'hog',
-        priority: 1,
+        queuePriority: 1,
         timings: [],
-        functionToExecute,
     }
 }
 
@@ -347,38 +354,31 @@ export function serializeHogFunctionInvocation(invocation: HogFunctionInvocation
     return serializedInvocation
 }
 
-function prepareQueueParams(
-    _params?: HogFunctionInvocation['queueParameters']
-): Pick<CyclotronJobUpdate, 'parameters' | 'blob'> {
-    let parameters: HogFunctionInvocation['queueParameters'] = _params
+export function invocationToCyclotronJobUpdate(invocation: HogFunctionInvocation): CyclotronJobUpdate {
+    const queueParameters: HogFunctionInvocation['queueParameters'] = invocation.queueParameters
     let blob: CyclotronJobUpdate['blob'] = undefined
+    let parameters: CyclotronJobUpdate['parameters'] = undefined
 
-    if (!parameters) {
-        return { parameters, blob }
+    if (queueParameters) {
+        const { body, ...rest } = queueParameters
+        parameters = rest
+        blob = body ? Buffer.from(body) : undefined
     }
 
-    const { body, ...rest } = parameters
-    parameters = rest
-    blob = body ? Buffer.from(body) : undefined
-
-    return {
+    const updates: CyclotronJobUpdate = {
+        vmState: serializeHogFunctionInvocation(invocation),
+        priority: invocation.queuePriority,
+        queueName: invocation.queue,
         parameters,
         blob,
-    }
-}
-
-export function invocationToCyclotronJobUpdate(invocation: HogFunctionInvocation): CyclotronJobUpdate {
-    const updates = {
-        priority: invocation.priority,
-        vmState: serializeHogFunctionInvocation(invocation),
-        queueName: invocation.queue,
-        ...prepareQueueParams(invocation.queueParameters),
+        metadata: invocation.queueMetadata,
+        scheduled: invocation.queueScheduledAt?.toISO(),
     }
     return updates
 }
 
 export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunctionType): HogFunctionInvocation {
-    const parsedState = job.vmState as HogFunctionInvocationSerialized
+    const parsedState = job.vmState as HogFunctionInvocationSerialized | null
     const params = job.parameters as HogFunctionInvocationQueueParameters | undefined
 
     if (job.blob && params) {
@@ -386,67 +386,34 @@ export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunc
         try {
             params.body = job.blob ? Buffer.from(job.blob).toString('utf-8') : undefined
         } catch (e) {
-            status.error('Error parsing blob', e, job.blob)
+            logger.error('Error parsing blob', e, job.blob)
             captureException(e)
         }
     }
 
+    // TRICKY: If this is being converted for the fetch service we don't deserialize the vmstate as it isn't necessary
+    // We cast it to the right type as we would rather things crash if they try to use it
+    // This will be fixed in an upcoming PR
+
     return {
         id: job.id,
-        globals: parsedState.globals,
+        globals: parsedState?.globals ?? ({} as unknown as HogFunctionInvocationGlobalsWithInputs),
         teamId: hogFunction.team_id,
         hogFunction,
-        priority: job.priority,
         queue: (job.queueName as any) ?? 'hog',
+        queuePriority: job.priority,
+        queueScheduledAt: job.scheduled ? DateTime.fromISO(job.scheduled) : undefined,
+        queueMetadata: job.metadata ?? undefined,
         queueParameters: params,
-        vmState: parsedState.vmState,
-        timings: parsedState.timings,
-    }
-}
-
-/** Build bytecode that calls a function in another imported bytecode */
-export function buildExportedFunctionInvoker(
-    exportBytecode: any[],
-    exportGlobals: any,
-    functionName: string,
-    args: any[]
-): Bytecodes {
-    let argBytecodes: any[] = []
-    for (let i = 0; i < args.length; i++) {
-        argBytecodes = [
-            ...argBytecodes,
-            33, // integer
-            i + 1, // (index in args array)
-            32, // string
-            '__args',
-            1, // get global
-            2, // (chain length)
-        ]
-    }
-    const bytecode = [
-        '_H',
-        1,
-        ...argBytecodes,
-        32, // string
-        'x',
-        2, // call global
-        'import',
-        1, // (arg count)
-        32, // string
-        functionName,
-        45, // get property
-        54, // call local
-        args.length,
-        35, // pop
-    ]
-    return {
-        bytecodes: {
-            x: { bytecode: exportBytecode, globals: exportGlobals },
-            root: { bytecode, globals: { __args: args } },
-        },
+        vmState: parsedState?.vmState,
+        timings: parsedState?.timings ?? [],
     }
 }
 
 export function isLegacyPluginHogFunction(hogFunction: HogFunctionType): boolean {
     return hogFunction.template_id?.startsWith('plugin-') ?? false
+}
+
+export function filterExists<T>(value: T): value is NonNullable<T> {
+    return Boolean(value)
 }

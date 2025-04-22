@@ -1,11 +1,12 @@
 import datetime
 import decimal
-from ipaddress import IPv4Address, IPv6Address
+import hashlib
 import json
 import math
 import uuid
 from collections.abc import Iterator, Sequence
-from typing import Any, Optional, cast
+from ipaddress import IPv4Address, IPv6Address
+from typing import Any, Optional
 
 import deltalake as deltalake
 import numpy as np
@@ -21,9 +22,12 @@ from dlt.sources import DltResource
 
 from posthog.temporal.common.logger import FilteringBoundLogger
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.pipelines.pipeline.typings import (
+    PartitionFormat,
+    PartitionMode,
+    SourceResponse,
+)
 from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
-from posthog.warehouse.types import IncrementalFieldType
 
 DLT_TO_PA_TYPE_MAP = {
     "text": pa.string(),
@@ -39,6 +43,7 @@ DLT_TO_PA_TYPE_MAP = {
 
 DEFAULT_NUMERIC_PRECISION = 76
 DEFAULT_NUMERIC_SCALE = 32
+DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES = 200 * 1024 * 1024  # 200 MB
 
 
 def normalize_column_name(column_name: str) -> str:
@@ -147,6 +152,7 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
 
     for column_name in table.column_names:
         column = table.column(column_name)
+        field = table.field(column_name)
 
         # Change pa.structs to JSON string
         if pa.types.is_struct(column.type) or pa.types.is_list(column.type):
@@ -161,13 +167,10 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
             table = table.set_column(table.schema.get_field_index(column_name), column_name, seconds_column)
             column = table.column(column_name)
 
-        # Normalize column names
-        normalized_column_name = normalize_column_name(column_name)
-        if normalized_column_name != column_name:
-            table = table.set_column(table.schema.get_field_index(column_name), normalized_column_name, column)
-
-    # Refresh column names after potential name updates
-    py_table_field_names = table.schema.names
+        # Convert nanosecond timestamps to microseconds and convert to UTC
+        if pa.types.is_timestamp(field.type) and (field.type.unit == "ns" or field.type.tz is not None):
+            microsecond_timestamps = pc.cast(column, pa.timestamp("us"), safe=False)
+            table = table.set_column(table.schema.get_field_index(column_name), column_name, microsecond_timestamps)
 
     if delta_schema:
         for field in delta_schema.to_pyarrow():
@@ -188,10 +191,9 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
                 if (
                     isinstance(py_arrow_table_column.type, pa.Decimal128Type)
                     or isinstance(py_arrow_table_column.type, pa.Decimal256Type)
-                    and (
-                        field.type.precision > py_arrow_table_column.type.precision
-                        or field.type.scale > py_arrow_table_column.type.scale
-                    )
+                ) and (
+                    field.type.precision > py_arrow_table_column.type.precision
+                    or field.type.scale > py_arrow_table_column.type.scale
                 ):
                     field_index = table.schema.get_field_index(field.name)
 
@@ -261,8 +263,16 @@ def _append_debug_column_to_pyarrows_table(table: pa.Table, load_id: int) -> pa.
     return table.append_column("_ph_debug", column)
 
 
-def should_partition_table(delta_table: deltalake.DeltaTable | None, schema: ExternalDataSchema) -> bool:
+def should_partition_table(
+    delta_table: deltalake.DeltaTable | None, schema: ExternalDataSchema, source: SourceResponse
+) -> bool:
     if not schema.is_incremental:
+        return False
+
+    if schema.partitioning_enabled and schema.partition_count is not None and schema.partitioning_keys is not None:
+        return True
+
+    if source.partition_count is None:
         return False
 
     if delta_table is None:
@@ -275,48 +285,99 @@ def should_partition_table(delta_table: deltalake.DeltaTable | None, schema: Ext
     return False
 
 
+def normalize_table_column_names(table: pa.Table) -> pa.Table:
+    used_names = set()
+
+    for column_name in table.column_names:
+        normalized_column_name = normalize_column_name(column_name)
+        temp_name = normalized_column_name
+
+        if temp_name != column_name:
+            while temp_name in used_names or temp_name in table.column_names:
+                temp_name = "_" + temp_name
+
+            table = table.set_column(
+                table.schema.get_field_index(column_name),
+                temp_name,
+                table.column(column_name),  # type: ignore
+            )
+            used_names.add(temp_name)
+
+    return table
+
+
 def append_partition_key_to_table(
-    table: pa.Table, incremental_field: str, incremental_field_type: IncrementalFieldType, logger: FilteringBoundLogger
-) -> pa.Table:
+    table: pa.Table,
+    partition_count: int,
+    partition_size: int,
+    partition_keys: list[str],
+    partition_mode: PartitionMode | None,
+    partition_format: PartitionFormat | None,
+    logger: FilteringBoundLogger,
+) -> tuple[pa.Table, PartitionMode, list[str]]:
+    normalized_partition_keys = [normalize_column_name(key) for key in partition_keys]
+
+    partition_array: list[str] = []
+
+    mode: PartitionMode = partition_mode or "md5"
+
+    # If there is only one primary key and it's a numerical ID, then bucket by the ID itself instead of hashing it
     if (
-        incremental_field_type != IncrementalFieldType.Date
-        and incremental_field_type != IncrementalFieldType.DateTime
-        and incremental_field_type != IncrementalFieldType.Timestamp
+        partition_mode is None
+        and len(normalized_partition_keys) == 1
+        and pa.types.is_integer(table.field(normalized_partition_keys[0]).type)
     ):
-        logger.debug(f"No partition key added due to incremental_field_type={incremental_field_type}")
-        return table
+        mode = "numerical"
+    elif (
+        partition_mode is None
+        and "created_at" in table.column_names
+        and pa.types.is_timestamp(table.field("created_at").type)
+        and table.column("created_at").null_count != table.num_rows
+    ):
+        mode = "datetime"
+        normalized_partition_keys = ["created_at"]
 
-    partition_array: list[str | None] = []
+    for batch in table.to_batches():
+        for row in batch.to_pylist():
+            if mode == "md5":
+                primary_key_values = [str(row[key]) for key in normalized_partition_keys]
+                delimited_primary_key_value = "|".join(primary_key_values)
 
-    for value in table.column(incremental_field):
-        parsed_value = safe_parse_datetime(value)
-        if not parsed_value:
-            partition_array.append(None)
-            continue
+                hash_value = int(hashlib.md5(delimited_primary_key_value.encode()).hexdigest(), 16)
+                partition = hash_value % partition_count
 
-        if isinstance(parsed_value, pa.TimestampScalar):
-            parsed_value_as_py = cast(Any, parsed_value.as_py())
-            if isinstance(parsed_value_as_py, int):
-                date = datetime.datetime.fromtimestamp(parsed_value_as_py)
-                partition_array.append(date.strftime("%Y-%m"))
-            elif isinstance(parsed_value_as_py, datetime.datetime):
-                date = parsed_value_as_py
-                partition_array.append(date.strftime("%Y-%m"))
+                partition_array.append(str(partition))
+            elif mode == "numerical":
+                key = normalized_partition_keys[0]
+                partition = row[key] // partition_size
+
+                partition_array.append(str(partition))
+            elif mode == "datetime":
+                key = normalized_partition_keys[0]
+                date = row[key]
+
+                if partition_format == "day":
+                    date_format = "%Y-%m-%d"
+                else:
+                    date_format = "%Y-%m"
+
+                if isinstance(date, int):
+                    date = datetime.datetime.fromtimestamp(date)
+                    partition_array.append(date.strftime(date_format))
+                elif isinstance(date, datetime.datetime):
+                    partition_array.append(date.strftime(date_format))
+                else:
+                    partition_array.append("1970-01")
             else:
-                partition_array.append(None)
-        elif isinstance(parsed_value, datetime.datetime):
-            partition_array.append(parsed_value.strftime("%Y-%m"))
+                raise ValueError(f"Partition mode '{mode}' not supported")
 
     new_column = pa.array(partition_array, type=pa.string())
-    if new_column.null_count == len(new_column):
-        logger.debug(f"No partition key added due to {PARTITION_KEY} being all nulls")
-        return table
+    logger.debug(f"Partition key added with mode={mode}")
 
-    logger.debug(f"Partition key added")
-    return table.append_column(PARTITION_KEY, new_column)
+    return table.append_column(PARTITION_KEY, new_column), mode, normalized_partition_keys
 
 
-def _update_incremental_state(schema: ExternalDataSchema | None, table: pa.Table, logger: FilteringBoundLogger) -> None:
+def _get_incremental_field_last_value(schema: ExternalDataSchema | None, table: pa.Table) -> Any:
     if schema is None or schema.sync_type != ExternalDataSchema.SyncType.INCREMENTAL:
         return
 
@@ -329,10 +390,7 @@ def _update_incremental_state(schema: ExternalDataSchema | None, table: pa.Table
 
     # TODO(@Gilbert09): support different operations here (e.g. min)
     last_value = numpy_arr.max()
-
-    logger.debug(f"Updating incremental_field_last_value with {last_value}")
-
-    schema.update_incremental_field_last_value(last_value)
+    return last_value
 
 
 def _update_last_synced_at_sync(schema: ExternalDataSchema, job: ExternalDataJob) -> None:
@@ -479,7 +537,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
     else:
         arrow_schema = schema
 
-    drop_column_names: list[str] = []
+    drop_column_names: set[str] = set()
 
     column_names = set(table_data[0].keys())
     columnar_table_data: dict[str, pa.Array | np.ndarray[Any, np.dtype[Any]]] = {}
@@ -535,6 +593,19 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 adjusted_field = arrow_schema.field(field_index).with_nullable(has_nulls)
                 arrow_schema = arrow_schema.set(field_index, adjusted_field)
 
+            # Remove any binary columns
+            if pa.types.is_binary(field.type):
+                drop_column_names.add(field_name)
+
+            # Ensure duration columns have the correct arrow type
+            col = columnar_table_data[field_name]
+            if (
+                isinstance(col, pa.Array)
+                and pa.types.is_duration(col.type)
+                and not pa.types.is_duration(arrow_schema.field(field_index).type)
+            ):
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(col.type))
+
         # Convert UUIDs to strings
         if issubclass(py_type, uuid.UUID):
             uuid_str_array = pa.array([None if s is None else str(s) for s in columnar_table_data[field_name].tolist()])
@@ -562,29 +633,52 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
                 return decimal.Decimal(str(x))
 
-            all_values = columnar_table_data[field_name].tolist()
-            all_values_as_decimals_or_none = [_convert_to_decimal_or_none(x) for x in all_values]
+            def _convert_to_float_or_none(x: float | None) -> float | None:
+                if x is None:
+                    return None
 
-            if arrow_schema and pa.types.is_decimal(arrow_schema.field(field_index).type):
-                new_field_type = arrow_schema.field(field_index).type
-            else:
-                new_field_type = _get_max_decimal_type([x for x in all_values_as_decimals_or_none if x is not None])
+                if math.isnan(x) or np.isinf(x):
+                    return None
+
+                return x
+
+            all_values = columnar_table_data[field_name].tolist()
+
+            if len(unique_types_in_column) > 1 or issubclass(py_type, decimal.Decimal):
+                # Mixed types: convert all to decimals
+                all_values = [_convert_to_decimal_or_none(x) for x in all_values]
+
+                if arrow_schema and pa.types.is_decimal(arrow_schema.field(field_index).type):
+                    new_field_type = arrow_schema.field(field_index).type
+                else:
+                    new_field_type = _get_max_decimal_type([x for x in all_values if x is not None])
+
+                py_type = decimal.Decimal
+                unique_types_in_column = {decimal.Decimal}
+            elif issubclass(py_type, float):
+                all_values = [_convert_to_float_or_none(x) for x in all_values]
+
+                if arrow_schema:
+                    new_field_type = arrow_schema.field(field_index).type
+                else:
+                    new_field_type = pa.float64()
 
             try:
                 number_arr = pa.array(
-                    all_values_as_decimals_or_none,
+                    all_values,
                     type=new_field_type,
                 )
             except pa.ArrowInvalid as e:
                 if len(e.args) > 0 and "does not fit into precision" in e.args[0]:
-                    number_arr = _build_decimal_type_from_defaults(all_values_as_decimals_or_none)
+                    number_arr = _build_decimal_type_from_defaults([_convert_to_decimal_or_none(x) for x in all_values])
                     new_field_type = number_arr.type
+
+                    py_type = decimal.Decimal
+                    unique_types_in_column = {decimal.Decimal}
                 else:
                     raise
 
             columnar_table_data[field_name] = number_arr
-            py_type = decimal.Decimal
-            unique_types_in_column = {decimal.Decimal}
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(new_field_type))
 
@@ -642,7 +736,7 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
         # Remove any binary columns
         if issubclass(py_type, bytes):
-            drop_column_names.append(field_name)
+            drop_column_names.add(field_name)
 
     if len(drop_column_names) != 0:
         for column in drop_column_names:

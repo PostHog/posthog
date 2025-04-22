@@ -165,6 +165,100 @@ class SessionReplayEvents:
 
         return result.columns, result.results
 
+    def get_events_for_session(self, session_id: str, team: Team, limit: int = 100) -> list[dict]:
+        """Get all events for a session."""
+        query = """
+            SELECT event, timestamp
+            FROM events
+            WHERE team_id = %(team_id)s
+            AND $session_id = %(session_id)s
+            ORDER BY timestamp ASC
+            LIMIT %(limit)s
+        """
+
+        events = sync_execute(
+            query,
+            {
+                "team_id": team.pk,
+                "session_id": session_id,
+                "limit": limit,
+            },
+        )
+        return [{"event": e[0], "timestamp": e[1]} for e in events]
+
+    def get_similar_recordings(
+        self, session_id: str, team: Team, limit: int = 10, similarity_range: float = 0.5
+    ) -> list[dict]:
+        """Find recordings with similar URL sequences.
+        Args:
+            session_id: The session ID to find similar recordings for
+            team: The team the recording belongs to
+            limit: Maximum number of similar recordings to return
+            similarity_range: How similar the recordings should be (0.0 to 1.0)
+        """
+        query = """
+        WITH target_urls AS (
+            SELECT groupArrayArray(all_urls) as url_sequence
+            FROM session_replay_events
+            WHERE team_id = %(team_id)s
+            AND session_id = %(session_id)s
+        )
+        SELECT
+            sre.session_id,
+            sre.distinct_id,
+            min_first_timestamp as start_time,
+            max_last_timestamp as end_time,
+            click_count,
+            keypress_count,
+            mouse_activity_count,
+            active_milliseconds,
+            all_urls as urls,
+            target_urls.url_sequence
+        FROM session_replay_events sre
+        CROSS JOIN target_urls
+        WHERE sre.team_id = %(team_id)s
+        AND sre.session_id != %(session_id)s
+        GROUP BY
+            sre.session_id,
+            sre.distinct_id,
+            min_first_timestamp,
+            max_last_timestamp,
+            click_count,
+            keypress_count,
+            mouse_activity_count,
+            active_milliseconds,
+            all_urls,
+            target_urls.url_sequence
+        HAVING
+            length(urls) > 0 AND
+            urls = url_sequence
+        LIMIT %(limit)s
+        """
+
+        results = sync_execute(
+            query,
+            {
+                "team_id": team.pk,
+                "session_id": session_id,
+                "limit": limit,
+            },
+        )
+
+        return [
+            {
+                "session_id": r[0],
+                "distinct_id": r[1],
+                "start_time": r[2],
+                "end_time": r[3],
+                "click_count": r[4],
+                "keypress_count": r[5],
+                "mouse_activity_count": r[6],
+                "active_milliseconds": r[7],
+                "urls": r[8],
+            }
+            for r in results
+        ]
+
 
 def ttl_days(team: Team) -> int:
     if is_cloud():

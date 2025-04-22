@@ -7,7 +7,7 @@ import structlog
 from django.db import transaction
 from django.utils.timezone import now
 from loginas.utils import is_impersonated_session
-from rest_framework import filters, mixins, request, response, serializers, viewsets
+from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import (
     NotAuthenticated,
     NotFound,
@@ -40,7 +40,6 @@ from posthog.hogql import ast, errors
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-from posthog.hogql.visitor import clone_expr
 from posthog.models import (
     BatchExport,
     BatchExportBackfill,
@@ -49,6 +48,8 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+from posthog.temporal.batch_exports.destination_tests import get_destination_test
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
 
@@ -211,8 +212,14 @@ class HogQLSelectQueryField(serializers.Field):
                 ast.SelectQuery,
                 prepare_ast_for_printing(
                     parsed_query,
-                    context=HogQLContext(team_id=self.context["team_id"], enable_select_queries=True),
-                    dialect="hogql",
+                    context=HogQLContext(
+                        team_id=self.context["team_id"],
+                        enable_select_queries=True,
+                        modifiers=HogQLQueryModifiers(
+                            personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+                        ),
+                    ),
+                    dialect="clickhouse",
                 ),
             )
         except errors.ExposedHogQLError as e:
@@ -282,11 +289,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
             config = destination_attrs["config"]
             # for updates, get the existing config
             self.instance: BatchExport | None
+            view = self.context.get("view")
+
             if self.instance is not None:
                 existing_config = self.instance.destination.config
+            elif view is not None and "pk" in view.kwargs:
+                # Running validation for a `detail=True` action.
+                instance = view.get_object()
+                existing_config = instance.destination.config
             else:
                 existing_config = {}
             merged_config = {**existing_config, **config}
+
             if config.get("authentication_type") == "password" and merged_config.get("password") is None:
                 raise serializers.ValidationError("Password is required if authentication type is password")
             if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
@@ -355,8 +369,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 team_id=self.context["team_id"],
                 enable_select_queries=True,
                 limit_top_select=False,
+                modifiers=HogQLQueryModifiers(
+                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+                ),
             )
-            print_prepared_ast(clone_expr(hogql_query), context=context, dialect="clickhouse")
+            print_prepared_ast(hogql_query, context=context, dialect="clickhouse")
 
             # Recreate the context
             context = HogQLContext(
@@ -525,6 +542,52 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         instance.save().
         """
         disable_and_delete_export(instance)
+
+    @action(methods=["GET"], detail=False, required_scopes=["INTERNAL"])
+    def test(self, request: request.Request, *args, **kwargs) -> response.Response:
+        destination = request.query_params.get("destination", None)
+        if not destination:
+            return response.Response(status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            destination_test = get_destination_test(destination=destination)
+        except ValueError:
+            return response.Response(status=status.HTTP_404_NOT_FOUND)
+
+        return response.Response(destination_test.as_dict())
+
+    @action(methods=["POST"], detail=False, required_scopes=["INTERNAL"])
+    def run_test_step_new(self, request: request.Request, *args, **kwargs) -> response.Response:
+        test_step = request.data.pop("step", 0)
+
+        serializer = self.get_serializer(data=request.data)
+        _ = serializer.is_valid(raise_exception=True)
+
+        destination_test = get_destination_test(
+            destination=serializer.validated_data["destination"]["type"],
+        )
+        test_configuration = serializer.validated_data["destination"]["config"]
+        destination_test.configure(**test_configuration)
+
+        result = destination_test.run_step(test_step)
+        return response.Response(result.as_dict())
+
+    @action(methods=["POST"], detail=True, required_scopes=["INTERNAL"])
+    def run_test_step(self, request: request.Request, *args, **kwargs) -> response.Response:
+        test_step = request.data.pop("step", 0)
+
+        serializer = self.get_serializer(data=request.data)
+        _ = serializer.is_valid(raise_exception=True)
+
+        destination_test = get_destination_test(
+            destination=serializer.validated_data["destination"]["type"],
+        )
+        batch_export = self.get_object()
+        test_configuration = {**batch_export.destination.config, **serializer.validated_data["destination"]["config"]}
+        destination_test.configure(**test_configuration)
+
+        result = destination_test.run_step(test_step)
+        return response.Response(result.as_dict())
 
 
 class BatchExportOrganizationViewSet(BatchExportViewSet):

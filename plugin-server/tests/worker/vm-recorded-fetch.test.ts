@@ -3,6 +3,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { Hub, PluginConfig } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { trackedFetch } from '../../src/utils/fetch'
+import { parseJSON } from '../../src/utils/json-parse'
 import { getHttpCallRecorder, RecordedHttpCall } from '../../src/utils/recorded-fetch'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
@@ -146,7 +147,7 @@ describe('VM with recorded fetch', () => {
         expect(recordedCalls[0].request.url).toBe('https://example.com/api/track')
         expect(recordedCalls[0].request.method).toBe('POST')
         expect(recordedCalls[0].request.headers['content-type']).toBe('application/json')
-        expect(JSON.parse(recordedCalls[0].request.body!)).toEqual({ event: 'test_event' })
+        expect(parseJSON(recordedCalls[0].request.body!)).toEqual({ event: 'test_event' })
     })
 
     it('records fetch calls with error responses', async () => {
@@ -190,7 +191,7 @@ describe('VM with recorded fetch', () => {
         expect(recordedCalls[0].request.url).toBe('https://example.com/api/error')
         expect(recordedCalls[0].response.status).toBe(0)
         expect(recordedCalls[0].response.statusText).toBe('Network error')
-        expect(recordedCalls[0].error).toBeDefined()
+        expect(recordedCalls[0].error).toBeTruthy()
         expect(recordedCalls[0].error!.message).toBe('Network error')
     })
 
@@ -205,7 +206,7 @@ describe('VM with recorded fetch', () => {
                 // First, fetch user data
                 const userResponse = await fetch('https://example.com/api/users/' + event.distinct_id)
                 const userData = await userResponse.json()
-                
+
                 // Then use the user data to make a second request
                 const analyticsResponse = await fetch('https://example.com/api/analytics', {
                     method: 'POST',
@@ -219,12 +220,12 @@ describe('VM with recorded fetch', () => {
                         timestamp: new Date().toISOString()
                     })
                 })
-                
+
                 // Add the user data to the event properties
                 event.properties.user_id = userData.id
                 event.properties.user_name = userData.name
                 event.properties.user_email = userData.email
-                
+
                 return event
             }
         `
@@ -266,7 +267,7 @@ describe('VM with recorded fetch', () => {
         expect(recordedCalls[1].response.status).toBe(201)
 
         // Verify the second request body contains data from the first response
-        const requestBody = JSON.parse(recordedCalls[1].request.body!)
+        const requestBody = parseJSON(recordedCalls[1].request.body!)
         expect(requestBody.userId).toBe(123)
         expect(requestBody.userName).toBe('Test User')
         expect(requestBody.userEmail).toBe('test@example.com')
@@ -284,7 +285,7 @@ describe('VM with recorded fetch', () => {
                 await fetch('https://example.com/api/direct-json', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: { 
+                    body: {
                         eventName: event.event,
                         properties: event.properties,
                         timestamp: new Date().toISOString()
@@ -318,7 +319,7 @@ describe('VM with recorded fetch', () => {
         expect(recordedCalls[0].request.method).toBe('POST')
 
         // Verify the body was automatically stringified
-        const requestBody = JSON.parse(recordedCalls[0].request.body!)
+        const requestBody = parseJSON(recordedCalls[0].request.body!)
         expect(requestBody.eventName).toBe('direct_json_test')
         expect(requestBody.properties).toEqual({ test: true })
     })

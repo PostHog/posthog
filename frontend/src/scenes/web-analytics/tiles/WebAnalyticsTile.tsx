@@ -10,15 +10,23 @@ import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { percentage, tryDecodeURIComponent, UnexpectedNeverError } from 'lib/utils'
+import {
+    COUNTRY_CODE_TO_LONG_NAME,
+    countryCodeToFlag,
+    LANGUAGE_CODE_TO_NAME,
+    languageCodeToFlag,
+} from 'lib/utils/geography/country'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { useCallback, useMemo } from 'react'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
-import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
-import { languageCodeToFlag, languageCodeToName } from 'scenes/insights/views/WorldMap/countryCodes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import {
     GeographyTab,
+    ProductTab,
     TileId,
     webAnalyticsLogic,
     webStatsBreakdownToPropertyName,
@@ -41,6 +49,7 @@ import { InsightLogicProps, ProductKey, PropertyFilterType } from '~/types'
 
 import { HeatmapButton } from '../CrossSellButtons/HeatmapButton'
 import { ReplayButton } from '../CrossSellButtons/ReplayButton'
+import { pageReportsLogic } from '../pageReportsLogic'
 
 const toUtcOffsetFormat = (value: number): string => {
     if (value === 0) {
@@ -220,7 +229,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 const countryCode = value
                 return (
                     <>
-                        {countryCodeToFlag(countryCode)} {countryCodeToName[countryCode] || countryCode}
+                        {countryCodeToFlag(countryCode)} {COUNTRY_CODE_TO_LONG_NAME[countryCode] || countryCode}
                     </>
                 )
             }
@@ -230,7 +239,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 const [countryCode, regionCode, regionName] = value
                 return (
                     <>
-                        {countryCodeToFlag(countryCode)} {countryCodeToName[countryCode] || countryCode} -{' '}
+                        {countryCodeToFlag(countryCode)} {COUNTRY_CODE_TO_LONG_NAME[countryCode] || countryCode} -{' '}
                         {regionName || regionCode}
                     </>
                 )
@@ -241,7 +250,8 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 const [countryCode, cityName] = value
                 return (
                     <>
-                        {countryCodeToFlag(countryCode)} {countryCodeToName[countryCode] || countryCode} - {cityName}
+                        {countryCodeToFlag(countryCode)} {COUNTRY_CODE_TO_LONG_NAME[countryCode] || countryCode} -{' '}
+                        {cityName}
                     </>
                 )
             }
@@ -261,7 +271,7 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
                 return (
                     <>
                         {countryCodeToFlag(parsedCountryCode) ?? languageCodeToFlag(languageCode)}&nbsp;
-                        {languageCodeToName[languageCode] || languageCode}
+                        {LANGUAGE_CODE_TO_NAME[languageCode] || languageCode}
                     </>
                 )
             }
@@ -450,16 +460,7 @@ export const WebStatsTrendTile = ({
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center">
                         <span className="mr-2">Group by</span>
-                        <IntervalFilterStandalone
-                            interval={interval}
-                            onIntervalChange={setInterval}
-                            options={[
-                                { value: 'hour', label: 'Hour' },
-                                { value: 'day', label: 'Day' },
-                                { value: 'week', label: 'Week' },
-                                { value: 'month', label: 'Month' },
-                            ]}
-                        />
+                        <IntervalFilterStandalone interval={interval} onIntervalChange={setInterval} />
                     </div>
                 </div>
             )}
@@ -479,6 +480,7 @@ export const WebStatsTableTile = ({
     tileId: TileId
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
+    const { productTab } = useValues(webAnalyticsLogic)
 
     const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
@@ -488,9 +490,14 @@ export const WebStatsTableTile = ({
                 return
             }
 
+            if (productTab === ProductTab.PAGE_REPORTS) {
+                lemonToast.info('Filters are not yet supported in this tile')
+                return
+            }
+
             togglePropertyFilter(type, key, breakdownValue)
         },
-        [togglePropertyFilter, type, key]
+        [togglePropertyFilter, type, key, productTab]
     )
 
     const context = useMemo((): QueryContext => {
@@ -571,6 +578,7 @@ const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): str
 export const WebGoalsTile = ({ query, insightProps }: QueryWithInsightProps<DataTableNode>): JSX.Element | null => {
     const { actions, actionsLoading } = useValues(actionsModel)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
+    const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     if (actionsLoading) {
         return null
@@ -595,7 +603,19 @@ export const WebGoalsTile = ({ query, insightProps }: QueryWithInsightProps<Data
     return (
         <div className="border rounded bg-surface-primary flex-1">
             <div className="flex flex-row-reverse p-2">
-                <LemonButton to={urls.actions()} sideIcon={<IconOpenInNew />} type="secondary" size="small">
+                <LemonButton
+                    to={urls.actions()}
+                    onClick={() => {
+                        addProductIntentForCrossSell({
+                            from: ProductKey.WEB_ANALYTICS,
+                            to: ProductKey.ACTIONS,
+                            intent_context: ProductIntentContext.WEB_ANALYTICS_INSIGHT,
+                        })
+                    }}
+                    sideIcon={<IconOpenInNew />}
+                    type="secondary"
+                    size="small"
+                >
                     Manage actions
                 </LemonButton>
             </div>
@@ -608,20 +628,25 @@ export const WebExternalClicksTile = ({
     query,
     insightProps,
 }: QueryWithInsightProps<DataTableNode>): JSX.Element | null => {
-    const { shouldStripQueryParams } = useValues(webAnalyticsLogic)
+    const { productTab, shouldStripQueryParams } = useValues(webAnalyticsLogic)
     const { setShouldStripQueryParams } = useActions(webAnalyticsLogic)
+
+    const isPageReportsPage = productTab === ProductTab.PAGE_REPORTS
+
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
-            <div className="flex flex-row items-center justify-end m-2 mr-4">
-                <div className="flex flex-row items-center deprecated-space-x-2">
-                    <LemonSwitch
-                        label="Strip query parameters"
-                        checked={shouldStripQueryParams}
-                        onChange={setShouldStripQueryParams}
-                        className="h-full"
-                    />
+            {!isPageReportsPage && (
+                <div className="flex flex-row items-center justify-end m-2 mr-4">
+                    <div className="flex flex-row items-center deprecated-space-x-2">
+                        <LemonSwitch
+                            label="Strip query parameters"
+                            checked={shouldStripQueryParams}
+                            onChange={setShouldStripQueryParams}
+                            className="h-full"
+                        />
+                    </div>
                 </div>
-            </div>
+            )}
             <Query query={query} readOnly={true} context={{ ...webAnalyticsDataTableQueryContext, insightProps }} />
         </div>
     )
@@ -668,6 +693,9 @@ export const WebQuery = ({
     control?: JSX.Element
     tileId: TileId
 }): JSX.Element => {
+    const { productTab, shouldStripQueryParams: stripQueryParamsDashboard } = useValues(webAnalyticsLogic)
+    const { stripQueryParams: stripQueryParamsPageReports } = useValues(pageReportsLogic)
+
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
         return (
             <WebStatsTableTile
@@ -681,7 +709,17 @@ export const WebQuery = ({
     }
 
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebExternalClicksTableQuery) {
-        return <WebExternalClicksTile query={query} insightProps={insightProps} />
+        const effectiveStripQueryParams =
+            productTab === ProductTab.PAGE_REPORTS ? stripQueryParamsPageReports : stripQueryParamsDashboard
+
+        const adjustedQuery = {
+            ...query,
+            source: {
+                ...query.source,
+                stripQueryParams: effectiveStripQueryParams,
+            },
+        }
+        return <WebExternalClicksTile query={adjustedQuery} insightProps={insightProps} />
     }
 
     if (query.kind === NodeKind.InsightVizNode) {

@@ -22,8 +22,8 @@ import {
     IconWeb,
     IconWindows,
 } from 'lib/lemon-ui/icons'
+import { countryCodeToFlag } from 'lib/utils/geography/country'
 import { forwardRef, Ref } from 'react'
-import { countryCodeToFlag } from 'scenes/insights/views/WorldMap'
 
 import { PropertyIconProps } from './types'
 

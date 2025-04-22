@@ -21,6 +21,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -158,6 +159,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         (d) => !updatedInsight.dashboards?.includes(d)
                     )
                     dashboardsModel.actions.updateDashboardInsight(updatedInsight, removedDashboards)
+                    values.insight.short_id && refreshTreeItem('insight', String(values.insight.short_id))
                     return updatedInsight
                 },
                 setInsightMetadata: async ({ metadataUpdate }, breakpoint) => {
@@ -172,12 +174,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     }
 
                     const response = await insightsApi.update(values.insight.id as number, metadataUpdate)
-                    breakpoint()
+                    await breakpoint(300)
 
                     savedInsightsLogic.findMounted()?.actions.loadInsights()
                     dashboardsModel.actions.updateDashboardInsight(response)
                     actions.loadTags()
 
+                    refreshTreeItem('insight', values.insight.short_id)
                     lemonToast.success(`Updated insight`, {
                         button: {
                             label: 'Undo',
@@ -191,6 +194,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                             },
                         },
                     })
+
                     return response
                 },
             },
@@ -214,9 +218,16 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                           result: null,
                           query: null,
                       },
-            setInsight: (_state, { insight }) => ({
-                ...insight,
-            }),
+            setInsight: (state, { insight }) => {
+                // Preserve the user-edited name when loading new data
+                if (!insight.name && state.name) {
+                    return {
+                        ...insight,
+                        name: state.name,
+                    }
+                }
+                return { ...insight }
+            },
             setInsightMetadata: (state, { metadataUpdate }) => ({ ...state, ...metadataUpdate }),
             [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
                 const targetDashboards = (item?.dashboards || []).concat(extraDashboardIds || [])
@@ -337,7 +348,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 )
             },
         ],
-        showPersonsModal: [() => [(s) => s.query], (query) => !query || !query.hidePersonsModal],
+        showPersonsModal: [
+            (s) => [s.query, s.insightProps, s.featureFlags],
+            (query: Record<string, any>, insightProps: InsightLogicProps): boolean => {
+                const theQuery = query || insightProps?.query
+                return !theQuery || !theQuery.hidePersonsModal
+            },
+        ],
         supportsCreatingExperiment: [
             (s) => [s.insight, s.activeScene],
             (insight: QueryBasedInsightModel, activeScene: Scene) =>
@@ -457,7 +474,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 saved: true,
             })
 
-            if (router.values.location.pathname.includes(urls.dataWarehouse())) {
+            if (router.values.location.pathname.includes(urls.sqlEditor())) {
                 lemonToast.info(`You're now viewing ${values.insight.name || values.insight.derived_name || name}`)
             } else {
                 lemonToast.info(

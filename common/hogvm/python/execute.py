@@ -27,6 +27,8 @@ from common.hogvm.python.utils import (
     set_nested_value,
     calculate_cost,
     unify_comparison_types,
+    HogVMRuntimeExceededException,
+    HogVMMemoryExceededException,
 )
 
 if TYPE_CHECKING:
@@ -163,11 +165,11 @@ def execute_bytecode(
         nonlocal max_mem_used
         max_mem_used = max(mem_used, max_mem_used)
         if mem_used > MAX_MEMORY:
-            raise HogVMException(f"Memory limit of {MAX_MEMORY} bytes exceeded. Tried to allocate {mem_used} bytes.")
+            raise HogVMMemoryExceededException(memory_limit=MAX_MEMORY, attempted_memory=mem_used)
 
     def check_timeout():
         if time.time() - start_time > timeout.total_seconds() and not debug:
-            raise HogVMException(f"Execution timed out after {timeout.total_seconds()} seconds. Performed {ops} ops.")
+            raise HogVMRuntimeExceededException(timeout_seconds=timeout.total_seconds(), ops_performed=ops)
 
     def capture_upvalue(index) -> dict:
         nonlocal upvalues
@@ -674,3 +676,44 @@ def execute_bytecode(
         frame.ip += 1
 
     return BytecodeResult(result=pop_stack() if len(stack) > 0 else None, stdout=stdout, bytecodes=bytecodes)
+
+
+def validate_bytecode(bytecode: list[Any] | dict, inputs: Optional[dict] = None) -> tuple[bool, Optional[str]]:
+    try:
+        event = {
+            "uuid": "test-event-id",
+            "event": "test-event",
+            "distinct_id": "test-distinct-id",
+            "properties": {},
+            "timestamp": "2024-01-01T00:00:00Z",
+        }
+        test_globals = {
+            "event": event,
+            "person": {"properties": {}},
+            "inputs": inputs or {},
+        }
+
+        execute_bytecode(
+            bytecode,
+            globals=test_globals,
+            timeout=timedelta(milliseconds=100),  # Short timeout for validation
+            functions={
+                "print": lambda *args: None,  # No-op print function
+                "fetch": lambda *args: {"status": 200, "body": {}},  # Mock fetch
+            },
+        )
+        return True, None
+
+    except HogVMRuntimeExceededException as e:
+        return (
+            False,
+            f"Your function is taking too long to run (over {e.timeout_seconds} seconds). Please simplify your code.",
+        )
+    except HogVMMemoryExceededException as e:
+        memory_mb = e.memory_limit / (1024 * 1024)
+        attempted_mb = e.attempted_memory / (1024 * 1024)
+        return False, f"Your function needs too much memory ({attempted_mb:.1f}MB). The limit is {memory_mb:.1f}MB."
+    except HogVMException as e:
+        return False, f"Function execution error: {str(e)}"
+    except Exception as e:
+        return False, f"Unexpected error during function validation: {str(e)}"

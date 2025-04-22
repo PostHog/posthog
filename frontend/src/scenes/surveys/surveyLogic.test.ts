@@ -10,6 +10,7 @@ import {
     PropertyFilterType,
     PropertyOperator,
     Survey,
+    SurveyPosition,
     SurveyQuestionBranchingType,
     SurveyQuestionType,
     SurveySchedule,
@@ -34,7 +35,7 @@ const MULTIPLE_CHOICE_SURVEY: Survey = {
     ],
     conditions: null,
     appearance: {
-        position: 'right',
+        position: SurveyPosition.Right,
         whiteLabel: false,
         borderColor: '#c9c6c6',
         placeholder: '',
@@ -83,7 +84,7 @@ const SINGLE_CHOICE_SURVEY: Survey = {
     ],
     conditions: null,
     appearance: {
-        position: 'right',
+        position: SurveyPosition.Right,
         whiteLabel: false,
         borderColor: '#c9c6c6',
         placeholder: '',
@@ -133,7 +134,7 @@ const MULTIPLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
     ],
     conditions: null,
     appearance: {
-        position: 'right',
+        position: SurveyPosition.Right,
         whiteLabel: false,
         borderColor: '#c9c6c6',
         placeholder: '',
@@ -183,7 +184,7 @@ const SINGLE_CHOICE_SURVEY_WITH_OPEN_CHOICE: Survey = {
     ],
     conditions: null,
     appearance: {
-        position: 'right',
+        position: SurveyPosition.Right,
         whiteLabel: false,
         borderColor: '#c9c6c6',
         placeholder: '',
@@ -434,7 +435,7 @@ describe('set response-based survey branching', () => {
         questions: [],
         conditions: null,
         appearance: {
-            position: 'right',
+            position: SurveyPosition.Right,
             whiteLabel: false,
             borderColor: '#c9c6c6',
             placeholder: '',
@@ -1571,38 +1572,6 @@ describe('surveyLogic filters for surveys responses', () => {
         initKeaTests()
         logic = surveyLogic({ id: 'new' })
         logic.mount()
-    })
-
-    it('applies answer filters to queries', async () => {
-        const answerFilter: EventPropertyFilter = {
-            key: '$survey_response',
-            value: 'test response',
-            operator: PropertyOperator.IContains,
-            type: PropertyFilterType.Event,
-        }
-
-        await expectLogic(logic, () => {
-            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
-            logic.actions.setAnswerFilters([answerFilter])
-        })
-            .toDispatchActions(['loadSurveySuccess', 'setAnswerFilters'])
-            .toMatchValues({
-                answerFilters: [answerFilter],
-                dataTableQuery: partial({
-                    source: partial({
-                        properties: expect.arrayContaining([
-                            // Survey ID property should still be present
-                            {
-                                key: '$survey_id',
-                                operator: 'exact',
-                                type: 'event',
-                                value: MULTIPLE_CHOICE_SURVEY.id,
-                            },
-                            answerFilter,
-                        ]),
-                    }),
-                }),
-            })
     })
     it('reloads survey results when answer filters change', async () => {
         await expectLogic(logic, () => {

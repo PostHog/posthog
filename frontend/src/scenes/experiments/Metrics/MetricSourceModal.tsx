@@ -35,7 +35,7 @@ export function MetricSourceModal({
         <LemonModal isOpen={isOpen} onClose={closeCurrentModal} width={1000} title="Choose metric source">
             <div className="flex gap-4 mb-4">
                 <div
-                    className="flex-1 cursor-pointer p-4 rounded border hover:border-accent-primary"
+                    className="flex-1 cursor-pointer p-4 rounded border hover:border-accent"
                     onClick={() => {
                         closeCurrentModal()
 
@@ -57,7 +57,7 @@ export function MetricSourceModal({
                     </div>
                 </div>
                 <div
-                    className="flex-1 cursor-pointer p-4 rounded border hover:border-accent-primary"
+                    className="flex-1 cursor-pointer p-4 rounded border hover:border-accent"
                     onClick={() => {
                         closeCurrentModal()
                         openSharedMetricModal(null)

@@ -13,6 +13,7 @@ import {
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -23,6 +24,7 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber, humanizeBytes, inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { getAppContext } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -37,7 +39,13 @@ import { urls } from 'scenes/urls'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { FunnelsQuery, Node, QueryStatus } from '~/queries/schema/schema-general'
-import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    FilterType,
+    InsightLogicProps,
+    SavedInsightsTabs,
+} from '~/types'
 
 import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -49,7 +57,7 @@ export function InsightEmptyState({
     detail = 'Try changing the date range, or pick another action, event or breakdown.',
 }: {
     heading?: string
-    detail?: string
+    detail?: string | JSX.Element
 }): JSX.Element {
     return (
         <div
@@ -184,6 +192,8 @@ export function StatelessInsightLoadingState({
     queryId,
     pollResponse,
     suggestion,
+    setProgress,
+    progress,
     delayLoadingAnimation = false,
     loadingTimeSeconds = 0,
     renderEmptyStateAsSkeleton = false,
@@ -194,6 +204,8 @@ export function StatelessInsightLoadingState({
     delayLoadingAnimation?: boolean
     loadingTimeSeconds?: number
     renderEmptyStateAsSkeleton?: boolean
+    setProgress?: (loadId: string, progress: number) => void
+    progress?: number
 }): JSX.Element {
     const [rowsRead, setRowsRead] = useState(0)
     const [bytesRead, setBytesRead] = useState(0)
@@ -299,7 +311,7 @@ export function StatelessInsightLoadingState({
                         renderEmptyStateAsSkeleton ? 'items-start' : 'items-center'
                     )}
                 >
-                    <LoadingBar />
+                    <LoadingBar loadId={queryId} progress={progress} setProgress={setProgress} />
                     {suggestions}
                     <LoadingDetails
                         pollResponse={pollResponse}
@@ -315,7 +327,7 @@ export function StatelessInsightLoadingState({
 }
 
 const CodeWrapper = (props: { children: React.ReactNode }): JSX.Element => (
-    <code className="border border-1 border-border-bold rounded-sm text-xs px-1 py-0.5">{props.children}</code>
+    <code className="border border-1 border-primary rounded-xs text-xs px-1 py-0.5">{props.children}</code>
 )
 
 const SLOW_LOADING_TIME = 15
@@ -681,14 +693,19 @@ export function SavedInsightsEmptyState(): JSX.Element {
             {tab !== SavedInsightsTabs.Favorites && (
                 <div className="flex justify-center">
                     <Link to={urls.insightNew()}>
-                        <LemonButton
+                        <AccessControlledLemonButton
                             type="primary"
                             data-attr="add-insight-button-empty-state"
                             icon={<IconPlusSmall />}
                             className="add-insight-button"
+                            resourceType={AccessControlResourceType.Insight}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]
+                            }
                         >
                             New insight
-                        </LemonButton>
+                        </AccessControlledLemonButton>
                     </Link>
                 </div>
             )}

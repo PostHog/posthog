@@ -13,9 +13,9 @@ import type { metalyticsLogicType } from './metalyticsLogicType'
 
 export const metalyticsLogic = kea<metalyticsLogicType>([
     path(['lib', 'components', 'metalytics', 'metalyticsLogic']),
-    connect({
+    connect(() => ({
         values: [sidePanelContextLogic, ['sceneSidePanelContext'], membersLogic, ['members']],
-    }),
+    })),
 
     loaders(({ values }) => ({
         viewCount: [
@@ -31,7 +31,7 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                     }
 
                     // NOTE: I think this gets cached heavily - how to correctly invalidate?
-                    const response = await api.query(query, undefined, undefined, true)
+                    const response = await api.query(query, undefined, undefined, 'force_blocking')
                     const result = response.results as number[][]
                     return {
                         views: result[0][0],
@@ -54,7 +54,7 @@ export const metalyticsLogic = kea<metalyticsLogicType>([
                             ORDER BY timestamp DESC`,
                     }
 
-                    const response = await api.query(query, undefined, undefined, true)
+                    const response = await api.query(query, undefined, undefined, 'force_blocking')
                     return response.results.map((result) => result[0]) as string[]
                 },
             },

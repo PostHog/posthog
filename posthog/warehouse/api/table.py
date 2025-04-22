@@ -68,7 +68,7 @@ class TableSerializer(serializers.ModelSerializer):
         serializes_fields = serialize_fields(
             fields,
             HogQLContext(database=database, team_id=self.context["team_id"]),
-            table.name,
+            table.name_chain,
             table.columns,
             table_type="external",
         )
@@ -112,12 +112,12 @@ class TableSerializer(serializers.ModelSerializer):
             )
         table = DataWarehouseTable(**validated_data)
         try:
-            table.columns = table.get_columns()  # type: ignore
+            table.columns = table.get_columns()
         except Exception as err:
             raise serializers.ValidationError(str(err))
         table.save()
 
-        validate_data_warehouse_table_columns.delay(self.context["team_id"], str(table.id))  # type: ignore
+        validate_data_warehouse_table_columns.delay(self.context["team_id"], str(table.id))
 
         return table
 
@@ -140,7 +140,7 @@ class SimpleTableSerializer(serializers.ModelSerializer):
         fields = serialize_fields(
             table.hogql_definition().fields,
             HogQLContext(database=database, team_id=team_id),
-            table.name,
+            table.name_chain,
             table_type="external",
         )
         return [
@@ -263,7 +263,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def refresh_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         table: DataWarehouseTable = self.get_object()
 
-        table.columns = table.get_columns()  # type: ignore
+        table.columns = table.get_columns()
         table.save()
 
         return response.Response(status=status.HTTP_200_OK)

@@ -759,6 +759,7 @@
       , $group_4 VARCHAR COMMENT 'column_materializer::$group_4'
       , $window_id VARCHAR COMMENT 'column_materializer::$window_id'
       , $session_id VARCHAR COMMENT 'column_materializer::$session_id'
+      , $session_id_uuid Nullable(UInt128)
       , elements_chain_href String COMMENT 'column_materializer::elements_chain::href'
       , elements_chain_texts Array(String) COMMENT 'column_materializer::elements_chain::texts'
       , elements_chain_ids Array(String) COMMENT 'column_materializer::elements_chain::ids'
@@ -946,6 +947,19 @@
   _offset,
   _partition
   FROM posthog_test.kafka_events_recent_json
+  
+  '''
+# ---
+# name: test_create_table_query[exchange_rate]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS `posthog_test`.`exchange_rate` ON CLUSTER 'posthog' (
+      currency String,
+      date Date,
+      rate Decimal64(10),
+      version UInt32 DEFAULT toUnixTimestamp(now())
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.exchange_rate', '{replica}-{shard}', version)
+  ORDER BY (date, currency);
   
   '''
 # ---
@@ -1958,6 +1972,27 @@
   
   '''
 # ---
+# name: test_create_table_query[pg_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS pg_embeddings ON CLUSTER 'posthog'
+  (
+      domain String,
+      team_id Int64,
+      id String,
+      vector Array(Float32),
+      text String,
+      properties VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
+      is_deleted UInt8,
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.pg_embeddings', '{replica}-{shard}', timestamp, is_deleted)
+  
+      -- id for uniqueness
+      ORDER BY (team_id, domain, id)
+      SETTINGS index_granularity=512
+      
+  '''
+# ---
 # name: test_create_table_query[plugin_log_entries]
   '''
   
@@ -2062,6 +2097,9 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
@@ -2148,6 +2186,9 @@
       argMinState(JSONExtractString(properties, 'mc_cid'), timestamp) as initial_mc_cid,
       argMinState(JSONExtractString(properties, 'igshid'), timestamp) as initial_igshid,
       argMinState(JSONExtractString(properties, 'ttclid'), timestamp) as initial_ttclid,
+      argMinState(JSONExtractString(properties, 'epik'), timestamp) as initial_epik,
+      argMinState(JSONExtractString(properties, 'qclid'), timestamp) as initial_qclid,
+      argMinState(JSONExtractString(properties, 'sccid'), timestamp) as initial_sccid,
       argMinState(JSONExtractString(properties, '_kx'), timestamp) as initial__kx,
       argMinState(JSONExtractString(properties, 'irclid'), timestamp) as initial_irclid,
   
@@ -2430,13 +2471,15 @@
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-  
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- Other Ad / campaign / attribution IDs
       initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -2450,6 +2493,9 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- create a map of how many times we saw each event
       event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
@@ -2502,6 +2548,9 @@
   argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'mc_cid'), '^"|"$', ''), timestamp) as initial_mc_cid,
   argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'igshid'), '^"|"$', ''), timestamp) as initial_igshid,
   argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'ttclid'), '^"|"$', ''), timestamp) as initial_ttclid,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'epik'), '^"|"$', ''), timestamp) as initial_epik,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'qclid'), '^"|"$', ''), timestamp) as initial_qclid,
+  argMinState(replaceRegexpAll(JSONExtractRaw(properties, 'sccid'), '^"|"$', ''), timestamp) as initial_sccid,
   
   sumMap(CAST(([event], [1]), 'Map(String, UInt64)')) as event_count_map,
   sumIf(1, event='$pageview') as pageview_count,
@@ -2611,6 +2660,7 @@
       , $group_4 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
       , $window_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^"|"$', '') COMMENT 'column_materializer::$window_id'
       , $session_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::$session_id'
+      , $session_id_uuid Nullable(UInt128) MATERIALIZED toUInt128(JSONExtract(properties, '$session_id', 'Nullable(UUID)'))
       , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|")href="(.*?)"')
       , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"'))
       , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")attr_id="(.*?)"'))
@@ -2624,7 +2674,7 @@
       , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
       ,             properties_group_custom Map(String, String)
               MATERIALIZED mapSort(
-                  mapFilter((key, _) -> key NOT LIKE '$%' AND key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'irclid', '_kx'),
+                  mapFilter((key, _) -> key NOT LIKE '$%' AND key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'),
                   CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
               )
               CODEC(ZSTD(1))
@@ -2845,6 +2895,9 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
@@ -3026,13 +3079,15 @@
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-  
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- Other Ad / campaign / attribution IDs
       initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -3046,6 +3101,9 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- create a map of how many times we saw each event
       event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
@@ -3194,6 +3252,9 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
@@ -3264,13 +3325,15 @@
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-  
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- Other Ad / campaign / attribution IDs
       initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -3284,6 +3347,9 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- create a map of how many times we saw each event
       event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),
@@ -3485,6 +3551,19 @@
   ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
   TTL toDateTime(inserted_at) + INTERVAL 7 DAY
   SETTINGS storage_policy = 'hot_to_cold'
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[exchange_rate]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS `posthog_test`.`exchange_rate` ON CLUSTER 'posthog' (
+      currency String,
+      date Date,
+      rate Decimal64(10),
+      version UInt32 DEFAULT toUnixTimestamp(now())
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.exchange_rate', '{replica}-{shard}', version)
+  ORDER BY (date, currency);
   
   '''
 # ---
@@ -3721,6 +3800,27 @@
   
   '''
 # ---
+# name: test_create_table_query_replicated_and_storage[pg_embeddings]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS pg_embeddings ON CLUSTER 'posthog'
+  (
+      domain String,
+      team_id Int64,
+      id String,
+      vector Array(Float32),
+      text String,
+      properties VARCHAR CODEC(ZSTD(3)),
+      timestamp DateTime64(6, 'UTC') DEFAULT NOW('UTC'),
+      is_deleted UInt8,
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.pg_embeddings', '{replica}-{shard}', timestamp, is_deleted)
+  
+      -- id for uniqueness
+      ORDER BY (team_id, domain, id)
+      SETTINGS index_granularity=512
+      
+  '''
+# ---
 # name: test_create_table_query_replicated_and_storage[plugin_log_entries]
   '''
   
@@ -3843,6 +3943,7 @@
       , $group_4 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
       , $window_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^"|"$', '') COMMENT 'column_materializer::$window_id'
       , $session_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::$session_id'
+      , $session_id_uuid Nullable(UInt128) MATERIALIZED toUInt128(JSONExtract(properties, '$session_id', 'Nullable(UUID)'))
       , elements_chain_href String MATERIALIZED extract(elements_chain, '(?::|")href="(.*?)"')
       , elements_chain_texts Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"'))
       , elements_chain_ids Array(String) MATERIALIZED arrayDistinct(extractAll(elements_chain, '(?::|")attr_id="(.*?)"'))
@@ -3856,7 +3957,7 @@
       , INDEX `minmax_$session_id` `$session_id` TYPE minmax GRANULARITY 1
       ,             properties_group_custom Map(String, String)
               MATERIALIZED mapSort(
-                  mapFilter((key, _) -> key NOT LIKE '$%' AND key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'irclid', '_kx'),
+                  mapFilter((key, _) -> key NOT LIKE '$%' AND key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'),
                   CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))
               )
               CODEC(ZSTD(1))
@@ -4077,6 +4178,9 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial__kx AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_irclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
@@ -4258,13 +4362,15 @@
       urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
       entry_url AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       exit_url AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-  
       initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
       initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_term AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_utm_content AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+  
+      -- Other Ad / campaign / attribution IDs
       initial_gclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gad_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_gclsrc AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -4278,6 +4384,9 @@
       initial_mc_cid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_igshid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
       initial_ttclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_epik AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_qclid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+      initial_sccid AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
   
       -- create a map of how many times we saw each event
       event_count_map SimpleAggregateFunction(sumMap, Map(String, Int64)),

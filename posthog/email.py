@@ -11,13 +11,13 @@ from django.db import transaction
 from django.template.loader import get_template
 from django.utils import timezone
 from django.utils.module_loading import import_string
-from sentry_sdk import capture_exception
 from decimal import Decimal
 import requests
 
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
 from posthog.tasks.utils import CeleryQueue
+from posthog.exceptions_capture import capture_exception
 
 
 def inline_css(value: str) -> str:
@@ -82,6 +82,12 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "2fa_enabled": "31",
     "2fa_disabled": "30",
     "2fa_backup_code_used": "29",
+    "password_reset": "32",
+    "invite": "33",
+    "member_join": "34",
+    "email_verification": "35",
+    "email_change_old_address": "36",
+    "email_change_new_address": "37",
 }
 
 
@@ -133,7 +139,7 @@ def _send_via_http(
                     "message_data": properties,
                 }
 
-                response = requests.post("https://api.customer.io/v1/send/email", headers=headers, json=payload)
+                response = requests.post(f"{settings.CUSTOMER_IO_API_URL}/v1/send/email", headers=headers, json=payload)
 
                 if response.status_code != 200:
                     raise Exception(f"Customer.io API error: {response.status_code} - {response.text}")
@@ -262,7 +268,6 @@ class EmailMessage:
         headers: Optional[dict] = None,
         reply_to: Optional[str] = None,
         use_http: Optional[bool] = False,
-        properties: Optional[dict] = None,
     ):
         if template_context is None:
             template_context = {}
@@ -278,7 +283,12 @@ class EmailMessage:
         self.subject = subject or ""
         self.reply_to = reply_to
         self.template_name = template_name
-        self.properties = properties or {}
+
+        # Convert any Django models to strings for JSON serialization
+        self.properties = {
+            k: str(v) if hasattr(v, "_meta") and hasattr(v, "pk") else v  # Check if it's a Django model
+            for k, v in template_context.items()
+        }
 
         template = get_template(f"email/{template_name}.html")
         self.html_body = inline_css(template.render(template_context))

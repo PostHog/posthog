@@ -1,25 +1,35 @@
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
-    client::{database::Client, geoip::GeoIpClient},
-    cohort::cohort_cache_manager::CohortCacheManager,
+    client::database::Client,
+    cohorts::cohort_cache_manager::CohortCacheManager,
     flags::{
-        flag_matching::{FeatureFlagMatcher, GroupTypeMappingCache},
-        flag_models::FeatureFlagList,
-        flag_request::FlagRequest,
-        flag_service::FlagService,
+        flag_group_type_mapping::GroupTypeMappingCache, flag_matching::FeatureFlagMatcher,
+        flag_models::FeatureFlagList, flag_request::FlagRequest, flag_service::FlagService,
     },
     router,
+    team::team_models::Team,
 };
-use axum::{extract::State, http::HeaderMap};
+use axum::{
+    extract::State,
+    http::{header::CONTENT_TYPE, header::ORIGIN, header::USER_AGENT, HeaderMap},
+};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
-use derive_builder::Builder;
+use chrono;
+use common_cookieless::{CookielessServerHashMode, EventData, TeamData};
+use common_geoip::GeoIpClient;
 use flate2::read::GzDecoder;
+use limiters::redis::ServiceName;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_urlencoded;
-use std::{collections::HashMap, net::IpAddr};
-use std::{io::Read, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    io::Read,
+    net::IpAddr,
+    sync::Arc,
+};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
@@ -45,126 +55,287 @@ impl Compression {
 
 #[derive(Clone, Deserialize, Default)]
 pub struct FlagsQueryParams {
+    /// Optional API version identifier
     #[serde(alias = "v")]
     pub version: Option<String>,
 
+    /// Compression type for the incoming request
     pub compression: Option<Compression>,
 
+    /// Library version (alias: "ver")
     #[serde(alias = "ver")]
     pub lib_version: Option<String>,
 
+    /// Optional timestamp indicating when the request was sent
     #[serde(alias = "_")]
     pub sent_at: Option<i64>,
 }
-
 pub struct RequestContext {
+    /// Shared state holding services (DB, Redis, GeoIP, etc.)
     pub state: State<router::State>,
+
+    /// Client IP
     pub ip: IpAddr,
+
+    /// HTTP headers
     pub headers: HeaderMap,
+
+    /// Query params (contains compression, library version, etc.)
     pub meta: FlagsQueryParams,
+
+    /// Raw request body
     pub body: Bytes,
+
+    /// Request ID
+    pub request_id: Uuid,
 }
 
-#[derive(Builder, Clone)]
-#[builder(setter(into))]
-pub struct FeatureFlagEvaluationContext {
-    team_id: i32,
-    distinct_id: String,
-    feature_flags: FeatureFlagList,
-    reader: Arc<dyn Client + Send + Sync>,
-    writer: Arc<dyn Client + Send + Sync>,
-    cohort_cache: Arc<CohortCacheManager>,
-    #[builder(default)]
-    person_property_overrides: Option<HashMap<String, Value>>,
-    #[builder(default)]
-    group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
-    #[builder(default)]
-    groups: Option<HashMap<String, Value>>,
-    #[builder(default)]
-    hash_key_override: Option<String>,
-}
+/// Represents the various property overrides that can be passed around
+/// (person, group, groups, and optional hash key).
+pub type RequestPropertyOverrides = (
+    Option<HashMap<String, Value>>, // person_property_overrides
+    Option<HashMap<String, HashMap<String, Value>>>, // group_property_overrides
+    Option<HashMap<String, Value>>, // groups
+    Option<String>,                 // hash_key_override
+);
 
-/// Process a feature flag request and return the evaluated flags
-///
-/// ## Flow
-/// 1. Decodes and validates the request
-/// 2. Extracts and verifies the authentication token
-/// 3. Retrieves team information
-/// 4. Processes person and group properties
-/// 5. Retrieves feature flags
-/// 6. Evaluates flags based on the context
-///
-/// ## Error Handling
-/// - Returns early if any step fails
-/// - Maintains error context through the FlagError enum
-/// - Individual flag evaluation failures don't fail the entire request
+/// Primary entry point for feature flag requests.
+/// 1) Parses and authenticates the request,
+/// 2) Fetches the team and feature flags,
+/// 3) Prepares property overrides,
+/// 4) Evaluates the requested flags,
+/// 5) Returns a [`ServiceResponse`] or an error.
 pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, FlagError> {
-    // Destructure context
-    let RequestContext {
-        state,
-        ip,
-        headers,
-        meta,
-        body,
-    } = context;
+    let flag_service = FlagService::new(context.state.redis.clone(), context.state.reader.clone());
 
-    // Initialize services
-    let flag_service = FlagService::new(state.redis.clone(), state.reader.clone());
+    let (original_distinct_id, verified_token, request) =
+        parse_and_authenticate_request(&context, &flag_service).await?;
 
-    // Process request and authentication
-    let request = decode_request(&headers, body, &meta)?;
-    let distinct_id = request.extract_distinct_id()?;
-    // NB: this method will fail before hitting any of the services if the token is not correctly set in the request,
-    // saving us from hitting the services with an invalid token
-    let token = request.extract_token()?;
+    // Once we've verified the token, check if the token is billing limited (this will save us from hitting the DB if we have a quota-limited token)
+    let billing_limited = context
+        .state
+        .billing_limiter
+        .is_limited(verified_token.as_str())
+        .await;
+    if billing_limited {
+        // return an empty FlagsResponse with a quotaLimited field called "feature_flags"
+        // TODO docs
+        return Ok(FlagsResponse {
+            flags: HashMap::new(),
+            errors_while_computing_flags: false,
+            quota_limited: Some(vec![ServiceName::FeatureFlags.as_string()]),
+            request_id: context.request_id,
+        });
+    }
 
-    let verified_token = flag_service.verify_token(&token).await?;
+    // again, now we can start doing heavier queries, since at this point most stuff has been from redis
+
     let team = flag_service
         .get_team_from_cache_or_pg(&verified_token)
         .await?;
-    let team_id = team.id;
 
-    // Process properties and overrides
+    let team_id = team.id;
+    let project_id = team.project_id;
+
+    let distinct_id =
+        handle_cookieless_distinct_id(&context, &request, &team, original_distinct_id.clone())
+            .await?;
+
+    let filtered_flags = fetch_and_filter_flags(&flag_service, project_id, &request).await?;
+
+    let (person_prop_overrides, group_prop_overrides, groups, hash_key_override) =
+        prepare_property_overrides(&context, &request)?;
+
+    let response = evaluate_flags_for_request(
+        &context.state,
+        team_id,
+        project_id,
+        distinct_id,
+        filtered_flags,
+        person_prop_overrides,
+        group_prop_overrides,
+        groups,
+        hash_key_override,
+        context.request_id,
+    )
+    .await;
+
+    Ok(response)
+}
+
+/// Parses the request body, extracts the distinct_id and token, then verifies the token.
+async fn parse_and_authenticate_request(
+    context: &RequestContext,
+    flag_service: &FlagService,
+) -> Result<(String, String, FlagRequest), FlagError> {
+    let RequestContext {
+        headers,
+        body,
+        meta,
+        ..
+    } = context;
+
+    let request = decode_request(headers, body.clone(), meta)?;
+    let distinct_id = request.extract_distinct_id()?;
+    let token = request.extract_token()?;
+    let verified_token = flag_service.verify_token(&token).await?;
+
+    Ok((distinct_id, verified_token, request))
+}
+
+/// Fetches flags from cache/DB and filters them based on requested keys, if any.
+async fn fetch_and_filter_flags(
+    flag_service: &FlagService,
+    project_id: i64,
+    request: &FlagRequest,
+) -> Result<FeatureFlagList, FlagError> {
+    let all_flags = flag_service.get_flags_from_cache_or_pg(project_id).await?;
+    if let Some(flag_keys) = &request.flag_keys {
+        let keys: HashSet<String> = flag_keys.iter().cloned().collect();
+        let filtered = all_flags
+            .flags
+            .into_iter()
+            .filter(|f| keys.contains(&f.key))
+            .collect();
+        Ok(FeatureFlagList::new(filtered))
+    } else {
+        Ok(all_flags)
+    }
+}
+
+/// Determines property overrides for person and group properties,
+/// applying geoip if enabled, and returning the optional hash key override.
+fn prepare_property_overrides(
+    context: &RequestContext,
+    request: &FlagRequest,
+) -> Result<RequestPropertyOverrides, FlagError> {
+    let geoip_enabled = !request.geoip_disable.unwrap_or(false);
     let person_property_overrides = get_person_property_overrides(
-        !request.geoip_disable.unwrap_or(false),
+        geoip_enabled,
         request.person_properties.clone(),
-        &ip,
-        &state.geoip,
+        &context.ip,
+        &context.state.geoip,
     );
 
     let groups = request.groups.clone();
     let group_property_overrides =
         process_group_property_overrides(groups.clone(), request.group_properties.clone());
+
     let hash_key_override = request.anon_distinct_id.clone();
 
-    // Get and evaluate flags
-    let feature_flags_from_cache_or_pg = flag_service
-        .get_flags_from_cache_or_pg(team_id, &state.redis, &state.reader)
-        .await?;
-
-    let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
-        .team_id(team_id)
-        .distinct_id(distinct_id)
-        .feature_flags(feature_flags_from_cache_or_pg)
-        .reader(state.reader.clone())
-        .writer(state.writer.clone())
-        .cohort_cache(state.cohort_cache_manager.clone())
-        .person_property_overrides(person_property_overrides)
-        .group_property_overrides(group_property_overrides)
-        .groups(groups)
-        .hash_key_override(hash_key_override)
-        .build()
-        .expect("Failed to build FeatureFlagEvaluationContext");
-
-    let flags_response = evaluate_feature_flags(evaluation_context).await;
-
-    Ok(flags_response)
+    Ok((
+        person_property_overrides,
+        group_property_overrides,
+        groups,
+        hash_key_override,
+    ))
 }
 
-/// Get person property overrides based on the request
-/// - If geoip is enabled, fetch geoip properties and merge them with any person properties
-/// - If geoip is disabled, return the person properties as is
-/// - If no person properties are provided, return None
+/// Represents all context required for evaluating a set of feature flags.
+pub struct FeatureFlagEvaluationContext {
+    pub team_id: i32,
+    pub project_id: i64,
+    pub distinct_id: String,
+    pub feature_flags: FeatureFlagList,
+    pub reader: Arc<dyn Client + Send + Sync>,
+    pub writer: Arc<dyn Client + Send + Sync>,
+    pub cohort_cache: Arc<CohortCacheManager>,
+    pub person_property_overrides: Option<HashMap<String, Value>>,
+    pub group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+    pub groups: Option<HashMap<String, Value>>,
+    pub hash_key_override: Option<String>,
+}
+
+/// Constructs a [`FeatureFlagEvaluationContext`] and evaluates the flags using the provided overrides.
+#[allow(clippy::too_many_arguments)]
+async fn evaluate_flags_for_request(
+    state: &State<router::State>,
+    team_id: i32,
+    project_id: i64,
+    distinct_id: String,
+    filtered_flags: FeatureFlagList,
+    person_property_overrides: Option<HashMap<String, Value>>,
+    group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
+    groups: Option<HashMap<String, Value>>,
+    hash_key_override: Option<String>,
+    request_id: Uuid,
+) -> FlagsResponse {
+    let ctx = FeatureFlagEvaluationContext {
+        team_id,
+        project_id,
+        distinct_id,
+        feature_flags: filtered_flags,
+        reader: state.reader.clone(),
+        writer: state.writer.clone(),
+        cohort_cache: state.cohort_cache_manager.clone(),
+        person_property_overrides,
+        group_property_overrides,
+        groups,
+        hash_key_override,
+    };
+
+    evaluate_feature_flags(ctx, request_id).await
+}
+
+/// Translates the request body and query params into a [`FlagRequest`] by examining Content-Type and compression settings.
+pub fn decode_request(
+    headers: &HeaderMap,
+    body: Bytes,
+    query: &FlagsQueryParams,
+) -> Result<FlagRequest, FlagError> {
+    let content_type = headers
+        .get(CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+
+    if content_type.starts_with("application/json; encoding=base64")
+        && !matches!(query.compression, Some(Compression::Base64))
+    {
+        return FlagRequest::from_bytes(decode_base64(body)?);
+    }
+
+    match content_type {
+        "application/json" => {
+            let decoded_body = decode_body(body, query.compression)?;
+            FlagRequest::from_bytes(decoded_body)
+        }
+        "application/x-www-form-urlencoded" => decode_form_data(body, query.compression),
+        ct => Err(FlagError::RequestDecodingError(format!(
+            "unsupported content type: {ct}"
+        ))),
+    }
+}
+
+/// Evaluates all requested feature flags in the provided context, returning a [`FlagsResponse`].
+pub async fn evaluate_feature_flags(
+    context: FeatureFlagEvaluationContext,
+    request_id: Uuid,
+) -> FlagsResponse {
+    let group_type_mapping_cache = GroupTypeMappingCache::new(context.project_id);
+
+    let mut matcher = FeatureFlagMatcher::new(
+        context.distinct_id,
+        context.team_id,
+        context.project_id,
+        context.reader,
+        context.writer,
+        context.cohort_cache,
+        Some(group_type_mapping_cache),
+        context.groups,
+    );
+
+    matcher
+        .evaluate_all_feature_flags(
+            context.feature_flags,
+            context.person_property_overrides,
+            context.group_property_overrides,
+            context.hash_key_override,
+            request_id,
+        )
+        .await
+}
+
+/// Determines whether to merge geoip properties into the existing person properties.
 pub fn get_person_property_overrides(
     geoip_enabled: bool,
     person_properties: Option<HashMap<String, Value>>,
@@ -173,21 +344,23 @@ pub fn get_person_property_overrides(
 ) -> Option<HashMap<String, Value>> {
     match (geoip_enabled, person_properties) {
         (true, Some(mut props)) => {
-            let geoip_props = geoip_service.get_geoip_properties(Some(&ip.to_string()));
-            if !geoip_props.is_empty() {
+            if let Some(geoip_props) = geoip_service.get_geoip_properties(&ip.to_string()) {
                 props.extend(geoip_props.into_iter().map(|(k, v)| (k, Value::String(v))));
             }
             Some(props)
         }
         (true, None) => {
-            let geoip_props = geoip_service.get_geoip_properties(Some(&ip.to_string()));
-            if !geoip_props.is_empty() {
-                Some(
-                    geoip_props
-                        .into_iter()
-                        .map(|(k, v)| (k, Value::String(v)))
-                        .collect(),
-                )
+            if let Some(geoip_props) = geoip_service.get_geoip_properties(&ip.to_string()) {
+                if !geoip_props.is_empty() {
+                    Some(
+                        geoip_props
+                            .into_iter()
+                            .map(|(k, v)| (k, Value::String(v)))
+                            .collect(),
+                    )
+                } else {
+                    None
+                }
             } else {
                 None
             }
@@ -197,28 +370,23 @@ pub fn get_person_property_overrides(
     }
 }
 
-/// Processes group property overrides by combining existing overrides with group key overrides
-///
-/// When groups are provided in the format {"group_type": "group_key"}, we need to ensure these
-/// are included in the group property overrides with the special "$group_key" property.
-fn process_group_property_overrides(
+/// Incorporates `groups` into group property overrides by assigning each `$group_key`.
+pub fn process_group_property_overrides(
     groups: Option<HashMap<String, Value>>,
     existing_overrides: Option<HashMap<String, HashMap<String, Value>>>,
 ) -> Option<HashMap<String, HashMap<String, Value>>> {
     match groups {
-        Some(groups) => {
-            let group_key_overrides: HashMap<String, HashMap<String, Value>> = groups
+        Some(group_map) => {
+            let group_key_overrides: HashMap<String, HashMap<String, Value>> = group_map
                 .into_iter()
                 .map(|(group_type, group_key)| {
-                    let mut properties = existing_overrides
+                    let mut merged_props = existing_overrides
                         .as_ref()
-                        .and_then(|g| g.get(&group_type))
+                        .and_then(|m| m.get(&group_type))
                         .cloned()
                         .unwrap_or_default();
-
-                    properties.insert("$group_key".to_string(), group_key);
-
-                    (group_type, properties)
+                    merged_props.insert("$group_key".to_string(), group_key);
+                    (group_type, merged_props)
                 })
                 .collect();
 
@@ -228,120 +396,6 @@ fn process_group_property_overrides(
         }
         None => existing_overrides,
     }
-}
-
-/// Decode a request into a `FlagRequest`
-pub fn decode_request(
-    headers: &HeaderMap,
-    body: Bytes,
-    query: &FlagsQueryParams,
-) -> Result<FlagRequest, FlagError> {
-    let content_type = headers
-        .get("content-type")
-        .map_or("unknown", |v| v.to_str().unwrap_or("unknown"));
-
-    match content_type {
-        "application/json" => {
-            // Apply compression first if specified
-            let decoded_body = match query.compression {
-                Some(Compression::Gzip) => decompress_gzip(body)?,
-                Some(Compression::Base64) => {
-                    let decoded = general_purpose::STANDARD.decode(body).map_err(|e| {
-                        FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
-                    })?;
-                    Bytes::from(decoded)
-                }
-                Some(Compression::Unsupported) => {
-                    return Err(FlagError::RequestDecodingError(
-                        "Unsupported compression type".to_string(),
-                    ))
-                }
-                None => body,
-            };
-            FlagRequest::from_bytes(decoded_body)
-        }
-        "application/json; encoding=base64" => {
-            let decoded = general_purpose::STANDARD.decode(body).map_err(|e| {
-                FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
-            })?;
-            FlagRequest::from_bytes(Bytes::from(decoded))
-        }
-        "application/x-www-form-urlencoded" => {
-            // For form data, first parse the form
-            let form_data = String::from_utf8(body.to_vec()).map_err(|e| {
-                FlagError::RequestDecodingError(format!("Invalid UTF-8 in form data: {}", e))
-            })?;
-
-            #[derive(Deserialize)]
-            struct FormData {
-                data: String,
-            }
-
-            let form: FormData = serde_urlencoded::from_str(&form_data).map_err(|e| {
-                FlagError::RequestDecodingError(format!("Failed to parse form data: {}", e))
-            })?;
-
-            // URL-decode the data field
-            let data = urlencoding::decode(&form.data)
-                .map_err(|e| {
-                    FlagError::RequestDecodingError(format!("Failed to URL-decode data: {}", e))
-                })?
-                .into_owned();
-
-            // Now handle compression if specified
-            let decoded = match query.compression {
-                Some(Compression::Base64) | None => {
-                    general_purpose::STANDARD.decode(data).map_err(|e| {
-                        FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
-                    })?
-                }
-                Some(Compression::Gzip) => {
-                    return Err(FlagError::RequestDecodingError(
-                        "Gzip compression not supported for form-urlencoded data".to_string(),
-                    ))
-                }
-                Some(Compression::Unsupported) => {
-                    return Err(FlagError::RequestDecodingError(
-                        "Unsupported compression type".to_string(),
-                    ))
-                }
-            };
-
-            FlagRequest::from_bytes(Bytes::from(decoded))
-        }
-        ct => Err(FlagError::RequestDecodingError(format!(
-            "unsupported content type: {}",
-            ct
-        ))),
-    }
-}
-
-/// Evaluate feature flags for a given distinct_id
-/// - Returns a map of feature flag keys to their values
-/// - If an error occurs while evaluating a flag, we'll set `errors_while_computing_flags` to true be logged,
-///   and that flag will be omitted from the result (we will still attempt to evaluate other flags)
-// TODO: it could be a cool idea to store the errors as a tuple instead of top-level, so that users can see
-// which flags failed to evaluate
-pub async fn evaluate_feature_flags(context: FeatureFlagEvaluationContext) -> FlagsResponse {
-    let group_type_mapping_cache =
-        GroupTypeMappingCache::new(context.team_id, context.reader.clone());
-    let mut feature_flag_matcher = FeatureFlagMatcher::new(
-        context.distinct_id,
-        context.team_id,
-        context.reader,
-        context.writer,
-        context.cohort_cache,
-        Some(group_type_mapping_cache),
-        context.groups,
-    );
-    feature_flag_matcher
-        .evaluate_all_feature_flags(
-            context.feature_flags,
-            context.person_property_overrides,
-            context.group_property_overrides,
-            context.hash_key_override,
-        )
-        .await
 }
 
 // TODO: Make sure this protects against zip bombs, etc.  `/capture` does this
@@ -356,15 +410,118 @@ fn decompress_gzip(compressed: Bytes) -> Result<Bytes, FlagError> {
     Ok(Bytes::from(decompressed))
 }
 
+/// Decodes and decompresses raw bytes according to the provided [`Compression`].
+fn decode_body(body: Bytes, compression: Option<Compression>) -> Result<Bytes, FlagError> {
+    match compression {
+        Some(Compression::Gzip) => decompress_gzip(body),
+        Some(Compression::Base64) => decode_base64(body),
+        Some(Compression::Unsupported) => Err(FlagError::RequestDecodingError(
+            "Unsupported compression type".to_string(),
+        )),
+        None => Ok(body),
+    }
+}
+
+/// Decodes base64 into raw bytes.
+fn decode_base64(body: Bytes) -> Result<Bytes, FlagError> {
+    let decoded = general_purpose::STANDARD
+        .decode(body)
+        .map_err(|e| FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e)))?;
+    Ok(Bytes::from(decoded))
+}
+
+/// Parses an `application/x-www-form-urlencoded` body, extracting the `data` field, and decodes it.
+fn decode_form_data(
+    body: Bytes,
+    compression: Option<Compression>,
+) -> Result<FlagRequest, FlagError> {
+    #[derive(Deserialize)]
+    struct FormData {
+        data: String,
+    }
+
+    let form_data_str = String::from_utf8(body.to_vec()).map_err(|e| {
+        FlagError::RequestDecodingError(format!("Invalid UTF-8 in form data: {}", e))
+    })?;
+    let form: FormData = serde_urlencoded::from_str(&form_data_str).map_err(|e| {
+        FlagError::RequestDecodingError(format!("Failed to parse form data: {}", e))
+    })?;
+
+    let data_str = urlencoding::decode(&form.data)
+        .map_err(|e| FlagError::RequestDecodingError(format!("URL decode error: {}", e)))?
+        .into_owned();
+
+    match compression {
+        Some(Compression::Gzip) => Err(FlagError::RequestDecodingError(
+            "Gzip compression not supported for form-urlencoded data".to_string(),
+        )),
+        Some(Compression::Unsupported) => Err(FlagError::RequestDecodingError(
+            "Unsupported compression type".to_string(),
+        )),
+        _ => {
+            let decoded_bytes = general_purpose::STANDARD.decode(data_str).map_err(|e| {
+                FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
+            })?;
+            FlagRequest::from_bytes(Bytes::from(decoded_bytes))
+        }
+    }
+}
+
+async fn handle_cookieless_distinct_id(
+    context: &RequestContext,
+    request: &FlagRequest,
+    team: &Team,
+    distinct_id: String,
+) -> Result<String, FlagError> {
+    let event_data = EventData {
+        ip: &context.ip.to_string(),
+        timestamp_ms: context
+            .meta
+            .sent_at
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()) as u64,
+        host: context
+            .headers
+            .get(ORIGIN)
+            .map(|h| h.to_str().unwrap_or(""))
+            .unwrap_or(""),
+        user_agent: context
+            .headers
+            .get(USER_AGENT)
+            .map(|h| h.to_str().unwrap_or(""))
+            .unwrap_or(""),
+        event_time_zone: request.timezone.as_deref(),
+        hash_extra: request.cookieless_hash_extra.as_deref(),
+        distinct_id: &distinct_id,
+    };
+
+    let team_data = TeamData {
+        team_id: team.id,
+        timezone: team.timezone.clone(),
+        cookieless_server_hash_mode: CookielessServerHashMode::from(
+            team.cookieless_server_hash_mode,
+        ),
+    };
+
+    context
+        .state
+        .cookieless_manager
+        .compute_cookieless_distinct_id(event_data, team_data)
+        .await
+        .map_err(FlagError::CookielessError)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
-        api::types::FlagValue,
+        api::types::{
+            FlagDetails, FlagDetailsMetadata, FlagEvaluationReason, FlagValue, LegacyFlagsResponse,
+        },
         config::Config,
         flags::flag_models::{FeatureFlag, FlagFilters, FlagGroupType},
         properties::property_models::{OperatorType, PropertyFilter},
         utils::test_utils::{
-            insert_new_team_in_pg, setup_pg_reader_client, setup_pg_writer_client,
+            insert_new_team_in_pg, insert_person_for_team_in_pg, setup_pg_reader_client,
+            setup_pg_writer_client,
         },
     };
 
@@ -375,7 +532,8 @@ mod tests {
 
     fn create_test_geoip_service() -> GeoIpClient {
         let config = Config::default_test_config();
-        GeoIpClient::new(&config).expect("Failed to create GeoIpService for testing")
+        GeoIpClient::new(config.get_maxmind_db_path())
+            .expect("Failed to create GeoIpService for testing")
     }
 
     #[test]
@@ -469,13 +627,16 @@ mod tests {
         let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
         let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team in pg");
         let flag = FeatureFlag {
             name: Some("Test Flag".to_string()),
             id: 1,
             key: "test_flag".to_string(),
             active: true,
             deleted: false,
-            team_id: 1,
+            team_id: team.id,
             filters: FlagFilters {
                 groups: vec![FlagGroupType {
                     properties: Some(vec![PropertyFilter {
@@ -493,8 +654,10 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             },
             ensure_experience_continuity: false,
+            version: Some(1),
         };
 
         let feature_flag_list = FeatureFlagList { flags: vec![flag] };
@@ -502,28 +665,132 @@ mod tests {
         let mut person_properties = HashMap::new();
         person_properties.insert("country".to_string(), json!("US"));
 
-        let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
-            .team_id(1)
-            .distinct_id("user123".to_string())
-            .feature_flags(feature_flag_list)
-            .reader(reader)
-            .writer(writer)
-            .cohort_cache(cohort_cache)
-            .person_property_overrides(Some(person_properties))
-            .build()
-            .expect("Failed to build FeatureFlagEvaluationContext");
+        let evaluation_context = FeatureFlagEvaluationContext {
+            team_id: team.id,
+            project_id: team.project_id,
+            distinct_id: "user123".to_string(),
+            feature_flags: feature_flag_list,
+            reader,
+            writer,
+            cohort_cache,
+            person_property_overrides: Some(person_properties),
+            group_property_overrides: None,
+            groups: None,
+            hash_key_override: None,
+        };
 
-        let result = evaluate_feature_flags(evaluation_context).await;
+        let request_id = Uuid::new_v4();
+
+        let result = evaluate_feature_flags(evaluation_context, request_id).await;
 
         assert!(!result.errors_while_computing_flags);
-        assert!(result.feature_flags.contains_key("test_flag"));
-        assert_eq!(result.feature_flags["test_flag"], FlagValue::Boolean(true));
+        assert!(result.flags.contains_key("test_flag"));
+        assert!(result.flags["test_flag"].enabled);
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(!legacy_response.errors_while_computing_flags);
+        assert!(legacy_response.feature_flags.contains_key("test_flag"));
+        assert_eq!(
+            legacy_response.feature_flags["test_flag"],
+            FlagValue::Boolean(true)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_feature_flags_with_errors() {
+        // Set up test dependencies
+        let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+        let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        insert_person_for_team_in_pg(reader.clone(), team.id, "user123".to_string(), None)
+            .await
+            .expect("Failed to insert person");
+
+        // Create a feature flag with conditions that will cause an error
+        let flags = vec![FeatureFlag {
+            name: Some("Error Flag".to_string()),
+            id: 1,
+            key: "error-flag".to_string(),
+            active: true,
+            deleted: false,
+            team_id: team.id,
+            filters: FlagFilters {
+                groups: vec![FlagGroupType {
+                    // Reference a non-existent cohort
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: json!(999999999), // Very large cohort ID that doesn't exist
+                        operator: None,
+                        prop_type: "cohort".to_string(),
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0), // Set to 100% to ensure it's always on
+                    variant: None,
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            ensure_experience_continuity: false,
+            version: Some(1),
+        }];
+
+        let feature_flag_list = FeatureFlagList { flags };
+
+        // Set up evaluation context
+        let evaluation_context = FeatureFlagEvaluationContext {
+            team_id: team.id,
+            project_id: team.project_id,
+            distinct_id: "user123".to_string(),
+            feature_flags: feature_flag_list,
+            reader,
+            writer,
+            cohort_cache,
+            person_property_overrides: Some(HashMap::new()),
+            group_property_overrides: None,
+            groups: None,
+            hash_key_override: None,
+        };
+
+        let request_id = Uuid::new_v4();
+
+        let result = evaluate_feature_flags(evaluation_context, request_id).await;
+        let error_flag = result.flags.get("error-flag");
+        assert!(error_flag.is_some());
+        assert_eq!(
+            error_flag.unwrap(),
+            &FlagDetails {
+                key: "error-flag".to_string(),
+                enabled: false,
+                variant: None,
+                reason: FlagEvaluationReason {
+                    code: "unknown".to_string(),
+                    condition_index: None,
+                    description: None,
+                },
+                metadata: FlagDetailsMetadata {
+                    id: 1,
+                    version: 1,
+                    description: Some("Error Flag".to_string()),
+                    payload: None,
+                },
+            }
+        );
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(legacy_response.errors_while_computing_flags);
     }
 
     #[test]
     fn test_decode_request() {
         let mut headers = HeaderMap::new();
-        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
         let body = Bytes::from(r#"{"token": "test_token", "distinct_id": "user123"}"#);
         let meta = FlagsQueryParams::default();
 
@@ -538,7 +805,7 @@ mod tests {
     #[test]
     fn test_decode_request_unsupported_content_encoding() {
         let mut headers = HeaderMap::new();
-        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
         let body = Bytes::from_static(b"{\"token\": \"test_token\", \"distinct_id\": \"user123\"}");
         let meta = FlagsQueryParams {
             compression: Some(Compression::Unsupported),
@@ -552,7 +819,7 @@ mod tests {
     #[test]
     fn test_decode_request_invalid_base64() {
         let mut headers = HeaderMap::new();
-        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
         let body = Bytes::from_static(b"invalid_base64==");
         let meta = FlagsQueryParams {
             compression: Some(Compression::Base64),
@@ -600,7 +867,7 @@ mod tests {
     #[test]
     fn test_decode_request_unsupported_content_type() {
         let mut headers = HeaderMap::new();
-        headers.insert("content-type", "text/plain".parse().unwrap());
+        headers.insert(CONTENT_TYPE, "text/plain".parse().unwrap());
         let body = Bytes::from_static(b"test");
         let meta = FlagsQueryParams::default();
 
@@ -611,7 +878,7 @@ mod tests {
     #[test]
     fn test_decode_request_malformed_json() {
         let mut headers = HeaderMap::new();
-        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
         let body = Bytes::from_static(b"{invalid json}");
         let meta = FlagsQueryParams::default();
 
@@ -623,7 +890,7 @@ mod tests {
     fn test_decode_request_form_urlencoded() {
         let mut headers = HeaderMap::new();
         headers.insert(
-            "content-type",
+            CONTENT_TYPE,
             "application/x-www-form-urlencoded".parse().unwrap(),
         );
         let body = Bytes::from(
@@ -643,6 +910,16 @@ mod tests {
         let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
         let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        let distinct_id = "user_distinct_id".to_string();
+        insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
+            .await
+            .expect("Failed to insert person");
+
         let flags = vec![
             FeatureFlag {
                 name: Some("Flag 1".to_string()),
@@ -650,7 +927,7 @@ mod tests {
                 key: "flag_1".to_string(),
                 active: true,
                 deleted: false,
-                team_id: 1,
+                team_id: team.id,
                 filters: FlagFilters {
                     groups: vec![FlagGroupType {
                         properties: Some(vec![]),
@@ -661,8 +938,10 @@ mod tests {
                     aggregation_group_type_index: None,
                     payloads: None,
                     super_groups: None,
+                    holdout_groups: None,
                 },
                 ensure_experience_continuity: false,
+                version: Some(1),
             },
             FeatureFlag {
                 name: Some("Flag 2".to_string()),
@@ -670,7 +949,7 @@ mod tests {
                 key: "flag_2".to_string(),
                 active: true,
                 deleted: false,
-                team_id: 1,
+                team_id: team.id,
                 filters: FlagFilters {
                     groups: vec![FlagGroupType {
                         properties: Some(vec![]),
@@ -681,28 +960,164 @@ mod tests {
                     aggregation_group_type_index: None,
                     payloads: None,
                     super_groups: None,
+                    holdout_groups: None,
                 },
                 ensure_experience_continuity: false,
+                version: Some(1),
             },
         ];
 
         let feature_flag_list = FeatureFlagList { flags };
 
-        let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
-            .team_id(1)
-            .distinct_id("user123".to_string())
-            .feature_flags(feature_flag_list)
-            .reader(reader)
-            .writer(writer)
-            .cohort_cache(cohort_cache)
-            .build()
-            .expect("Failed to build FeatureFlagEvaluationContext");
+        let evaluation_context = FeatureFlagEvaluationContext {
+            team_id: team.id,
+            project_id: team.project_id,
+            distinct_id: distinct_id.clone(),
+            feature_flags: feature_flag_list,
+            reader,
+            writer,
+            cohort_cache,
+            person_property_overrides: None,
+            group_property_overrides: None,
+            groups: None,
+            hash_key_override: None,
+        };
 
-        let result = evaluate_feature_flags(evaluation_context).await;
+        let request_id = Uuid::new_v4();
+        let result = evaluate_feature_flags(evaluation_context, request_id).await;
 
         assert!(!result.errors_while_computing_flags);
-        assert_eq!(result.feature_flags["flag_1"], FlagValue::Boolean(true));
-        assert_eq!(result.feature_flags["flag_2"], FlagValue::Boolean(false));
+        assert!(result.flags["flag_1"].enabled);
+        assert!(!result.flags["flag_2"].enabled);
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(!legacy_response.errors_while_computing_flags);
+        assert_eq!(
+            legacy_response.feature_flags["flag_1"],
+            FlagValue::Boolean(true)
+        );
+        assert_eq!(
+            legacy_response.feature_flags["flag_2"],
+            FlagValue::Boolean(false)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_evaluate_feature_flags_details() {
+        let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+        let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let distinct_id = "user123".to_string();
+        insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
+            .await
+            .unwrap();
+
+        let flags = vec![
+            FeatureFlag {
+                name: Some("Flag 1".to_string()),
+                id: 1,
+                key: "flag_1".to_string(),
+                active: true,
+                deleted: false,
+                team_id: team.id,
+                filters: FlagFilters {
+                    groups: vec![FlagGroupType {
+                        properties: Some(vec![]),
+                        rollout_percentage: Some(100.0),
+                        variant: None,
+                    }],
+                    multivariate: None,
+                    aggregation_group_type_index: None,
+                    payloads: None,
+                    super_groups: None,
+                    holdout_groups: None,
+                },
+                ensure_experience_continuity: false,
+                version: Some(1),
+            },
+            FeatureFlag {
+                name: Some("Flag 2".to_string()),
+                id: 2,
+                key: "flag_2".to_string(),
+                active: true,
+                deleted: false,
+                team_id: team.id,
+                filters: FlagFilters {
+                    groups: vec![FlagGroupType {
+                        properties: Some(vec![]),
+                        rollout_percentage: Some(0.0),
+                        variant: None,
+                    }],
+                    multivariate: None,
+                    aggregation_group_type_index: None,
+                    payloads: None,
+                    super_groups: None,
+                    holdout_groups: None,
+                },
+                ensure_experience_continuity: false,
+                version: Some(1),
+            },
+        ];
+
+        let feature_flag_list = FeatureFlagList { flags };
+
+        let evaluation_context = FeatureFlagEvaluationContext {
+            team_id: team.id,
+            project_id: team.project_id,
+            distinct_id: distinct_id.clone(),
+            feature_flags: feature_flag_list,
+            reader,
+            writer,
+            cohort_cache,
+            person_property_overrides: None,
+            group_property_overrides: None,
+            groups: None,
+            hash_key_override: None,
+        };
+
+        let request_id = Uuid::new_v4();
+        let result = evaluate_feature_flags(evaluation_context, request_id).await;
+
+        assert!(!result.errors_while_computing_flags);
+
+        assert_eq!(
+            result.flags["flag_1"],
+            FlagDetails {
+                key: "flag_1".to_string(),
+                enabled: true,
+                variant: None,
+                reason: FlagEvaluationReason {
+                    code: "condition_match".to_string(),
+                    condition_index: Some(0),
+                    description: Some("Matched condition set 1".to_string()),
+                },
+                metadata: FlagDetailsMetadata {
+                    id: 1,
+                    version: 1,
+                    description: Some("Flag 1".to_string()),
+                    payload: None,
+                },
+            }
+        );
+        assert_eq!(
+            result.flags["flag_2"],
+            FlagDetails {
+                key: "flag_2".to_string(),
+                enabled: false,
+                variant: None,
+                reason: FlagEvaluationReason {
+                    code: "out_of_rollout_bound".to_string(),
+                    condition_index: Some(0),
+                    description: Some("Out of rollout bound".to_string()),
+                },
+                metadata: FlagDetailsMetadata {
+                    id: 2,
+                    version: 1,
+                    description: Some("Flag 2".to_string()),
+                    payload: None,
+                },
+            }
+        );
     }
 
     #[test]
@@ -774,8 +1189,10 @@ mod tests {
                 aggregation_group_type_index: Some(0),
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             },
             ensure_experience_continuity: false,
+            version: Some(1),
         };
         let feature_flag_list = FeatureFlagList { flags: vec![flag] };
 
@@ -788,30 +1205,38 @@ mod tests {
             ]),
         )]);
 
-        let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
-            .team_id(team.id)
-            .distinct_id("user123".to_string())
-            .feature_flags(feature_flag_list)
-            .reader(reader)
-            .writer(writer)
-            .cohort_cache(cohort_cache)
-            .group_property_overrides(Some(group_property_overrides))
-            .groups(Some(groups))
-            .build()
-            .expect("Failed to build FeatureFlagEvaluationContext");
+        let evaluation_context = FeatureFlagEvaluationContext {
+            team_id: team.id,
+            project_id: team.project_id,
+            distinct_id: "user123".to_string(),
+            feature_flags: feature_flag_list,
+            reader,
+            writer,
+            cohort_cache,
+            person_property_overrides: None,
+            group_property_overrides: Some(group_property_overrides),
+            groups: Some(groups),
+            hash_key_override: None,
+        };
 
-        let result = evaluate_feature_flags(evaluation_context).await;
+        let request_id = Uuid::new_v4();
+        let result = evaluate_feature_flags(evaluation_context, request_id).await;
 
         assert!(
-            !result.errors_while_computing_flags,
+            result.flags.contains_key("test_flag"),
+            "test_flag not found in result flags"
+        );
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(
+            !legacy_response.errors_while_computing_flags,
             "Error while computing flags"
         );
         assert!(
-            result.feature_flags.contains_key("test_flag"),
-            "test_flag not found in result"
+            legacy_response.feature_flags.contains_key("test_flag"),
+            "test_flag not found in result feature_flags"
         );
 
-        let flag_value = result
+        let flag_value = legacy_response
             .feature_flags
             .get("test_flag")
             .expect("test_flag not found");
@@ -825,17 +1250,23 @@ mod tests {
 
     #[tokio::test]
     async fn test_long_distinct_id() {
-        let long_id = "a".repeat(1000);
+        // distinct_id is CHAR(400)
+        let long_id = "a".repeat(400);
         let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
         let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+        let distinct_id = long_id.to_string();
+        insert_person_for_team_in_pg(reader.clone(), team.id, distinct_id.clone(), None)
+            .await
+            .expect("Failed to insert person");
         let flag = FeatureFlag {
             name: Some("Test Flag".to_string()),
             id: 1,
             key: "test_flag".to_string(),
             active: true,
             deleted: false,
-            team_id: 1,
+            team_id: team.id,
             filters: FlagFilters {
                 groups: vec![FlagGroupType {
                     properties: Some(vec![]),
@@ -846,26 +1277,37 @@ mod tests {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
+                holdout_groups: None,
             },
             ensure_experience_continuity: false,
+            version: Some(1),
         };
 
         let feature_flag_list = FeatureFlagList { flags: vec![flag] };
 
-        let evaluation_context = FeatureFlagEvaluationContextBuilder::default()
-            .team_id(1)
-            .distinct_id(long_id)
-            .feature_flags(feature_flag_list)
-            .reader(reader)
-            .writer(writer)
-            .cohort_cache(cohort_cache)
-            .build()
-            .expect("Failed to build FeatureFlagEvaluationContext");
+        let evaluation_context = FeatureFlagEvaluationContext {
+            team_id: team.id,
+            project_id: team.project_id,
+            distinct_id: long_id,
+            feature_flags: feature_flag_list,
+            reader,
+            writer,
+            cohort_cache,
+            person_property_overrides: None,
+            group_property_overrides: None,
+            groups: None,
+            hash_key_override: None,
+        };
 
-        let result = evaluate_feature_flags(evaluation_context).await;
+        let request_id = Uuid::new_v4();
+        let result = evaluate_feature_flags(evaluation_context, request_id).await;
 
-        assert!(!result.errors_while_computing_flags);
-        assert_eq!(result.feature_flags["test_flag"], FlagValue::Boolean(true));
+        let legacy_response = LegacyFlagsResponse::from_response(result);
+        assert!(!legacy_response.errors_while_computing_flags);
+        assert_eq!(
+            legacy_response.feature_flags["test_flag"],
+            FlagValue::Boolean(true)
+        );
     }
 
     #[test]

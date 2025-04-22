@@ -21,10 +21,10 @@ export interface EnrichedEarlyAccessFeature extends Omit<EarlyAccessFeature, 'fl
 
 export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
     path(['layout', 'FeaturePreviews', 'featurePreviewsLogic']),
-    connect({
+    connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], userLogic, ['user']],
         actions: [supportLogic, ['submitZendeskTicket']],
-    }),
+    })),
     actions({
         updateEarlyAccessFeatureEnrollment: (flagKey: string, enabled: boolean) => ({ flagKey, enabled }),
         beginEarlyAccessFeatureFeedback: (flagKey: string) => ({ flagKey }),
@@ -38,7 +38,7 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
             {
                 loadEarlyAccessFeatures: async () => {
                     return await new Promise((resolve) =>
-                        posthog.getEarlyAccessFeatures((features) => resolve(features), true)
+                        posthog.getEarlyAccessFeatures((features) => resolve(features), true, ['concept', 'beta'])
                     )
                 },
             },
@@ -104,7 +104,7 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                             flagKey: feature.flagKey,
                             enabled: !!featureFlags[feature.flagKey],
                         }
-                    }),
+                    }) || [],
         ],
     }),
 ])

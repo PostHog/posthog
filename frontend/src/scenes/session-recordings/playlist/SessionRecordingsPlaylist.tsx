@@ -2,9 +2,7 @@ import { LemonBadge, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { Playlist, PlaylistSection } from 'scenes/session-recordings/playlist/Playlist'
 import { urls } from 'scenes/urls'
@@ -14,18 +12,26 @@ import { ReplayTabs } from '~/types'
 import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
-import {
-    DEFAULT_RECORDING_FILTERS,
-    SessionRecordingPlaylistLogicProps,
-    sessionRecordingsPlaylistLogic,
-} from './sessionRecordingsPlaylistLogic'
+import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistTopSettings } from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
 
 export function SessionRecordingsPlaylist({
     showContent = true,
+    canMixFiltersAndPinned = true,
     ...props
-}: SessionRecordingPlaylistLogicProps & { showContent?: boolean }): JSX.Element {
+}: SessionRecordingPlaylistLogicProps & {
+    showContent?: boolean
+    /**
+     * Historically we allowed playlists to mix filters and pinned recordings.
+     * But we don't want to... however, some users might use playlists with pinned recordings
+     * and filters.
+     *
+     * This prop allows us to allow that case or not.
+     * Eventually this will be removed and we'll only allow one or the other.
+     */
+    canMixFiltersAndPinned?: boolean
+}): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
         ...props,
         autoPlay: props.autoPlay ?? true,
@@ -45,11 +51,6 @@ export function SessionRecordingsPlaylist({
     } = useValues(logic)
     const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(logic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const isTestingSaved = featureFlags[FEATURE_FLAGS.SAVED_NOT_PINNED] === 'test'
-
-    const pinnedDescription = isTestingSaved ? 'Saved' : 'Pinned'
-
     const notebookNode = useNotebookNode()
 
     const sections: PlaylistSection[] = []
@@ -59,7 +60,7 @@ export function SessionRecordingsPlaylist({
             key: 'pinned',
             title: (
                 <div className="flex flex-row deprecated-space-x-1 items-center">
-                    <span>{pinnedDescription} recordings</span>
+                    <span>Pinned recordings</span>
                     <LemonBadge.Number count={pinnedRecordings.length} status="muted" size="small" />
                 </div>
             ),
@@ -71,33 +72,37 @@ export function SessionRecordingsPlaylist({
         })
     }
 
-    sections.push({
-        key: 'other',
-        title: (
-            <div className="flex flex-row deprecated-space-x-1 items-center">
-                <span>Results</span>
-                <LemonBadge.Number count={otherRecordings.length} status="muted" size="small" />
-            </div>
-        ),
-        items: otherRecordings,
-        initiallyOpen: !pinnedRecordings.length,
-        render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} pinned={false} />,
-        footer: (
-            <div className="p-4">
-                <div className="h-10 flex items-center justify-center gap-2 text-secondary">
-                    {sessionRecordingsResponseLoading ? (
-                        <>
-                            <Spinner textColored /> Loading older recordings
-                        </>
-                    ) : hasNext ? (
-                        <LemonButton onClick={() => maybeLoadSessionRecordings('older')}>Load more</LemonButton>
-                    ) : (
-                        'No more results'
-                    )}
+    if ((pinnedRecordings.length > 0 && canMixFiltersAndPinned) || pinnedRecordings.length === 0) {
+        sections.push({
+            key: 'other',
+            title: (
+                <div className="flex flex-row deprecated-space-x-1 items-center">
+                    <span>Results</span>
+                    <LemonBadge.Number count={otherRecordings.length} status="muted" size="small" />
                 </div>
-            </div>
-        ),
-    })
+            ),
+            items: otherRecordings,
+            initiallyOpen: !pinnedRecordings.length,
+            render: ({ item, isActive }) => (
+                <SessionRecordingPreview recording={item} isActive={isActive} pinned={false} />
+            ),
+            footer: (
+                <div className="p-4">
+                    <div className="h-10 flex items-center justify-center gap-2 text-secondary">
+                        {sessionRecordingsResponseLoading ? (
+                            <>
+                                <Spinner textColored /> Loading older recordings
+                            </>
+                        ) : hasNext ? (
+                            <LemonButton onClick={() => maybeLoadSessionRecordings('older')}>Load more</LemonButton>
+                        ) : (
+                            'No more results'
+                        )}
+                    </div>
+                </div>
+            ),
+        })
+    }
 
     return (
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
@@ -109,13 +114,12 @@ export function SessionRecordingsPlaylist({
                     sections={sections}
                     headerActions={<SessionRecordingsPlaylistTopSettings filters={filters} setFilters={setFilters} />}
                     filterActions={
-                        notebookNode ? null : (
+                        notebookNode || (!canMixFiltersAndPinned && !!pinnedRecordings.length) ? null : (
                             <RecordingsUniversalFilters
                                 resetFilters={resetFilters}
                                 filters={filters}
                                 setFilters={setFilters}
                                 totalFiltersCount={totalFiltersCount}
-                                className="border-b"
                                 allowReplayHogQLFilters={allowHogQLFilters}
                                 allowReplayFlagsFilters={allowFlagsFilters}
                             />
@@ -170,8 +174,7 @@ export function SessionRecordingsPlaylist({
 }
 
 const ListEmptyState = (): JSX.Element => {
-    const { filters, sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters } = useActions(sessionRecordingsPlaylistLogic)
+    const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
         <div className="p-3 text-sm text-secondary">
@@ -180,21 +183,8 @@ const ListEmptyState = (): JSX.Element => {
             ) : unusableEventsInFilter.length ? (
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
             ) : (
-                <div className="flex flex-col items-center deprecated-space-y-2">
-                    {filters.date_from === DEFAULT_RECORDING_FILTERS.date_from ? (
-                        <>
-                            <span>No matching recordings found</span>
-                            <LemonButton
-                                type="secondary"
-                                data-attr="expand-replay-listing-from-default-seven-days-to-twenty-one"
-                                onClick={() => setFilters({ date_from: '-30d' })}
-                            >
-                                Search over the last 30 days
-                            </LemonButton>
-                        </>
-                    ) : (
-                        <SessionRecordingsPlaylistTroubleshooting />
-                    )}
+                <div className="flex flex-col gap-2">
+                    <SessionRecordingsPlaylistTroubleshooting />
                 </div>
             )}
         </div>

@@ -31,14 +31,14 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
     path((key) => ['scenes', 'pipeline', 'hogFunctionTestingLogic', key]),
     props({} as HogFunctionTestingLogicProps),
     key(({ id }: HogFunctionTestingLogicProps) => id),
-    connect({
+    connect(() => ({
         values: [
             hogFunctionConfigurationLogic,
             ['configuration', 'matchingFilters', 'templateId'],
             groupsModel,
             ['groupTypes'],
         ],
-    }),
+    })),
     actions({
         changeDateRange: (after: string | null, before: string | null) => ({ after, before }),
         addLoadingRetry: (eventId: string) => ({ eventId }),

@@ -1,4 +1,4 @@
-FROM golang:1.24 AS builder
+FROM golang:1.24.1 AS builder
 WORKDIR /app
 
 # Install build dependencies including librdkafka

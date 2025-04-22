@@ -1,5 +1,5 @@
 import { LogLevel, PluginLogLevel, PluginsServerConfig, stringToPluginServerMode, ValueMatcher } from '../types'
-import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
+import { isDevEnv, isProdEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
@@ -66,9 +66,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
         APP_METRICS_FLUSH_MAX_QUEUE_SIZE: isTestEnv() ? 5 : 1000,
-        KAFKA_PRODUCER_LINGER_MS: 20, // rdkafka default is 5ms
-        KAFKA_PRODUCER_BATCH_SIZE: 8 * 1024 * 1024, // rdkafka default is 1MiB
-        KAFKA_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: 100_000, // rdkafka default is 100_000
         REDIS_URL: 'redis://127.0.0.1',
         INGESTION_REDIS_HOST: '',
         INGESTION_REDIS_PORT: 6379,
@@ -82,6 +79,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_CONCURRENCY: 10,
         INGESTION_BATCH_SIZE: 500,
         INGESTION_OVERFLOW_ENABLED: false,
+        INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',
         INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
         PLUGINS_DEFAULT_LOG_LEVEL: isTestEnv() ? PluginLogLevel.Full : PluginLogLevel.Log,
         LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
@@ -130,7 +128,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLOUD_DEPLOYMENT: null,
         EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
-        DROP_EVENTS_BY_TOKEN: '',
         SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
         PIPELINE_STEP_STALLED_LOG_TIMEOUT: 30,
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
@@ -139,6 +136,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         RUSTY_HOOK_URL: '',
         HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
+        LAZY_LOADER_DEFAULT_BUFFER_MS: 10,
 
         // posthog
         POSTHOG_API_KEY: '',
@@ -201,8 +199,16 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_REDIS_PORT: 6479,
         CDP_CYCLOTRON_BATCH_DELAY_MS: 50,
         CDP_CYCLOTRON_BATCH_SIZE: 300,
-
         CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: '',
+        CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 100,
+        CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: true,
+        CDP_CYCLOTRON_COMPRESS_VM_STATE: isProdEnv() ? false : true,
+        CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
+        CDP_HOG_WATCHER_SAMPLE_RATE: 0, // default is off
+        CDP_FETCH_TIMEOUT_MS: 10 * 1000, // 10 seconds
+        CDP_FETCH_RETRIES: 3,
+        CDP_FETCH_BACKOFF_BASE_MS: 1000,
+        CDP_FETCH_BACKOFF_MAX_MS: 30000,
 
         // Destination Migration Diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
@@ -222,6 +228,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
 
+        // PropertyDefsConsumer config
+        PROPERTY_DEFS_CONSUMER_GROUP_ID: 'property-defs-consumer',
+        PROPERTY_DEFS_CONSUMER_CONSUME_TOPIC: KAFKA_EVENTS_JSON,
+        PROPERTY_DEFS_CONSUMER_ENABLED_TEAMS: isDevEnv() ? '*' : '',
+        PROPERTY_DEFS_WRITE_DISABLED: isProdEnv() ? true : false, // For now we don't want to do writes on prod - only count them
+
         // Session recording V2
         SESSION_RECORDING_MAX_BATCH_SIZE_KB: 100 * 1024, // 100MB
         SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
@@ -232,6 +244,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user',
         SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password',
         SESSION_RECORDING_V2_S3_TIMEOUT_MS: 30000,
+        SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: '',
+        SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
 
         // Cookieless
         COOKIELESS_FORCE_STATELESS_MODE: false,
@@ -247,6 +261,9 @@ export function getDefaultConfig(): PluginsServerConfig {
                 24) * // amount of time salt is valid in one timezone
             60 *
             60,
+
+        LAZY_TEAM_MANAGER_COMPARISON: false,
+        USE_LAZY_TEAM_MANAGER: false,
     }
 }
 

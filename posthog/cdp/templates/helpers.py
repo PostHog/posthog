@@ -107,6 +107,11 @@ class BaseSiteDestinationFunctionTest(APIBaseTest):
     track_fn: str
     inputs: dict
 
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [{"name": "data_pipelines", "key": "data_pipelines"}]
+        self.organization.save()
+
     @functools.lru_cache
     def _get_transpiled(self, edit_payload: Optional[Callable[[dict], dict]] = None):
         # TODO do this without calling the API. There's a lot of logic in the endpoint which would need to be extracted

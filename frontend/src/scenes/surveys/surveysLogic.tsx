@@ -3,14 +3,15 @@ import Fuse from 'fuse.js'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import api from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
+import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { AvailableFeature, Breadcrumb, ProgressStatus, Survey, SurveyType } from '~/types'
+import { AvailableFeature, Breadcrumb, ProgressStatus, Survey } from '~/types'
 
 import type { surveysLogicType } from './surveysLogicType'
 
@@ -32,10 +33,66 @@ export function getSurveyStatus(survey: Pick<Survey, 'start_date' | 'end_date'>)
     return ProgressStatus.Complete
 }
 
+function hasMorePages(surveys: any[], count: number): boolean {
+    return surveys.length < count
+}
+
 export interface SurveysFilters {
     status: string
     created_by: null | number
     archived: boolean
+}
+
+export interface SurveyDataState {
+    surveys: Survey[]
+    surveysCount: number
+    searchSurveys: Survey[]
+    searchSurveysCount: number
+}
+
+function mergeSurveysData(
+    currentData: SurveyDataState,
+    response: CountedPaginatedResponse<Survey>,
+    appendResults = false
+): SurveyDataState {
+    if (response.results.length === 0) {
+        return currentData
+    }
+
+    const surveys = appendResults ? [...currentData.surveys, ...response.results] : response.results
+
+    return {
+        ...currentData,
+        surveys,
+        surveysCount: response.count ?? currentData.surveysCount,
+    }
+}
+
+function mergeSearchSurveysData(
+    currentData: SurveyDataState,
+    response: CountedPaginatedResponse<Survey>,
+    appendResults = false
+): SurveyDataState {
+    if (response.results.length === 0) {
+        return currentData
+    }
+
+    const searchSurveys =
+        appendResults && response.results ? [...currentData.searchSurveys, ...response.results] : response.results
+
+    return {
+        ...currentData,
+        searchSurveys,
+        searchSurveysCount: response.count ?? 0,
+    }
+}
+
+function deleteSurvey(surveys: Survey[], id: string): Survey[] {
+    return surveys.filter((s) => s.id !== id)
+}
+
+function updateSurvey(surveys: Survey[], id: string, updatedSurvey: Survey): Survey[] {
+    return surveys.map((s) => (s.id === id ? updatedSurvey : s))
 }
 
 export const surveysLogic = kea<surveysLogicType>([
@@ -48,22 +105,73 @@ export const surveysLogic = kea<surveysLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setSurveysFilters: (filters: Partial<SurveysFilters>, replace?: boolean) => ({ filters, replace }),
         setTab: (tab: SurveysTabs) => ({ tab }),
+        loadNextPage: true,
+        loadNextSearchPage: true,
     }),
     loaders(({ values }) => ({
-        surveys: {
-            __default: [] as Survey[],
+        data: {
+            __default: {
+                surveys: [] as Survey[],
+                surveysCount: 0,
+                searchSurveys: [] as Survey[],
+                searchSurveysCount: 0,
+            } as SurveyDataState,
             loadSurveys: async () => {
-                const responseSurveys = await api.surveys.list()
-                return responseSurveys.results
+                const response = await api.surveys.list()
+                return mergeSurveysData(values.data, response)
+            },
+            loadNextPage: async () => {
+                const offset = values.data.surveys.length
+                const response = await api.surveys.list({
+                    limit: SURVEY_PAGE_SIZE,
+                    offset,
+                })
+
+                return mergeSurveysData(values.data, response, true)
+            },
+            loadSearchResults: async () => {
+                const trimmedSearchTerm = values.searchTerm?.trim() || ''
+                if (trimmedSearchTerm === '') {
+                    return mergeSearchSurveysData(values.data, { results: [], count: 0 })
+                }
+
+                // Only do backend search if we have more total items than the page size
+                if (values.data.surveysCount <= SURVEY_PAGE_SIZE) {
+                    return values.data
+                }
+
+                const response = await api.surveys.list({
+                    limit: SURVEY_PAGE_SIZE,
+                    search: trimmedSearchTerm,
+                })
+
+                return mergeSearchSurveysData(values.data, response)
+            },
+            loadNextSearchPage: async () => {
+                const offset = values.data.searchSurveys.length
+                const response = await api.surveys.list({
+                    search: values.searchTerm,
+                    limit: SURVEY_PAGE_SIZE,
+                    offset,
+                })
+
+                return mergeSearchSurveysData(values.data, response, true)
             },
             deleteSurvey: async (id) => {
                 await api.surveys.delete(id)
-                return values.surveys.filter((survey) => survey.id !== id)
+                return {
+                    ...values.data,
+                    surveys: deleteSurvey(values.data.surveys, id),
+                    searchSurveys: deleteSurvey(values.data.searchSurveys, id),
+                }
             },
             updateSurvey: async ({ id, updatePayload }) => {
                 const updatedSurvey = await api.surveys.update(id, { ...updatePayload })
-
-                return values.surveys.map((survey) => (survey.id === id ? updatedSurvey : survey))
+                return {
+                    ...values.data,
+                    surveys: updateSurvey(values.data.surveys, id, updatedSurvey),
+                    searchSurveys: updateSurvey(values.data.searchSurveys, id, updatedSurvey),
+                }
             },
         },
         surveysResponsesCount: {
@@ -96,6 +204,20 @@ export const surveysLogic = kea<surveysLogicType>([
                 },
             },
         ],
+        hasNextPage: [
+            true as boolean,
+            {
+                loadSurveysSuccess: (_, { data }) => hasMorePages(data.surveys, data.surveysCount),
+                loadNextPageSuccess: (_, { data }) => hasMorePages(data.surveys, data.surveysCount),
+            },
+        ],
+        hasNextSearchPage: [
+            false as boolean,
+            {
+                loadSearchResultsSuccess: (_, { data }) => hasMorePages(data.searchSurveys, data.searchSurveysCount),
+                loadNextSearchPageSuccess: (_, { data }) => hasMorePages(data.searchSurveys, data.searchSurveysCount),
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         deleteSurveySuccess: () => {
@@ -113,7 +235,7 @@ export const surveysLogic = kea<surveysLogicType>([
         loadSurveysSuccess: () => {
             actions.loadCurrentTeam()
 
-            if (values.surveys.some((survey) => survey.start_date)) {
+            if (values.data.surveys.some((survey) => survey.start_date)) {
                 activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
             }
         },
@@ -125,39 +247,52 @@ export const surveysLogic = kea<surveysLogicType>([
         setTab: ({ tab }) => {
             actions.setSurveysFilters({ ...values.filters, archived: tab === SurveysTabs.Archived })
         },
+        setSearchTerm: async ({ searchTerm }, breakpoint) => {
+            await breakpoint(300) // Debounce for 300ms
+            if (searchTerm && values.data.surveysCount > SURVEY_PAGE_SIZE) {
+                actions.loadSearchResults()
+            }
+        },
     })),
     selectors({
         searchedSurveys: [
-            (selectors) => [selectors.surveys, selectors.searchTerm, selectors.filters],
-            (surveys, searchTerm, filters) => {
-                let searchedSurveys = surveys
-
-                if (!searchTerm && Object.keys(filters).length === 0) {
-                    return searchedSurveys
-                }
+            (selectors) => [selectors.data, selectors.searchTerm, selectors.filters],
+            (data, searchTerm, filters) => {
+                let searchedSurveys = data.surveys
 
                 if (searchTerm) {
-                    searchedSurveys = new Fuse(searchedSurveys, {
+                    // Always do frontend search first for better UX
+                    const fuseResults = new Fuse(searchedSurveys, {
                         keys: ['key', 'name'],
                         ignoreLocation: true,
                         threshold: 0.3,
                     })
                         .search(searchTerm)
                         .map((result) => result.item)
+
+                    // If we have backend search results (triggered when total count > page size)
+                    // merge them with frontend results, removing duplicates
+                    if (data.searchSurveys.length > 0) {
+                        const seenIds = new Set(fuseResults.map((s) => s.id))
+                        const uniqueBackendResults = data.searchSurveys.filter((s) => !seenIds.has(s.id))
+                        searchedSurveys = [...fuseResults, ...uniqueBackendResults]
+                    } else {
+                        searchedSurveys = fuseResults
+                    }
                 }
 
                 const { status, created_by, archived } = filters
                 if (status !== 'any') {
-                    searchedSurveys = searchedSurveys.filter((survey) => getSurveyStatus(survey) === status)
+                    searchedSurveys = searchedSurveys.filter((survey: Survey) => getSurveyStatus(survey) === status)
                 }
                 if (created_by) {
-                    searchedSurveys = searchedSurveys.filter((survey) => survey.created_by?.id === created_by)
+                    searchedSurveys = searchedSurveys.filter((survey: Survey) => survey.created_by?.id === created_by)
                 }
 
                 if (archived) {
-                    searchedSurveys = searchedSurveys.filter((survey) => survey.archived)
+                    searchedSurveys = searchedSurveys.filter((survey: Survey) => survey.archived)
                 } else {
-                    searchedSurveys = searchedSurveys.filter((survey) => !survey.archived)
+                    searchedSurveys = searchedSurveys.filter((survey: Survey) => !survey.archived)
                 }
 
                 return searchedSurveys
@@ -203,14 +338,9 @@ export const surveysLogic = kea<surveysLogicType>([
                 hasAvailableFeature(AvailableFeature.SURVEYS_ACTIONS),
         ],
         showSurveysDisabledBanner: [
-            (s) => [s.currentTeam, s.currentTeamLoading, s.surveys],
-            (currentTeam, currentTeamLoading, surveys) => {
-                return (
-                    !currentTeamLoading &&
-                    currentTeam &&
-                    !currentTeam.surveys_opt_in &&
-                    surveys.some((s) => s.start_date && !s.end_date && s.type !== SurveyType.API)
-                )
+            (s) => [s.currentTeam],
+            (currentTeam) => {
+                return !currentTeam?.surveys_opt_in
             },
         ],
     }),

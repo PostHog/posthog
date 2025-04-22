@@ -2,7 +2,8 @@ from datetime import timedelta
 from math import ceil
 from typing import Optional, Any, cast
 
-from django.utils.timezone import datetime
+from django.utils.timezone import now
+
 from posthog.caching.insights_api import (
     BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
@@ -282,6 +283,8 @@ class StickinessQueryRunner(QueryRunner):
 
                 data = val[0]
 
+                # Count doesn't change if we alter the data to cumulative
+                count = sum(data)
                 # Calculate cumulative values if requested
                 if (
                     self.query.stickinessFilter
@@ -294,7 +297,7 @@ class StickinessQueryRunner(QueryRunner):
                     data = cumulative_data
 
                 series_object = {
-                    "count": sum(data),
+                    "count": count,
                     "data": data,
                     "days": val[1],
                     "label": "All events" if series_label is None else series_label,
@@ -464,7 +467,7 @@ class StickinessQueryRunner(QueryRunner):
             date_range=self.query.dateRange,
             team=self.team,
             interval=self.query.interval,
-            now=datetime.now(),
+            now=now(),
         )
 
     @cached_property
@@ -474,12 +477,12 @@ class StickinessQueryRunner(QueryRunner):
                 date_range=self.query.dateRange,
                 team=self.team,
                 interval=self.query.interval,
-                now=datetime.now(),
+                now=now(),
                 compare_to=self.query.compareFilter.compare_to,
             )
         return QueryPreviousPeriodDateRange(
             date_range=self.query.dateRange,
             team=self.team,
             interval=self.query.interval,
-            now=datetime.now(),
+            now=now(),
         )

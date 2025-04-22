@@ -187,7 +187,7 @@ export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEv
         <div data-attr="item-performance-event" className="font-light w-full">
             <div className="flex-1 overflow-hidden">
                 <div
-                    className="absolute bg-accent-primary rounded-sm opacity-75 h-1 bottom-0.5"
+                    className="absolute bg-accent rounded-xs opacity-75 h-1 bottom-0.5"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         left: `${(startTime / contextLengthMs) * 100}%`,

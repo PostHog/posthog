@@ -2,7 +2,6 @@ import { actions, afterMount, connect, events, kea, listeners, path, reducers, s
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -11,7 +10,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { ProductKey, SDK, SDKInstructionsMap, SDKKey } from '~/types'
+import { ProductKey, SDK, SDKInstructionsMap, SDKTag } from '~/types'
 
 import { onboardingLogic } from '../onboardingLogic'
 import { allSDKs } from './allSDKs'
@@ -43,17 +42,9 @@ Products that will often be installed in multiple places, eg. web and mobile
 */
 export const multiInstallProducts = [ProductKey.PRODUCT_ANALYTICS, ProductKey.FEATURE_FLAGS]
 
-const getProductAnalyticsOrderedSDKs = (sdks: SDK[]): SDK[] => {
-    return [
-        ...sdks.filter((sdk) => sdk.key === SDKKey.HTML_SNIPPET),
-        ...sdks.filter((sdk) => sdk.key === SDKKey.JS_WEB),
-        ...sdks.filter((sdk) => ![SDKKey.HTML_SNIPPET, SDKKey.JS_WEB].includes(sdk.key as SDKKey)),
-    ]
-}
-
 export const sdksLogic = kea<sdksLogicType>([
     path(['scenes', 'onboarding', 'sdks', 'sdksLogic']),
-    connect({
+    connect(() => ({
         values: [
             onboardingLogic,
             ['productKey'],
@@ -65,12 +56,14 @@ export const sdksLogic = kea<sdksLogicType>([
             ['user', 'isUserNonTechnical'],
         ],
         actions: [eventUsageLogic, ['reportSDKSelected']],
-    }),
+    })),
     actions({
         setSourceFilter: (sourceFilter: string | null) => ({ sourceFilter }),
         filterSDKs: true,
         setSDKs: (sdks: SDK[]) => ({ sdks }),
         setSelectedSDK: (sdk: SDK | null) => ({ sdk }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setSelectedTag: (selectedTag: SDKTag | null) => ({ selectedTag }),
         setSourceOptions: (sourceOptions: LemonSelectOptions<string>) => ({ sourceOptions }),
         resetSDKs: true,
         setAvailableSDKInstructionsMap: (sdkInstructionMap: SDKInstructionsMap) => ({ sdkInstructionMap }),
@@ -132,6 +125,18 @@ export const sdksLogic = kea<sdksLogicType>([
                 setSnippetHosts: (_, { snippetHosts }) => snippetHosts,
             },
         ],
+        searchTerm: [
+            '' as string,
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        selectedTag: [
+            null as SDKTag | null,
+            {
+                setSelectedTag: (_, { selectedTag }) => selectedTag,
+            },
+        ],
     }),
     selectors({
         showSourceOptionsSelect: [
@@ -157,14 +162,13 @@ export const sdksLogic = kea<sdksLogicType>([
                 return combinedSnippetAndLiveEventsHosts
             },
         ],
-        isUserInNonTechnicalTest: [
-            (s) => [s.productKey, s.featureFlags, s.isUserNonTechnical],
-            (productKey, featureFlags, isUserNonTechnical): boolean => {
-                return (
-                    productKey === ProductKey.PRODUCT_ANALYTICS &&
-                    featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_MODIFIED_SDK_LIST] === 'test' &&
-                    isUserNonTechnical
+        tags: [
+            (s) => [s.sdks],
+            (sdks: SDK[]): string[] => {
+                const tagsWithSDKs = Object.values(SDKTag).filter((tag: SDKTag) =>
+                    sdks.some((sdk) => sdk.tags.includes(tag))
                 )
+                return ['All', ...tagsWithSDKs]
             },
         ],
     }),
@@ -205,19 +209,32 @@ export const sdksLogic = kea<sdksLogicType>([
             },
         ],
     })),
+    selectors({
+        filteredSDKs: [
+            (s) => [s.sdks, s.searchTerm, s.selectedTag],
+            (sdks: SDK[], searchTerm: string, selectedTag: SDKTag | null): SDK[] => {
+                return sdks.filter((sdk) => {
+                    if (selectedTag && !sdk.tags.includes(selectedTag)) {
+                        return false
+                    }
+                    if (searchTerm && !sdk.name.toLowerCase().includes(searchTerm.toLowerCase())) {
+                        return false
+                    }
+                    return true
+                })
+            },
+        ],
+    }),
     listeners(({ actions, values }) => ({
         filterSDKs: () => {
-            let filteredSDks: SDK[] = allSDKs
+            const filteredSDks: SDK[] = allSDKs
                 .filter((sdk) => {
                     if (!values.sourceFilter || !sdk) {
                         return true
                     }
-                    return sdk.tags.includes(values.sourceFilter)
+                    return sdk.tags.includes(values.sourceFilter as SDKTag)
                 })
                 .filter((sdk) => Object.keys(values.availableSDKInstructionsMap).includes(sdk.key))
-            if (values.isUserInNonTechnicalTest) {
-                filteredSDks = getProductAnalyticsOrderedSDKs(filteredSDks)
-            }
             actions.setSDKs(filteredSDks)
             actions.setSourceOptions(getSourceOptions(values.availableSDKInstructionsMap))
         },

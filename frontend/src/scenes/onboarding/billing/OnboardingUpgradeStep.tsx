@@ -43,7 +43,15 @@ const ProductSubscribed = ({ product }: { product: BillingProductV2Type }): JSX.
     const { trigger, HogfettiComponent } = useHogfetti({ count: 100, duration: 3000 })
 
     useEffect(() => {
-        trigger()
+        const run = async (): Promise<void> => {
+            trigger()
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+            trigger()
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+            trigger()
+        }
+
+        void run()
     }, [trigger])
 
     return (

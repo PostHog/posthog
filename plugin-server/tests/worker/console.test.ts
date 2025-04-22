@@ -9,7 +9,7 @@ import { createConsole } from '../../src/worker/vm/extensions/console'
 import { pluginConfig39 } from '../../tests/helpers/plugins'
 
 jest.setTimeout(60000) // 60 sec timeout
-jest.mock('../../src/utils/status')
+jest.mock('../../src/utils/logger')
 
 describe('console extension', () => {
     let hub: Hub

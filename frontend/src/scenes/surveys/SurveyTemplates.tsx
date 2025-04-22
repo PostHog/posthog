@@ -10,9 +10,10 @@ import { urls } from 'scenes/urls'
 
 import { Survey } from '~/types'
 
-import { defaultSurveyAppearance, defaultSurveyTemplates } from './constants'
+import { defaultSurveyAppearance, defaultSurveyTemplates, errorTrackingSurvey } from './constants'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 import { surveyLogic } from './surveyLogic'
+import { surveysLogic } from './surveysLogic'
 
 export const scene: SceneExport = {
     component: SurveyTemplates,
@@ -25,6 +26,9 @@ export function SurveyTemplates(): JSX.Element {
     const surveyAppearance = {
         ...currentTeam?.survey_config?.appearance,
     }
+    const { surveysEventsAvailable } = useValues(surveysLogic)
+
+    const templates = surveysEventsAvailable ? [...defaultSurveyTemplates, errorTrackingSurvey] : defaultSurveyTemplates
 
     return (
         <>
@@ -36,7 +40,7 @@ export function SurveyTemplates(): JSX.Element {
                 }
             />
             <div className="flex flex-row flex-wrap gap-8 mt-8">
-                {defaultSurveyTemplates.map((template, idx) => {
+                {templates.map((template, idx) => {
                     return (
                         <div className="flex flex-col items-center" key={idx}>
                             <span className="text-md">
@@ -52,12 +56,13 @@ export function SurveyTemplates(): JSX.Element {
                                 onClick={() => {
                                     setSurveyTemplateValues({
                                         name: template.templateType,
-                                        questions: template.questions,
+                                        questions: template.questions ?? [],
                                         appearance: {
                                             ...defaultSurveyAppearance,
                                             ...template.appearance,
                                             ...surveyAppearance,
                                         },
+                                        conditions: template.conditions ?? null,
                                     })
                                     reportSurveyTemplateClicked(template.templateType)
                                 }}
@@ -79,6 +84,7 @@ export function SurveyTemplates(): JSX.Element {
                                                     whiteLabel: true,
                                                     ...template.appearance,
                                                     ...surveyAppearance,
+                                                    disabledButtonOpacity: '1',
                                                 },
                                             } as Survey
                                         }

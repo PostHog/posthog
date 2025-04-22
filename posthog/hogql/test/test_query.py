@@ -8,12 +8,14 @@ from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
 
+from posthog.errors import InternalCHQueryError
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests, pretty_print_response_in_tests
 from posthog.models import Cohort
+from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import (
@@ -29,6 +31,7 @@ from posthog.test.base import (
     flush_persons_and_events,
 )
 from unittest.mock import patch
+from decimal import Decimal
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -137,8 +140,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 pretty=False,
             )
-            self.assertTrue(isinstance(response.timings, list) and len(response.timings) > 0)
-            self.assertTrue(isinstance(response.timings[0], QueryTiming))
+            assert response.timings is not None
+            assert isinstance(response.timings, list)
+            assert len(response.timings) > 0
+            assert isinstance(response.timings[0], QueryTiming)
             self.assertEqual(response.timings[-1].k, ".")
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -239,7 +244,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results[0][0], "bla")
             self.assertEqual(
                 response.results[0][1],
-                datetime.datetime(2020, 1, 10, 0, 0, tzinfo=timezone.utc),
+                datetime.datetime(2020, 1, 10, 0, 0, tzinfo=datetime.UTC),
             )
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -1018,7 +1023,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"FROM events "
                 f"WHERE and(equals(events.team_id, {self.team.pk}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_46)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_47)s), 0)) "
                 f"LIMIT 100 "
-                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0",
+                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295",
                 response.clickhouse,
             )
             self.assertEqual(response.results[0], tuple(random_uuid for x in alternatives))
@@ -1055,17 +1060,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             [
                 (
                     (
-                        datetime.datetime(2020, 1, 1, 0, 0, tzinfo=timezone.utc),
-                        datetime.datetime(2020, 1, 2, 0, 0, tzinfo=timezone.utc),
+                        datetime.datetime(2020, 1, 1, 0, 0, tzinfo=datetime.UTC),
+                        datetime.datetime(2020, 1, 2, 0, 0, tzinfo=datetime.UTC),
                     ),
-                    datetime.datetime(2020, 1, 1, 0, 0, tzinfo=timezone.utc),
-                    datetime.datetime(2020, 1, 2, 0, 0, tzinfo=timezone.utc),
+                    datetime.datetime(2020, 1, 1, 0, 0, tzinfo=datetime.UTC),
+                    datetime.datetime(2020, 1, 2, 0, 0, tzinfo=datetime.UTC),
                     (
-                        datetime.datetime(2019, 12, 31, 0, 0, tzinfo=timezone.utc),
-                        datetime.datetime(2020, 1, 2, 0, 0, tzinfo=timezone.utc),
+                        datetime.datetime(2019, 12, 31, 0, 0, tzinfo=datetime.UTC),
+                        datetime.datetime(2020, 1, 2, 0, 0, tzinfo=datetime.UTC),
                     ),
-                    datetime.datetime(2019, 12, 31, 0, 0, tzinfo=timezone.utc),
-                    datetime.datetime(2020, 1, 2, 0, 0, tzinfo=timezone.utc),
+                    datetime.datetime(2019, 12, 31, 0, 0, tzinfo=datetime.UTC),
+                    datetime.datetime(2020, 1, 2, 0, 0, tzinfo=datetime.UTC),
                 )
             ],
         )
@@ -1581,3 +1586,65 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with patch("posthog.hogql.printer.create_hogql_database") as printer_create_hogql_database_mock:
             execute_hogql_query(query, team=self.team)
             printer_create_hogql_database_mock.assert_called_once()
+
+    def test_exchange_rate_table(self):
+        query = "SELECT DISTINCT currency FROM exchange_rate LIMIT 500"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(len(response.results), len(SUPPORTED_CURRENCY_CODES))
+
+    def test_currency_conversion(self):
+        query = "SELECT convertCurrency('USD', 'EUR', 100, _toDate('2024-01-01'))"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal("90.49"),)])
+
+    def test_currency_conversion_with_string_date(self):
+        query = "SELECT convertCurrency('USD', 'EUR', 100, '2024-01-01')"
+        with self.assertRaises(InternalCHQueryError) as e:
+            execute_hogql_query(query, team=self.team)
+        assert (
+            "Illegal type String of fourth argument of function dictGetOrDefault must be convertible to Int64"
+            in str(e.exception)
+        )
+
+    def test_currency_conversion_with_bogus_currency_from(self):
+        query = "SELECT convertCurrency('BOGUS', 'EUR', 100, _toDate('2024-01-01'))"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal("0"),)])
+
+    def test_currency_conversion_with_bogus_currency_to(self):
+        query = "SELECT convertCurrency('USD', 'BOGUS', 100, _toDate('2024-01-01'))"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal("0"),)])
+
+    # Returns today's date if no date is provided
+    # which will simply use the latest rate from `historical.csv`
+    # from 2024-12-31
+    def test_currency_conversion_without_date(self):
+        query = "SELECT convertCurrency('USD', 'EUR', 100)"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal("96.21"),)])
+
+    def test_currency_conversion_nested(self):
+        query = "SELECT convertCurrency('EUR', 'USD', convertCurrency('USD', 'EUR', 100, _toDate('2020-03-15')), _toDate('2020-03-15'))"
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal("100.00"),)])
+
+    def test_currency_conversion_super_nested(self):
+        amount = "2123.4308"
+        query = """
+            SELECT convertCurrency(
+                'JPY', 'USD',
+                convertCurrency(
+                    'GBP', 'JPY',
+                    convertCurrency(
+                        'EUR', 'GBP',
+                        convertCurrency(
+                            'USD', 'EUR', {amount}, {date}
+                        ), {date}
+                    ), {date}
+                ), {date}
+            )
+        """.format(amount=amount, date="_toDate('2020-03-15')")
+
+        response = execute_hogql_query(query, team=self.team)
+        self.assertEqual(response.results, [(Decimal(amount),)])

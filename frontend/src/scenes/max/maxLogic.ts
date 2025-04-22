@@ -1,4 +1,3 @@
-import { captureException } from '@sentry/react'
 import { shuffle } from 'd3'
 import { createParser } from 'eventsource-parser'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
@@ -7,9 +6,12 @@ import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import posthog from 'posthog-js'
 import { projectLogic } from 'scenes/projectLogic'
 import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { actionsModel } from '~/models/actionsModel'
 import {
     AssistantEventType,
     AssistantGenerationStatusEvent,
@@ -21,11 +23,17 @@ import {
     RootAssistantMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { NodeKind, RefreshType, SuggestedQuestionsQuery } from '~/queries/schema/schema-general'
-import { Conversation } from '~/types'
+import { Conversation, SidePanelTab } from '~/types'
 
 import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
-import { isAssistantMessage, isHumanMessage, isReasoningMessage, isVisualizationMessage } from './utils'
+import {
+    isAssistantMessage,
+    isAssistantToolCallMessage,
+    isHumanMessage,
+    isReasoningMessage,
+    isVisualizationMessage,
+} from './utils'
 
 export interface MaxLogicProps {
     conversationId?: string
@@ -39,7 +47,7 @@ export type ThreadMessage = RootAssistantMessage & {
 
 const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
     type: AssistantMessageType.Failure,
-    content: 'Oops! It looks like I’m having trouble generating this insight. Could you please try again?',
+    content: 'Oops! It looks like I’m having trouble answering this. Could you please try again?',
     status: 'completed',
 }
 
@@ -47,16 +55,19 @@ export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
     props({} as MaxLogicProps),
     key(({ conversationId }) => conversationId || 'new-conversation'),
-    connect({
+    connect(() => ({
         values: [
             projectLogic,
             ['currentProject'],
             maxGlobalLogic,
-            ['dataProcessingAccepted'],
+            ['dataProcessingAccepted', 'toolMap', 'tools'],
             maxSettingsLogic,
             ['coreMemory'],
+            // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
+            actionsModel({ params: 'include_count=1' }),
+            ['actions'],
         ],
-    }),
+    })),
     actions({
         askMax: (prompt: string, generationAttempt: number = 0) => ({ prompt, generationAttempt }),
         stopGeneration: true,
@@ -72,6 +83,8 @@ export const maxLogic = kea<maxLogicType>([
         setConversation: (conversation: Conversation) => ({ conversation }),
         setTraceId: (traceId: string) => ({ traceId }),
         resetThread: true,
+        cleanThread: true,
+        startNewConversation: true,
     }),
     reducers({
         question: [
@@ -79,12 +92,14 @@ export const maxLogic = kea<maxLogicType>([
             {
                 setQuestion: (_, { question }) => question,
                 askMax: () => '',
+                cleanThread: () => '',
             },
         ],
         conversation: [
             (_, props) => (props.conversationId ? ({ id: props.conversationId } as Conversation) : null),
             {
                 setConversation: (_, { conversation }) => conversation,
+                cleanThread: () => null,
             },
         ],
         threadRaw: [
@@ -105,6 +120,7 @@ export const maxLogic = kea<maxLogicType>([
                     ...state.slice(index + 1),
                 ],
                 resetThread: (state) => state.filter((message) => !isReasoningMessage(message)),
+                cleanThread: () => [] as ThreadMessage[],
             },
         ],
         threadLoading: [
@@ -112,6 +128,7 @@ export const maxLogic = kea<maxLogicType>([
             {
                 askMax: () => true,
                 setThreadLoaded: (_, { testOnlyOverride }) => testOnlyOverride,
+                cleanThread: () => false,
             },
         ],
         visibleSuggestions: [
@@ -120,7 +137,7 @@ export const maxLogic = kea<maxLogicType>([
                 setVisibleSuggestions: (_, { suggestions }) => suggestions,
             },
         ],
-        traceId: [null as string | null, { setTraceId: (_, { traceId }) => traceId }],
+        traceId: [null as string | null, { setTraceId: (_, { traceId }) => traceId, cleanThread: () => null }],
     }),
     loaders({
         // TODO: Move question suggestions to `maxGlobalLogic`, which will make this logic `maxThreadLogic`
@@ -185,6 +202,7 @@ export const maxLogic = kea<maxLogicType>([
                 const response = await api.conversations.stream(
                     {
                         content: prompt,
+                        contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.name, tool.context])),
                         conversation: values.conversation?.id,
                         trace_id: traceId,
                     },
@@ -210,6 +228,14 @@ export const maxLogic = kea<maxLogicType>([
 
                             if (isHumanMessage(parsedResponse)) {
                                 actions.replaceMessage(values.threadRaw.length - 1, {
+                                    ...parsedResponse,
+                                    status: 'completed',
+                                })
+                            } else if (isAssistantToolCallMessage(parsedResponse)) {
+                                for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
+                                    values.toolMap[toolName]?.callback(toolResult)
+                                }
+                                actions.addMessage({
                                     ...parsedResponse,
                                     status: 'completed',
                                 })
@@ -264,7 +290,7 @@ export const maxLogic = kea<maxLogicType>([
                     if (e instanceof ApiError && e.status === 429) {
                         relevantErrorMessage.content = "You've reached my usage limit for now. Please try again later."
                     } else {
-                        captureException(e) // Unhandled error, log to Sentry
+                        posthog.captureException(e) // Unhandled error, log to Sentry
                         console.error(e)
                     }
 
@@ -325,6 +351,14 @@ export const maxLogic = kea<maxLogicType>([
                 }
             })
         },
+        startNewConversation: () => {
+            if (values.conversation) {
+                if (values.threadLoading) {
+                    actions.stopGeneration()
+                }
+                actions.cleanThread()
+            }
+        },
     })),
     selectors({
         threadGrouped: [
@@ -334,7 +368,7 @@ export const maxLogic = kea<maxLogicType>([
                 for (let i = 0; i < thread.length; i++) {
                     const currentMessage: ThreadMessage = thread[i]
                     const previousMessage: ThreadMessage | undefined = thread[i - 1]
-                    if (currentMessage.type.split('/')[0] === previousMessage?.type.split('/')[0]) {
+                    if (isHumanMessage(currentMessage) === isHumanMessage(previousMessage)) {
                         const lastThreadSoFar = threadGrouped[threadGrouped.length - 1]
                         if (currentMessage.id && previousMessage.type === AssistantMessageType.Reasoning) {
                             // Only preserve the latest reasoning message, and remove once reasoning is done
@@ -408,6 +442,15 @@ export const maxLogic = kea<maxLogicType>([
         if (values.coreMemory) {
             // In this case we're fine with even really old cached values
             actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
+        }
+        // If there is a prefill question from side panel state (from opening Max within the app), use it
+        if (
+            !values.question &&
+            sidePanelStateLogic.isMounted() &&
+            sidePanelStateLogic.values.selectedTab === SidePanelTab.Max &&
+            sidePanelStateLogic.values.selectedTabOptions
+        ) {
+            actions.setQuestion(sidePanelStateLogic.values.selectedTabOptions)
         }
     }),
     permanentlyMount(), // Prevent state from being reset when Max is unmounted, especially key in the side panel

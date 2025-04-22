@@ -4,6 +4,7 @@ import { readFile, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import path from 'path'
 
+import { parseJSON } from '../../utils/json-parse'
 import { UUIDT } from '../../utils/utils'
 import { HogBytecode } from '../types'
 
@@ -18,7 +19,7 @@ export async function compileHog(hog: string): Promise<HogBytecode> {
 
         // Load from the tmp dir if it exists, otherwise new object
         try {
-            CACHE = JSON.parse(readFileSync(CACHE_FILE, 'utf-8'))
+            CACHE = parseJSON(readFileSync(CACHE_FILE, 'utf-8'))
         } catch (error) {
             CACHE = {}
         }
@@ -47,7 +48,7 @@ export async function compileHog(hog: string): Promise<HogBytecode> {
         throw error
     }
 
-    const output = JSON.parse(await readFile(outputFile, 'utf-8'))
+    const output = parseJSON(await readFile(outputFile, 'utf-8'))
 
     CACHE[hog] = output
 

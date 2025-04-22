@@ -1,11 +1,9 @@
 import { PluginServerCapabilities, PluginServerMode, PluginsServerConfig, stringToPluginServerMode } from './types'
-import { isTestEnv } from './utils/env-utils'
 
 export function getPluginServerCapabilities(config: PluginsServerConfig): PluginServerCapabilities {
     const mode: PluginServerMode | null = config.PLUGIN_SERVER_MODE
         ? stringToPluginServerMode[config.PLUGIN_SERVER_MODE]
         : null
-    const sharedCapabilities = !isTestEnv() ? { http: true } : {}
 
     switch (mode) {
         case null:
@@ -24,9 +22,8 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpInternalEvents: true,
                 cdpCyclotronWorker: true,
                 cdpCyclotronWorkerPlugins: true,
+                cdpCyclotronWorkerFetch: true,
                 cdpApi: true,
-                syncInlinePlugins: true,
-                ...sharedCapabilities,
             }
 
         case PluginServerMode.ingestion_v2:
@@ -35,58 +32,51 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 mmdb: true,
                 ingestionV2: true,
-                ...sharedCapabilities,
             }
         case PluginServerMode.recordings_blob_ingestion:
             return {
                 sessionRecordingBlobIngestion: true,
-                ...sharedCapabilities,
             }
         case PluginServerMode.recordings_blob_ingestion_overflow:
             return {
                 sessionRecordingBlobOverflowIngestion: true,
-                ...sharedCapabilities,
             }
         case PluginServerMode.recordings_blob_ingestion_v2:
             return {
                 sessionRecordingBlobIngestionV2: true,
-                ...sharedCapabilities,
             }
         case PluginServerMode.recordings_blob_ingestion_v2_overflow:
             return {
                 sessionRecordingBlobIngestionV2Overflow: true,
-                ...sharedCapabilities,
             }
 
         case PluginServerMode.async_onevent:
             return {
                 processAsyncOnEventHandlers: true,
-                ...sharedCapabilities,
             }
         case PluginServerMode.async_webhooks:
             return {
                 processAsyncWebhooksHandlers: true,
-                ...sharedCapabilities,
             }
         case PluginServerMode.cdp_processed_events:
             return {
                 cdpProcessedEvents: true,
-                ...sharedCapabilities,
             }
         case PluginServerMode.cdp_internal_events:
             return {
                 cdpInternalEvents: true,
-                ...sharedCapabilities,
             }
         case PluginServerMode.cdp_cyclotron_worker:
             return {
                 cdpCyclotronWorker: true,
-                ...sharedCapabilities,
             }
         case PluginServerMode.cdp_cyclotron_worker_plugins:
             return {
                 cdpCyclotronWorkerPlugins: true,
-                ...sharedCapabilities,
+            }
+        case PluginServerMode.cdp_cyclotron_worker_fetch:
+            return {
+                cdpCyclotronWorkerFetch: true,
             }
         case PluginServerMode.cdp_api:
             return {
@@ -94,7 +84,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 mmdb: true,
                 // NOTE: This is temporary until we have removed plugins
                 appManagementSingleton: true,
-                ...sharedCapabilities,
             }
         // This is only for functional tests, which time out if all capabilities are used
         // ideally we'd run just the specific capability needed per test, but that's not easy to do atm
@@ -107,8 +96,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobIngestion: true,
                 appManagementSingleton: true,
                 preflightSchedules: true,
-                syncInlinePlugins: true,
-                ...sharedCapabilities,
             }
     }
 }

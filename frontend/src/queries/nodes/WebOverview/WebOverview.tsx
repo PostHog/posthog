@@ -1,5 +1,5 @@
 import { IconGear, IconTrending } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { getColorVar } from 'lib/colors'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -7,12 +7,15 @@ import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
+import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { revenueEventsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueEventsSettingsLogic'
 import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
 import {
     AnyResponseType,
+    CurrencyCode,
     WebOverviewItem,
     WebOverviewItemKind,
     WebOverviewQuery,
@@ -88,7 +91,11 @@ const WebOverviewItemCellSkeleton = (): JSX.Element => {
 }
 
 const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element => {
+    const { baseCurrency } = useValues(revenueEventsSettingsLogic)
+
     const label = labelFromKey(item.key)
+    const isBeta = item.key === 'revenue' || item.key === 'conversion revenue'
+
     const trend = isNotNil(item.changeFromPreviousPct)
         ? item.changeFromPreviousPct === 0
             ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
@@ -111,27 +118,30 @@ const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.Element =
             ? `${label}: ${item.value >= item.previous ? 'increased' : 'decreased'} by ${formatPercentage(
                   Math.abs(item.changeFromPreviousPct),
                   { precise: true }
-              )}, to ${formatItem(item.value, item.kind, { precise: true })} from ${formatItem(
+              )}, to ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })} from ${formatItem(
                   item.previous,
                   item.kind,
-                  { precise: true }
+                  { precise: true, currency: baseCurrency }
               )}`
             : isNotNil(item.value)
-            ? `${label}: ${formatItem(item.value, item.kind, { precise: true })}`
+            ? `${label}: ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })}`
             : 'No data'
 
     return (
         <Tooltip title={tooltip}>
             <div className={OVERVIEW_ITEM_CELL_CLASSES}>
                 <div className="flex flex-row w-full">
-                    <div className="flex-1" />
-                    <div className="font-bold uppercase text-xs py-1">{label}</div>
+                    <div className="flex flex-row items-start justify-start flex-1">
+                        {/* NOTE: If ever removing the beta tag, make sure we keep an empty div with flex-1 to keep the layout consistent */}
+                        {isBeta && <LemonTag type="warning">BETA</LemonTag>}
+                    </div>
+                    <div className="font-bold uppercase text-xs py-1">{label}&nbsp;&nbsp;</div>
                     <div className="flex flex-1 flex-row justify-end items-start">
                         {docsUrl && <LemonButton to={docsUrl} icon={<IconGear />} size="xsmall" />}
                     </div>
                 </div>
                 <div className="w-full flex-1 flex items-center justify-center">
-                    <div className="text-2xl">{formatItem(item.value, item.kind)}</div>
+                    <div className="text-2xl">{formatItem(item.value, item.kind, { currency: baseCurrency })}</div>
                 </div>
                 {trend && isNotNil(item.changeFromPreviousPct) ? (
                     // eslint-disable-next-line react/forbid-dom-props
@@ -162,19 +172,6 @@ const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     return humanFriendlyLargeNumber(x)
 }
 
-const getCurrencySymbol = (currency: string): { symbol: string; isPrefix: boolean } => {
-    const formatter = new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: currency,
-    })
-    const parts = formatter.formatToParts(0)
-    const symbol = parts.find((part) => part.type === 'currency')?.value
-
-    const isPrefix = symbol ? parts[0].type === 'currency' : true
-
-    return { symbol: symbol ?? currency, isPrefix }
-}
-
 const formatItem = (
     value: number | undefined,
     kind: WebOverviewItemKind,
@@ -187,7 +184,7 @@ const formatItem = (
     } else if (kind === 'duration_s') {
         return humanFriendlyDuration(value, { secondsPrecision: 3 })
     } else if (kind === 'currency') {
-        const { symbol, isPrefix } = getCurrencySymbol(options?.currency ?? 'USD')
+        const { symbol, isPrefix } = getCurrencySymbol(options?.currency ?? CurrencyCode.USD)
         return `${isPrefix ? symbol : ''}${formatUnit(value, { precise: options?.precise })}${
             isPrefix ? '' : ' ' + symbol
         }`
@@ -227,7 +224,7 @@ const settingsLinkFromKey = (key: string): string | null => {
     switch (key) {
         case 'revenue':
         case 'conversion revenue':
-            return urls.revenue()
+            return urls.revenueSettings()
         default:
             return null
     }

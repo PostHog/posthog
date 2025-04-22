@@ -72,6 +72,7 @@ describe('Error Display', () => {
                     value: 'There was an error creating the support ticket with zendesk.',
                 },
             ],
+
             synthetic: undefined,
             unhandled: false,
             type: 'Error',
@@ -79,6 +80,9 @@ describe('Error Display', () => {
             level: undefined,
             os: 'Windows 10',
             ingestionErrors: undefined,
+            fingerprintRecords: undefined,
+            url: undefined,
+            runtime: 'web',
             sentryUrl:
                 'https://sentry.io/organizations/posthog/issues/?project=1899813&query=40e442d79c22473391aeeeba54c82163',
         })
@@ -117,6 +121,9 @@ describe('Error Display', () => {
             unhandled: true,
             synthetic: undefined,
             type: undefined,
+            fingerprintRecords: undefined,
+            url: undefined,
+            runtime: 'web',
             library: 'posthog-js 1.0.0',
             level: 'info',
             os: 'Windows 10',
@@ -168,6 +175,9 @@ describe('Error Display', () => {
             library: 'posthog-js 1.0.0',
             level: undefined,
             os: 'Windows 10',
+            fingerprintRecords: undefined,
+            url: undefined,
+            runtime: 'web',
             sentryUrl: undefined,
             exceptionList: [
                 {

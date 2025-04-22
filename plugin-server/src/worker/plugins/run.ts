@@ -1,5 +1,4 @@
 import { PluginEvent, Webhook } from '@posthog/plugin-scaffold'
-import { captureException } from '@sentry/node'
 
 import { Hub, PluginConfig, PluginMethodsConcrete, PostIngestionEvent } from '../../types'
 import { processError } from '../../utils/db/error'
@@ -9,93 +8,12 @@ import {
     mutatePostIngestionEventWithElementsList,
 } from '../../utils/event'
 import { trackedFetch } from '../../utils/fetch'
-import { getHttpCallRecorder, RecordedHttpCall } from '../../utils/recorded-fetch'
-import { status } from '../../utils/status'
+import { logger } from '../../utils/logger'
 import { IllegalOperationError } from '../../utils/utils'
 import { WebhookFormatter } from '../ingestion/webhook-formatter'
 import { pluginActionMsSummary } from '../metrics'
 
 const PLUGIN_URL_LEGACY_ACTION_WEBHOOK = 'https://github.com/PostHog/legacy-action-webhook'
-
-/**
- * Logs HTTP calls made by a plugin
- */
-function logHttpCalls(
-    recordedCalls: RecordedHttpCall[],
-    eventUuid: string | undefined,
-    pluginConfig: PluginConfig,
-    failed: boolean = false
-): void {
-    if (recordedCalls.length > 0) {
-        const actionText = failed ? 'before failing' : 'during operation'
-
-        status.info(
-            '🌐',
-            `Plugin ${pluginConfig.plugin?.name || 'unknown'} (${pluginConfig.id}) made ${
-                recordedCalls.length
-            } HTTP calls ${actionText} for event ${eventUuid || 'unknown'}`
-        )
-
-        // Log details about each call
-        recordedCalls.forEach((call: RecordedHttpCall, index: number) => {
-            status.info(
-                '🌐',
-                `Event ${eventUuid || 'unknown'} - Call ${index + 1}: ${call.request.method} ${
-                    call.request.url
-                } - Status: ${call.response.status}`
-            )
-
-            // Log errors if any
-            if (call.error) {
-                status.error('🌐', `Event ${eventUuid || 'unknown'} - Call ${index + 1} error: ${call.error.message}`)
-            }
-        })
-    }
-}
-
-/**
- * Executes an operation while recording HTTP calls if enabled.
- * This function encapsulates the logic for recording HTTP calls during plugin operations.
- */
-async function withHttpCallRecording<T>(
-    hub: Hub,
-    eventUuid: string | undefined,
-    pluginConfig: PluginConfig,
-    operation: () => Promise<T>
-): Promise<T> {
-    // Check if we should record HTTP calls - using the same condition as in recorded-fetch.ts
-    const recordHttpCalls = hub.DESTINATION_MIGRATION_DIFFING_ENABLED === true && hub.TASKS_PER_WORKER === 1
-
-    // Clear the recorder before running the operation if recording is enabled
-    if (recordHttpCalls) {
-        getHttpCallRecorder().clearCalls()
-    }
-
-    let failed = false
-    try {
-        // Execute the operation
-        return await operation()
-    } catch (error) {
-        failed = true
-        throw error // Re-throw the error to be handled by the caller
-    } finally {
-        try {
-            if (recordHttpCalls) {
-                // Get recorded HTTP calls even if the operation failed
-                const recordedCalls = getHttpCallRecorder().getCalls()
-                logHttpCalls(recordedCalls, eventUuid, pluginConfig, failed)
-            }
-        } catch (e) {
-            status.error('🌐', `Error checking record logs...`)
-            captureException(e)
-        } finally {
-            if (recordHttpCalls) {
-                // Clear the recorder to prevent memory leaks
-                getHttpCallRecorder().clearCalls()
-            }
-        }
-    }
-}
 
 async function runSingleTeamPluginOnEvent(
     hub: Hub,
@@ -104,7 +22,7 @@ async function runSingleTeamPluginOnEvent(
     onEvent: PluginMethodsConcrete['onEvent']
 ): Promise<void> {
     const timeout = setTimeout(() => {
-        status.warn('⌛', `Still running single onEvent plugin for team ${event.teamId} for plugin ${pluginConfig.id}`)
+        logger.warn('⌛', `Still running single onEvent plugin for team ${event.teamId} for plugin ${pluginConfig.id}`)
     }, 10 * 1000) // 10 seconds
 
     if (!hub.pluginConfigsToSkipElementsParsing?.(pluginConfig.plugin_id)) {
@@ -118,9 +36,7 @@ async function runSingleTeamPluginOnEvent(
         // Runs onEvent for a single plugin without any retries
         const timer = new Date()
         try {
-            await withHttpCallRecording(hub, event.eventUuid, pluginConfig, async () => {
-                await onEvent(onEventPayload)
-            })
+            await hub.legacyOneventCompareService.runOnEvent(pluginConfig, onEvent, event, onEventPayload)
 
             pluginActionMsSummary
                 .labels(pluginConfig.plugin?.id.toString() ?? '?', 'onEvent', 'success')
@@ -200,7 +116,7 @@ async function runSingleTeamPluginComposeWebhook(
 
         if (!maybeWebhook) {
             // TODO: ideally we'd queryMetric it as skipped, but that's not an option atm
-            status.debug('Skipping composeWebhook returned null', {
+            logger.debug('Skipping composeWebhook returned null', {
                 teamId: event.team_id,
                 pluginConfigId: pluginConfig.id,
                 eventUuid: event.uuid,
@@ -251,7 +167,7 @@ async function runSingleTeamPluginComposeWebhook(
     // Old-style `fetch` send, used for on-prem.
     const slowWarningTimeout = hub.EXTERNAL_REQUEST_TIMEOUT_MS * 0.7
     const timeout = setTimeout(() => {
-        status.warn(
+        logger.warn(
             '⌛',
             `Still running single composeWebhook plugin for team ${event.team_id} for plugin ${pluginConfig.id}`
         )
@@ -329,7 +245,6 @@ export async function runComposeWebhook(hub: Hub, event: PostIngestionEvent): Pr
 
 export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<PluginEvent | null> {
     const teamId = event.team_id
-
     const pluginMethodsToRun = await getPluginMethodsForTeam(hub, teamId, 'processEvent')
 
     let returnedEvent: PluginEvent | null = event

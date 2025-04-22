@@ -7,32 +7,27 @@ import { Params } from 'scenes/sceneTypes'
 
 import { DataTableNode, ErrorTrackingQuery } from '~/queries/schema/schema-general'
 
-import {
-    DEFAULT_ERROR_TRACKING_DATE_RANGE,
-    DEFAULT_ERROR_TRACKING_FILTER_GROUP,
-    errorTrackingLogic,
-} from './errorTrackingLogic'
+import { errorTrackingLogic } from './errorTrackingLogic'
 import type { errorTrackingSceneLogicType } from './errorTrackingSceneLogicType'
 import { errorTrackingQuery } from './queries'
+import { defaultSearchParams } from './utils'
+
+export type SparklineSelectedPeriod = 'custom' | 'day'
 
 export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingSceneLogic']),
 
-    connect({
-        values: [
-            errorTrackingLogic,
-            ['dateRange', 'assignee', 'filterTestAccounts', 'filterGroup', 'customSparklineConfig', 'searchQuery'],
-        ],
-        actions: [
-            errorTrackingLogic,
-            ['setAssignee', 'setDateRange', 'setFilterGroup', 'setSearchQuery', 'setFilterTestAccounts'],
-        ],
-    }),
+    connect(() => ({
+        values: [errorTrackingLogic, ['dateRange', 'assignee', 'filterTestAccounts', 'filterGroup', 'searchQuery']],
+        actions: [errorTrackingLogic, ['setDateRange', 'setFilterGroup', 'setSearchQuery', 'setFilterTestAccounts']],
+    })),
 
     actions({
         setOrderBy: (orderBy: ErrorTrackingQuery['orderBy']) => ({ orderBy }),
+        setOrderDirection: (orderDirection: ErrorTrackingQuery['orderDirection']) => ({ orderDirection }),
         setStatus: (status: ErrorTrackingQuery['status']) => ({ status }),
         setSelectedIssueIds: (ids: string[]) => ({ ids }),
+        setSparklineSelectedPeriod: (period: SparklineSelectedPeriod) => ({ period }),
     }),
 
     reducers({
@@ -41,6 +36,13 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             { persist: true },
             {
                 setOrderBy: (_, { orderBy }) => orderBy,
+            },
+        ],
+        orderDirection: [
+            'DESC' as ErrorTrackingQuery['orderDirection'],
+            { persist: true },
+            {
+                setOrderDirection: (_, { orderDirection }) => orderDirection,
             },
         ],
         status: [
@@ -56,12 +58,38 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 setSelectedIssueIds: (_, { ids }) => ids,
             },
         ],
+        sparklineSelectedPeriod: [
+            'custom' as SparklineSelectedPeriod,
+            { persist: true },
+            {
+                setSparklineSelectedPeriod: (_, { period }) => period,
+            },
+        ],
+        volumeResolution: [20],
     }),
 
     selectors(({ values }) => ({
         query: [
-            (s) => [s.orderBy, s.status, s.dateRange, s.assignee, s.filterTestAccounts, s.filterGroup, s.searchQuery],
-            (orderBy, status, dateRange, assignee, filterTestAccounts, filterGroup, searchQuery): DataTableNode =>
+            (s) => [
+                s.orderBy,
+                s.status,
+                s.dateRange,
+                s.assignee,
+                s.filterTestAccounts,
+                s.filterGroup,
+                s.searchQuery,
+                s.orderDirection,
+            ],
+            (
+                orderBy,
+                status,
+                dateRange,
+                assignee,
+                filterTestAccounts,
+                filterGroup,
+                searchQuery,
+                orderDirection
+            ): DataTableNode =>
                 errorTrackingQuery({
                     orderBy,
                     status,
@@ -69,11 +97,10 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     assignee,
                     filterTestAccounts,
                     filterGroup,
-                    // we do not want to recompute the query when then sparkline selection changes
-                    // because we have already fetched the alternative option (24h, 30d, custom)
-                    customVolume: values.customSparklineConfig,
+                    volumeResolution: values.volumeResolution,
                     searchQuery,
-                    columns: ['error', 'volume', 'occurrences', 'sessions', 'users', 'assignee'],
+                    columns: ['error', 'volume', 'occurrences', 'sessions', 'users'],
+                    orderDirection,
                 }),
         ],
     })),
@@ -91,21 +118,16 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 replace: boolean
             }
         ] => {
-            const searchParams: Params = {
-                orderBy: values.orderBy,
-                status: values.status,
+            const searchParams = defaultSearchParams({
+                dateRange: values.dateRange,
+                searchQuery: values.searchQuery,
+                filterGroup: values.filterGroup,
                 filterTestAccounts: values.filterTestAccounts,
-            }
+            })
 
-            if (values.searchQuery) {
-                searchParams.searchQuery = values.searchQuery
-            }
-            if (!objectsEqual(values.filterGroup, DEFAULT_ERROR_TRACKING_FILTER_GROUP)) {
-                searchParams.filterGroup = values.filterGroup
-            }
-            if (!objectsEqual(values.dateRange, DEFAULT_ERROR_TRACKING_DATE_RANGE)) {
-                searchParams.dateRange = values.dateRange
-            }
+            searchParams.status = values.status
+            searchParams.orderBy = values.orderBy
+            searchParams.orderDirection = values.orderDirection
 
             if (!objectsEqual(searchParams, router.values.searchParams)) {
                 return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
@@ -126,6 +148,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             setFilterGroup: () => buildURL(),
             setSearchQuery: () => buildURL(),
             setFilterTestAccounts: () => buildURL(),
+            setOrderDirection: () => buildURL(),
         }
     }),
 
@@ -137,17 +160,8 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             if (params.status && !equal(params.status, values.status)) {
                 actions.setStatus(params.status)
             }
-            if (params.dateRange && !equal(params.dateRange, values.dateRange)) {
-                actions.setDateRange(params.dateRange)
-            }
-            if (params.filterGroup && !equal(params.filterGroup, values.filterGroup)) {
-                actions.setFilterGroup(params.filterGroup)
-            }
-            if (params.filterTestAccounts && !equal(params.filterTestAccounts, values.filterTestAccounts)) {
-                actions.setFilterTestAccounts(params.filterTestAccounts)
-            }
-            if (params.searchQuery && !equal(params.searchQuery, values.searchQuery)) {
-                actions.setSearchQuery(params.searchQuery)
+            if (params.orderDirection && !equal(params.orderDirection, values.orderDirection)) {
+                actions.setOrderDirection(params.orderDirection)
             }
         }
         return {

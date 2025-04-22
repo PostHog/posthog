@@ -50,7 +50,7 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
     }, [currentPath])
 
     return (
-        <div className="w-full flex gap-x-2 border-b border-1 border-border-bold p-2">
+        <div className="w-full flex gap-x-2 border-b border-1 border-primary p-2">
             <LemonInput
                 size="medium"
                 className="grow font-mono text-sm pl-0.5"
@@ -262,7 +262,7 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                     <div className="grid grid-cols-6 deprecated-space-x-6 min-h-[80vh]">
                         <div className="col-span-4 relative max-h-[100vh] overflow-y-hidden">
                             {browserUrl && iframeBanner?.level != 'error' ? (
-                                <div className="border border-1 border-border-bold rounded h-full w-full flex flex-col">
+                                <div className="border border-1 border-primary rounded h-full w-full flex flex-col">
                                     <UrlInput iframeRef={iframeRef} />
                                     <div className="m-2 grow rounded">
                                         <IframedToolbarBrowser iframeRef={iframeRef} userIntent="add-action" />

@@ -14,8 +14,8 @@ import fse from 'fs-extra'
 import * as path from 'path'
 import postcss from 'postcss'
 import postcssPresetEnv from 'postcss-preset-env'
-import tailwindcss from 'tailwindcss'
 import ts from 'typescript'
+import { cloneNode } from "ts-clone-node";
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
@@ -85,7 +85,7 @@ export function copyIndexHtml(
         window.ESBUILD_LOAD_CHUNKS('index');
     `
 
-    // Snippet to dynamically load the css based on window.JS_URL
+    // Modified CSS loader to handle both files
     const cssLoader = `
         const link = document.createElement("link");
         link.rel = "stylesheet";
@@ -140,8 +140,7 @@ export const commonConfig = {
     plugins: [
         sassPlugin({
             async transform(source, resolveDir, filePath) {
-                // Sync the plugins list with postcss.config.js
-                const plugins = [tailwindcss, autoprefixer, postcssPresetEnv({ stage: 0 })]
+                const plugins = [autoprefixer, postcssPresetEnv({ stage: 0 })]
                 if (!isDev) {
                     plugins.push(cssnano({ preset: 'default' }))
                 }
@@ -362,17 +361,14 @@ export async function buildOrWatch(config) {
     }
 
     if (isDev) {
-        const tailwindConfigJsPath = path.resolve(absWorkingDir, '../tailwind.config.js')
-
         chokidar
             .watch(
                 [
                     path.resolve(absWorkingDir, 'src'),
                     path.resolve(absWorkingDir, '../ee/frontend'),
                     path.resolve(absWorkingDir, '../common'),
-                    path.resolve(absWorkingDir, '../products/*/manifest.json'),
+                    path.resolve(absWorkingDir, '../products/*/manifest.tsx'),
                     path.resolve(absWorkingDir, '../products/*/frontend/**/*'),
-                    tailwindConfigJsPath,
                 ],
                 {
                     ignored: /.*(Type|\.test\.stories)\.[tj]sx?$/,
@@ -385,15 +381,15 @@ export async function buildOrWatch(config) {
                 }
 
                 // Manifests have been updated, so we need to rebuild urls.
-                if (filePath.includes('manifest.json')) {
-                    gatherProductManifests()
+                if (filePath.includes('manifest.tsx')) {
+                    gatherProductManifests(absWorkingDir)
                 }
 
-                if (inputFiles.has(filePath) || filePath === tailwindConfigJsPath) {
-                    if (filePath.match(/\.tsx?$/) || filePath === tailwindConfigJsPath) {
+                if (inputFiles.has(filePath)) {
+                    if (filePath.match(/\.tsx?$/)) {
                         // For changed TS/TSX files, we need to initiate a Tailwind JIT rescan
                         // in case any new utility classes are used. `touch`ing `base.scss` (or the file that imports tailwind.css) achieves this.
-                        await touchFile(path.resolve(absWorkingDir, 'src/styles/base.scss'))
+                        await touchFile(path.resolve(absWorkingDir, '../common/tailwind/tailwind.css'))
                     }
                     void debouncedBuild()
                 }
@@ -505,13 +501,14 @@ export function gatherProductUrls(products, __dirname) {
     const sourceFiles = []
     for (const product of products) {
         try {
-            if (fse.readFileSync(path.resolve(__dirname, `../products/${product}/frontend/urls.ts`))) {
-                sourceFiles.push(path.resolve(__dirname, `../products/${product}/frontend/urls.ts`))
+            if (fse.readFileSync(path.resolve(__dirname, `../products/${product}/manifest.tsx`))) {
+                sourceFiles.push(path.resolve(__dirname, `../products/${product}/manifest.tsx`))
             }
         } catch (e) {
             // ignore
         }
     }
+
     const program = ts.createProgram(sourceFiles, {
         target: 1, // ts.ScriptTarget.ES5
         module: 1, // ts.ModuleKind.CommonJS
@@ -527,7 +524,7 @@ export function gatherProductUrls(products, __dirname) {
         }
         ts.forEachChild(sourceFile, function visit(node) {
             if (
-                ts.isVariableDeclaration(node) &&
+                ts.isPropertyAssignment(node) &&
                 node.name.text === 'urls' &&
                 ts.isObjectLiteralExpression(node.initializer)
             ) {
@@ -553,64 +550,198 @@ export function gatherProductUrls(products, __dirname) {
 
 export function gatherProductManifests(__dirname) {
     const products = fse.readdirSync(path.join(__dirname, '../products')).filter((p) => !['__pycache__', 'README.md'].includes(p))
-    const allScenes = {}
-    const allRoutes = {}
-    const allRedirects = {}
-    let productScenes = ''
+    const urls = []
+    const scenes = []
+    const sceneConfigs = []
+    const routes = []
+    const redirects = []
+    const fileSystemTypes = []
+    const treeItemsNew = {}
+    const treeItemsExplore = {}
 
+    const sourceFiles = []
     for (const product of products) {
         try {
-            const manifest = JSON.parse(fse.readFileSync(path.join(__dirname, `../products/${product}/manifest.json`), 'utf-8'))
-            const scenes = Object.fromEntries(
-                Object.entries(manifest.scenes ?? {}).map(([key, value]) => [key, { name: manifest.name, ...value }])
-            )
-            Object.assign(allScenes, scenes)
-            Object.assign(allRoutes, manifest.routes ?? {})
-            Object.assign(allRedirects, manifest.redirects ?? {})
-
-            productScenes +=
-                Object.entries(scenes ?? {})
-                    .map(
-                        ([key, value]) =>
-                            `${JSON.stringify(key)}: (): any => import(${JSON.stringify(
-                                `../../products/${product}/${value.import}`
-                            )})`
-                    )
-                    .join(',\n') + ',\n'
+            if (fse.readFileSync(path.resolve(__dirname, `../products/${product}/manifest.tsx`))) {
+                sourceFiles.push(path.resolve(__dirname, `../products/${product}/manifest.tsx`))
+            }
         } catch (e) {
-            console.error(`Could not read "products/${product}/manifest.json"`, e)
+            // ignore
         }
     }
 
-    const productRoutes = Object.entries(allRoutes)
-        .map(([key, value]) => `${JSON.stringify(key)}: ${JSON.stringify(value)}`)
-        .join(',\n    ')
-    const productRedirects = Object.entries(allRedirects)
-        .map(([key, value]) => `${JSON.stringify(key)}: ${JSON.stringify(value)}`)
-        .join(',\n    ')
-    const productConfiguration = Object.entries(allScenes)
-        .map(([key, value]) => {
-            const { import: _imp, ...rest } = value
-            return `${JSON.stringify(key)}: ${JSON.stringify(rest)}`
-        })
-        .join(',\n    ')
+    const program = ts.createProgram(sourceFiles, {
+        target: 1, // ts.ScriptTarget.ES5
+        module: 1, // ts.ModuleKind.CommonJS
+        noEmit: true,
+        noErrorTruncation: true,
+    })
 
-    const productUrls = gatherProductUrls(products, __dirname)
+    /** Helper: Convert a PropertyAssignment from {a: {import:b}} to {a:b} */
+    function keepOnlyImport(property, manifestPath) {
+        if (ts.isPropertyAssignment(property) && ts.isObjectLiteralExpression(property.initializer)) {
+            const imp = property.initializer.properties.find(p => p.name.text === 'import')
+            if (imp) {
+                const importFunction = cloneNode(imp.initializer)
+                if (ts.isFunctionLike(importFunction) && ts.isCallExpression(importFunction.body) && importFunction.body.arguments.length === 1) {
+                    const [imported] = importFunction.body.arguments
+                    if (ts.isStringLiteralLike(imported)) {
+                        const importText = imported.text
+                        if (importText.startsWith('./')) {
+                            const newPath = path.relative('./src/', path.join(path.dirname(manifestPath), importText))
+                            importFunction.body.arguments[0] = ts.factory.createStringLiteral(newPath)
+                        }
+                    }
+                    return ts.factory.createPropertyAssignment(property.name, importFunction)
+                }
+            }
+        }
+        return null
+    }
+
+    /** Helper: Remove the import key from a PropertyAssignment's ObjectLiteral */
+    function withoutImport(property) {
+        if (ts.isPropertyAssignment(property) && ts.isObjectLiteralExpression(property.initializer)) {
+            const clone = cloneNode(property)
+            clone.initializer.properties = clone.initializer.properties.filter((p) => p.name.text !== 'import')
+            return clone
+        }
+        return null
+    }
+
+    for (const sourceFile of program.getSourceFiles()) {
+        if (!sourceFiles.includes(sourceFile.fileName)) {
+            continue
+        }
+        ts.forEachChild(sourceFile, function visit(node) {
+            if (
+                ts.isPropertyAssignment(node) &&
+                ts.isObjectLiteralExpression(node.initializer)
+            ) {
+                if (node.name.text === 'urls') {
+                    for (const property of node.initializer.properties) {
+                        urls.push(cloneNode(property))
+                    }
+                } else if (node.name.text === 'routes') {
+                    for (const property of node.initializer.properties) {
+                        routes.push(cloneNode(property))
+                    }
+                } else if (node.name.text === 'scenes') {
+                    for (const property of node.initializer.properties) {
+                        const imp = keepOnlyImport(property, sourceFile.fileName)
+                        if (imp) {
+                            scenes.push(imp)
+                        }
+                        const config = withoutImport(property)
+                        if (config) {
+                            sceneConfigs.push(config)
+                        }
+                    }
+                } else if (node.name.text === 'redirects') {
+                    for (const property of node.initializer.properties) {
+                        redirects.push(cloneNode(property))
+                    }
+                } else if (node.name.text === 'fileSystemTypes') {
+                    for (const property of node.initializer.properties) {
+                        fileSystemTypes.push(cloneNode(property))
+                    }
+                } else {
+                    ts.forEachChild(node, visit)
+                }
+            } else if (
+                ts.isPropertyAssignment(node) &&
+                ts.isArrayLiteralExpression(node.initializer) &&
+                node.name.text === 'treeItemsNew'
+            ) {
+                for (const element of node.initializer.elements) {
+                    if (ts.isObjectLiteralExpression(element)) {
+                        const pathNode = element.properties.find((p) => p.name.text === 'path')
+                        const path = pathNode ? pathNode.initializer.text : null
+                        if (path) {
+                            treeItemsNew[path] = cloneNode(element)
+                        } else {
+                            console.error('Tree item without path:', element)
+                        }
+                    }
+                }
+            } else if (
+                ts.isPropertyAssignment(node) &&
+                ts.isArrayLiteralExpression(node.initializer) &&
+                node.name.text === 'treeItemsExplore'
+            ) {
+                for (const element of node.initializer.elements) {
+                    if (ts.isObjectLiteralExpression(element)) {
+                        const pathNode = element.properties.find((p) => p.name.text === 'path')
+                        const path = pathNode ? pathNode.initializer.text : null
+                        if (path) {
+                            treeItemsExplore[path] = cloneNode(element)
+                        } else {
+                            console.error('Tree item without path:', element)
+                        }
+                    }
+                }
+            } else {
+                ts.forEachChild(node, visit)
+            }
+        })
+    }
+
+    const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed })
+    const sourceFile = ts.factory.createSourceFile(
+        [],
+        ts.factory.createToken(ts.SyntaxKind.EndOfFileToken),
+        ts.NodeFlags.None
+    )
+    fileSystemTypes.sort((a, b) => a.name.text.localeCompare(b.name.text))
+    const manifestUrls = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(urls), sourceFile)
+    const manifestScenes = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(scenes), sourceFile)
+    const manifestSceneConfig = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(sceneConfigs), sourceFile)
+    const manifestRedirects = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(redirects), sourceFile)
+    const manifestRoutes = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(routes), sourceFile)
+    const manifestFileSystemTypes = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createObjectLiteralExpression(fileSystemTypes), sourceFile)
+    const manifesttreeItemsNew = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createArrayLiteralExpression(Object.keys(treeItemsNew).sort().map(key => treeItemsNew[key])), sourceFile)
+    const manifesttreeItemsExplore = printer.printNode(ts.EmitHint.Unspecified, ts.factory.createArrayLiteralExpression(Object.keys(treeItemsExplore).sort().map(key => treeItemsExplore[key])), sourceFile)
+
+    const autogenComment = "/** This const is auto-generated, as is the whole file */"
+    let preservedImports = ''
+    const lines = fse.readFileSync(path.join(__dirname, 'src/products.tsx'), 'utf-8').split('\n')
+    const importsStarted = lines.findIndex((line) => line.startsWith("import "))
+    const importsEnded = lines.findIndex((line) => line.includes(autogenComment))
+    preservedImports = lines.slice(importsStarted, importsEnded - 1).join('\n').trim()
+
+    if (importsStarted < 0 || importsEnded < 0 || !preservedImports) {
+        throw new Error('Could not find existing imports in products.tsx')
+    }
 
     let productsTsx = `
-        // Generated by utils.mjs, based on product folders\n
-        /** This const is auto-generated, as is the whole file */
-        export const productScenes: Record<string, any> = {${productScenes}}\n
-        /** This const is auto-generated, as is the whole file */
-        export const productRoutes: Record<string, [string, string]> = {${productRoutes}}\n
-        /** This const is auto-generated, as is the whole file */
-        export const productRedirects: Record<string, string> = {${productRedirects}}\n
-        /** This const is auto-generated, as is the whole file */
-        export const productConfiguration: Record<string, any> = {${productConfiguration}}\n
-        /** This const is auto-generated, as is the whole file */
-        export const productUrls = ${productUrls}
-    `
-    fse.writeFileSync(path.join(__dirname, 'src/products.ts'), productsTsx)
+        /* eslint @typescript-eslint/explicit-module-boundary-types: 0 */
+        // Generated by @posthog/esbuilder/utils.mjs, based on product folder manifests under products/*/manifest.tsx
+        // The imports are preserved between builds, so please update if any are missing or extra.
 
-    ps.execSync('prettier --write src/products.ts')
+        ${preservedImports}
+
+        ${autogenComment}
+        export const productScenes: Record<string, () => Promise<any>> = ${manifestScenes}\n
+        ${autogenComment}
+        export const productRoutes: Record<string, [string, string]> = ${manifestRoutes}\n
+        ${autogenComment}
+        export const productRedirects: Record<string, string | ((params: Params, searchParams: Params, hashParams: Params) => string)> = ${manifestRedirects}\n
+        ${autogenComment}
+        export const productConfiguration: Record<string, any> = ${manifestSceneConfig}\n
+        ${autogenComment}
+        export const productUrls = ${manifestUrls}\n
+        ${autogenComment}
+        export const fileSystemTypes = ${manifestFileSystemTypes}\n
+        ${autogenComment}
+        export const treeItemsNew = ${manifesttreeItemsNew}\n
+        ${autogenComment}
+        export const treeItemsExplore = ${manifesttreeItemsExplore}\n
+    `
+
+    // safe temporary path in /tmp
+    fse.mkdirSync(path.join(__dirname, 'tmp'), { recursive: true })
+    let tempfile = path.join(__dirname, 'tmp/products.tsx')
+    fse.writeFileSync(tempfile, productsTsx)
+    ps.execFileSync('prettier', ['--write', tempfile])
+    fse.renameSync(tempfile, path.join(__dirname, 'src/products.tsx'))
 }

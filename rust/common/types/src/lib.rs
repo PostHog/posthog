@@ -1,4 +1,5 @@
 mod event;
+mod person;
 mod team;
 
 // Events
@@ -9,7 +10,13 @@ pub use event::PersonMode;
 pub use event::RawEvent;
 
 // Teams
+pub use team::ProjectId;
 pub use team::Team;
+pub use team::TeamId;
 
 // Utils
 pub mod util;
+
+// Persons
+pub use person::Person;
+pub use person::PersonId;

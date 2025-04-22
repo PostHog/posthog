@@ -7,11 +7,12 @@ use axum::{
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
 use tracing::error;
+use uuid::Uuid;
 
 use crate::api::{
     errors::FlagError,
     request_handler::{decode_request, FlagsQueryParams},
-    types::FlagsResponse,
+    types::LegacyFlagsResponse,
 };
 
 // Metrics constants for test endpoint
@@ -30,7 +31,7 @@ pub async fn test_black_hole(
     _method: Method,
     _path: MatchedPath,
     body: Bytes,
-) -> Result<Json<FlagsResponse>, FlagError> {
+) -> Result<Json<LegacyFlagsResponse>, FlagError> {
     metrics::counter!(REQUEST_SEEN).increment(1);
 
     // Track compression type
@@ -109,10 +110,13 @@ pub async fn test_black_hole(
     // If we got here, the request is valid
     metrics::counter!(REQUEST_OUTCOME, "outcome" => "success").increment(1);
 
-    Ok(Json(FlagsResponse {
+    let request_id = Uuid::new_v4();
+
+    Ok(Json(LegacyFlagsResponse {
         feature_flags: Default::default(),
         feature_flag_payloads: Default::default(),
         quota_limited: None,
         errors_while_computing_flags: false,
+        request_id,
     }))
 }

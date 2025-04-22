@@ -1,4 +1,4 @@
-import datetime
+from datetime import UTC, timedelta, datetime
 import uuid
 from unittest.mock import ANY, patch
 
@@ -440,7 +440,7 @@ class TestPasswordResetAPI(APIBaseTest):
         user: User = User.objects.get(email=self.CONFIG_EMAIL)
         self.assertEqual(
             user.requested_password_reset_at,
-            datetime.datetime(2021, 10, 5, 12, 0, 0, tzinfo=timezone.utc),
+            datetime(2021, 10, 5, 12, 0, 0, tzinfo=UTC),
         )
 
         self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
@@ -595,7 +595,7 @@ class TestPasswordResetAPI(APIBaseTest):
     def test_invalid_token_returns_error(self):
         valid_token = password_reset_token_generator.make_token(self.user)
 
-        with freeze_time(timezone.now() - datetime.timedelta(seconds=86_401)):
+        with freeze_time(timezone.now() - timedelta(seconds=86_401)):
             # tokens expire after one day
             expired_token = password_reset_token_generator.make_token(self.user)
 
@@ -624,7 +624,7 @@ class TestPasswordResetAPI(APIBaseTest):
     def test_user_can_reset_password(self, mock_capture, mock_identify):
         self.client.logout()  # extra precaution to test login
 
-        self.user.requested_password_reset_at = datetime.datetime.now()
+        self.user.requested_password_reset_at = datetime.now()
         self.user.save()
         token = password_reset_token_generator.make_token(self.user)
         response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": VALID_TEST_PASSWORD})
@@ -721,7 +721,7 @@ class TestPasswordResetAPI(APIBaseTest):
     def test_cant_reset_password_with_invalid_token(self):
         valid_token = password_reset_token_generator.make_token(self.user)
 
-        with freeze_time(timezone.now() - datetime.timedelta(seconds=86_401)):
+        with freeze_time(timezone.now() - timedelta(seconds=86_401)):
             # tokens expire after one day
             expired_token = password_reset_token_generator.make_token(self.user)
 
@@ -929,16 +929,16 @@ class TestTimeSensitivePermissions(APIBaseTest):
     def test_after_timeout_modifications_require_reauthentication(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        now = datetime.datetime.now()
+        now = datetime.now()
         with freeze_time(now):
             res = self.client.patch("/api/organizations/@current", {"name": "new name"})
             assert res.status_code == 200
 
-        with freeze_time(now + datetime.timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE - 100)):
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE - 100)):
             res = self.client.patch("/api/organizations/@current", {"name": "new name"})
             assert res.status_code == 200
 
-        with freeze_time(now + datetime.timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
+        with freeze_time(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10)):
             res = self.client.patch("/api/organizations/@current", {"name": "new name"})
             assert res.status_code == 403
             assert res.json() == {

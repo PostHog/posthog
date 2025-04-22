@@ -207,7 +207,7 @@ class InputsSerializer(serializers.DictField):
             value = data.get(key) or {}
 
             # We only load the existing secret if the schema is secret and the given value has "secret" set
-            if schema.get("secret") and existing_secret_inputs and value and value.get("secret"):
+            if schema.get("secret") and existing_secret_inputs and ((value and value.get("secret")) or value == {}):
                 value = existing_secret_inputs.get(schema["key"]) or {}
 
             self.context["schema"] = schema
@@ -257,7 +257,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
     actions = serializers.ListField(child=serializers.DictField(), required=False)
     events = serializers.ListField(child=serializers.DictField(), required=False)
     properties = serializers.ListField(child=serializers.DictField(), required=False)
-    bytecode = serializers.JSONField(required=False)
+    bytecode = serializers.JSONField(required=False, allow_null=True)
     transpiled = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)
     bytecode_error = serializers.CharField(required=False)
@@ -271,9 +271,15 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         function_type = self.context["function_type"]
         team = self.context["get_team"]()
 
+        # Ensure data is initialized as an empty dict if it's None
+        data = data or {}
+
         # If we have a bytecode, we need to validate the transpiled
         if function_type in TYPES_WITH_COMPILED_FILTERS:
             data = compile_filters_bytecode(data, team)
+            # Check if bytecode compilation resulted in an error
+            if data.get("bytecode_error"):
+                raise serializers.ValidationError(f"Invalid filter configuration: {data['bytecode_error']}")
         elif function_type in TYPES_WITH_TRANSPILED_FILTERS:
             compiler = JavaScriptCompiler()
             code = compiler.visit(compile_filters_expr(data, team))

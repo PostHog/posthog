@@ -13,10 +13,6 @@
             // width: 25%;
             min-width: 285px;
         }
-
-        .text-link {
-            color: var(--text-primary) !important;
-        }
     }
 
     .Playlist__main {
@@ -52,10 +48,10 @@
     border-left: 3px solid transparent;
 
     &--active {
-        border-left-color: var(--accent-primary);
+        border-left-color: var(--accent);
     }
 
     &:hover {
-        background-color: var(--accent-primary-highlight);
+        background-color: var(--accent-highlight-secondary);
     }
 }

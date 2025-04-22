@@ -247,12 +247,18 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             )
 
             # Still only old, empty available_product_features field value known
+            self.assertIsNone(self.organization.get_available_feature("whatever"))
             self.assertFalse(self.organization.is_feature_available("whatever"))
+            self.assertIsNone(self.organization.get_available_feature("feature-doesnt-exist"))
             self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
 
             # New available_product_features field value that was updated in DB on license creation is known after refresh
             self.organization.refresh_from_db()
+            self.assertEqual(
+                {"key": "whatever", "name": "Whatever"}, self.organization.get_available_feature("whatever")
+            )
             self.assertTrue(self.organization.is_feature_available("whatever"))
+            self.assertFalse(self.organization.get_available_feature("feature-doesnt-exist"))
             self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
         License.PLANS = current_plans
 
@@ -260,7 +266,9 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         current_plans = License.PLANS
         License.PLANS = {"enterprise": ["whatever"]}  # type: ignore
 
+        self.assertIsNone(self.organization.get_available_feature("whatever"))
         self.assertFalse(self.organization.is_feature_available("whatever"))
+        self.assertIsNone(self.organization.get_available_feature("feature-doesnt-exist"))
         self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
         License.PLANS = current_plans
 
@@ -272,6 +280,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         with freeze_time("2070-01-01T12:00:00.000Z"):  # LicensedTestMixin enterprise license expires in 2038
             sync_all_organization_available_product_features()  # This is normally ran every hour
             self.organization.refresh_from_db()
+            self.assertIsNone(self.organization.get_available_feature("whatever"))
             self.assertFalse(self.organization.is_feature_available("whatever"))
         License.PLANS = current_plans
 

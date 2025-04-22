@@ -1,8 +1,12 @@
-use crate::limiters::redis::RedisLimiter;
+use crate::api::CaptureError;
+use crate::config::KafkaConfig;
+use crate::prometheus::report_dropped_events;
+use crate::sinks::Event;
 use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
-
 use health::HealthHandle;
+use limiters::overflow::OverflowLimiter;
+use limiters::redis::RedisLimiter;
 use metrics::{counter, gauge, histogram};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::message::{Header, OwnedHeaders};
@@ -13,12 +17,6 @@ use std::time::Duration;
 use tokio::task::JoinSet;
 use tracing::log::{debug, error, info};
 use tracing::{info_span, instrument, Instrument};
-
-use crate::api::CaptureError;
-use crate::config::KafkaConfig;
-use crate::limiters::overflow::OverflowLimiter;
-use crate::prometheus::report_dropped_events;
-use crate::sinks::Event;
 
 struct KafkaContext {
     liveness: HealthHandle,
@@ -115,6 +113,7 @@ pub struct KafkaSink {
     producer: FutureProducer<KafkaContext>,
     partition: Option<OverflowLimiter>,
     main_topic: String,
+    overflow_topic: String,
     historical_topic: String,
     client_ingestion_warning_topic: String,
     exceptions_topic: String,
@@ -140,6 +139,10 @@ impl KafkaSink {
             .set(
                 "metadata.max.age.ms",
                 config.kafka_metadata_max_age_ms.to_string(),
+            )
+            .set(
+                "topic.metadata.refresh.interval.ms",
+                config.kafka_topic_metadata_refresh_interval_ms.to_string(),
             )
             .set(
                 "message.send.max.retries",
@@ -195,6 +198,7 @@ impl KafkaSink {
             producer,
             partition,
             main_topic: config.kafka_topic,
+            overflow_topic: config.kafka_overflow_topic,
             historical_topic: config.kafka_historical_topic,
             client_ingestion_warning_topic: config.kafka_client_ingestion_warning_topic,
             exceptions_topic: config.kafka_exceptions_topic,
@@ -233,9 +237,20 @@ impl KafkaSink {
                     None => false,
                     Some(partition) => partition.is_limited(&event_key),
                 };
+
                 if is_limited {
-                    (&self.main_topic, None) // Analytics overflow goes to the main topic without locality
+                    // Analytics overflow goes to the overflow topic
+                    // we configure to retain partition key or not.
+                    // if is_limited is true, the OverflowLimiter is
+                    // configured and is safe to unwrap here.
+                    if self.partition.as_ref().unwrap().should_preserve_locality() {
+                        (&self.overflow_topic, Some(event_key.as_str()))
+                    } else {
+                        (&self.overflow_topic, None)
+                    }
                 } else {
+                    // event_key is "<token>:<distinct_id>" for std events or
+                    // "<token>:<ip_addr>" for cookieless events
                     (&self.main_topic, Some(event_key.as_str()))
                 }
             }
@@ -376,13 +391,13 @@ impl Event for KafkaSink {
 mod tests {
     use crate::api::CaptureError;
     use crate::config;
-    use crate::limiters::overflow::OverflowLimiter;
     use crate::sinks::kafka::KafkaSink;
     use crate::sinks::Event;
     use crate::utils::uuid_v7;
     use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
     use health::HealthRegistry;
+    use limiters::overflow::OverflowLimiter;
     use rand::distributions::Alphanumeric;
     use rand::Rng;
     use rdkafka::mocking::MockCluster;
@@ -402,16 +417,19 @@ mod tests {
             NonZeroU32::new(10).unwrap(),
             NonZeroU32::new(10).unwrap(),
             None,
+            false,
         ));
         let cluster = MockCluster::new(1).expect("failed to create mock brokers");
         let config = config::KafkaConfig {
             kafka_producer_linger_ms: 0,
             kafka_producer_queue_mib: 50,
             kafka_message_timeout_ms: 500,
+            kafka_topic_metadata_refresh_interval_ms: 20000,
             kafka_producer_message_max_bytes: message_max_bytes.unwrap_or(1000000),
             kafka_compression_codec: "none".to_string(),
             kafka_hosts: cluster.bootstrap_servers(),
             kafka_topic: "events_plugin_ingestion".to_string(),
+            kafka_overflow_topic: "events_plugin_ingestion_overflow".to_string(),
             kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
             kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
             kafka_exceptions_topic: "events_plugin_ingestion".to_string(),

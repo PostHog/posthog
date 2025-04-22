@@ -1,13 +1,13 @@
-import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { IconCode, IconCopy } from '@posthog/icons'
+import { LemonButton, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { getPropertyKey } from 'lib/taxonomy'
 import { allOperatorsMapping } from 'lib/utils'
-import React from 'react'
-import { SurveyQuestionLabel } from 'scenes/surveys/constants'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import React, { useState } from 'react'
+import { QUESTION_TYPE_ICON_MAP, SURVEY_RESPONSE_PROPERTY, SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { getSurveyResponseKey } from 'scenes/surveys/utils'
 
 import {
@@ -20,6 +20,7 @@ import {
 } from '~/types'
 
 import { surveyLogic } from './surveyLogic'
+import { SurveySQLHelper } from './SurveySQLHelper'
 
 type OperatorOption = { label: string; value: PropertyOperator }
 
@@ -53,9 +54,22 @@ const OPERATOR_OPTIONS: Record<SurveyQuestionType, OperatorOption[]> = {
     [SurveyQuestionType.Link]: [],
 }
 
+function CopyResponseKeyButton({ questionId }: { questionId: string }): JSX.Element {
+    return (
+        <button
+            onClick={() => void copyToClipboard(`${SURVEY_RESPONSE_PROPERTY}_${questionId}`, 'survey response key')}
+            className="flex items-center cursor-pointer gap-1"
+        >
+            <IconCopy />
+            Copy survey response key
+        </button>
+    )
+}
+
 function _SurveyResponseFilters(): JSX.Element {
     const { survey, answerFilters, propertyFilters } = useValues(surveyLogic)
     const { setAnswerFilters, setPropertyFilters } = useActions(surveyLogic)
+    const [sqlHelperOpen, setSqlHelperOpen] = useState(false)
 
     const handleUpdateFilter = (questionIndex: number, field: 'operator' | 'value', value: any): void => {
         const newFilters = [...answerFilters]
@@ -91,7 +105,7 @@ function _SurveyResponseFilters(): JSX.Element {
         .map((question, index) => {
             return {
                 ...question,
-                originalQuestionIndex: index,
+                questionIndex: index,
             }
         })
         .filter((question) => {
@@ -101,7 +115,12 @@ function _SurveyResponseFilters(): JSX.Element {
 
     return (
         <div className="deprecated-space-y-2">
-            <div className="text-sm font-medium">Filter survey results</div>
+            <div className="flex justify-between items-center">
+                <h3 className="m-0">Filter survey results</h3>
+                <LemonButton size="small" type="secondary" icon={<IconCode />} onClick={() => setSqlHelperOpen(true)}>
+                    Get SQL Query
+                </LemonButton>
+            </div>
             {questionWithFiltersAvailable.length > 0 && (
                 <div className="border rounded">
                     <div className="grid grid-cols-6 gap-2 px-2 py-2 border-b bg-bg-light">
@@ -111,24 +130,28 @@ function _SurveyResponseFilters(): JSX.Element {
                     </div>
                     <div>
                         {questionWithFiltersAvailable.map((question, index) => {
-                            const currentFilter = getFilterForQuestion(question.originalQuestionIndex)
+                            const currentFilter = getFilterForQuestion(question.questionIndex)
                             const operators = OPERATOR_OPTIONS[question.type] || []
 
                             return (
-                                <React.Fragment key={question.originalQuestionIndex}>
+                                <React.Fragment key={question.id ?? question.questionIndex}>
                                     {index > 0 && <LemonDivider className="my-0" label={FilterLogicalOperator.And} />}
                                     <div className="grid grid-cols-6 gap-2 p-2 items-center hover:bg-bg-light transition-all">
                                         <div className="col-span-3">
                                             <span className="font-medium">{question.question}</span>
-                                            <div className="text-muted text-xs">
-                                                {SurveyQuestionLabel[question.type]}
+                                            <div className="text-muted text-xs flex gap-4">
+                                                <span className="flex items-center gap-1">
+                                                    {QUESTION_TYPE_ICON_MAP[question.type]}
+                                                    {SurveyQuestionLabel[question.type]}
+                                                </span>
+                                                {question.id && <CopyResponseKeyButton questionId={question.id} />}
                                             </div>
                                         </div>
                                         <div>
                                             <LemonSelect
                                                 value={currentFilter?.operator}
                                                 onChange={(val) =>
-                                                    handleUpdateFilter(question.originalQuestionIndex, 'operator', val)
+                                                    handleUpdateFilter(question.questionIndex, 'operator', val)
                                                 }
                                                 options={operators as LemonSelectOptions<PropertyOperator>}
                                                 className="w-full"
@@ -140,18 +163,12 @@ function _SurveyResponseFilters(): JSX.Element {
                                                     currentFilter.operator
                                                 ) && (
                                                     <PropertyValue
-                                                        propertyKey={getSurveyResponseKey(
-                                                            question.originalQuestionIndex
-                                                        )}
+                                                        propertyKey={`${SURVEY_RESPONSE_PROPERTY}_${question.id}`}
                                                         type={PropertyFilterType.Event}
                                                         operator={currentFilter.operator}
                                                         value={currentFilter.value || []}
                                                         onSet={(value: any) =>
-                                                            handleUpdateFilter(
-                                                                question.originalQuestionIndex,
-                                                                'value',
-                                                                value
-                                                            )
+                                                            handleUpdateFilter(question.questionIndex, 'value', value)
                                                         }
                                                         placeholder={
                                                             question.type === SurveyQuestionType.Rating
@@ -159,15 +176,6 @@ function _SurveyResponseFilters(): JSX.Element {
                                                                 : 'Enter text to match'
                                                         }
                                                         eventNames={['survey sent']}
-                                                        additionalPropertiesFilter={[
-                                                            {
-                                                                key: getPropertyKey(
-                                                                    '$survey_id',
-                                                                    TaxonomicFilterGroupType.Events
-                                                                ),
-                                                                values: survey.id,
-                                                            },
-                                                        ]}
                                                     />
                                                 )}
                                         </div>
@@ -186,6 +194,8 @@ function _SurveyResponseFilters(): JSX.Element {
                     buttonText={questionWithFiltersAvailable.length > 1 ? 'More filters' : 'Add filters'}
                 />
             </div>
+
+            <SurveySQLHelper isOpen={sqlHelperOpen} onClose={() => setSqlHelperOpen(false)} />
         </div>
     )
 }

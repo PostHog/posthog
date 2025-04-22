@@ -699,7 +699,7 @@ export const Container = forwardRef(function Container_<Item extends VNDNDContai
     return (
         <Component
             {...props}
-            className={`flex flex-col p-4 bg-surface-primary border rounded overflow-hidden deprecated-space-y-2 space-y-2 ${
+            className={`flex flex-col p-4 bg-surface-primary border rounded overflow-hidden deprecated-space-y-2 ${
                 isDragging ? 'opacity-40' : ''
             }`}
             style={{
@@ -725,7 +725,7 @@ export const Container = forwardRef(function Container_<Item extends VNDNDContai
                 <Remove onClick={onRemove} />
             </div>
             {placeholder ? children : <ul className="deprecated-space-y-2">{children}</ul>}
-            <div className="flex flex-row justify-end px-2 mb-2 deprecated-space-x-2 ">
+            <div className="flex flex-row justify-end px-2 mb-2 deprecated-space-x-2">
                 {renderAddChildItem ? (
                     renderAddChildItem(item, { onAddChild })
                 ) : (

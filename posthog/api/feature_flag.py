@@ -50,6 +50,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.util import get_dependent_cohorts
 from posthog.models.feature_flag import (
@@ -68,8 +69,9 @@ from posthog.queries.base import (
     determine_parsed_date_for_property_matching,
 )
 from posthog.rate_limit import BurstRateThrottle
-from loginas.utils import is_impersonated_session
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
+from django.dispatch import receiver
+from posthog.models.signals import model_activity_signal
 
 DATABASE_FOR_LOCAL_EVALUATION = (
     "default"
@@ -369,6 +371,7 @@ class FeatureFlagSerializer(
         validated_data["created_by"] = request.user
         validated_data["last_modified_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
+        validated_data["version"] = 1  # This is the first version of the feature flag
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
         creation_context = validated_data.pop(
             "creation_context", "feature_flags"
@@ -400,7 +403,8 @@ class FeatureFlagSerializer(
 
         self.check_flag_evaluation(validated_data)
 
-        instance: FeatureFlag = super().create(validated_data)
+        with ImpersonatedContext(request):
+            instance: FeatureFlag = super().create(validated_data)
 
         self._attempt_set_tags(tags, instance)
 
@@ -418,6 +422,10 @@ class FeatureFlagSerializer(
 
     def update(self, instance: FeatureFlag, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
+        # This is a workaround to ensure update works when called from a scheduled task.
+        if request and not hasattr(request, "data"):
+            request.data = {}
+
         validated_data["last_modified_by"] = request.user
 
         if "deleted" in validated_data and validated_data["deleted"] is True and instance.features.count() > 0:
@@ -425,46 +433,55 @@ class FeatureFlagSerializer(
                 "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
             )
 
+        # First apply all transformations to validated_data
+        validated_key = validated_data.get("key", None)
+        self._update_filters(validated_data)
+
+        if validated_data.get("has_encrypted_payloads", False):
+            if validated_data["filters"]["payloads"]["true"] == REDACTED_PAYLOAD_VALUE:
+                # Don't write the redacted payload to the db, keep the current value instead
+                validated_data["filters"]["payloads"]["true"] = instance.filters["payloads"]["true"]
+            else:
+                encrypt_flag_payloads(validated_data)
+
+        version = request.data.get("version", -1)
+
         with transaction.atomic():
             # select_for_update locks the database row so we ensure version updates are atomic
             locked_instance = FeatureFlag.objects.select_for_update().get(pk=instance.pk)
             locked_version = locked_instance.version or 0
 
-            version = validated_data.get("version", -1)
-
-            # If version is not provided, we don't check for conflicts. This is just in case there's a place
-            # that's using the feature flag that doesn't know about the version field yet.
-            if version != -1 and version != locked_version:
-                raise Conflict(
-                    f"The feature flag was updated by {locked_instance.last_modified_by.email if locked_instance.last_modified_by else 'another user'} since you started editing it. Please refresh and try again."
-                )
-
-            validated_data["version"] = locked_version + 1
-
-            validated_key = validated_data.get("key", None)
             if validated_key:
                 # Delete any soft deleted feature flags with the same key to prevent conflicts
                 FeatureFlag.objects.filter(
                     key=validated_key, team__project_id=instance.team.project_id, deleted=True
                 ).delete()
-            self._update_filters(validated_data)
 
-            if validated_data.get("has_encrypted_payloads", False):
-                if validated_data["filters"]["payloads"]["true"] == REDACTED_PAYLOAD_VALUE:
-                    # Don't write the redacted payload to the db, keep the current value instead
-                    validated_data["filters"]["payloads"]["true"] = instance.filters["payloads"]["true"]
-                else:
-                    encrypt_flag_payloads(validated_data)
+            # NOW check for conflicts after all transformations
+            if version != -1 and version != locked_version:
+                conflicting_changes = self._get_conflicting_changes(
+                    locked_instance, validated_data, request.data.get("original_flag", {})
+                )
+                if len(conflicting_changes) > 0:
+                    raise Conflict(
+                        f"The feature flag was updated by {locked_instance.last_modified_by.email if locked_instance.last_modified_by else 'another user'} since you started editing it. Please refresh and try again."
+                    )
 
-            analytics_dashboards = validated_data.pop("analytics_dashboards", None)
-
-            if analytics_dashboards is not None:
-                for dashboard in analytics_dashboards:
-                    FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
-
+            # Continue with the update
+            validated_data["version"] = locked_version + 1
             old_key = instance.key
 
-            instance = super().update(instance, validated_data)
+            with ImpersonatedContext(request):
+                instance = super().update(instance, validated_data)
+
+        # Continue with the update outside of the transaction. This is an intentional choice
+        # to avoid deadlocks. Not to mention, before making the concurrency changes, these
+        # updates were already occurring outside of a transaction.
+        analytics_dashboards = validated_data.pop("analytics_dashboards", None)
+
+        if analytics_dashboards is not None:
+            for dashboard in analytics_dashboards:
+                FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
         # Propagate the new variants and aggregation group type index to the linked experiments
         if "filters" in validated_data:
@@ -494,6 +511,41 @@ class FeatureFlagSerializer(
             instance.filters["payloads"] = get_decrypted_flag_payloads(request, instance.filters.get("payloads", {}))
 
         return instance
+
+    def _get_conflicting_changes(
+        self, current_instance: FeatureFlag, validated_data: dict, original_flag: dict | None
+    ) -> list[str]:
+        """
+        Returns the list of fields that have conflicts. A conflict is defined as a field that
+        the current user is trying to change that has been changed by another user.
+
+        If the field in validated_data is different from the original_flag, then the current user
+        is trying to change it.
+
+        If a field that the user is trying to change is different in the current_instance, then
+        there is a conflict.
+        """
+
+        if original_flag is None or original_flag == {}:
+            return []
+
+        # Get the fields that the user is trying to change
+        user_changes = [
+            field
+            for field, new_value in validated_data.items()
+            if field in original_flag and new_value != original_flag[field]
+        ]
+
+        # Return the fields that have conflicts
+        # Only include fields where the user's intended change is different from the current value
+        # AND the original value is different from the current value (indicating someone else changed it)
+        return [
+            field
+            for field in user_changes
+            if field in original_flag
+            and original_flag[field] != getattr(current_instance, field)
+            and validated_data[field] != getattr(current_instance, field)
+        ]
 
     def _update_filters(self, validated_data):
         if "get_filters" in validated_data:
@@ -587,6 +639,7 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "active",
             "ensure_experience_continuity",
             "has_encrypted_payloads",
+            "version",
         ]
 
 
@@ -1042,11 +1095,14 @@ class FeatureFlagViewSet(
     def remote_config(self, request: request.Request, **kwargs):
         is_flag_id_provided = kwargs["pk"].isdigit()
 
-        feature_flag = (
-            FeatureFlag.objects.get(pk=kwargs["pk"])
-            if is_flag_id_provided
-            else FeatureFlag.objects.get(key=kwargs["pk"], team__project_id=self.project_id)
-        )
+        try:
+            feature_flag = (
+                FeatureFlag.objects.get(pk=kwargs["pk"])
+                if is_flag_id_provided
+                else FeatureFlag.objects.get(key=kwargs["pk"], team__project_id=self.project_id)
+            )
+        except FeatureFlag.DoesNotExist:
+            return Response("", status=status.HTTP_404_NOT_FOUND)
 
         if not feature_flag.is_remote_configuration:
             return Response("", status=status.HTTP_404_NOT_FOUND)
@@ -1083,41 +1139,21 @@ class FeatureFlagViewSet(
         )
         return activity_page_response(activity_page, limit, page, request)
 
-    def perform_create(self, serializer):
-        serializer.save()
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=serializer.context["request"].user,
-            was_impersonated=is_impersonated_session(serializer.context["request"]),
-            item_id=serializer.instance.id,
-            scope="FeatureFlag",
-            activity="created",
-            detail=Detail(name=serializer.instance.key),
-        )
 
-    def perform_update(self, serializer):
-        instance_id = serializer.instance.id
-
-        try:
-            before_update = FeatureFlag.objects.get(pk=instance_id)
-        except FeatureFlag.DoesNotExist:
-            before_update = None
-
-        serializer.save()
-
-        changes = changes_between("FeatureFlag", previous=before_update, current=serializer.instance)
-
-        log_activity(
-            organization_id=self.organization.id,
-            team_id=self.team_id,
-            user=serializer.context["request"].user,
-            was_impersonated=is_impersonated_session(serializer.context["request"]),
-            item_id=instance_id,
-            scope="FeatureFlag",
-            activity="updated",
-            detail=Detail(changes=changes, name=serializer.instance.key),
-        )
+@receiver(model_activity_signal, sender=FeatureFlag)
+def handle_feature_flag_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=after_update.last_modified_by,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.key
+        ),
+    )
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):

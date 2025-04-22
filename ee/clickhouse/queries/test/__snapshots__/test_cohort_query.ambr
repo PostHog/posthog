@@ -4,7 +4,7 @@
   
   SELECT person.person_id AS id
   FROM
-    (SELECT pdi.person_id AS person_id,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 day
                     AND timestamp < now()
                     AND event = '$pageview'
@@ -127,7 +127,7 @@
   
   SELECT person.person_id AS id
   FROM
-    (SELECT pdi.person_id AS person_id,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview'
@@ -170,7 +170,7 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT pdi.person_id AS person_id,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview'
@@ -202,6 +202,34 @@
     AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))))
           OR ((performed_event_condition_None_level_level_0_level_1_level_0_0)))) SETTINGS optimize_aggregation_in_order = 1,
                                                                                            join_algorithm = 'auto'
+  '''
+# ---
+# name: TestCohortQuery.test_performed_event_poe_override
+  '''
+  
+  SELECT behavior_query.person_id AS id
+  FROM
+    (SELECT if(not(empty(overrides.distinct_id)), overrides.person_id, e.person_id) AS person_id,
+            countIf(timestamp > 'explicit_redacted_timestamp'
+                    AND timestamp < now()
+                    AND event = '$pageview'
+                    AND 1=1) > 0 AS performed_event_condition_None_level_level_0_level_0_0
+     FROM events e
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)) AS overrides ON e.distinct_id = overrides.distinct_id
+     WHERE team_id = 99999
+       AND event IN ['$pageview']
+       AND timestamp <= now()
+       AND timestamp >= now() - INTERVAL 8 day
+     GROUP BY person_id) behavior_query
+  WHERE 1 = 1
+    AND (((performed_event_condition_None_level_level_0_level_0_0))) SETTINGS optimize_aggregation_in_order = 1,
+                                                                              join_algorithm = 'auto'
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_sequence
@@ -366,7 +394,7 @@
   
   SELECT behavior_query.person_id AS id
   FROM
-    (SELECT pdi.person_id AS person_id,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
             countIf(timestamp > 'explicit_redacted_timestamp'
                     AND timestamp < now()
                     AND event = '$pageview'
@@ -394,7 +422,7 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT pdi.person_id AS person_id,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview'
@@ -433,7 +461,7 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT pdi.person_id AS person_id,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview'
@@ -472,7 +500,7 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT pdi.person_id AS person_id,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 day
                     AND timestamp < now()
                     AND event = '$pageview'
@@ -542,28 +570,6 @@
            AND (has(['test3@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1
   '''
 # ---
-# name: TestCohortQuery.test_person_props_only.1
-  '''
-  
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND (((has(['test1@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')))
-               OR (has(['test2@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))))
-              OR ((has(['test3'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))
-                  AND (has(['test3@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))))) )
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND (((has(['test1@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))
-        OR (has(['test2@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))
-       OR ((has(['test3'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))
-           AND (has(['test3@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters
   '''
   
@@ -586,51 +592,7 @@
 # ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.2
   '''
-  
-  SELECT id
-  FROM person
-  WHERE team_id = 99999
-    AND id IN
-      (SELECT id
-       FROM person
-       WHERE team_id = 99999
-         AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))))
-              OR (has(['test2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))))
-       OR (has(['test2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1
-  '''
-# ---
-# name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.3
-  '''
-  SELECT persons.id AS id
-  FROM
-    (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', ''), person.version) AS properties___name,
-            person.id AS id
-     FROM person
-     WHERE and(equals(person.team_id, 99999), in(id,
-                                                   (SELECT where_optimization.id AS id
-                                                    FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test'), 0), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'name'), ''), 'null'), '^"|"$', ''), 'test2'), 0))))))
-     GROUP BY person.id
-     HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
-  WHERE or(ifNull(equals(persons.properties___name, 'test'), 0), ifNull(equals(persons.properties___name, 'test2'), 0))
-  ORDER BY persons.id ASC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order=1,
-                     join_algorithm='auto',
-                     readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     format_csv_allow_double_quotes=0,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0
-  '''
-# ---
-# name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.4
-  '''
-  
+  /* cohort_calculation: */
   SELECT id
   FROM person
   WHERE team_id = 99999
@@ -691,7 +653,7 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT pdi.person_id AS person_id,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview'
@@ -733,7 +695,7 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT pdi.person_id AS person_id,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview'
@@ -784,7 +746,7 @@
   
   SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
   FROM
-    (SELECT pdi.person_id AS person_id,
+    (SELECT if(not(empty(pdi.distinct_id)), pdi.person_id, e.person_id) AS person_id,
             countIf(timestamp > now() - INTERVAL 7 day
                     AND timestamp < now()
                     AND event = '$new_view'

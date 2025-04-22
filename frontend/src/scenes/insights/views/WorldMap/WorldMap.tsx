@@ -3,6 +3,7 @@ import './WorldMap.scss'
 import { style } from 'd3'
 import { props, useActions, useValues } from 'kea'
 import { gradateColor } from 'lib/utils'
+import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
 import React, { useEffect, useRef } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -16,7 +17,6 @@ import { ChartParams, TrendResult } from '~/types'
 
 import { SeriesDatum } from '../../InsightTooltip/insightTooltipUtils'
 import { ensureTooltip } from '../LineGraph/LineGraph'
-import { countryCodeToFlag, countryCodeToName } from './countryCodes'
 import { countryVectors } from './countryVectors'
 import { worldMapLogic } from './worldMapLogic'
 
@@ -60,7 +60,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                                     <div className="flex items-center font-semibold">
                                         <span className="text-xl mr-2">{countryCodeToFlag(datum.breakdown_value)}</span>
                                         <span className="whitespace-nowrap">
-                                            {countryCodeToName[datum.breakdown_value]}
+                                            {COUNTRY_CODE_TO_LONG_NAME[datum.breakdown_value]}
                                         </span>
                                     </div>
                                 )

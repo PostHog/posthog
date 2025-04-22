@@ -10,15 +10,23 @@ from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.errors import GraphRecursionError
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
-from ee.hogai.funnels.nodes import FunnelGeneratorNode
-from ee.hogai.graph import AssistantGraph
-from ee.hogai.memory.nodes import MemoryInitializerNode
-from ee.hogai.retention.nodes import RetentionGeneratorNode
-from ee.hogai.schema_generator.nodes import SchemaGeneratorNode
-from ee.hogai.trends.nodes import TrendsGeneratorNode
+from ee.hogai.graph import (
+    AssistantGraph,
+    InsightsAssistantGraph,
+    FunnelGeneratorNode,
+    MemoryInitializerNode,
+    RetentionGeneratorNode,
+    SchemaGeneratorNode,
+    SQLGeneratorNode,
+    TrendsGeneratorNode,
+    QueryExecutorNode,
+)
+from ee.hogai.graph.base import AssistantNode
+from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.asgi import SyncIterableToAsync
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.state import (
@@ -32,10 +40,10 @@ from ee.hogai.utils.state import (
     validate_state_update,
     validate_value_update,
 )
-from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.utils.types import AssistantMode, AssistantNodeName, AssistantState, PartialAssistantState
 from ee.models import Conversation
 from posthog.event_usage import report_user_action
-from posthog.models import Team, User
+from posthog.models import Action, Team, User
 from posthog.schema import (
     AssistantEventType,
     AssistantGenerationStatusEvent,
@@ -53,6 +61,12 @@ VISUALIZATION_NODES: dict[AssistantNodeName, type[SchemaGeneratorNode]] = {
     AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
     AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
     AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
+    AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
+}
+
+VISUALIZATION_NODES_TOOL_CALL_MODE: dict[AssistantNodeName, type[AssistantNode]] = {
+    **VISUALIZATION_NODES,
+    AssistantNodeName.QUERY_EXECUTOR: QueryExecutorNode,
 }
 
 STREAMING_NODES: set[AssistantNodeName] = {
@@ -64,7 +78,10 @@ STREAMING_NODES: set[AssistantNodeName] = {
 """Nodes that can stream messages to the client."""
 
 
-VERBOSE_NODES = STREAMING_NODES | {AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT}
+VERBOSE_NODES = STREAMING_NODES | {
+    AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
+    AssistantNodeName.ROOT_TOOLS,
+}
 """Nodes that can send messages to the client."""
 
 
@@ -75,27 +92,44 @@ class Assistant:
     _team: Team
     _graph: CompiledStateGraph
     _user: Optional[User]
+    _contextual_tools: dict[str, Any]
     _conversation: Conversation
-    _latest_message: HumanMessage
+    _latest_message: Optional[HumanMessage]
     _state: Optional[AssistantState]
     _callback_handler: Optional[BaseCallbackHandler]
+    _trace_id: Optional[str | UUID]
 
     def __init__(
         self,
         team: Team,
         conversation: Conversation,
-        new_message: HumanMessage,
+        *,
+        new_message: Optional[HumanMessage] = None,
+        mode: AssistantMode = AssistantMode.ASSISTANT,
         user: Optional[User] = None,
+        contextual_tools: Optional[dict[str, Any]] = None,
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
+        tool_call_partial_state: Optional[AssistantState] = None,
     ):
         self._team = team
+        self._contextual_tools = contextual_tools or {}
         self._user = user
         self._conversation = conversation
-        self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())})
+        if not new_message and not tool_call_partial_state:
+            raise ValueError("Either new_message or tool_call_partial_state must be provided")
+        self._latest_message = new_message.model_copy(deep=True, update={"id": str(uuid4())}) if new_message else None
         self._is_new_conversation = is_new_conversation
-        self._graph = AssistantGraph(team).compile_full_graph()
+        self._mode = mode
+        match mode:
+            case AssistantMode.ASSISTANT:
+                self._graph = AssistantGraph(team).compile_full_graph()
+            case AssistantMode.INSIGHTS_TOOL:
+                self._graph = InsightsAssistantGraph(team).compile_full_graph()
+            case _:
+                raise ValueError(f"Invalid assistant mode: {mode}")
         self._chunks = AIMessageChunk(content="")
+        self._tool_call_partial_state = tool_call_partial_state
         self._state = None
         self._callback_handler = (
             CallbackHandler(
@@ -110,6 +144,7 @@ class Assistant:
             if posthoganalytics.default_client
             else None
         )
+        self._trace_id = trace_id
 
     def stream(self):
         if SERVER_GATEWAY_INTERFACE == "ASGI":
@@ -122,9 +157,8 @@ class Assistant:
     def _stream(self) -> Generator[str, None, None]:
         state = self._init_or_update_state()
         config = self._get_config()
-
         generator: Iterator[Any] = self._graph.stream(
-            state, config=config, stream_mode=["messages", "values", "updates", "debug"]
+            state, config=config, stream_mode=["messages", "values", "updates", "debug"], subgraphs=True
         )
 
         with self._lock_conversation():
@@ -132,8 +166,9 @@ class Assistant:
             if self._is_new_conversation:
                 yield self._serialize_conversation()
 
-            # Send the last message with the initialized id.
-            yield self._serialize_message(self._latest_message)
+            if self._latest_message and self._mode == AssistantMode.ASSISTANT:
+                # Send the last message with the initialized id.
+                yield self._serialize_message(self._latest_message)
 
             try:
                 last_viz_message = None
@@ -167,6 +202,13 @@ class Assistant:
                     )
                 else:
                     self._report_conversation_state(last_viz_message)
+            except GraphRecursionError:
+                yield self._serialize_message(
+                    FailureMessage(
+                        content="The assistant has reached the maximum number of steps. You can explicitly ask to continue.",
+                        id=str(uuid4()),
+                    )
+                )
             except Exception as e:
                 # Reset the state, so that the next generation starts from the beginning.
                 self._graph.update_state(config, PartialAssistantState.get_reset_state())
@@ -179,14 +221,23 @@ class Assistant:
 
     @property
     def _initial_state(self) -> AssistantState:
-        return AssistantState(messages=[self._latest_message], start_id=self._latest_message.id)
+        if self._latest_message and self._mode == AssistantMode.ASSISTANT:
+            return AssistantState(messages=[self._latest_message], start_id=self._latest_message.id)
+        else:
+            return AssistantState(messages=[])
 
     def _get_config(self) -> RunnableConfig:
         callbacks = [self._callback_handler] if self._callback_handler else None
         config: RunnableConfig = {
             "recursion_limit": 48,
             "callbacks": callbacks,
-            "configurable": {"thread_id": self._conversation.id},
+            "configurable": {
+                "thread_id": self._conversation.id,
+                "trace_id": self._trace_id,
+                "distinct_id": self._user.distinct_id if self._user else None,
+                "contextual_tools": self._contextual_tools,
+                "team_id": self._team.id,
+            },
         }
         return config
 
@@ -195,7 +246,7 @@ class Assistant:
         snapshot = self._graph.get_state(config)
 
         # If the graph previously hasn't reset the state, it is an interrupt. We resume from the point of interruption.
-        if snapshot.next:
+        if snapshot.next and self._latest_message:
             saved_state = validate_state_update(snapshot.values)
             if saved_state.graph_status == "interrupted":
                 self._state = saved_state
@@ -206,6 +257,9 @@ class Assistant:
                 return None
 
         initial_state = self._initial_state
+        if self._tool_call_partial_state:
+            for key, value in self._tool_call_partial_state.model_dump().items():
+                setattr(initial_state, key, value)
         self._state = initial_state
         return initial_state
 
@@ -220,6 +274,8 @@ class Assistant:
                 | AssistantNodeName.FUNNEL_PLANNER_TOOLS
                 | AssistantNodeName.RETENTION_PLANNER
                 | AssistantNodeName.RETENTION_PLANNER_TOOLS
+                | AssistantNodeName.SQL_PLANNER
+                | AssistantNodeName.SQL_PLANNER_TOOLS
             ):
                 substeps: list[str] = []
                 if input:
@@ -240,6 +296,25 @@ class Assistant:
                                     substeps.append(
                                         f"Analyzing {action.tool_input['entity']} property `{action.tool_input['property_name']}`"
                                     )
+                                case "retrieve_action_properties" | "retrieve_action_property_values":
+                                    id = (
+                                        action.tool_input
+                                        if isinstance(action.tool_input, str)
+                                        else action.tool_input["action_id"]
+                                    )
+                                    try:
+                                        action_model = Action.objects.get(pk=id, team__project_id=self._team.project_id)
+                                        if action.tool == "retrieve_action_properties":
+                                            substeps.append(f"Exploring `{action_model.name}` action properties")
+                                        elif action.tool == "retrieve_action_property_values" and isinstance(
+                                            action.tool_input, dict
+                                        ):
+                                            substeps.append(
+                                                f"Analyzing `{action.tool_input['property_name']}` action property of `{action_model.name}`"
+                                            )
+                                    except Action.DoesNotExist:
+                                        pass
+
                 return ReasoningMessage(content="Picking relevant events and properties", substeps=substeps)
             case AssistantNodeName.TRENDS_GENERATOR:
                 return ReasoningMessage(content="Creating trends query")
@@ -247,12 +322,30 @@ class Assistant:
                 return ReasoningMessage(content="Creating funnel query")
             case AssistantNodeName.RETENTION_GENERATOR:
                 return ReasoningMessage(content="Creating retention query")
-            case AssistantNodeName.INKEEP_DOCS:
-                return ReasoningMessage(content="Checking PostHog docs")
+            case AssistantNodeName.SQL_GENERATOR:
+                return ReasoningMessage(content="Creating SQL query")
+            case AssistantNodeName.ROOT_TOOLS:
+                assert isinstance(input.messages[-1], AssistantMessage)
+                tool_calls = input.messages[-1].tool_calls or []
+                assert len(tool_calls) <= 1
+                if len(tool_calls) == 0:
+                    return None
+                tool_call = tool_calls[0]
+                if tool_call.name == "create_and_query_insight":
+                    return ReasoningMessage(content="Coming up with an insight")
+                if tool_call.name == "search_documentation":
+                    return ReasoningMessage(content="Checking PostHog docs")
+                # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
+                # when the tool has been removed from the backend since the user's frontent was loaded
+                ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
+                return ReasoningMessage(
+                    content=ToolClass().thinking_message if ToolClass else f"Running tool {tool_call.name}"
+                )
             case _:
                 return None
 
     def _process_update(self, update: Any) -> BaseModel | None:
+        update = update[1:]  # we remove the first element, which is the node/subgraph node name
         if is_state_update(update):
             _, new_state = update
             self._state = validate_state_update(new_state)
@@ -268,7 +361,11 @@ class Assistant:
         _, maybe_state_update = update
         state_update = validate_value_update(maybe_state_update)
 
-        if intersected_nodes := state_update.keys() & VISUALIZATION_NODES.keys():
+        # this needs full type annotation otherwise mypy complains
+        visualization_nodes: (
+            dict[AssistantNodeName, type[AssistantNode]] | dict[AssistantNodeName, type[SchemaGeneratorNode]]
+        ) = VISUALIZATION_NODES if self._mode == AssistantMode.ASSISTANT else VISUALIZATION_NODES_TOOL_CALL_MODE
+        if intersected_nodes := state_update.keys() & visualization_nodes.keys():
             # Reset chunks when schema validation fails.
             self._chunks = AIMessageChunk(content="")
 
@@ -286,8 +383,12 @@ class Assistant:
                 if isinstance(node_val, PartialAssistantState) and node_val.messages:
                     self._chunks = AIMessageChunk(content="")
                     for candidate_message in node_val.messages:
-                        # Filter out tool calls and empty assistant messages
-                        if not isinstance(candidate_message, AssistantToolCallMessage) and (
+                        if (
+                            # Filter out tool calls without a UI payload
+                            not isinstance(candidate_message, AssistantToolCallMessage)
+                            or candidate_message.ui_payload is not None
+                        ) and (
+                            # Also filter out empty assistant messages
                             not isinstance(candidate_message, AssistantMessage)
                             or isinstance(candidate_message, AssistantMessage)
                             and candidate_message.content
@@ -337,13 +438,31 @@ class Assistant:
         return output
 
     def _report_conversation_state(self, message: Optional[VisualizationMessage]):
-        human_message = self._latest_message
-        if self._user and message:
+        if not (self._user and message):
+            return
+
+        response = message.model_dump_json(exclude_none=True)
+
+        if self._mode == AssistantMode.ASSISTANT:
+            if self._latest_message:
+                report_user_action(
+                    self._user,
+                    "chat with ai",
+                    {"prompt": self._latest_message.content, "response": response},
+                )
+            return
+
+        if self._mode == AssistantMode.INSIGHTS_TOOL and self._tool_call_partial_state:
             report_user_action(
                 self._user,
-                "chat with ai",
-                {"prompt": human_message.content, "response": message.model_dump_json(exclude_none=True)},
+                "standalone ai tool call",
+                {
+                    "prompt": self._tool_call_partial_state.root_tool_insight_plan,
+                    "response": response,
+                    "tool_name": "create_and_query_insight",
+                },
             )
+            return
 
     @contextmanager
     def _lock_conversation(self):

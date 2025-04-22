@@ -25,7 +25,6 @@ import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playli
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { NotebookNodeType, ReplayTabs } from '~/types'
 import { ProductKey } from '~/types'
 
@@ -41,14 +40,8 @@ function Header(): JSX.Element {
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
 
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
-
     // NB this relies on `updateSearchParams` being the only prop needed to pick the correct "Recent" tab list logic
-    const { filters, totalFiltersCount } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
-    const saveFiltersPlaylistHandler = useAsyncHandler(async () => {
-        await createPlaylist({ filters }, true)
-        reportRecordingPlaylistCreated('filters')
-    })
+    const { filters } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
 
     const newPlaylistHandler = useAsyncHandler(async () => {
         await createPlaylist({}, true)
@@ -78,27 +71,6 @@ function Header(): JSX.Element {
                                 }}
                                 type="secondary"
                             />
-                            <LemonButton
-                                fullWidth={false}
-                                data-attr="session-recordings-filters-save-as-playlist"
-                                type="primary"
-                                onClick={(e) =>
-                                    // choose the type of playlist handler so that analytics correctly report
-                                    // whether filters have been changed before saving
-                                    totalFiltersCount === 0
-                                        ? newPlaylistHandler.onEvent?.(e)
-                                        : saveFiltersPlaylistHandler.onEvent?.(e)
-                                }
-                            >
-                                Save as playlist
-                            </LemonButton>
-                            <LemonButton
-                                type="secondary"
-                                icon={<IconGear />}
-                                onClick={() => openSettingsPanel({ sectionId: 'project-replay' })}
-                            >
-                                Configure
-                            </LemonButton>
                         </>
                     )}
 
@@ -121,8 +93,6 @@ function Header(): JSX.Element {
 function Warnings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
-
-    const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
     const theAuthorizedUrlsLogic = authorizedUrlListLogic({
         ...defaultAuthorizedUrlProperties,
@@ -176,7 +146,7 @@ function Warnings(): JSX.Element {
                                     className="hidden @md:flex"
                                     type="primary"
                                     icon={<IconGear />}
-                                    onClick={() => openSettingsPanel({ sectionId: 'project-replay' })}
+                                    to={urls.replaySettings()}
                                 >
                                     Configure
                                 </LemonButton>
@@ -210,8 +180,7 @@ function Warnings(): JSX.Element {
                     action={{
                         type: 'secondary',
                         icon: <IconGear />,
-                        onClick: () =>
-                            openSettingsPanel({ sectionId: 'project-replay', settingId: 'replay-authorized-domains' }),
+                        to: urls.replaySettings('replay-authorized-domains'),
                         children: 'Configure',
                     }}
                     dismissKey={`session-recordings-authorized-domains-warning/${suggestions.join(',')}`}

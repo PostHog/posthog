@@ -1,14 +1,13 @@
-import ClickHouse from '@posthog/clickhouse'
-import { PluginEvent } from '@posthog/plugin-scaffold'
+// eslint-disable-next-line simple-import-sort/imports
+import { getProducedKafkaMessagesForTopic } from '../helpers/mocks/producer.mock'
 
-import { startPluginsServer } from '../../src/main/pluginsServer'
-import { Hub, LogLevel, PluginLogEntry, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
+import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginServer } from '../../src/server'
+import { Hub, LogLevel, PluginLogEntrySource, PluginLogEntryType, PluginServerMode } from '../../src/types'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
-import { waitForExpect } from '../helpers/expectations'
-import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 
-jest.setTimeout(60000) // 60 sec timeout
+jest.setTimeout(10000)
 
 const defaultEvent: PluginEvent = {
     uuid: '00000000-0000-0000-0000-000000000000',
@@ -21,107 +20,80 @@ const defaultEvent: PluginEvent = {
     properties: { key: 'value' },
 }
 
-async function getLogEntriesForPluginConfig(hub: Hub, pluginConfigId: number) {
-    const { data: logEntries } = (await hub.clickhouse.querying(`
-        SELECT *
-        FROM plugin_log_entries
-        WHERE 
-            plugin_config_id = ${pluginConfigId} AND
-            instance_id = '${hub.instanceId}'
-        ORDER BY timestamp`)) as unknown as ClickHouse.ObjectQueryResult<PluginLogEntry>
-    return logEntries
-}
-
 describe('teardown', () => {
+    beforeEach(async () => {
+        jest.spyOn(process, 'exit').mockImplementation()
+
+        await resetTestDatabase(`
+            async function processEvent (event) {
+                event.properties.processed = 'hell yes'
+                event.properties.upperUuid = event.properties.uuid?.toUpperCase()
+                return event
+            }
+            async function teardownPlugin() {
+                throw new Error('This Happened In The Teardown Palace')
+            }
+        `)
+    })
+
     const processEvent = async (hub: Hub, event: PluginEvent) => {
         const result = await new EventPipelineRunner(hub, event).runEventPipeline(event)
         const resultEvent = result.args[0]
         return resultEvent
     }
 
-    test('teardown code runs when stopping', async () => {
-        await resetTestDatabase(`
-            async function processEvent (event) {
-                event.properties.processed = 'hell yes'
-                event.properties.upperUuid = event.properties.uuid?.toUpperCase()
-                return event
-            }
-            async function teardownPlugin() {
-                throw new Error('This Happened In The Teardown Palace')
-            }
-        `)
-
-        const { hub, stop } = await startPluginsServer(
-            {
-                LOG_LEVEL: LogLevel.Log,
-            },
-            { ingestionV2: true }
-        )
-
-        await processEvent(hub!, defaultEvent)
-
-        await stop!()
-
-        // verify the teardownPlugin code runs -- since we're reading from
-        // ClickHouse, we need to give it a bit of time to have consumed from
-        // the topic and written everything we're looking for to the table
-        await waitForExpect(async () => {
-            const logEntries = await getLogEntriesForPluginConfig(hub!, pluginConfig39.id)
-
-            const systemErrors = logEntries.filter(
-                (logEntry) =>
-                    logEntry.source == PluginLogEntrySource.System && logEntry.type == PluginLogEntryType.Error
-            )
-            expect(systemErrors).toHaveLength(1)
-            expect(systemErrors[0].message).toContain('Plugin failed to unload')
-
-            const pluginErrors = logEntries.filter(
-                (logEntry) =>
-                    logEntry.source == PluginLogEntrySource.Plugin && logEntry.type == PluginLogEntryType.Error
-            )
-            expect(pluginErrors).toHaveLength(1)
-            expect(pluginErrors[0].message).toContain('This Happened In The Teardown Palace')
+    it('teardown code runs when stopping', async () => {
+        const server = new PluginServer({
+            PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
+            LOG_LEVEL: LogLevel.Info,
         })
+        await server.start()
+
+        await processEvent(server.hub!, defaultEvent)
+        await server.stop()
+
+        const logEntries = getProducedKafkaMessagesForTopic('plugin_log_entries_test')
+
+        const systemErrors = logEntries.filter(
+            (logEntry) =>
+                logEntry.value.source == PluginLogEntrySource.System && logEntry.value.type == PluginLogEntryType.Error
+        )
+        expect(systemErrors).toHaveLength(1)
+        expect(systemErrors[0].value.message).toContain('Plugin failed to unload')
+
+        const pluginErrors = logEntries.filter(
+            (logEntry) =>
+                logEntry.value.source == PluginLogEntrySource.Plugin && logEntry.value.type == PluginLogEntryType.Error
+        )
+        expect(pluginErrors).toHaveLength(1)
+        expect(pluginErrors[0].value.message).toContain('This Happened In The Teardown Palace')
     })
 
-    test('no need to tear down if plugin was never setup', async () => {
-        await resetTestDatabase(`
-            async function processEvent (event) {
-                event.properties.processed = 'hell yes'
-                event.properties.upperUuid = event.properties.uuid?.toUpperCase()
-                return event
-            }
-            async function teardownPlugin() {
-                throw new Error('This Happened In The Teardown Palace')
-            }
-        `)
-        const { hub, stop } = await startPluginsServer(
-            {
-                LOG_LEVEL: LogLevel.Log,
-            },
-            { ingestionV2: true }
-        )
+    it('no need to tear down if plugin was never setup', async () => {
+        const server = new PluginServer({
+            PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
+            LOG_LEVEL: LogLevel.Info,
+        })
+        await server.start()
+        await server.stop()
 
-        await stop!()
+        const logEntries = getProducedKafkaMessagesForTopic('plugin_log_entries_test')
 
         // verify the teardownPlugin code runs -- since we're reading from
         // ClickHouse, we need to give it a bit of time to have consumed from
         // the topic and written everything we're looking for to the table
-        await waitForExpect(async () => {
-            const logEntries = await getLogEntriesForPluginConfig(hub!, pluginConfig39.id)
 
-            const systemLogs = logEntries.filter((logEntry) => logEntry.source == PluginLogEntrySource.System)
-            expect(systemLogs).toHaveLength(2)
-            expect(systemLogs[0].message).toContain('Plugin loaded')
-            expect(systemLogs[1].message).toContain('Plugin unloaded')
+        const systemLogs = logEntries.filter((logEntry) => logEntry.value.source == PluginLogEntrySource.System)
+        expect(systemLogs).toHaveLength(2)
+        expect(systemLogs[0].value.message).toContain('Plugin loaded')
+        expect(systemLogs[1].value.message).toContain('Plugin unloaded')
 
-            // verify the teardownPlugin code doesn't run, because processEvent was never called
-            // and thus the plugin was never setup - see LazyVM
-            const pluginErrors = logEntries.filter(
-                (logEntry) =>
-                    logEntry.source == PluginLogEntrySource.Plugin && logEntry.type == PluginLogEntryType.Error
-            )
-            expect(pluginErrors).toHaveLength(0)
-        })
+        // verify the teardownPlugin code doesn't run, because processEvent was never called
+        // and thus the plugin was never setup - see LazyVM
+        const pluginErrors = logEntries.filter(
+            (logEntry) =>
+                logEntry.value.source == PluginLogEntrySource.Plugin && logEntry.value.type == PluginLogEntryType.Error
+        )
+        expect(pluginErrors).toHaveLength(0)
     })
 })

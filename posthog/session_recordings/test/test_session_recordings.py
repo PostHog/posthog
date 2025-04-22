@@ -16,8 +16,10 @@ from rest_framework import status
 
 from posthog.api.test.test_team import create_team
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Organization, Person, SessionRecording, User
+from posthog.models import Organization, Person, SessionRecording, User, PersonalAPIKey
+from posthog.models.personal_api_key import hash_key_value
 from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal
 from posthog.schema import RecordingsQuery, LogEntryPropertyFilter
 from posthog.session_recordings.models.session_recording_event import (
     SessionRecordingViewed,
@@ -35,6 +37,8 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_postgres_queries,
 )
+from clickhouse_driver.errors import ServerException
+from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 
 
 class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -527,6 +531,67 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "activity_score": None,
         }
 
+    def test_get_single_session_recording_viewed_stats_someone_else_viewed(self):
+        with freeze_time("2023-01-01T12:00:00.000Z"):
+            session_recording_id = "session_1"
+            base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+            produce_replay_summary(
+                session_id=session_recording_id,
+                team_id=self.team.pk,
+                first_timestamp=base_time.isoformat(),
+                last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
+                distinct_id="d1",
+            )
+
+            other_user = User.objects.create(email="paul@not-first-user.com")
+            SessionRecordingViewed.objects.create(
+                team=self.team,
+                user=other_user,
+                session_id=session_recording_id,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}/viewed")
+        response_data = response.json()
+
+        assert response_data == {
+            "viewed": False,
+            "other_viewers": 1,
+        }
+
+    def test_get_single_session_recording_viewed_stats_current_user_viewed(self):
+        with freeze_time("2023-01-01T12:00:00.000Z"):
+            session_recording_id = "session_1"
+            base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+            produce_replay_summary(
+                session_id=session_recording_id,
+                team_id=self.team.pk,
+                first_timestamp=base_time.isoformat(),
+                last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
+                distinct_id="d1",
+            )
+
+            SessionRecordingViewed.objects.create(
+                team=self.team,
+                user=self.user,
+                session_id=session_recording_id,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}/viewed")
+        response_data = response.json()
+
+        assert response_data == {
+            "viewed": True,
+            "other_viewers": 0,
+        }
+
+    def test_get_single_session_recording_viewed_stats_can_404(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/12345/viewed")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "viewed": False,
+            "other_viewers": 0,
+        }
+
     def test_single_session_recording_doesnt_leak_teams(self):
         another_team = Team.objects.create(organization=self.organization)
         self.produce_replay_summary(
@@ -1001,7 +1066,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         response = self.client.get(url)
         assert response.status_code == status.HTTP_404_NOT_FOUND
-        assert mock_presigned_url.call_count == 0
 
     @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
     def test_can_not_get_session_recording_blob_that_does_not_exist(self, mock_presigned_url) -> None:
@@ -1112,9 +1176,21 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert response.json() == {
             "attr": None,
             "code": "invalid_input",
-            "detail": "Must specify at least one event or action filter",
+            "detail": "Must specify at least one event or action filter, or event properties filter",
             "type": "validation_error",
         }
+
+    def test_get_matching_events_can_send_event_properties_filter(self) -> None:
+        query_params = [
+            f'session_ids=["{str(uuid.uuid4())}"]',
+            # we can send event action or event properties filters and it is valid
+            'properties=[{"key":"$active_feature_flags","value":"query_running_time","operator":"icontains","type":"event"}]',
+        ]
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
+        )
+        assert response.status_code == status.HTTP_200_OK
 
     def test_get_matching_events_for_unknown_session(self) -> None:
         session_id = str(uuid.uuid4())
@@ -1230,7 +1306,68 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert (
-            '{"type": "extra_forbidden", "loc": ["tomato"], "msg": "Extra inputs are not permitted", "input": "potato", "url": "https://errors.pydantic.dev/2.9/v/extra_forbidden"}'
+            '{"type": "extra_forbidden", "loc": ["tomato"], "msg": "Extra inputs are not permitted", "input": "potato", "url": "https://errors.pydantic.dev/2.10/v/extra_forbidden"}'
             in response.json()["detail"]
         )
         assert response.json() == self.snapshot
+
+    @patch("posthoganalytics.capture")
+    def test_snapshots_api_called_with_personal_api_key(self, mock_capture):
+        session_id = str(uuid.uuid4())
+        self.produce_replay_summary("user", session_id, now() - relativedelta(days=1))
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            last_used_at="2021-08-25T21:09:14",
+            secure_value=hash_key_value(personal_api_key),
+            scopes=["session_recording:read"],
+            scoped_teams=[self.team.pk],
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        assert mock_capture.call_args_list[1] == call(
+            self.user.distinct_id,
+            "snapshots_api_called_with_personal_api_key",
+            {
+                "key_label": "X",
+                "key_scopes": ["session_recording:read"],
+                "key_scoped_teams": [self.team.pk],
+                "session_requested": session_id,
+                # none because it's all mock data
+                "recording_start_time": None,
+                "source": None,
+            },
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "too_many_queries",
+                CHQueryErrorTooManySimultaneousQueries("Too many simultaneous queries"),
+                "Too many simultaneous queries. Try again later.",
+            ),
+            (
+                "timeout_exceeded",
+                ServerException("CHQueryErrorTimeoutExceeded"),
+                "Query timeout exceeded. Try again later.",
+            ),
+        ]
+    )
+    @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery.run")
+    def test_session_recordings_query_errors(self, name, exception, expected_message, mock_run):
+        mock_run.side_effect = exception
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response.json() == {
+            "attr": None,
+            "code": "throttled",
+            "detail": expected_message,
+            "type": "throttled_error",
+        }

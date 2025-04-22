@@ -17,7 +17,14 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { BillingPlanType, BillingProductV2Type, BillingType, ProductKey } from '~/types'
+import {
+    BillingPlan,
+    BillingPlanType,
+    BillingProductV2Type,
+    BillingType,
+    ProductKey,
+    StartupProgramLabel,
+} from '~/types'
 
 import type { billingLogicType } from './billingLogicType'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
@@ -100,6 +107,7 @@ export const billingLogic = kea<billingLogicType>([
         showPurchaseCreditsModal: (isOpen: boolean) => ({ isOpen }),
         toggleCreditCTAHeroDismissed: (isDismissed: boolean) => ({ isDismissed }),
         setComputedDiscount: (discount: number) => ({ discount }),
+        scrollToProduct: (productType: string) => ({ productType }),
     }),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
@@ -441,6 +449,42 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
         creditDiscount: [(s) => [s.computedDiscount], (computedDiscount) => computedDiscount || 0],
+        billingPlan: [
+            (s) => [s.billing],
+            (billing: BillingType | null): BillingPlan | null => billing?.billing_plan || null,
+        ],
+        startupProgramLabel: [
+            (s) => [s.billing],
+            (billing: BillingType | null): StartupProgramLabel | null => billing?.startup_program_label || null,
+        ],
+        showBillingSummary: [
+            (s) => [s.billing, s.isOnboarding],
+            (billing: BillingType | null, isOnboarding: boolean): boolean => {
+                return !isOnboarding && !!billing?.billing_period
+            },
+        ],
+        showCreditCTAHero: [
+            (s) => [s.creditOverview, s.featureFlags],
+            (creditOverview, featureFlags): boolean => {
+                const isEligible = creditOverview.eligible || !!featureFlags[FEATURE_FLAGS.SELF_SERVE_CREDIT_OVERRIDE]
+                return isEligible && creditOverview.status !== 'paid'
+            },
+        ],
+        showBillingHero: [
+            (s) => [s.billing, s.billingPlan, s.showCreditCTAHero],
+            (billing: BillingType | null, billingPlan: BillingPlan | null, showCreditCTAHero: boolean): boolean => {
+                const platformAndSupportProduct = billing?.products?.find(
+                    (product) => product.type === ProductKey.PLATFORM_AND_SUPPORT
+                )
+                return !!billingPlan && !billing?.trial && !!platformAndSupportProduct && !showCreditCTAHero
+            },
+        ],
+        isManagedAccount: [
+            (s) => [s.billing],
+            (billing: BillingType): boolean => {
+                return !!(billing?.account_owner?.name || billing?.account_owner?.email)
+            },
+        ],
     }),
     forms(({ actions, values }) => ({
         activateLicense: {
@@ -626,6 +670,11 @@ export const billingLogic = kea<billingLogicType>([
             })
 
             if (productOverLimit) {
+                const hideProductFlag = `billing_hide_product_${productOverLimit?.type}`
+                const isHidden = values.featureFlags[hideProductFlag] === true
+                if (isHidden) {
+                    return
+                }
                 actions.setBillingAlert({
                     status: 'error',
                     title: 'Usage limit exceeded',
@@ -634,6 +683,8 @@ export const billingLogic = kea<billingLogicType>([
                         or ${
                             productOverLimit.name === 'Data warehouse'
                                 ? 'data will not be synced'
+                                : productOverLimit.name === 'Feature flags & Experiments'
+                                ? 'feature flags will not evaluate'
                                 : 'data loss may occur'
                         }.`,
                     dismissKey: 'usage-limit-exceeded',
@@ -648,6 +699,11 @@ export const billingLogic = kea<billingLogicType>([
             )
 
             if (productApproachingLimit) {
+                const hideProductFlag = `billing_hide_product_${productApproachingLimit?.type}`
+                const isHidden = values.featureFlags[hideProductFlag] === true
+                if (isHidden) {
+                    return
+                }
                 actions.setBillingAlert({
                     status: 'info',
                     title: 'You will soon hit your usage limit',
@@ -682,7 +738,7 @@ export const billingLogic = kea<billingLogicType>([
         registerInstrumentationProps: async (_, breakpoint) => {
             await breakpoint(100)
             if (posthog && values.billing) {
-                const payload = {
+                const payload: { [key: string]: any } = {
                     has_billing_plan: !!values.billing.has_active_subscription,
                     free_trial_until: values.billing.free_trial_until?.toISOString(),
                     customer_deactivated: values.billing.deactivated,
@@ -716,6 +772,13 @@ export const billingLogic = kea<billingLogicType>([
             if (isOpen) {
                 actions.reportCreditsModalShown()
             }
+        },
+        scrollToProduct: ({ productType }) => {
+            const element = document.querySelector(`[data-attr="billing-product-addon-${productType}"]`)
+            element?.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center',
+            })
         },
     })),
     afterMount(({ actions }) => {

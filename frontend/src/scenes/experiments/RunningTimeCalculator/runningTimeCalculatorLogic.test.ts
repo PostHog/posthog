@@ -1,11 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
-import { ExperimentMetric, ExperimentMetricType } from '~/queries/schema/schema-general'
+import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ExperimentMetricMathType, FeatureFlagBasicType } from '~/types'
 
-import { runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
+import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 
 describe('runningTimeCalculatorLogic', () => {
     let logic: ReturnType<typeof runningTimeCalculatorLogic.build>
@@ -24,11 +24,14 @@ describe('runningTimeCalculatorLogic', () => {
             experimentLogic.actions.setExperiment({
                 metrics: [
                     {
+                        kind: NodeKind.ExperimentMetric,
                         metric_type: ExperimentMetricType.MEAN,
-                        metric_config: {
+                        source: {
+                            kind: NodeKind.EventsNode,
+                            event: 'experiment created',
                             math: ExperimentMetricMathType.TotalCount,
                         },
-                    } as ExperimentMetric,
+                    },
                 ],
                 feature_flag: {
                     filters: {
@@ -75,11 +78,14 @@ describe('runningTimeCalculatorLogic', () => {
             experimentLogic.actions.setExperiment({
                 metrics: [
                     {
+                        kind: NodeKind.ExperimentMetric,
                         metric_type: ExperimentMetricType.MEAN,
-                        metric_config: {
+                        source: {
+                            kind: NodeKind.EventsNode,
+                            event: 'experiment created',
                             math: ExperimentMetricMathType.Sum,
                         },
-                    } as ExperimentMetric,
+                    },
                 ],
                 feature_flag: {
                     filters: {
@@ -116,6 +122,54 @@ describe('runningTimeCalculatorLogic', () => {
                 variance: expect.closeTo(625, 0),
                 recommendedSampleSize: expect.closeTo(3200, 0),
                 recommendedRunningTime: expect.closeTo(3.2, 1),
+            })
+        })
+    })
+
+    // Should match https://docs.google.com/spreadsheets/d/11alyC8n7uqewZFLKfV4UAbW-0zH__EdV_Hrk2OQ4140/edit?gid=0#gid=0
+    describe('calculations for FUNNEL', () => {
+        beforeEach(() => {
+            experimentLogic.actions.setExperiment({
+                metrics: [
+                    {
+                        metric_type: ExperimentMetricType.FUNNEL,
+                    } as ExperimentMetric,
+                ],
+                feature_flag: {
+                    filters: {
+                        multivariate: {
+                            variants: [
+                                {
+                                    key: 'control',
+                                    rollout_percentage: 50,
+                                },
+                                {
+                                    key: 'test',
+                                    rollout_percentage: 50,
+                                },
+                            ],
+                        },
+                    },
+                } as unknown as FeatureFlagBasicType,
+            })
+
+            logic.actions.setMetricIndex(0)
+        })
+
+        it('calculates recommended sample size and running time correctly for FUNNEL', async () => {
+            logic.actions.setMinimumDetectableEffect(50)
+            logic.actions.setConversionRateInputType(ConversionRateInputType.AUTOMATIC)
+            logic.actions.setMetricResult({
+                uniqueUsers: 1000,
+                automaticConversionRateDecimal: 0.1,
+            })
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({
+                minimumDetectableEffect: 50,
+                recommendedSampleSize: expect.closeTo(1152, 0),
+                recommendedRunningTime: expect.closeTo(16.1, 1),
             })
         })
     })

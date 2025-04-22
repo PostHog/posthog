@@ -330,6 +330,30 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(2, queries[0].count("toTimeZone(e.timestamp, 'US/Pacific') AS timestamp"))
 
     @snapshot_clickhouse_queries
+    def test_insight_events_trends_query(self):
+        self._create_test_events()
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        response = self.select(
+            """
+            select * from (
+                <EventsQuery select={['distinct_id']} after='all'>
+                    <InsightActorsQuery day='2020-01-12'>
+                        <TrendsQuery
+                            dateRange={<DateRange date_from='2020-01-09' date_to='2020-01-19' />}
+                            series={[<EventsNode event='$pageview' />]}
+                        />
+                    </InsightActorsQuery>
+                </EventsQuery>
+            )
+            """,
+            modifiers={"personsArgMaxVersion": PersonsArgMaxVersion.V2},
+        )
+
+        self.assertCountEqual(["p1", "p2", "p3"], [x[0] for x in response.results])
+
+    @snapshot_clickhouse_queries
     def test_insight_persons_trends_groups_query(self):
         self._create_test_groups()
         self._create_test_events()

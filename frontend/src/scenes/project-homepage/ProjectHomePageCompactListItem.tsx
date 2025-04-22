@@ -21,7 +21,7 @@ export function ProjectHomePageCompactListItem({
             <div className="flex items-start justify-between overflow-hidden gap-2 flex-1">
                 {prefix ? <span className="flex shrink-0 text-secondary text-xl">{prefix}</span> : null}
 
-                <div className="truncate deprecated-space-y-0_5 flex-1">
+                <div className="truncate flex flex-col gap-y-0.5 flex-1">
                     <div className="text-link truncate">{title}</div>
                     <div className="truncate text-secondary font-normal text-xs">{subtitle}</div>
                 </div>

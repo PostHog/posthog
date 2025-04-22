@@ -1,6 +1,6 @@
-import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+import { MessageHeader } from 'node-rdkafka'
 import { Counter, Summary } from 'prom-client'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
@@ -9,6 +9,7 @@ import {
     GroupTypeIndex,
     Hub,
     ISOTimestamp,
+    KafkaConsumerBreadcrumb,
     Person,
     PersonMode,
     PreIngestionEvent,
@@ -22,15 +23,17 @@ import { DB, GroupId } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
+import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
-import { status } from '../../utils/status'
 import { castTimestampOrNow } from '../../utils/utils'
 import { GroupTypeManager, MAX_GROUP_TYPES_PER_TEAM } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { upsertGroup } from './properties-updater'
-import { GroupAndFirstEventManager } from './property-definitions-manager'
 import { TeamManager } from './team-manager'
 import { captureIngestionWarning } from './utils'
+
+// for e.g. internal events we don't want to be available for users in the UI
+const EVENTS_WITHOUT_EVENT_DEFINITION = ['$$plugin_metrics']
 
 const processEventMsSummary = new Summary({
     name: 'process_event_ms',
@@ -44,27 +47,23 @@ const elementsOrElementsChainCounter = new Counter({
     labelNames: ['type'],
 })
 
-export class EventsProcessor {
-    pluginsServer: Hub
-    db: DB
-    clickhouse: ClickHouse
-    kafkaProducer: KafkaProducerWrapper
-    teamManager: TeamManager
-    groupTypeManager: GroupTypeManager
-    groupAndFirstEventManager: GroupAndFirstEventManager
+const updateEventNamesAndPropertiesMsSummary = new Summary({
+    name: 'update_event_names_and_properties_ms',
+    help: 'Duration spent in updateEventNamesAndProperties',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})
 
-    constructor(pluginsServer: Hub) {
-        this.pluginsServer = pluginsServer
-        this.db = pluginsServer.db
-        this.clickhouse = pluginsServer.clickhouse
-        this.kafkaProducer = pluginsServer.kafkaProducer
-        this.teamManager = pluginsServer.teamManager
-        this.groupTypeManager = new GroupTypeManager(pluginsServer.postgres, this.teamManager, pluginsServer.SITE_URL)
-        this.groupAndFirstEventManager = new GroupAndFirstEventManager(
-            this.teamManager,
-            this.groupTypeManager,
-            pluginsServer.db
-        )
+export class EventsProcessor {
+    private db: DB
+    private kafkaProducer: KafkaProducerWrapper
+    private teamManager: TeamManager
+    private groupTypeManager: GroupTypeManager
+
+    constructor(private hub: Hub) {
+        this.db = hub.db
+        this.kafkaProducer = hub.kafkaProducer
+        this.teamManager = hub.teamManager
+        this.groupTypeManager = hub.groupTypeManager
     }
 
     public async processEvent(
@@ -73,7 +72,7 @@ export class EventsProcessor {
         teamId: number,
         timestamp: DateTime,
         eventUuid: string,
-        processPerson: boolean = false
+        processPerson: boolean
     ): Promise<PreIngestionEvent> {
         const singleSaveTimer = new Date()
         const timeout = timeoutGuard(
@@ -155,17 +154,12 @@ export class EventsProcessor {
             delete properties['$ip']
         }
 
-        if (this.pluginsServer.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP === false) {
+        if (this.hub.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP === false) {
             try {
-                await this.groupAndFirstEventManager.updateGroupsAndFirstEvent(
-                    team.id,
-                    team.project_id,
-                    event,
-                    properties
-                )
+                await this.updateGroupsAndFirstEvent(team, event, properties)
             } catch (err) {
                 captureException(err, { tags: { team_id: team.id } })
-                status.warn('⚠️', 'Failed to update property definitions for an event', {
+                logger.warn('⚠️', 'Failed to update property definitions for an event', {
                     event,
                     properties,
                     err,
@@ -212,7 +206,7 @@ export class EventsProcessor {
             elementsChain = this.getElementsChain(properties)
         } catch (error) {
             captureException(error, { tags: { team_id: teamId } })
-            status.warn('⚠️', 'Failed to process elements', {
+            logger.warn('⚠️', 'Failed to process elements', {
                 uuid,
                 teamId: teamId,
                 properties,
@@ -263,12 +257,15 @@ export class EventsProcessor {
         return rawEvent
     }
 
-    emitEvent(rawEvent: RawKafkaEvent): Promise<void> {
+    emitEvent(rawEvent: RawKafkaEvent, breadcrumbs: KafkaConsumerBreadcrumb[]): Promise<void> {
+        const headers: MessageHeader[] = []
+        headers.push({ 'kafka-consumer-breadcrumbs': Buffer.from(JSON.stringify(breadcrumbs)) })
         return this.kafkaProducer
             .produce({
-                topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 key: rawEvent.uuid,
                 value: Buffer.from(JSON.stringify(rawEvent)),
+                headers: headers,
             })
             .catch(async (error) => {
                 // Some messages end up significantly larger than the original
@@ -307,6 +304,40 @@ export class EventsProcessor {
                 groupPropertiesToSet || {},
                 timestamp
             )
+        }
+    }
+
+    private async updateGroupsAndFirstEvent(team: Team, event: string, properties: Properties): Promise<void> {
+        if (EVENTS_WITHOUT_EVENT_DEFINITION.includes(event)) {
+            return
+        }
+
+        const timer = new Date()
+        const timeout = timeoutGuard(
+            'Still running "updateEventNamesAndProperties". Timeout warning after 30 sec!',
+            () => ({
+                event: event,
+            })
+        )
+
+        try {
+            // We always track 1st event ingestion
+            const promises: Promise<any>[] = [this.teamManager.setTeamIngestedEvent(team, properties)]
+
+            // We always insert/update group-types, so if this is a group-identify event, we hit
+            // the group-type manager, making it insert or update as necessary.
+            if (event === '$groupidentify') {
+                const { $group_type: groupType, $group_set: groupPropertiesToSet } = properties
+                if (groupType != null && groupPropertiesToSet != null) {
+                    // This "fetch" is side-effecty, it inserts a group-type and assigns an index if one isn't found
+                    promises.push(this.groupTypeManager.fetchGroupTypeIndex(team.id, team.project_id, groupType))
+                }
+            }
+
+            await Promise.all(promises)
+        } finally {
+            clearTimeout(timeout)
+            updateEventNamesAndPropertiesMsSummary.observe(Date.now() - timer.valueOf())
         }
     }
 }

@@ -1,11 +1,7 @@
 // Global components
 @import 'vars';
-@import '../../node_modules/react-toastify/dist/ReactToastify';
 @import 'functions';
 @import 'mixins';
-@import 'tailwindcss/base';
-@import 'tailwindcss/components';
-@import 'tailwindcss/utilities';
 @import 'utilities-legacy'; // TODO: Remove all legacy utilities
 
 // Set variables
@@ -338,42 +334,42 @@
     // Accent colors (accents can be changed to change the brand colors)
     // Used for interactive elements and highlights, inputs, toggles, charts, etc.
     // //////////////////////////////////////////////////////////
-    --accent-primary: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
-    --accent-primary-hover: hsl(
+    --accent: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
+    --accent-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        var(--primitive-posthog-brand-yellow-lightness)
+    );
+    --accent-hover: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 10%)
     );
-    --accent-primary-active: hsl(
+    --accent-hover-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        calc(var(--primitive-posthog-brand-yellow-lightness) + 10%)
+    );
+    --accent-active: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 15%)
     );
-    --accent-primary-highlight: hsla(
+    --accent-active-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        calc(var(--primitive-posthog-brand-yellow-lightness) + 15%)
+    );
+    --accent-highlight-primary: hsla(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         var(--brand-primary-lightness),
-        10%
+        20%
     );
-    --accent-secondary: hsl(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        var(--brand-secondary-lightness)
-    );
-    --accent-secondary-hover: hsl(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        calc(var(--brand-secondary-lightness) + 10%)
-    );
-    --accent-secondary-active: hsl(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        calc(var(--brand-secondary-lightness) + 15%)
-    );
-    --accent-secondary-highlight: hsla(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        var(--brand-secondary-lightness),
+    --accent-highlight-secondary: hsla(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        var(--brand-primary-lightness),
         10%
     );
 
@@ -403,9 +399,15 @@
     --bg-fill-primary: var(--color-white);
     --bg-fill-secondary: var(--primitive-3000-25);
     --bg-fill-tertiary: var(--primitive-3000-50);
+    --bg-fill-highlight-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
+    --bg-fill-highlight-50: color-mix(in oklab, var(--color-black) 5%, transparent);
+    --bg-fill-highlight-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
     --bg-fill-highlight-100: color-mix(in oklab, var(--color-black) 10%, transparent);
     --bg-fill-highlight-150: color-mix(in oklab, var(--color-black) 15%, transparent);
     --bg-fill-highlight-200: color-mix(in oklab, var(--color-black) 20%, transparent);
+    --bg-fill-highlight-inverse-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
+    --bg-fill-highlight-inverse-50: color-mix(in oklab, var(--color-white) 5%, transparent);
+    --bg-fill-highlight-inverse-75: color-mix(in oklab, var(--color-white) 7.5%, transparent);
     --bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-white) 10%, transparent);
     --bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-white) 15%, transparent);
     --bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-white) 20%, transparent);
@@ -413,53 +415,36 @@
     // Highlights
     --bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-500) 10%, transparent);
 
-    /* highlight bg for primary blocks */
-
     // Info fills
     --bg-fill-info-secondary: var(--color-blue-100);
-
-    /* promonent bg for info blocks */
     --bg-fill-info-tertiary: var(--color-blue-50);
-
-    /* subtle bg for info blocks */
-
-    // Warning fills
     --bg-fill-warning-secondary: var(--color-yellow-100);
-
-    /* prominent bg for warning blocks */
     --bg-fill-warning-tertiary: var(--color-yellow-50);
-
-    /* subtle bg for warning blocks */
     --bg-fill-warning-highlight: color-mix(in oklab, var(--color-yellow-500) 15%, transparent);
-
-    /* highlight bg for warning blocks */
-
-    // Error fills
     --bg-fill-error-secondary: var(--color-red-100);
-
-    /* prominent bg for error blocks */
     --bg-fill-error-tertiary: var(--color-red-50);
-
-    /* subtle bg for error blocks */
     --bg-fill-error-highlight: color-mix(in oklab, var(--color-red-500) 10%, transparent);
-
-    /* highlight bg for error blocks */
-
-    // Success fills
     --bg-fill-success-secondary: var(--color-green-100);
-
-    /* promonent bg for success blocks */
     --bg-fill-success-tertiary: var(--color-green-50);
-
-    /* subtle bg for success blocks */
     --bg-fill-success-highlight: color-mix(in oklab, var(--color-green-500) 10%, transparent);
 
-    /* highlight bg for success blocks */
+    // Buttons
+    --bg-fill-button-group-tertiary-hover: var(--bg-fill-highlight-25);
+    --bg-fill-button-tertiary-hover: var(--bg-fill-highlight-75);
+    --bg-fill-button-tertiary-hover-inverse: var(--bg-fill-highlight-inverse-75);
+    --bg-fill-button-tertiary-active: var(--bg-fill-highlight-50);
+    --bg-fill-button-tertiary-active-inverse: var(--bg-fill-highlight-inverse-50);
 
     // Inputs
     --bg-fill-input: var(--color-white);
     --bg-fill-switch: var(--primitive-neutral-cool-250);
     --bg-fill-slider-rail: color-mix(in oklab, var(--color-black) 10%, transparent);
+    --bg-fill-scroll-thumb: color-mix(in oklab, var(--color-black) 20%, transparent);
+
+    // Borders (Useful for single pixel backgrounds to mimic borders)
+    // //////////////////////////////////////////////////////////
+    --bg-border-primary: var(--primitive-3000-200);
+    --bg-border-secondary: var(--primitive-3000-400);
 
     // Content (text, icons)
     // //////////////////////////////////////////////////////////
@@ -467,6 +452,7 @@
     --text-primary-inverse: var(--primitive-neutral-100);
     --text-secondary: var(--primitive-neutral-750);
     --text-tertiary: var(--primitive-neutral-600);
+    --text-quaternary: var(--primitive-neutral-500);
     --text-success: var(--color-green-600);
     --text-warning: var(--color-yellow-700);
     --text-error: var(--color-red-600);
@@ -475,17 +461,9 @@
     // Texts which are on colourful fills, ensures contrast
     // //////////////////////////////////////////////////////////
     --text-info-on-fill: var(--color-blue-800);
-
-    /* On-fill text for info */
     --text-warning-on-fill: var(--color-yellow-800);
-
-    /* On-fill text for warning */
     --text-error-on-fill: var(--color-red-800);
-
-    /* On-fill text for error */
     --text-success-on-fill: var(--color-green-800);
-
-    /* On-fill text for success */
 
     // Borders
     // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
@@ -494,14 +472,8 @@
     --border-secondary: var(--primitive-3000-400);
     --border-info: var(--color-blue-400);
     --border-warning: var(--color-yellow-400);
-
-    /* Border for warning */
     --border-error: var(--color-red-400);
-
-    /* Border for error */
     --border-success: var(--color-green-400);
-
-    /* Border for success */
 
     // Graph colors
     // //////////////////////////////////////////////////////////
@@ -529,7 +501,6 @@
         129 129 129 / 24%
     ); // Equivalent to --primitive-neutral-400 but with transparency, improve browser compatibility
 
-    // Breakpoint variables
     // Breakpoint variables
     // //////////////////////////////////////////////////////////
     --breakpoint-sm: 576px;
@@ -559,11 +530,14 @@
     --opacity-disabled: 0.65;
     --font-medium: 500;
     --font-semibold: 600;
-    --font-sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue', helvetica, arial,
-        sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
-    --font-title: 'MatterSQ', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
-        helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
-    --font-mono: ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
+    --font-sans: 'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
+        'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-title: 'Emoji Flags Polyfill', 'MatterSQ', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
+        'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-button: 'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
+        'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-mono: 'Emoji Flags Polyfill', ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas',
+        'Liberation Mono', monospace;
 
     // Dashboard item colors
     --blue: #597dce;
@@ -619,7 +593,11 @@
     --z-annotation-popover: 100;
     --z-drawer: 900;
     --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
-    --z-resizer: 755;
+    --z-layout-panel: 758;
+    --z-layout-panel-overlay: 757;
+    --z-layout-navbar: 756;
+    --z-layout-navbar-overlay: 755;
+    --z-resizer: 754;
     --z-main-nav: 750;
     --z-lemon-sidebar: 700;
     --z-lemon-activation-sidebar: 650;
@@ -627,6 +605,13 @@
     --z-top-navigation: 550;
     --z-content-overlay: 500;
     --z-raised: 5;
+
+    // Elements
+    --side-panel-bar-width: 3rem;
+    --project-navbar-width: 250px;
+    --project-navbar-width-collapsed: 45px;
+    --project-panel-width: 320px;
+    --project-panel-inner-width: calc(var(--project-panel-width) - (var(--spacing) * 2));
 
     // Toasts
     // Update and override from react-toastify
@@ -809,42 +794,47 @@
 
     // Accent colors (dark mode)
     // //////////////////////////////////////////////////////////
-    --accent-primary: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
-    --accent-primary-hover: hsl(
+    --accent: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
+    --accent-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        var(--primitive-posthog-brand-orange-lightness)
+    );
+    --accent-hover: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 10%)
     );
-    --accent-primary-active: hsl(
+    --accent-hover-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        calc(var(--primitive-posthog-brand-orange-lightness) + 10%)
+    );
+    --accent-active: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 15%)
     );
-    --accent-primary-highlight: hsla(
+    --accent-active-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        calc(var(--primitive-posthog-brand-orange-lightness) + 15%)
+    );
+
+    // Used for highlighting search results, and other subtle accent sitations
+    // Most prominent
+    --accent-highlight-primary: hsla(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         var(--brand-primary-lightness),
-        10%
+        20%
     );
-    --accent-secondary: hsl(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        var(--brand-secondary-lightness)
-    );
-    --accent-secondary-hover: hsl(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        calc(var(--brand-secondary-lightness) + 10%)
-    );
-    --accent-secondary-active: hsl(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        calc(var(--brand-secondary-lightness) + 15%)
-    );
-    --accent-secondary-highlight: hsla(
-        var(--brand-secondary-hue),
-        var(--brand-secondary-saturation),
-        var(--brand-secondary-lightness),
+
+    // Less prominent
+    --accent-highlight-secondary: hsla(
+        var(--brand-primary-hue),
+        var(--brand-primary-saturation),
+        var(--brand-primary-lightness),
         10%
     );
 
@@ -865,11 +855,17 @@
     --bg-fill-primary: var(--primitive-neutral-cool-900);
     --bg-fill-secondary: var(--primitive-neutral-cool-850);
     --bg-fill-tertiary: var(--primitive-neutral-cool-800);
+    --bg-fill-highlight-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
+    --bg-fill-highlight-50: color-mix(in oklab, var(--color-white) 5%, transparent);
+    --bg-fill-highlight-75: color-mix(in oklab, var(--color-white) 7.5%, transparent);
     --bg-fill-highlight-100: color-mix(in oklab, var(--color-white) 10%, transparent);
-    --bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-black) 10%, transparent);
     --bg-fill-highlight-150: color-mix(in oklab, var(--color-white) 15%, transparent);
-    --bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-black) 15%, transparent);
     --bg-fill-highlight-200: color-mix(in oklab, var(--color-white) 20%, transparent);
+    --bg-fill-highlight-inverse-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
+    --bg-fill-highlight-inverse-50: color-mix(in oklab, var(--color-black) 5%, transparent);
+    --bg-fill-highlight-inverse-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
+    --bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-black) 10%, transparent);
+    --bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-black) 15%, transparent);
     --bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-black) 20%, transparent);
     --bg-fill-info-secondary: var(--color-blue-950);
     --bg-fill-info-tertiary: var(--color-blue-950);
@@ -883,9 +879,17 @@
     --bg-fill-success-tertiary: color-mix(in oklab, var(--color-green-950) 50%, transparent);
     --bg-fill-success-highlight: color-mix(in oklab, var(--color-green-950) 50%, transparent);
     --bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-950) 50%, transparent);
+    --bg-fill-button-group-tertiary-hover: var(--bg-fill-highlight-25);
+    --bg-fill-button-tertiary-hover: var(--bg-fill-highlight-75);
+    --bg-fill-button-tertiary-hover-inverse: var(--bg-fill-highlight-inverse-75);
+    --bg-fill-button-tertiary-active: var(--bg-fill-highlight-50);
+    --bg-fill-button-tertiary-active-inverse: var(--bg-fill-highlight-inverse-50);
     --bg-fill-input: var(--primitive-neutral-cool-850);
     --bg-fill-switch: var(--primitive-neutral-cool-900);
     --bg-fill-slider-rail: color-mix(in oklab, var(--color-white) 15%, transparent);
+    --bg-fill-scroll-thumb: color-mix(in oklab, var(--color-white) 20%, transparent);
+    --bg-border-primary: var(--primitive-neutral-cool-800);
+    --bg-border-secondary: var(--primitive-neutral-cool-600);
 
     // Content (text, icons) (dark mode)
     // //////////////////////////////////////////////////////////
@@ -893,6 +897,7 @@
     --text-primary-inverse: var(--primitive-neutral-950);
     --text-secondary: var(--primitive-neutral-350);
     --text-tertiary: var(--primitive-neutral-400);
+    --text-quaternary: var(--primitive-neutral-500);
     --text-success: var(--color-green-400);
     --text-warning: var(--color-yellow-400);
     --text-error: var(--color-red-400);
@@ -914,7 +919,7 @@
     /* On-fill text for success */
 
     // Borders (dark mode)
-    // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
+    // Borders for surfaces/fills
     // //////////////////////////////////////////////////////////
     --border-primary: var(--primitive-neutral-cool-800);
     --border-secondary: var(--primitive-neutral-cool-600);
@@ -980,590 +985,646 @@
     --data-color-10: #6576b3;
 }
 
-*,
-::after,
-::before,
-::backdrop,
-::file-selector-button {
-    border-color: var(--border-primary, currentColor);
-}
+@layer base {
+    /* stylelint-disable-next-line no-invalid-position-at-import-rule */ // allowing @import to be inside layer
+    @import '../../node_modules/react-toastify/dist/ReactToastify'; // Toastify is in base so that we can override
 
-.rendering-pixelated {
-    image-rendering: pixelated;
-}
-
-input[type='text'] {
-    font-weight: 400;
-}
-
-input[type='radio'] {
-    accent-color: var(--accent-primary);
-}
-
-input[type='search'] {
-    &::-webkit-search-decoration,
-    &::-webkit-search-cancel-button,
-    &::-webkit-search-results-button,
-    &::-webkit-search-results-decoration {
-        display: none;
-    }
-}
-
-body {
-    font-size: 14px;
-    font-weight: 400;
-    line-height: 1.5715;
-    color: var(--text-3000);
-    color-scheme: light dark;
-    touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
-    background: var(--bg-primary);
-
-    &[theme='light'] {
-        color-scheme: light;
+    /* stylelint-disable-next-line order/order */ // allowing @import to be first
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--border-primary, currentColor);
     }
 
-    &[theme='dark'] {
-        color-scheme: dark;
+    .rendering-pixelated {
+        image-rendering: pixelated;
     }
 
-    &.is-resizing {
-        cursor: grabbing !important;
+    input[type='text'] {
+        font-weight: 400;
+    }
 
-        // Disable pointer events on all elements except the resizer
-        *:not(.Resizer) {
-            pointer-events: none;
+    input[type='radio'] {
+        accent-color: var(--accent);
+    }
+
+    input[type='search'] {
+        &::-webkit-search-decoration,
+        &::-webkit-search-cancel-button,
+        &::-webkit-search-results-button,
+        &::-webkit-search-results-decoration {
+            display: none;
         }
     }
 
-    * > {
-        ::-webkit-scrollbar {
-            width: 0.5rem;
-            height: 0.5rem;
+    body {
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 1.5715;
+        color: var(--text-3000);
+        color-scheme: light dark;
+        touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
+        background: var(--bg-primary);
+
+        &[theme='light'] {
+            color-scheme: light;
         }
 
-        ::-webkit-scrollbar-track {
-            background: var(--bg-surface-primary);
+        &[theme='dark'] {
+            color-scheme: dark;
         }
 
-        ::-webkit-scrollbar-thumb {
-            background: var(--trace-3000);
-            border-radius: var(--radius);
+        &.is-resizing {
+            cursor: grabbing !important;
+
+            // Disable pointer events on all elements except the resizer
+            *:not(.Resizer) {
+                pointer-events: none;
+            }
+        }
+
+        * > {
+            ::-webkit-scrollbar {
+                width: 0.5rem;
+                height: 0.5rem;
+            }
+
+            ::-webkit-scrollbar-track {
+                background: var(--bg-surface-primary);
+            }
+
+            ::-webkit-scrollbar-thumb {
+                background: var(--trace-3000);
+                border-radius: var(--radius);
+
+                &:hover {
+                    background: var(--muted-3000);
+                }
+            }
+        }
+
+        .styled-scrollbars {
+            --scrollbar-background: transparent transparent;
+
+            scrollbar-color: transparent transparent;
+            scrollbar-width: thin;
+            scrollbar-gutter: stable;
+
+            &::-webkit-scrollbar {
+                width: 0.5rem;
+                height: 0.5rem;
+            }
+
+            &::-webkit-scrollbar-track {
+                background: transparent;
+            }
 
             &:hover {
-                background: var(--muted-3000);
+                scrollbar-color: var(--bg-fill-scroll-thumb) transparent;
+
+                &::-webkit-scrollbar-thumb {
+                    background: var(--bg-fill-scroll-thumb);
+                    border-radius: 8px;
+                }
+            }
+        }
+
+        b,
+        strong {
+            font-weight: 600; // Tailwind's default is "bolder" (800)
+        }
+
+        h1,
+        h2,
+        // Note: .thank-you-message is excluded in h3 below to prevent the survey thank you message to be styled,
+        // as these styles are only for PostHog main app. It's important to use :where() to avoid increased specificity
+        h3:where(:not(.thank-you-message)),
+        h4,
+        h5 {
+            margin-top: 0;
+            margin-bottom: 0.5em;
+            font-family: var(--font-title);
+            font-weight: 500;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4 {
+            color: var(--text-3000);
+        }
+
+        h1 {
+            font-size: 1.75rem;
+        }
+
+        h2 {
+            font-size: 1.3125rem;
+        }
+
+        h3 {
+            font-size: 1rem;
+        }
+
+        h5 {
+            margin-bottom: 0.25rem;
+            font-size: 0.6875rem;
+            font-weight: 600;
+            line-height: 1.5rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.075em;
+        }
+
+        pre {
+            margin-top: 0;
+            margin-bottom: 1em;
+            overflow: auto;
+        }
+
+        dialog {
+            background-color: var(--bg-primary);
+        }
+
+        .LemonButton,
+        .Link {
+            .text-link {
+                color: var(--text-3000) !important;
+            }
+
+            &:hover {
+                .text-link {
+                    color: var(--accent) !important;
+                }
             }
         }
     }
 
-    b,
-    strong {
-        font-weight: 600; // Tailwind's default is "bolder" (800)
+    .page-title-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem 1rem;
+        align-items: center;
+        min-height: 2.5rem;
+        margin: 1rem 0 0.25rem;
+
+        @include screen($md) {
+            flex-wrap: nowrap;
+        }
     }
 
-    h1,
-    h2,
-    // Note: .thank-you-message is excluded in h3 below to prevent the survey thank you message to be styled,
-    // as these styles are only for PostHog main app. It's important to use :where() to avoid increased specificity
-    h3:where(:not(.thank-you-message)),
-    h4,
-    h5 {
-        margin-top: 0;
-        margin-bottom: 0.5em;
-        font-family: var(--font-title);
-        font-weight: 500;
-    }
-
-    h1,
-    h2,
-    h3,
-    h4 {
-        color: var(--text-3000);
-    }
-
-    h1 {
-        font-size: 1.75rem;
-    }
-
-    h2 {
-        font-size: 1.3125rem;
-    }
-
-    h3 {
-        font-size: 1rem;
-    }
-
-    h5 {
-        margin-bottom: 0.25rem;
-        font-size: 0.6875rem;
+    .page-title {
+        min-width: 0;
+        margin: 0;
+        font-size: 28px;
         font-weight: 600;
-        line-height: 1.5rem;
+        line-height: 34px;
+    }
+
+    .page-caption {
+        max-width: 48rem;
+        margin-bottom: 1rem;
+        font-size: 0.875rem;
+        line-height: 1.25rem;
+
+        &.tabbed {
+            margin-bottom: 0.5rem;
+        }
+    }
+
+    .secondary {
+        font-size: 0.9em;
+        font-weight: var(--font-medium);
+        color: var(--primary-alt);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        background: none;
+        border: 0;
+    }
+
+    .card-secondary {
+        font-size: 11px;
+        font-weight: 600;
         color: var(--text-secondary);
         text-transform: uppercase;
-        letter-spacing: 0.075em;
+        letter-spacing: 0.5px;
     }
 
-    pre {
-        margin-top: 0;
-        margin-bottom: 1em;
-        overflow: auto;
+    mark {
+        background-color: var(--mark) !important;
+        border-radius: var(--radius);
     }
 
-    dialog {
-        background-color: var(--bg-primary);
+    hr {
+        margin: 1em 0;
+        border-top: 1px solid var(--border);
     }
 
-    .LemonButton,
-    .Link {
-        .text-link {
-            color: var(--text-3000) !important;
-        }
-
-        &:hover {
-            .text-link {
-                color: var(--accent-primary) !important;
-            }
-        }
-    }
-}
-
-.page-title-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem 1rem;
-    align-items: center;
-    min-height: 2.5rem;
-    margin: 1rem 0 0.25rem;
-
-    @include screen($md) {
-        flex-wrap: nowrap;
-    }
-}
-
-.page-title {
-    min-width: 0;
-    margin: 0;
-    font-size: 28px;
-    font-weight: 600;
-    line-height: 34px;
-}
-
-.page-caption {
-    max-width: 48rem;
-    margin-bottom: 1rem;
-    font-size: 0.875rem;
-    line-height: 1.25rem;
-
-    &.tabbed {
-        margin-bottom: 0.5rem;
-    }
-}
-
-.secondary {
-    font-size: 0.9em;
-    font-weight: var(--font-medium);
-    color: var(--primary-alt);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    background: none;
-    border: 0;
-}
-
-.card-secondary {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-mark {
-    background-color: var(--mark) !important;
-    border-radius: var(--radius);
-}
-
-hr {
-    margin: 1em 0;
-    border-top: 1px solid var(--border);
-}
-
-dfn {
-    font-style: normal;
-    text-decoration: underline;
-    text-decoration-style: dotted;
-}
-
-// Vendor-specific adjustments
-
-input::-ms-clear {
-    display: none; // Hide IE/Edge's clear button that can mess input sizing up
-}
-
-// Toasts
-
-.Toastify__toast {
-    align-items: center;
-    padding: 0.75rem;
-    margin-bottom: 0.5rem !important;
-    font-family: var(--font-sans);
-    font-size: 1rem;
-    cursor: unset;
-    border: 1px solid var(--secondary-3000-button-border);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow-elevation-3000);
-    opacity: 1 !important;
-}
-
-.Toastify__toast-container {
-    padding: 0;
-}
-
-.Toastify__toast-body {
-    padding: 0;
-    font-size: 0.875rem;
-    font-weight: 500;
-    line-height: 1.25rem;
-    color: var(--text-3000);
-
-    b,
-    strong {
-        font-weight: 700;
+    dfn {
+        font-style: normal;
+        text-decoration: underline;
+        text-decoration-style: dotted;
     }
 
-    button {
-        margin: 0 0.75rem;
-    }
-}
+    // Vendor-specific adjustments
 
-.Toastify__toast-icon {
-    width: 1.5rem;
-    height: 1.5rem;
-    margin-right: 0.75rem;
-    font-size: 1.5rem;
-    color: var(--text-secondary);
-
-    .Toastify__toast--success & {
-        color: var(--toastify-color-success);
+    input::-ms-clear {
+        display: none; // Hide IE/Edge's clear button that can mess input sizing up
     }
 
-    .Toastify__toast--warning & {
-        color: var(--toastify-color-warning);
+    // Toasts
+
+    .Toastify__toast {
+        align-items: center;
+        padding: 0.75rem;
+        margin-bottom: 0.5rem !important;
+        font-family: var(--font-sans);
+        font-size: 1rem;
+        cursor: unset;
+        border: 1px solid var(--secondary-3000-button-border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-elevation-3000);
+        opacity: 1 !important;
     }
 
-    .Toastify__toast--error & {
-        color: var(--toastify-color-error);
-    }
-}
-
-.Toastify__progress-bar {
-    height: var(--radius);
-}
-
-// Form & input styles
-
-.error-on-blur {
-    &.errored:not(:focus) {
-        border-color: var(--danger) !important;
-    }
-}
-
-// Button styles
-
-.info-indicator {
-    margin-left: 4px;
-    color: var(--primary-alt) !important;
-    cursor: pointer;
-
-    &.left {
-        margin-right: 4px;
-        margin-left: 0;
-    }
-}
-
-// Graph series glyph
-
-.graph-series-glyph {
-    display: flex;
-    flex-shrink: 0;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    font-size: 12px;
-    font-weight: bold;
-    line-height: 1rem;
-    pointer-events: none;
-    border: 2px solid var(--text-3000);
-    border-radius: 50%;
-
-    // variants
-    &.funnel-step-glyph {
-        width: 23px;
-        height: 23px;
-        font-size: unset;
-        color: var(--primary-alt);
-        background-color: var(--bg-surface-primary);
-        border-color: var(--border);
-    }
-}
-
-// Bottom notice (DEBUG=1 mode)
-
-#bottom-notice {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    z-index: var(--z-bottom-notice);
-    display: flex !important;
-    flex-direction: row;
-    width: 100%;
-    font-size: 0.75rem;
-    line-height: 1.5rem;
-    color: #fff;
-    background: #000;
-
-    code {
-        font-size: inherit;
-        color: inherit;
-    }
-
-    &.warning div {
-        height: auto;
-        background: var(--danger);
-    }
-
-    &.tricolor {
-        cursor: pointer;
-
-        div:nth-child(1) {
-            background: var(--brand-blue);
-        }
-
-        div:nth-child(2) {
-            background: var(--brand-red);
-        }
-
-        div:nth-child(3) {
-            background: var(--brand-yellow);
-        }
-
-        span {
-            cursor: text;
-        }
-    }
-
-    div {
-        flex-basis: 0;
-        flex-grow: 1;
-        height: 1.5rem;
-        text-align: center;
-    }
-
-    span {
-        display: none;
-    }
-
-    button {
-        width: 1.5rem;
-        height: 1.5rem;
+    .Toastify__toast-container {
         padding: 0;
-        font-size: 1rem;
-        font-weight: bold;
-        color: inherit;
-        cursor: pointer;
-        background: transparent;
-        border: none;
     }
 
-    @media screen and (min-width: 750px) {
-        font-size: 1rem;
-        line-height: 2rem;
+    .Toastify__toast-body {
+        padding: 0;
+        font-size: 0.875rem;
+        font-weight: 500;
+        line-height: 1.25rem;
+        color: var(--text-3000);
 
-        div {
-            height: 2rem;
-        }
-
-        span {
-            display: inline;
+        b,
+        strong {
+            font-weight: 700;
         }
 
         button {
-            width: 2rem;
-            height: 2rem;
-            font-size: 1.25rem;
-        }
-    }
-}
-
-html {
-    text-size-adjust: 100%;
-}
-
-input::placeholder,
-textarea::placeholder {
-    // Overrides Tailwind's default
-    color: var(--text-tertiary);
-}
-
-a {
-    color: var(--link);
-    text-decoration: none;
-}
-
-p {
-    margin-top: 0;
-    margin-bottom: 1em;
-}
-
-img {
-    vertical-align: middle;
-    border-style: none;
-}
-
-[tabindex='-1']:focus {
-    outline: none !important;
-}
-
-.storybook-test-runner {
-    &.storybook-test-runner--fullscreen {
-        height: fit-content;
-    }
-
-    &.storybook-test-runner--padded {
-        #storybook-root {
-            // Make the root element (which is the default screenshot reference) hug the component
-            display: inline-block;
+            margin: 0 0.75rem;
         }
     }
 
-    // Only use this class in visual regression tests
-    *,
-    *::before,
-    *::after {
-        transition-duration: 0ms !important;
-        animation-fill-mode: forwards !important;
-        animation-duration: 0ms !important;
-        animation-iteration-count: 1 !important;
+    .Toastify__toast-icon {
+        width: 1.5rem;
+        height: 1.5rem;
+        margin-right: 0.75rem;
+        font-size: 1.5rem;
+        color: var(--text-secondary);
+
+        .Toastify__toast--success & {
+            color: var(--toastify-color-success);
+        }
+
+        .Toastify__toast--warning & {
+            color: var(--toastify-color-warning);
+        }
+
+        .Toastify__toast--error & {
+            color: var(--toastify-color-error);
+        }
     }
 
-    // Hide some parts of the UI that were causing flakiness
-    ::-webkit-scrollbar,
-    *> ::-webkit-scrollbar,
-    // Scrollbar in WebKit/Blink browsers
-    .LemonTabs__bar::after,
-    // Active tab slider
-    .scrollable::after,
-    // Scrollability indicators
-    .scrollable::before {
-        display: none;
+    .Toastify__progress-bar {
+        height: var(--radius);
     }
 
-    #storybook-root > .fixed:only-child {
-        // Fix for stories of fixed overlays like CommandBar - otherwise body would be zero-sized
-        position: static !important;
+    // Form & input styles
+
+    .error-on-blur {
+        &.errored:not(:focus) {
+            border-color: var(--danger) !important;
+        }
     }
 
-    #storybook-root:empty ~ .ReactModalPortal > .ReactModal__Overlay {
-        // Fix for stories of fixed modals - otherwise body would be zero-sized
-        position: static !important;
-    }
-}
+    // Button styles
 
-.ligatures-none {
-    font-variant-ligatures: none;
-}
+    .info-indicator {
+        margin-left: 4px;
+        color: var(--primary-alt) !important;
+        cursor: pointer;
 
-.hide-scrollbar {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-
-    &::-webkit-scrollbar {
-        display: none;
-    }
-}
-
-.arial {
-    font-family: Arial, sans-serif;
-}
-
-.verdana {
-    font-family: Verdana, sans-serif;
-}
-
-.tahoma {
-    font-family: Tahoma, sans-serif;
-}
-
-.trebuchet-ms {
-    font-family: 'Trebuchet MS', sans-serif;
-}
-
-.helvetica {
-    font-family: Helvetica, sans-serif;
-}
-
-.times-new-roman {
-    font-family: 'Times New Roman', serif;
-}
-
-.georgia {
-    font-family: Georgia, serif;
-}
-
-.courier-new {
-    font-family: 'Courier New', monospace;
-}
-
-.system-ui {
-    font-family: system-ui;
-}
-
-.inherit {
-    font-family: inherit;
-}
-
-// Highlight background blink
-
-/* stylelint-disable-next-line keyframes-name-pattern */
-@keyframes highlight {
-    0% {
-        background-color: var(--mark);
+        &.left {
+            margin-right: 4px;
+            margin-left: 0;
+        }
     }
 
-    100% {
-        background-color: initial;
-    }
-}
+    // Graph series glyph
 
-// Generic 360 spin
+    .graph-series-glyph {
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        font-size: 12px;
+        font-weight: bold;
+        line-height: 1rem;
+        pointer-events: none;
+        border: 2px solid var(--text-3000);
+        border-radius: 50%;
 
-/* stylelint-disable-next-line keyframes-name-pattern */
-@keyframes spin {
-    0% {
-        transform: rotateZ(0deg);
-    }
-
-    100% {
-        transform: rotateZ(360deg);
-    }
-}
-
-// Floating animation
-
-/* stylelint-disable-next-line keyframes-name-pattern */
-@keyframes float {
-    0% {
-        transform: translateY(0);
-    }
-
-    50% {
-        transform: translateY(-10px);
+        // variants
+        &.funnel-step-glyph {
+            width: 23px;
+            height: 23px;
+            font-size: unset;
+            color: var(--primary-alt);
+            background-color: var(--bg-surface-primary);
+            border-color: var(--border);
+        }
     }
 
-    100% {
-        transform: translateY(0);
-    }
-}
+    // Bottom notice (DEBUG=1 mode)
 
-.animate-float {
-    animation: float 3s infinite ease-in-out;
+    #bottom-notice {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        z-index: var(--z-bottom-notice);
+        display: flex !important;
+        flex-direction: row;
+        width: 100%;
+        font-size: 0.75rem;
+        line-height: 1.5rem;
+        color: #fff;
+        background: #000;
+
+        code {
+            font-size: inherit;
+            color: inherit;
+        }
+
+        &.warning div {
+            height: auto;
+            background: var(--danger);
+        }
+
+        &.tricolor {
+            cursor: pointer;
+
+            div:nth-child(1) {
+                background: var(--brand-blue);
+            }
+
+            div:nth-child(2) {
+                background: var(--brand-red);
+            }
+
+            div:nth-child(3) {
+                background: var(--brand-yellow);
+            }
+
+            span {
+                cursor: text;
+            }
+        }
+
+        div {
+            flex-basis: 0;
+            flex-grow: 1;
+            height: 1.5rem;
+            text-align: center;
+        }
+
+        span {
+            display: none;
+        }
+
+        button {
+            width: 1.5rem;
+            height: 1.5rem;
+            padding: 0;
+            font-size: 1rem;
+            font-weight: bold;
+            color: inherit;
+            cursor: pointer;
+            background: transparent;
+            border: none;
+        }
+
+        @media screen and (min-width: 750px) {
+            font-size: 1rem;
+            line-height: 2rem;
+
+            div {
+                height: 2rem;
+            }
+
+            span {
+                display: inline;
+            }
+
+            button {
+                width: 2rem;
+                height: 2rem;
+                font-size: 1.25rem;
+            }
+        }
+    }
+
+    html {
+        text-size-adjust: 100%;
+    }
+
+    input::placeholder,
+    textarea::placeholder {
+        // Overrides Tailwind's default
+        color: var(--text-tertiary);
+    }
+
+    a {
+        color: var(--link);
+        text-decoration: none;
+    }
+
+    p {
+        margin-top: 0;
+        margin-bottom: 1em;
+    }
+
+    img {
+        vertical-align: middle;
+        border-style: none;
+    }
+
+    [tabindex='-1']:focus {
+        outline: none !important;
+    }
+
+    .storybook-test-runner {
+        &.storybook-test-runner--fullscreen {
+            height: fit-content;
+        }
+
+        &.storybook-test-runner--padded {
+            #storybook-root {
+                // Make the root element (which is the default screenshot reference) hug the component
+                display: inline-block;
+            }
+        }
+
+        // Only use this class in visual regression tests
+        *,
+        *::before,
+        *::after {
+            transition-duration: 0ms !important;
+            animation-fill-mode: forwards !important;
+            animation-duration: 0ms !important;
+            animation-iteration-count: 1 !important;
+        }
+
+        // Hide some parts of the UI that were causing flakiness
+        ::-webkit-scrollbar,
+        *> ::-webkit-scrollbar,
+        // Scrollbar in WebKit/Blink browsers
+        .LemonTabs__bar::after,
+        // Active tab slider
+        .scrollable::after,
+        // Scrollability indicators
+        .scrollable::before {
+            display: none;
+        }
+
+        #storybook-root > .fixed:only-child {
+            // Fix for stories of fixed overlays like CommandBar - otherwise body would be zero-sized
+            position: static !important;
+        }
+
+        #storybook-root:empty ~ .ReactModalPortal > .ReactModal__Overlay {
+            // Fix for stories of fixed modals - otherwise body would be zero-sized
+            position: static !important;
+        }
+    }
+
+    .ligatures-none {
+        font-variant-ligatures: none;
+    }
+
+    .hide-scrollbar {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+
+        &::-webkit-scrollbar {
+            display: none;
+        }
+    }
+
+    .arial {
+        font-family: Arial, sans-serif;
+    }
+
+    .verdana {
+        font-family: Verdana, sans-serif;
+    }
+
+    .tahoma {
+        font-family: Tahoma, sans-serif;
+    }
+
+    .trebuchet-ms {
+        font-family: 'Trebuchet MS', sans-serif;
+    }
+
+    .helvetica {
+        font-family: Helvetica, sans-serif;
+    }
+
+    .times-new-roman {
+        font-family: 'Times New Roman', serif;
+    }
+
+    .georgia {
+        font-family: Georgia, serif;
+    }
+
+    .courier-new {
+        font-family: 'Courier New', monospace;
+    }
+
+    .system-ui {
+        font-family: system-ui;
+    }
+
+    .inherit {
+        font-family: inherit;
+    }
+
+    .animate-float {
+        animation: float 3s infinite ease-in-out;
+    }
+
+    // Primitive classes
+
+    // Used for ui/dropdown-menu and ui/context-menu
+    .primitive-menu-content {
+        z-index: var(--z-popover);
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        min-width: 8rem;
+        max-width: 200px;
+        max-height: calc(90vh - 100px);
+        overflow: hidden;
+        color: var(--text-primary);
+        background-color: var(--bg-surface-primary);
+        border: 1px solid var(--border-secondary);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow);
+    }
+
+    .primitive-menu-content-inner {
+        max-height: calc(90vh - 100px);
+        padding: var(--spacing);
+    }
+
+    // Highlight background blink
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes highlight {
+        0% {
+            background-color: var(--mark);
+        }
+
+        100% {
+            background-color: initial;
+        }
+    }
+
+    // Generic 360 spin
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes spin {
+        0% {
+            transform: rotateZ(0deg);
+        }
+
+        100% {
+            transform: rotateZ(360deg);
+        }
+    }
+
+    // Floating animation
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes float {
+        0% {
+            transform: translateY(0);
+        }
+
+        50% {
+            transform: translateY(-10px);
+        }
+
+        100% {
+            transform: translateY(0);
+        }
+    }
 }

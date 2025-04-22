@@ -11,7 +11,7 @@ describe('user-agent tests', () => {
     beforeAll(async () => {
         console.info = jest.fn() as any
         console.warn = jest.fn() as any
-        hub = await createHub({ LOG_LEVEL: LogLevel.Log })
+        hub = await createHub({ LOG_LEVEL: LogLevel.Info })
         await resetTestDatabase()
     })
 
@@ -179,8 +179,6 @@ describe('user-agent tests', () => {
             expect.arrayContaining(['$browser', '$browser_version', '$os', '$device', '$device_type', '$browser_type'])
         )
 
-        console.log(processedEvent.properties)
-
         expect(processedEvent.properties).toStrictEqual(
             expect.objectContaining({
                 $browser: 'edge-chromium',
@@ -219,8 +217,6 @@ describe('user-agent tests', () => {
         expect(Object.keys(processedEvent.properties!)).toEqual(
             expect.arrayContaining(['$browser', '$browser_version', '$os', '$device', '$device_type', '$browser_type'])
         )
-
-        console.log(processedEvent.properties)
 
         expect(processedEvent.properties).toStrictEqual(
             expect.objectContaining({

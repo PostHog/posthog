@@ -1,15 +1,18 @@
 from dataclasses import asdict
 from datetime import timedelta
 from typing import TYPE_CHECKING
+from datetime import datetime
 
 from temporalio.client import (
     Schedule,
     ScheduleActionStartWorkflow,
-    ScheduleIntervalSpec,
     ScheduleOverlapPolicy,
     SchedulePolicy,
     ScheduleSpec,
     ScheduleState,
+    ScheduleCalendarSpec,
+    ScheduleRange,
+    ScheduleIntervalSpec,
 )
 from temporalio.common import RetryPolicy
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
@@ -50,25 +53,77 @@ def get_sync_schedule(external_data_schema: "ExternalDataSchema"):
 
     sync_frequency, jitter = get_sync_frequency(external_data_schema)
 
+    hour = 0
+    minute = 0
+    # format 15:00:00 --> 3:00 PM UTC | default to midnight UTC
+    if external_data_schema.sync_time_of_day:
+        time_str = external_data_schema.sync_time_of_day
+        time = datetime.strptime(str(time_str), "%H:%M:%S").time()
+        hour = time.hour
+        minute = time.minute
+
+    return to_temporal_schedule(
+        external_data_schema,
+        inputs,
+        hour_of_day=hour,
+        minute_of_hour=minute,
+        sync_frequency=sync_frequency,
+        jitter=jitter,
+    )
+
+
+def to_temporal_schedule(
+    external_data_schema, inputs, hour_of_day=0, minute_of_hour=0, sync_frequency=timedelta(hours=6), jitter=None
+):
+    action = ScheduleActionStartWorkflow(
+        "external-data-job",
+        asdict(inputs),
+        id=str(external_data_schema.id),
+        task_queue=str(DATA_WAREHOUSE_TASK_QUEUE),
+        retry_policy=RetryPolicy(
+            initial_interval=timedelta(seconds=10),
+            maximum_interval=timedelta(seconds=60),
+            maximum_attempts=3,
+            non_retryable_error_types=["NondeterminismError"],
+        ),
+    )
+
+    # Determine spec based on frequency
+    if sync_frequency <= timedelta(hours=1):
+        spec = ScheduleSpec(intervals=[ScheduleIntervalSpec(every=sync_frequency)], jitter=jitter)
+    else:
+        spec = ScheduleSpec(
+            calendars=[get_calendar_spec(hour_of_day, minute_of_hour, sync_frequency)],
+            jitter=jitter if minute_of_hour == 0 and hour_of_day == 0 else None,
+        )
+
     return Schedule(
-        action=ScheduleActionStartWorkflow(
-            "external-data-job",
-            asdict(inputs),
-            id=str(external_data_schema.id),
-            task_queue=str(DATA_WAREHOUSE_TASK_QUEUE),
-            retry_policy=RetryPolicy(
-                initial_interval=timedelta(seconds=10),
-                maximum_interval=timedelta(seconds=60),
-                maximum_attempts=3,
-                non_retryable_error_types=["NondeterminismError"],
-            ),
-        ),
-        spec=ScheduleSpec(
-            intervals=[ScheduleIntervalSpec(every=sync_frequency)],
-            jitter=jitter,
-        ),
+        action=action,
+        spec=spec,
         state=ScheduleState(note=f"Schedule for external data source: {external_data_schema.pk}"),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+
+def get_calendar_spec(hour_of_day: int, minute_of_hour: int, sync_frequency: timedelta) -> ScheduleCalendarSpec:
+    hours_per_day = 24
+    seconds_per_hour = 3600
+    step = max(int(sync_frequency.total_seconds() // seconds_per_hour), 1)
+
+    # If step is greater than or equal to 24 hours, we only need one execution per day
+    if step >= hours_per_day:
+        return ScheduleCalendarSpec(
+            hour=[ScheduleRange(start=hour_of_day, end=hour_of_day, step=step)],
+            minute=[ScheduleRange(start=minute_of_hour, end=minute_of_hour, step=1)],
+        )
+
+    end_hour = hour_of_day
+    while (end_hour + step) < hours_per_day:
+        end_hour += step
+
+    return ScheduleCalendarSpec(
+        hour=[ScheduleRange(start=hour_of_day, end=end_hour, step=step)],
+        minute=[ScheduleRange(start=minute_of_hour, end=minute_of_hour, step=1)],
     )
 
 

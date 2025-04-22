@@ -5,7 +5,7 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useEffect, useState } from 'react'
+import { type HTMLProps, useEffect, useState } from 'react'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
 import csharp from 'react-syntax-highlighter/dist/esm/languages/prism/csharp'
@@ -188,6 +188,7 @@ export function CodeSnippet({
                     }}
                     size={compact ? 'small' : 'medium'}
                     noPadding
+                    tooltip="Copy to clipboard"
                 />
             </div>
             <CodeLine text={displayedText} language={language} wrapLines={wrap} />
@@ -210,6 +211,14 @@ export function CodeSnippet({
     )
 }
 
+const syntaxHighlighterLineProps: HTMLProps<HTMLElement> = {
+    style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' },
+}
+
+function PreTag({ children }: { children: JSX.Element }): JSX.Element {
+    return <pre className="m-0">{children}</pre>
+}
+
 export function CodeLine({
     text,
     wrapLines,
@@ -226,8 +235,8 @@ export function CodeLine({
             style={isDarkModeOn ? darkTheme : lightTheme}
             language={language}
             wrapLines={wrapLines}
-            lineProps={{ style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }}
-            PreTag={({ children }) => <pre className="bg-transparent m-0">{children}</pre>}
+            lineProps={syntaxHighlighterLineProps}
+            PreTag={PreTag}
         >
             {text}
         </SyntaxHighlighter>

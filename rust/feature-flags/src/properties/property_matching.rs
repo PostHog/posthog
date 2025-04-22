@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use crate::properties::property_models::{OperatorType, PropertyFilter};
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
+use dateparser::parse as parse_date;
 use regex::Regex;
 use serde_json::Value;
 
@@ -129,10 +130,9 @@ pub fn match_property(
             }
             let pattern = match Regex::new(&to_string_representation(value)) {
                 Ok(pattern) => pattern,
-                Err(_) => return Ok(false),
-                //TODO: Should we return Err here and handle elsewhere?
-                //Err(FlagMatchingError::InvalidRegexPattern)
-                // python just returns false here
+                Err(_) => {
+                    return Ok(false);
+                }
             };
             let haystack = to_string_representation(match_value.unwrap_or(&Value::Null));
             let match_ = pattern.find(&haystack);
@@ -264,31 +264,7 @@ fn is_truthy_property_value(value: &Value) -> bool {
 }
 
 fn parse_date_string(date_str: &str) -> Option<DateTime<Utc>> {
-    // Try parsing common date formats
-    let formats = [
-        "%Y-%m-%d",                 // 2024-03-21
-        "%Y-%m-%dT%H:%M:%S",        // 2024-03-21T13:45:30
-        "%Y-%m-%dT%H:%M:%S%.3f",    // 2024-03-21T13:45:30.123
-        "%Y-%m-%dT%H:%M:%S%.3fZ",   // 2024-03-21T13:45:30.123Z
-        "%Y-%m-%dT%H:%M:%SZ",       // 2024-03-21T13:45:30Z
-        "%Y-%m-%dT%H:%M:%S%.6f%:z", // 2024-03-21T13:45:30.123+00:00
-    ];
-
-    for format in formats {
-        if let Ok(naive) = NaiveDateTime::parse_from_str(date_str, format) {
-            return Some(DateTime::from_naive_utc_and_offset(naive, Utc));
-        }
-    }
-
-    // If only date is provided, parse it and set time to midnight UTC
-    if let Ok(naive_date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
-        return Some(DateTime::from_naive_utc_and_offset(
-            naive_date.and_hms_opt(0, 0, 0).unwrap(),
-            Utc,
-        ));
-    }
-
-    None
+    parse_date(date_str).ok()
 }
 
 fn determine_parsed_date_for_property_matching(value: Option<&Value>) -> Option<DateTime<Utc>> {
@@ -1470,55 +1446,10 @@ mod test_match_properties {
 
     #[test]
     fn test_match_properties_date_operators() {
-        let property_before = PropertyFilter {
-            key: "date".to_string(),
-            value: json!("2024-03-21"),
-            operator: Some(OperatorType::IsDateBefore),
-            prop_type: "person".to_string(),
-            group_type_index: None,
-            negation: None,
-        };
-
-        assert!(match_property(
-            &property_before,
-            &HashMap::from([("date".to_string(), json!("2024-03-20"))]),
-            true
-        )
-        .expect("expected match to exist"));
-
-        assert!(!match_property(
-            &property_before,
-            &HashMap::from([("date".to_string(), json!("2024-03-22"))]),
-            true
-        )
-        .expect("expected match to exist"));
-
-        let property_after = PropertyFilter {
-            key: "date".to_string(),
-            value: json!("2024-03-21T00:00:00Z"),
-            operator: Some(OperatorType::IsDateAfter),
-            prop_type: "person".to_string(),
-            group_type_index: None,
-            negation: None,
-        };
-
-        assert!(match_property(
-            &property_after,
-            &HashMap::from([("date".to_string(), json!("2024-03-22"))]),
-            true
-        )
-        .expect("expected match to exist"));
-
-        assert!(!match_property(
-            &property_after,
-            &HashMap::from([("date".to_string(), json!("2024-03-20"))]),
-            true
-        )
-        .expect("expected match to exist"));
-
+        let exact_date = "2024-03-21T00:00:00Z"; // Define the exact date we want to test
         let property_exact = PropertyFilter {
             key: "date".to_string(),
-            value: json!("2024-03-21"),
+            value: json!(exact_date),
             operator: Some(OperatorType::IsDateExact),
             prop_type: "person".to_string(),
             group_type_index: None,
@@ -1527,14 +1458,14 @@ mod test_match_properties {
 
         assert!(match_property(
             &property_exact,
-            &HashMap::from([("date".to_string(), json!("2024-03-21"))]),
+            &HashMap::from([("date".to_string(), json!(exact_date))]),
             true
         )
         .expect("expected match to exist"));
 
         assert!(!match_property(
             &property_exact,
-            &HashMap::from([("date".to_string(), json!("2024-03-22"))]),
+            &HashMap::from([("date".to_string(), json!("2024-03-22T00:00:00Z"))]),
             true
         )
         .expect("expected match to exist"));

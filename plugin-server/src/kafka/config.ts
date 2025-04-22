@@ -1,6 +1,7 @@
 import { GlobalConfig } from 'node-rdkafka'
 import { hostname } from 'os'
 
+import { defaultConfig } from '../config/config'
 import { KafkaConfig } from '../utils/db/hub'
 
 export const RDKAFKA_LOG_LEVEL_MAPPING = {
@@ -58,4 +59,37 @@ export const createRdConnectionConfigFromEnvVars = (
     }
 
     return config
+}
+
+export const getProducerConfigFromEnv = (): GlobalConfig => {
+    return Object.entries(process.env)
+        .filter(([key]) => key.startsWith('KAFKA_PRODUCER_'))
+        .reduce((acc, [key, value]) => {
+            // If there is an explicit config value then we don't override it
+            if (!value || key in defaultConfig) {
+                return acc
+            }
+
+            let parsedValue: string | number | boolean = value
+
+            // parse value to a number if it is one
+            const numberValue = Number(value)
+            if (!isNaN(numberValue)) {
+                parsedValue = numberValue
+            }
+
+            // parse value to a boolean if it is one
+            if (value.toLowerCase() === 'true') {
+                parsedValue = true
+            } else if (value.toLowerCase() === 'false') {
+                parsedValue = false
+            }
+
+            const rdkafkaKey = key
+                .replace(/^KAFKA_PRODUCER_/, '')
+                .replace(/_/g, '.')
+                .toLowerCase()
+            acc[rdkafkaKey] = parsedValue
+            return acc
+        }, {} as Record<string, any>)
 }

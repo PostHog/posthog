@@ -7,6 +7,9 @@
         },
         "prepare": {
             "dependsOn": ["@posthog/frontend#prepare"]
+        },
+        "start": {
+            "dependsOn": ["@posthog/frontend#prepare"]
         }
     }
 }

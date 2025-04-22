@@ -7,24 +7,17 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
-import { WatchNextPanel } from 'scenes/project-homepage/WatchNextPanel'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 
-import { YearInHogButton } from '~/layout/navigation/TopBar/YearInHogButton'
 import { DashboardPlacement } from '~/types'
-
-import { RecentInsights } from './RecentInsights'
-import { RecentPersons } from './RecentPersons'
 
 export const scene: SceneExport = {
     component: ProjectHomepage,
@@ -37,13 +30,9 @@ export function ProjectHomepage(): JSX.Element {
     const { showSceneDashboardChoiceModal } = useActions(
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
     )
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const headerButtons = (
         <>
-            {!!featureFlags[FEATURE_FLAGS.YEAR_IN_HOG] && window.POSTHOG_APP_CONTEXT?.year_in_hog_url && (
-                <YearInHogButton url={`${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`} />
-            )}
             <LemonButton
                 type="secondary"
                 size="small"
@@ -67,11 +56,6 @@ export function ProjectHomepage(): JSX.Element {
     return (
         <div className="ProjectHomepage">
             <PageHeader delimited buttons={headerButtons} />
-            <div className="ProjectHomepage__lists">
-                <RecentInsights />
-                <RecentPersons />
-                <WatchNextPanel />
-            </div>
             {dashboardLogicProps ? (
                 <HomeDashboard dashboardLogicProps={dashboardLogicProps} />
             ) : (

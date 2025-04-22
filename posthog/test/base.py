@@ -1,4 +1,3 @@
-import datetime as dt
 import inspect
 import re
 import resource
@@ -9,6 +8,7 @@ import unittest
 from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from functools import wraps
+import datetime as dt
 from typing import Any, Optional, Union
 from unittest.mock import patch
 
@@ -72,6 +72,13 @@ from posthog.models.sessions.sql import (
     SESSIONS_TABLE_SQL,
     SESSIONS_VIEW_SQL,
 )
+from posthog.models.exchange_rate.sql import (
+    EXCHANGE_RATE_DICTIONARY_SQL,
+    EXCHANGE_RATE_TABLE_SQL,
+    DROP_EXCHANGE_RATE_TABLE_SQL,
+    DROP_EXCHANGE_RATE_DICTIONARY_SQL,
+    EXCHANGE_RATE_DATA_BACKFILL_SQL,
+)
 from posthog.models.raw_sessions.sql import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
     DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL,
@@ -122,6 +129,16 @@ def clean_varying_query_parts(query, replace_all_numbers):
             r"\"uuid\" IN \('[0-9a-f-]{36}'(::uuid)?(, '[0-9a-f-]{36}'(::uuid)?)*\)",
             r""""uuid" IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid /* ... */)\n""",
             query,
+        )
+        query = re.sub(r"'[0-9a-f]{32}'::uuid", r"'00000000000000000000000000000000'::uuid", query)
+        query = re.sub(r"'[0-9a-f-]{36}'::uuid", r"'00000000-0000-0000-0000-000000000000'::uuid", query)
+        query = re.sub(
+            r"'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'",
+            r"'00000000-0000-0000-0000-000000000000'",
+            query,
+        )
+        query = re.sub(
+            r".\"ref\" = '([0-9a-f]{32}|[0-9a-f-]{36}|[0-9]+|[A-Za-z0-9\_\-]+)'", """."ref" = '0001'""", query
         )
 
     else:
@@ -176,12 +193,26 @@ def clean_varying_query_parts(query, replace_all_numbers):
         r"timestamp > '20\d\d-\d\d-\d\d \d\d:\d\d:\d\d'", r"timestamp > 'explicit_redacted_timestamp'", query
     )
     # and where the HogQL doesn't match the above
+
+    # Often we use a now from python to upper bound event times.
+    # Replace all dates that could be today in any timezone with "today"
+    today = dt.datetime.now(dt.UTC)
+    yesterday = today - dt.timedelta(days=1)
+    tomorrow = today + dt.timedelta(days=1)
+    days_to_sub = "|".join([x.strftime("%Y-%m-%d") for x in [yesterday, today, tomorrow]])
+    query = re.sub(
+        rf"toDateTime64\('({days_to_sub}) \d\d:\d\d:\d\d.\d+', 6, '(.+?)'\)",
+        r"toDateTime64('today', 6, '\2')",
+        query,
+    )
+
     # KLUDGE we tend not to replace dates in tests so trying to avoid replacing every date here
+    # replace all dates where the date is
     if "equals(argMax(person_distinct_id_overrides.is_deleted" in query or "INSERT INTO cohortpeople" in query:
         # those tests have multiple varying dates like toDateTime64('2025-01-08 00:00:00.000000', 6, 'UTC')
         query = re.sub(
-            r"toDateTime64\('20\d\d-\d\d-\d\d \d\d:\d\d:\d\d(.\d+)', 6, 'UTC'\)",
-            r"toDateTime64('explicit_redacted_timestamp\1', 6, 'UTC')",
+            r"toDateTime64\('20\d\d-\d\d-\d\d \d\d:\d\d:\d\d.\d+', 6, '(.+?)'\)",
+            r"toDateTime64('explicit_redacted_timestamp', 6, '\1')",
             query,
         )
     # replace cohort generated conditions
@@ -629,16 +660,23 @@ def cleanup_materialized_columns():
 
 
 @contextmanager
-def materialized(table, property) -> Iterator[MaterializedColumn]:
+def materialized(table, property, create_minmax_index: bool = False) -> Iterator[MaterializedColumn]:
     """Materialize a property within the managed block, removing it on exit."""
     try:
-        from ee.clickhouse.materialized_columns.analyze import materialize
+        from ee.clickhouse.materialized_columns.columns import get_minmax_index_name, materialize
     except ModuleNotFoundError as e:
         pytest.xfail(str(e))
 
+    column = None
     try:
-        yield materialize(table, property)
+        column = materialize(table, property, create_minmax_index=create_minmax_index)
+        yield column
     finally:
+        if create_minmax_index and column is not None:
+            data_table = "sharded_events" if table == "events" else table
+            sync_execute(
+                f"ALTER TABLE {data_table} DROP INDEX {get_minmax_index_name(column.name)} SETTINGS mutations_sync = 2"
+            )
         cleanup_materialized_columns()
 
 
@@ -646,6 +684,7 @@ def also_test_with_materialized_columns(
     event_properties=None,
     person_properties=None,
     verify_no_jsonextract=True,
+    is_nullable: Optional[list] = None,
 ):
     """
     Runs the test twice on clickhouse - once verifying it works normally, once with materialized columns.
@@ -671,10 +710,15 @@ def also_test_with_materialized_columns(
                 return
 
             for prop in event_properties:
-                materialize("events", prop)
+                materialize("events", prop, is_nullable=is_nullable is not None and prop in is_nullable)
             for prop in person_properties:
-                materialize("person", prop)
-                materialize("events", prop, table_column="person_properties")
+                materialize("person", prop, is_nullable=is_nullable is not None and prop in is_nullable)
+                materialize(
+                    "events",
+                    prop,
+                    table_column="person_properties",
+                    is_nullable=is_nullable is not None and prop in is_nullable,
+                )
 
             try:
                 with self.capture_select_queries() as sqls:
@@ -968,23 +1012,12 @@ class ClickhouseTestMixin(QueryMatchingTest):
     def capture_queries(self, query_filter: Callable[[str], bool]):
         queries = []
 
-        # Spy on the `clichhouse_driver.Client.execute` method. This is a bit of
-        # a roundabout way to handle this, but it seems tricky to spy on the
-        # unbound class method `Client.execute` directly easily
-        @contextmanager
-        def get_client(orig_fn, *args, **kwargs):
-            with orig_fn(*args, **kwargs) as client:
-                original_client_execute = client.execute
+        def execute_wrapper(original_client_execute, query, *args, **kwargs):
+            if query_filter(sqlparse.format(query, strip_comments=True).strip()):
+                queries.append(query)
+            return original_client_execute(query, *args, **kwargs)
 
-                def execute_wrapper(query, *args, **kwargs):
-                    if query_filter(sqlparse.format(query, strip_comments=True).strip()):
-                        queries.append(query)
-                    return original_client_execute(query, *args, **kwargs)
-
-                with patch.object(client, "execute", wraps=execute_wrapper) as _:
-                    yield client
-
-        with get_client_from_pool._temp_patch(get_client) as _:
+        with patch_clickhouse_client_execute(execute_wrapper):
             yield queries
 
 
@@ -1030,12 +1063,14 @@ def reset_clickhouse_database() -> None:
             DROP_RAW_SESSION_VIEW_SQL(),
             DROP_SESSION_MATERIALIZED_VIEW_SQL(),
             DROP_SESSION_VIEW_SQL(),
+            DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
+            DROP_EXCHANGE_RATE_DICTIONARY_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
         [
-            DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
             DROP_CHANNEL_DEFINITION_TABLE_SQL,
+            DROP_EXCHANGE_RATE_TABLE_SQL(),
             DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
             DROP_EVENTS_TABLE_SQL(),
             DROP_PERSON_TABLE_SQL,
@@ -1055,8 +1090,8 @@ def reset_clickhouse_database() -> None:
     )
     run_clickhouse_statement_in_parallel(
         [
-            CHANNEL_DEFINITION_DICTIONARY_SQL(),
             CHANNEL_DEFINITION_TABLE_SQL(),
+            EXCHANGE_RATE_TABLE_SQL(),
             EVENTS_TABLE_SQL(),
             PERSONS_TABLE_SQL(),
             RAW_SESSIONS_TABLE_SQL(),
@@ -1068,6 +1103,8 @@ def reset_clickhouse_database() -> None:
     )
     run_clickhouse_statement_in_parallel(
         [
+            CHANNEL_DEFINITION_DICTIONARY_SQL(),
+            EXCHANGE_RATE_DICTIONARY_SQL(),
             DISTRIBUTED_EVENTS_TABLE_SQL(),
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
             DISTRIBUTED_SESSIONS_TABLE_SQL(),
@@ -1079,6 +1116,7 @@ def reset_clickhouse_database() -> None:
     run_clickhouse_statement_in_parallel(
         [
             CHANNEL_DEFINITION_DATA_SQL(),
+            EXCHANGE_RATE_DATA_BACKFILL_SQL(),
             RAW_SESSIONS_TABLE_MV_SQL(),
             RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL(),
             SESSIONS_TABLE_MV_SQL(),
@@ -1200,6 +1238,22 @@ def also_test_with_person_on_events_v2(fn):
     frame_locals[f"{fn.__name__}_poe_v2"] = fn_with_poe_v2
 
     return fn
+
+
+@contextmanager
+def patch_clickhouse_client_execute(execute_wrapper):
+    @contextmanager
+    def get_client(orig_fn, *args, **kwargs):
+        with orig_fn(*args, **kwargs) as client:
+            original_client_execute = client.execute
+            wrapped_execute = lambda query, *args, **kwargs: execute_wrapper(
+                original_client_execute, query, *args, **kwargs
+            )
+            with patch.object(client, "execute", wraps=wrapped_execute) as _:
+                yield client
+
+    with get_client_from_pool._temp_patch(get_client):
+        yield
 
 
 def _create_insight(

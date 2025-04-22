@@ -47,6 +47,7 @@ import {
     DataTableNode,
     EventsNode,
     EventsQuery,
+    GroupsQuery,
     HogQLQuery,
     PersonsNode,
     SessionAttributionExplorerQuery,
@@ -56,15 +57,19 @@ import { QueryContext } from '~/queries/types'
 import {
     isActorsQuery,
     isEventsQuery,
+    isGroupsQuery,
     isHogQlAggregation,
     isHogQLQuery,
     isInsightActorsQuery,
     isRevenueExampleEventsQuery,
     taxonomicEventFilterToHogQL,
+    taxonomicGroupFilterToHogQL,
     taxonomicPersonFilterToHogQL,
 } from '~/queries/utils'
 import { EventType, InsightLogicProps } from '~/types'
 
+import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
+import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
 
 interface DataTableProps {
@@ -116,7 +121,7 @@ export function DataTable({
         key: vizKey,
         cachedResults: cachedResults,
         dataNodeCollectionId: context?.insightProps?.dataNodeCollectionId || dataKey,
-        alwaysRefresh: context?.alwaysRefresh,
+        refresh: context?.refresh,
     }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
 
@@ -177,7 +182,12 @@ export function DataTable({
         ...columnsInLemonTable.map((key, index) => ({
             dataIndex: key as any,
             ...renderColumnMeta(key, query, context),
-            render: function RenderDataTableColumn(_: any, { result, label }: DataTableRow, recordIndex: number) {
+            render: function RenderDataTableColumn(
+                _: any,
+                { result, label }: DataTableRow,
+                recordIndex: number,
+                rowCount: number
+            ) {
                 if (label) {
                     if (index === (expandable ? 1 : 0)) {
                         return {
@@ -188,9 +198,9 @@ export function DataTable({
                     return { props: { colSpan: 0 } }
                 } else if (result) {
                     if (sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)) {
-                        return renderColumn(key, result[index], result, recordIndex, query, setQuery, context)
+                        return renderColumn(key, result[index], result, recordIndex, rowCount, query, setQuery, context)
                     }
-                    return renderColumn(key, result[key], result, recordIndex, query, setQuery, context)
+                    return renderColumn(key, result[key], result, recordIndex, rowCount, query, setQuery, context)
                 }
             },
             sorter: undefined, // using custom sorting code
@@ -290,6 +300,8 @@ export function DataTable({
                             onChange={(v, g) => {
                                 const hogQl = isActorsQuery(query.source)
                                     ? taxonomicPersonFilterToHogQL(g, v)
+                                    : isGroupsQuery(query.source)
+                                    ? taxonomicGroupFilterToHogQL(g, v)
                                     : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     const isAggregation = isHogQlAggregation(hogQl)
@@ -319,6 +331,8 @@ export function DataTable({
                             onChange={(v, g) => {
                                 const hogQl = isActorsQuery(query.source)
                                     ? taxonomicPersonFilterToHogQL(g, v)
+                                    : isGroupsQuery(query.source)
+                                    ? taxonomicGroupFilterToHogQL(g, v)
                                     : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
                                     const isAggregation = isHogQlAggregation(hogQl)
@@ -401,6 +415,7 @@ export function DataTable({
                 | EventsQuery
                 | PersonsNode
                 | ActorsQuery
+                | GroupsQuery
                 | HogQLQuery
                 | SessionAttributionExplorerQuery
                 | TracesQuery
@@ -435,6 +450,14 @@ export function DataTable({
         showSearch && sourceFeatures.has(QueryFeature.personsSearch) ? (
             <PersonsSearch key="persons-search" query={query.source as PersonsNode} setQuery={setQuerySource} />
         ) : null,
+        showSearch && sourceFeatures.has(QueryFeature.groupsSearch) ? (
+            <GroupsSearch
+                key="groups-search"
+                query={query.source as GroupsQuery}
+                setQuery={setQuerySource}
+                groupTypeLabel={context?.groupTypeLabel}
+            />
+        ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.eventPropertyFilters) ? (
             <EventPropertyFilters
                 key="event-property"
@@ -449,6 +472,9 @@ export function DataTable({
                 query={query.source as PersonsNode}
                 setQuery={setQuerySource}
             />
+        ) : null,
+        showPropertyFilter && sourceFeatures.has(QueryFeature.groupPropertyFilters) ? (
+            <GroupPropertyFilters key="group-property" query={query.source as GroupsQuery} setQuery={setQuerySource} />
         ) : null,
     ].filter((x) => !!x)
 

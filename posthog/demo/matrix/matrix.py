@@ -29,9 +29,9 @@ class Cluster(ABC):
 
     index: int  # Cluster index
     matrix: "Matrix"  # Parent
-    start: timezone.datetime  # Start of the simulation
-    now: timezone.datetime  # Current moment in the simulation
-    end: timezone.datetime  # End of the simulation (might be same as now or later)
+    start: dt.datetime  # Start of the simulation
+    now: dt.datetime  # Current moment in the simulation
+    end: dt.datetime  # End of the simulation (might be same as now or later)
 
     radius: int
     people_matrix: list[list[SimPerson]]  # Grid containing all people in the cluster

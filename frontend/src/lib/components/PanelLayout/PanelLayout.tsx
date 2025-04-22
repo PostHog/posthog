@@ -51,7 +51,7 @@ function Container({ children, primary, className, column }: PanelContainerProps
 
 function Panel({ children, primary, className }: Omit<PanelContainerProps, 'column'>): JSX.Element {
     return (
-        <div className={clsx(primary && 'flex-1', 'border bg-surface-primary rounded-sm', className)}>{children}</div>
+        <div className={clsx(primary && 'flex-1', 'border bg-surface-primary rounded-xs', className)}>{children}</div>
     )
 }
 

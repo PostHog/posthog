@@ -10,6 +10,7 @@ from posthog.models import Action, Element, Cohort
 from posthog.models.utils import uuid7
 from posthog.schema import (
     CompareFilter,
+    CurrencyCode,
     WebOverviewQuery,
     DateRange,
     SessionTableVersion,
@@ -18,6 +19,9 @@ from posthog.schema import (
     ActionConversionGoal,
     BounceRatePageViewMode,
     WebOverviewQueryResponse,
+    RevenueTrackingConfig,
+    RevenueCurrencyPropertyConfig,
+    RevenueTrackingEventItem,
 )
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.base import (
@@ -52,6 +56,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 elements = None
                 lcp_score = None
                 revenue = None
+                currency = None
                 if event == "$pageview":
                     url = extra[0] if extra else None
                 elif event == "$autocapture":
@@ -60,7 +65,8 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     lcp_score = extra[0] if extra else None
                 elif event.startswith("purchase"):
                     revenue = extra[0] if extra else None
-                properties = extra[1] if extra and len(extra) > 1 else {}
+                    currency = extra[1] if extra and len(extra) > 1 and extra[1] else None
+                properties = extra[1] if extra and len(extra) > 1 and isinstance(extra[1], dict) else {}
 
                 _create_event(
                     team=self.team,
@@ -72,6 +78,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         "$current_url": url,
                         "$web_vitals_LCP_value": lcp_score,
                         "revenue": revenue,
+                        "currency": currency,
                         **properties,
                     },
                     elements=elements,
@@ -646,16 +653,26 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_revenue(self):
         s1 = str(uuid7("2023-12-02"))
 
-        self.team.revenue_tracking_config = {"events": [{"eventName": "purchase", "revenueProperty": "revenue"}]}
+        self.team.revenue_tracking_config = RevenueTrackingConfig(
+            baseCurrency=CurrencyCode.GBP,
+            events=[
+                RevenueTrackingEventItem(
+                    eventName="purchase",
+                    revenueProperty="revenue",
+                    revenueCurrencyProperty=RevenueCurrencyPropertyConfig(property="currency"),
+                )
+            ],
+        ).model_dump()
         self.team.save()
 
         self._create_events(
             [
-                ("p1", [("2023-12-02", s1, 100)]),
+                ("p1", [("2023-12-02", s1, 100, "BRL")]),
             ],
             event="purchase",
         )
-        results = self._run_web_overview_query("2023-12-01", "2023-12-03", include_revenue=True).results
+        response = self._run_web_overview_query("2023-12-01", "2023-12-03", include_revenue=True)
+        results = response.results
 
         visitors = results[0]
         assert visitors.value == 1
@@ -674,7 +691,7 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         revenue = results[5]
         assert revenue.kind == "currency"
-        assert revenue.value == 100
+        assert revenue.value == 16.0763662979
 
     def test_revenue_multiple_events(self):
         s1 = str(uuid7("2023-12-02"))
@@ -869,3 +886,63 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         mock_sync_execute.assert_called_once()
         self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
+
+    def test_no_previous_when_comparison_disabled_but_conversion_goal_enabled(self):
+        # See: https://posthoghelp.zendesk.com/agent/tickets/29100
+        s1 = str(uuid7("2023-12-01"))
+        s2 = str(uuid7("2023-12-01"))
+        s3 = str(uuid7("2023-12-01"))
+
+        self._create_events(
+            [
+                (
+                    "p1",
+                    [
+                        ("2023-12-01", s1, "https://www.example.com/foo"),
+                        ("2023-12-01", s1, "https://www.example.com/foo"),
+                    ],
+                ),
+                (
+                    "p2",
+                    [
+                        ("2023-12-01", s2, "https://www.example.com/foo"),
+                        ("2023-12-01", s2, "https://www.example.com/bar"),
+                    ],
+                ),
+                ("p3", [("2023-12-01", s3, "https://www.example.com/bar")]),
+            ]
+        )
+
+        action = Action.objects.create(
+            team=self.team,
+            name="Visited Foo",
+            steps_json=[
+                {
+                    "event": "$pageview",
+                    "url": "https://www.example.com/foo",
+                    "url_matching": "regex",
+                }
+            ],
+        )
+
+        results = self._run_web_overview_query("2023-12-01", "2023-12-03", action=action, compare=False).results
+
+        visitors = results[0]
+        assert visitors.value == 3
+        assert visitors.previous is None
+        assert visitors.changeFromPreviousPct is None
+
+        conversion = results[1]
+        assert conversion.value == 3
+        assert conversion.previous is None
+        assert conversion.changeFromPreviousPct is None
+
+        unique_conversions = results[2]
+        assert unique_conversions.value == 2
+        assert unique_conversions.previous is None
+        assert unique_conversions.changeFromPreviousPct is None
+
+        conversion_rate = results[3]
+        self.assertAlmostEqual(conversion_rate.value, 100 * 2 / 3)
+        assert conversion_rate.previous is None
+        assert conversion_rate.changeFromPreviousPct is None
