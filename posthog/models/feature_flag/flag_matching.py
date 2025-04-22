@@ -21,6 +21,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person, PersonDistinctId
+from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.property.property import Property
 from posthog.models.cohort import Cohort, CohortOrEmpty
@@ -1233,7 +1234,7 @@ def check_flag_evaluation_query_is_ok(feature_flag: FeatureFlag, project_id: int
     group_type_index = feature_flag.aggregation_group_type_index
 
     base_query: QuerySet = (
-        Person.objects.filter(team__project_id=project_id)
+        Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team__project_id=project_id)
         if group_type_index is None
         else Group.objects.filter(team__project_id=project_id, group_type_index=group_type_index)
     )
