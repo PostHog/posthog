@@ -128,7 +128,7 @@ import {
     SlackChannelType,
     SubscriptionType,
     Survey,
-    SurveyStats,
+    SurveyStatsResponse,
     TeamType,
     UserBasicType,
     UserGroup,
@@ -2630,7 +2630,13 @@ const api = {
             surveyId: Survey['id']
             dateFrom?: string | null
             dateTo?: string | null
-        }): Promise<SurveyStats> {
+        }): Promise<
+            SurveyStatsResponse & {
+                survey_id: string
+                start_date: string
+                end_date?: string
+            }
+        > {
             const apiRequest = new ApiRequest().survey(surveyId).withAction('stats')
             const queryParams: Record<string, string> = {}
             if (dateFrom) {
@@ -2648,7 +2654,7 @@ const api = {
         }: {
             dateFrom?: string | null
             dateTo?: string | null
-        }): Promise<SurveyStats> {
+        }): Promise<SurveyStatsResponse> {
             const apiRequest = new ApiRequest().surveys().withAction('stats')
             const queryParams: Record<string, string> = {}
             if (dateFrom) {

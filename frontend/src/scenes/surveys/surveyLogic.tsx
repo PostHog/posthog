@@ -869,12 +869,6 @@ export const surveyLogic = kea<surveyLogicType>([
                     reloadAllSurveyResults()
                 }
             },
-            loadSurveyBaseStatsSuccess: () => {
-                // Potentially trigger calculations or updates if needed immediately after base stats load
-            },
-            loadSurveyDismissedAndSentCountSuccess: () => {
-                // Potentially trigger calculations or updates if needed immediately after this count loads
-            },
         }
     }),
     reducers({
