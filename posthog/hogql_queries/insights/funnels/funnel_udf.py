@@ -32,32 +32,31 @@ class FunnelUDFMixin:
 
     def _prop_vals(self: FunnelProtocol):
         breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
+        if not breakdown:
+            return f"[{self._default_breakdown_selector()}]"
+        if breakdownType == BreakdownType.COHORT:
+            return "groupUniqArray(prop_basic)"
+
         has_array_breakdown = self._query_has_array_breakdown()
-        prop_vals = f"[{self._default_breakdown_selector()}]"
-        if breakdown:
-            if breakdownType == BreakdownType.COHORT:
-                return "groupUniqArray(prop_basic)"
-            if self.context.breakdownAttributionType == BreakdownAttributionType.FIRST_TOUCH:
-                if has_array_breakdown:
-                    return "argMinIf(prop_basic, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_basic)))"
-                return "[argMinIf(prop_basic, timestamp, isNotNull(prop_basic))]"
-            elif self.context.breakdownAttributionType == BreakdownAttributionType.LAST_TOUCH:
-                if has_array_breakdown:
-                    return "argMaxIf(prop_basic, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_basic)))"
-                return "[argMaxIf(prop_basic, timestamp, isNotNull(prop_basic))]"
-            elif self.context.breakdownAttributionType == BreakdownAttributionType.STEP:
-                if self.context.funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
-                    prop = f"prop_basic"
-                else:
-                    prop = f"prop_{self.context.funnelsFilter.breakdownAttributionValue}"
-            else:
-                # self.context.breakdownAttributionType == BreakdownAttributionType.ALL_EVENTS
-                prop = "prop_basic"
-            if self._query_has_array_breakdown():
-                prop_vals = f"groupUniqArrayIf(arrayMap(x -> ifNull(x, ''), {prop}), notEmpty({prop}))"
-            else:
-                prop_vals = f"groupUniqArray(ifNull({prop}, ''))"
-        return prop_vals
+        if self.context.breakdownAttributionType == BreakdownAttributionType.FIRST_TOUCH:
+            if has_array_breakdown:
+                return "argMinIf(prop_basic, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_basic)))"
+            return "[argMinIf(prop_basic, timestamp, isNotNull(prop_basic))]"
+        if self.context.breakdownAttributionType == BreakdownAttributionType.LAST_TOUCH:
+            if has_array_breakdown:
+                return "argMaxIf(prop_basic, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_basic)))"
+            return "[argMaxIf(prop_basic, timestamp, isNotNull(prop_basic))]"
+
+        if (
+            self.context.breakdownAttributionType == BreakdownAttributionType.STEP
+            and self.context.funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
+        ):
+            prop = f"prop_{self.context.funnelsFilter.breakdownAttributionValue}"
+        else:
+            prop = "prop_basic"
+        if self._query_has_array_breakdown():
+            return f"groupUniqArrayIf(arrayMap(x -> ifNull(x, ''), {prop}), notEmpty({prop}))"
+        return f"groupUniqArray(ifNull({prop}, ''))"
 
     def _default_breakdown_selector(self: FunnelProtocol) -> str:
         return "[]" if self._query_has_array_breakdown() else "''"
