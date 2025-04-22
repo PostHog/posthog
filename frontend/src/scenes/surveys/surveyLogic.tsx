@@ -262,13 +262,15 @@ export const surveyLogic = kea<surveyLogicType>([
                         actions.reportSurveyViewed(survey)
                         // Initialize answer filters for all questions - first for index-based, then for id-based
                         actions.setAnswerFilters(
-                            survey.questions.map((question, index) => {
+                            survey.questions.map((question) => {
+                                const { indexBasedKey, idBasedKey } = getResponseFieldWithId(0, question.id)
                                 const currentFilterForQuestion = currentFilters.find(
-                                    (filter) => filter.key === getResponseFieldWithId(index, question?.id).indexBasedKey
+                                    (filter) => filter.key === idBasedKey
                                 )
                                 return {
-                                    key: getResponseFieldWithId(index, question?.id).indexBasedKey,
-                                    operator: DEFAULT_OPERATORS[question.type].value,
+                                    key: idBasedKey || indexBasedKey,
+                                    operator:
+                                        currentFilterForQuestion?.operator ?? DEFAULT_OPERATORS[question.type].value,
                                     type: PropertyFilterType.Event as const,
                                     value: currentFilterForQuestion?.value ?? [],
                                 }
@@ -1108,12 +1110,15 @@ export const surveyLogic = kea<surveyLogicType>([
         defaultAnswerFilters: [
             (s) => [s.survey],
             (survey: Survey): EventPropertyFilter[] => {
-                return survey.questions.map((question, index) => ({
-                    key: getResponseFieldWithId(index, question?.id).indexBasedKey,
-                    operator: DEFAULT_OPERATORS[question.type].value,
-                    type: PropertyFilterType.Event as const,
-                    value: [],
-                }))
+                return survey.questions.map((question) => {
+                    const { indexBasedKey, idBasedKey } = getResponseFieldWithId(0, question.id)
+                    return {
+                        key: idBasedKey || indexBasedKey,
+                        operator: DEFAULT_OPERATORS[question.type].value,
+                        type: PropertyFilterType.Event as const,
+                        value: [],
+                    }
+                })
             },
         ],
         isSurveyRunning: [
