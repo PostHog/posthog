@@ -1,7 +1,9 @@
 from freezegun import freeze_time
 from pathlib import Path
 from decimal import Decimal
+import datetime
 
+from posthog.models.utils import uuid7
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
     RevenueAnalyticsTopCustomersQueryRunner,
 )
@@ -11,6 +13,7 @@ from products.revenue_analytics.backend.models import (
 )
 from posthog.schema import (
     DateRange,
+    RevenueSources,
     RevenueAnalyticsTopCustomersQuery,
     RevenueAnalyticsTopCustomersQueryResponse,
     RevenueAnalyticsTopCustomersGroupBy,
@@ -18,13 +21,15 @@ from posthog.schema import (
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    _create_event,
+    _create_person,
     snapshot_clickhouse_queries,
 )
 from posthog.warehouse.models import ExternalDataSchema
 
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
-    REVENUE_TRACKING_CONFIG,
+    REVENUE_TRACKING_CONFIG_WITH_EVENTS,
     STRIPE_CHARGE_COLUMNS,
     STRIPE_CUSTOMER_COLUMNS,
 )
@@ -35,6 +40,36 @@ TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.top_customers_query
 @snapshot_clickhouse_queries
 class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-04-21"
+
+    def _create_purchase_events(self, data):
+        person_result = []
+        for distinct_id, timestamps in data:
+            with freeze_time(timestamps[0][0]):
+                person = _create_person(
+                    team_id=self.team.pk,
+                    distinct_ids=[distinct_id],
+                    properties={
+                        "name": distinct_id,
+                        **({"email": "test@posthog.com"} if distinct_id == "test" else {}),
+                    },
+                )
+            event_ids: list[str] = []
+            for timestamp, session_id, revenue, currency in timestamps:
+                event_ids.append(
+                    _create_event(
+                        team=self.team,
+                        event="purchase",
+                        distinct_id=distinct_id,
+                        timestamp=timestamp,
+                        properties={
+                            "$session_id": session_id,
+                            "revenue": revenue,
+                            "currency": currency,
+                        },
+                    )
+                )
+            person_result.append((person, event_ids))
+        return person_result
 
     def setUp(self):
         super().setUp()
@@ -83,7 +118,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
             last_synced_at="2024-01-01",
         )
 
-        self.team.revenue_tracking_config = REVENUE_TRACKING_CONFIG.model_dump()
+        self.team.revenue_tracking_config = REVENUE_TRACKING_CONFIG_WITH_EVENTS.model_dump()
         self.team.save()
 
     def tearDown(self):
@@ -96,6 +131,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         *,
         date_range: DateRange | None = None,
         group_by: RevenueAnalyticsTopCustomersGroupBy | None = None,
+        revenue_sources: RevenueSources | None = None,
     ):
         if date_range is None:
             date_range: DateRange = DateRange(date_from="all")
@@ -103,8 +139,15 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         if group_by is None:
             group_by: RevenueAnalyticsTopCustomersGroupBy = "month"
 
+        if revenue_sources is None:
+            revenue_sources = RevenueSources(events=[], dataWarehouseSources=[str(self.source.id)])
+
         with freeze_time(self.QUERY_TIMESTAMP):
-            query = RevenueAnalyticsTopCustomersQuery(dateRange=date_range, groupBy=group_by)
+            query = RevenueAnalyticsTopCustomersQuery(
+                dateRange=date_range,
+                groupBy=group_by,
+                revenueSources=revenue_sources,
+            )
             runner = RevenueAnalyticsTopCustomersQueryRunner(team=self.team, query=query)
 
             response = runner.calculate()
@@ -118,11 +161,20 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
 
         self.assertEqual(results, [])
 
-    def test_no_crash_when_no_customers_data(self):
+    def test_no_crash_when_no_source_is_selected(self):
+        results = self._run_revenue_analytics_top_customers_query(
+            revenue_sources=RevenueSources(events=[], dataWarehouseSources=[]),
+        ).results
+
+        self.assertEqual(results, [])
+
+    def test_without_customers_data(self):
         self.customers_table.delete()
         results = self._run_revenue_analytics_top_customers_query().results
 
-        self.assertEqual(results, [])
+        # Mostly interested in the number of results
+        # but also the query snapshot is more important than the results
+        self.assertEqual(len(results), 16)
 
     def test_with_data(self):
         results = self._run_revenue_analytics_top_customers_query().results
@@ -151,5 +203,29 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
                 ("John Smith", "cus_3", Decimal("247.8088762801"), "all"),
                 ("Jane Smith", "cus_4", Decimal("570.4584866436"), "all"),
                 ("John Doe Jr", "cus_5", Decimal("399.8994324913"), "all"),
+            ],
+        )
+
+    def test_with_events_data(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2024-01-03"))
+        s3 = str(uuid7("2024-02-04"))
+        self._create_purchase_events(
+            [
+                ("p1", [("2023-12-02", s1, 4200, "USD")]),
+                ("p2", [("2024-01-01", s2, 4300, "BRL"), ("2024-01-02", s3, 8700, "BRL")]),  # 2 events, 1 customer
+            ]
+        )
+
+        results = self._run_revenue_analytics_top_customers_query(
+            date_range=DateRange(date_from="2023-11-01", date_to="2024-01-31"),
+            revenue_sources=RevenueSources(events=["purchase"], dataWarehouseSources=[]),
+        ).results
+
+        self.assertEqual(
+            results,
+            [
+                ("", "p1", Decimal("33.2094"), datetime.date(2023, 12, 1)),
+                ("", "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
             ],
         )
