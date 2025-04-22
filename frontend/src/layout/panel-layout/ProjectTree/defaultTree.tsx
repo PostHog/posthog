@@ -81,7 +81,7 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
             type: 'hog_function/site_app',
             href: () => urls.pipelineNodeNew(PipelineStage.SiteApp),
         },
-    ].sort((a, b) => a.path.localeCompare(b.path))
+    ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
 export const getDefaultTreeExplore = (groupNodes: FileSystemImport[]): FileSystemImport[] =>
     [
@@ -170,4 +170,4 @@ export const getDefaultTreeExplore = (groupNodes: FileSystemImport[]): FileSyste
             href: () => urls.heatmaps(),
             flag: FEATURE_FLAGS.HEATMAPS_UI,
         },
-    ].sort((a, b) => a.path.localeCompare(b.path))
+    ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))

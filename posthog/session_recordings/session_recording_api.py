@@ -421,7 +421,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 raise Throttled(detail="Query timeout exceeded. Try again later.")
 
             posthoganalytics.capture_exception(
-                e, distinct_id=user_distinct_id, properties={"replay_feature": "listing_recordings"}
+                e,
+                distinct_id=user_distinct_id,
+                properties={"replay_feature": "listing_recordings", "unfiltered_query": request.GET.dict()},
             )
             return Response({"error": "An internal error has occurred. Please try again later."}, status=500)
 

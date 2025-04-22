@@ -53,7 +53,6 @@ export function TemplatesTable(): JSX.Element {
 
     return (
         <div className="templates-section">
-            <h2>Templates</h2>
             <LemonTable dataSource={templates} loading={templatesLoading} columns={columns} />
         </div>
     )
