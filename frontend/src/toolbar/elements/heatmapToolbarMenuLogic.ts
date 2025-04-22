@@ -80,7 +80,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         loadAllEnabled: true,
         maybeLoadClickmap: true,
         maybeLoadHeatmap: true,
-        updateElementMetrics: (element: HTMLElement, visible: boolean, rect: DOMRect) => ({ element, visible, rect }),
+        updateElementMetrics: (observedElements: [HTMLElement, boolean][]) => ({ observedElements }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -117,17 +117,30 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             },
         ],
         elementMetrics: [
-            new Map<HTMLElement, { visible: boolean; rect: DOMRect }>(),
+            { version: 0, map: new Map<HTMLElement, { visible: boolean }>() },
             {
-                updateElementMetrics: (state, { element, visible, rect }) => {
-                    // we only change if visible or rect has changed
-                    const current = state.get(element)
-                    if (current?.visible === visible && current?.rect === rect) {
+                updateElementMetrics: (state, { observedElements }) => {
+                    let hadChanges = false
+                    for (const [element, visible] of observedElements) {
+                        const current = state.map.get(element)
+                        const hasChanged = current?.visible !== visible
+
+                        if (!hasChanged) {
+                            continue
+                        }
+
+                        state.map.set(element, { visible })
+                        hadChanges = true
+                    }
+
+                    if (!hadChanges) {
                         return state
                     }
-                    const newMap = new Map(state)
-                    newMap.set(element, { visible, rect })
-                    return newMap
+
+                    return {
+                        version: state.version + 1,
+                        map: new Map(Array.from(state.map.entries())),
+                    }
                 },
             },
         ],
@@ -147,17 +160,17 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                             properties: [
                                 wildcardHref === href
                                     ? {
-                                          key: '$current_url',
-                                          value: href,
-                                          operator: PropertyOperator.Exact,
-                                          type: PropertyFilterType.Event,
-                                      }
+                                        key: '$current_url',
+                                        value: href,
+                                        operator: PropertyOperator.Exact,
+                                        type: PropertyFilterType.Event,
+                                    }
                                     : {
-                                          key: '$current_url',
-                                          value: `^${wildcardHref.split('*').map(escapeRegex).join('.*')}$`,
-                                          operator: PropertyOperator.Regex,
-                                          type: PropertyFilterType.Event,
-                                      },
+                                        key: '$current_url',
+                                        value: `^${wildcardHref.split('*').map(escapeRegex).join('.*')}$`,
+                                        operator: PropertyOperator.Regex,
+                                        type: PropertyFilterType.Event,
+                                    },
                             ],
                             date_from: values.commonFilters.date_from,
                             date_to: values.commonFilters.date_to,
@@ -290,14 +303,21 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 if (!clickmapsEnabled) {
                     return []
                 }
+
+                console.log('wat countedElements being called', elements?.length, elementMetrics.version)
+
+                cache.intersectionObserver.disconnect()
+                cache.intersectionObserver.observe(document.body)
+
                 const normalisedElements = new Map<HTMLElement, CountedHTMLElement>()
-                ;(elements || []).forEach((countedElement) => {
+
+                for (const countedElement of elements || []) {
                     const trimmedElement = trimElement(countedElement.element)
                     if (!trimmedElement) {
-                        return
+                        continue
                     }
 
-                    const metrics = elementMetrics.get(trimmedElement) || {
+                    const metrics = elementMetrics.map.get(trimmedElement) || {
                         visible: isElementVisible(trimmedElement),
                         rect: trimmedElement.getBoundingClientRect(),
                     }
@@ -309,6 +329,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                             existing.clickCount += countedElement.type === '$autocapture' ? countedElement.count : 0
                             existing.rageclickCount += countedElement.type === '$rageclick' ? countedElement.count : 0
                             existing.deadclickCount += countedElement.type === '$dead_click' ? countedElement.count : 0
+                            existing.visible = metrics.visible
+                            existing.rect = metrics.rect
                         }
                     } else {
                         normalisedElements.set(trimmedElement, {
@@ -322,18 +344,12 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                             rect: metrics.rect,
                         })
                     }
-                })
+
+                    cache.intersectionObserver.observe(trimmedElement)
+                }
 
                 const countedElements = Array.from(normalisedElements.values())
                 countedElements.sort((a, b) => b.count - a.count)
-
-                cache.intersectionObserver.disconnect()
-                cache.intersectionObserver.observe(document.body)
-
-                // Observe all counted elements
-                countedElements.forEach(({ element }) => {
-                    cache.intersectionObserver.observe(element)
-                })
 
                 return countedElements.map((e, i) => ({ ...e, position: i + 1 }))
             },
@@ -462,11 +478,12 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         // so we can use IntersectionObserver
         // eslint-disable-next-line compat/compat
         const intersectionObserver = new IntersectionObserver((entries) => {
+            const observedElements: [HTMLElement, boolean][] = []
             entries.forEach((entry) => {
                 const element = entry.target as HTMLElement
-                const rect = element.getBoundingClientRect()
-                actions.updateElementMetrics(element, entry.isIntersecting, rect)
+                observedElements.push([element, entry.isIntersecting])
             })
+            actions.updateElementMetrics(observedElements)
         })
 
         // Store for cleanup
