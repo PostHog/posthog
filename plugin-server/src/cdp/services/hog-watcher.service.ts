@@ -1,3 +1,5 @@
+import { Histogram } from 'prom-client'
+
 import { Hub } from '../../types'
 import { now } from '../../utils/now'
 import { UUIDT } from '../../utils/utils'
@@ -21,6 +23,13 @@ export type HogWatcherFunctionState = {
     tokens: number
     rating: number
 }
+
+export const hogFunctionExecutionTimeSummary = new Histogram({
+    name: 'cdp_hog_function_execution_duration_by_kind',
+    help: 'Processing time of hog function execution by kind',
+    labelNames: ['kind'],
+    buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000],
+})
 
 // TODO: Future follow up - we should swap this to an API call or something.
 // Having it as a celery task ID based on a file path is brittle and hard to test.
@@ -140,6 +149,11 @@ export class HogWatcherService {
                 const ratio = Math.max(totalDurationMs - lowerBound, 0) / (upperBound - lowerBound)
 
                 cost += Math.round(costTiming * ratio)
+
+                // Track execution time metrics for each timing entry
+                result.invocation.timings.forEach((timing) => {
+                    hogFunctionExecutionTimeSummary.labels(timing.kind).observe(timing.duration_ms)
+                })
             }
 
             if (result.error) {
