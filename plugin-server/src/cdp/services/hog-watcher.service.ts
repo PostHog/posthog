@@ -25,7 +25,7 @@ export type HogWatcherFunctionState = {
 }
 
 export const hogFunctionExecutionTimeSummary = new Histogram({
-    name: 'cdp_hog_function_execution_duration_by_kind',
+    name: 'cdp_hog_watcher_timings',
     help: 'Processing time of hog function execution by kind',
     labelNames: ['kind'],
     buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000],
