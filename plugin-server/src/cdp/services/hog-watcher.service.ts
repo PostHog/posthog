@@ -28,7 +28,7 @@ export const hogFunctionExecutionTimeSummary = new Histogram({
     name: 'cdp_hog_function_execution_duration_by_kind',
     help: 'Processing time of hog function execution by kind',
     labelNames: ['kind'],
-    buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000],
+    buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000],
 })
 
 // TODO: Future follow up - we should swap this to an API call or something.
