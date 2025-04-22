@@ -133,13 +133,16 @@ export class HogWatcherService {
             if (result.finished) {
                 // If it is finished we can calculate the score based off of the timings
                 // Separate the duration calculations for 'hog' and 'async_function' kinds
-                const hogDurationMs = result.invocation.timings
-                    .filter((timing) => timing.kind === 'hog')
-                    .reduce((acc, timing) => acc + timing.duration_ms, 0)
+                let hogDurationMs = 0
+                let asyncDurationMs = 0
 
-                const asyncDurationMs = result.invocation.timings
-                    .filter((timing) => timing.kind === 'async_function')
-                    .reduce((acc, timing) => acc + timing.duration_ms, 0)
+                for (const timing of result.invocation.timings) {
+                    if (timing.kind === 'hog') {
+                        hogDurationMs += timing.duration_ms
+                    } else if (timing.kind === 'async_function') {
+                        asyncDurationMs += timing.duration_ms
+                    }
+                }
 
                 // Use thresholds for hog kind execution
                 if (hogDurationMs > 0) {
