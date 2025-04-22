@@ -142,6 +142,7 @@ export const errorTrackingIssueEventsQuery = ({
         source: eventsQuery,
         showActions: false,
         showTimings: false,
+        columns: columns,
         expandable: false,
         embedded: true,
         showHeader: false,

@@ -4,9 +4,7 @@ import { IconCollapse, IconExpand } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import PanelLayout, { SettingsToggle } from 'lib/components/PanelLayout/PanelLayout'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SettingsBar } from 'scenes/session-recordings/components/PanelSettings'
@@ -45,17 +43,6 @@ export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 export function ErrorTrackingIssueScene(): JSX.Element {
     const { issue, issueLoading, activeException } = useValues(errorTrackingIssueSceneLogic)
     const { loadIssue, updateStatus, updateAssignee } = useActions(errorTrackingIssueSceneLogic)
-
-    const ref = useRef<HTMLDivElement>(null)
-
-    const resizerLogicProps: ResizerLogicProps = {
-        logicKey: 'error-tracking-issue',
-        placement: 'right',
-        containerRef: ref,
-        persistent: true,
-    }
-
-    const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
     useEffect(() => {
         loadIssue()
@@ -103,7 +90,13 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                         <Metadata />
                         <EventsTab />
                     </div>
-                    <Resizer {...resizerLogicProps} offset={1} />
+                    <Metadata />
+                </div>
+                <div className="flex flex-1 gap-3 px-2 pb-2">
+                    <PanelLayout.Panel primary={false} className="w-1/3">
+                        <EventsTab />
+                    </PanelLayout.Panel>
+                    <ExceptionContent />
                 </div>
                 <div className="flex flex-col flex-1 overflow-x-auto">
                     {activeException ? (
@@ -134,7 +127,7 @@ const Filters = (): JSX.Element => {
 
 const ExceptionContent = (): JSX.Element => {
     return (
-        <PanelLayout column className="flex-1 overflow-y-auto p-2">
+        <PanelLayout column className="flex-1 overflow-y-auto">
             <PanelLayout.Panel primary={false}>
                 <ContextDisplay />
             </PanelLayout.Panel>
