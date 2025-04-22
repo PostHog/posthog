@@ -228,7 +228,7 @@ const ReplayPageTabs: ReplayTab[] = [
         tooltip: 'View & create playlists',
     },
     {
-        label: 'Templates',
+        label: 'Figure out what to watch',
         key: ReplayTabs.Templates,
     },
     {
