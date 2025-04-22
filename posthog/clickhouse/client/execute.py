@@ -144,30 +144,29 @@ def sync_execute(
     if workload == Workload.DEFAULT:
         workload = get_default_clickhouse_workload_type()
 
+    if team_id is not None:
+        tag_queries(team_id=team_id)
+
     try:
         prepared_sql, prepared_args, tags = _prepare_query(query=query, args=args, workload=workload)
         query_id = validated_client_query_id()
         core_settings = {**default_settings(), **(settings or {})}
         tags["query_settings"] = core_settings
-
         query_type = tags.get("query_type", "Other")
-        if team_id is not None:
-            tag_queries(team_id=team_id)
-
         while True:
+            settings = {
+                **core_settings,
+                "log_comment": json.dumps(tags, separators=(",", ":")),
+                "query_id": query_id,
+            }
+            if workload == Workload.OFFLINE:
+                # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the
+                # online resource pool when the offline resource pool is under heavy load. this comes at the cost of higher and
+                # more variable latency and a higher likelihood of query failures - but offline workloads should be tolerant to
+                # these disruptions
+                settings["use_hedged_requests"] = "0"
+            start_time = perf_counter()
             try:
-                start_time = perf_counter()
-                settings = {
-                    **core_settings,
-                    "log_comment": json.dumps(tags, separators=(",", ":")),
-                    "query_id": query_id,
-                }
-                if workload == Workload.OFFLINE:
-                    # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the
-                    # online resource pool when the offline resource pool is under heavy load. this comes at the cost of higher and
-                    # more variable latency and a higher likelihood of query failures - but offline workloads should be tolerant to
-                    # these disruptions
-                    settings["use_hedged_requests"] = "0"
                 with sync_client or get_client_from_pool(workload, team_id, readonly) as client:
                     result = client.execute(
                         prepared_sql,
@@ -184,8 +183,8 @@ def sync_execute(
                 ).inc()
                 if isinstance(err, ClickhouseAtCapacity) and is_personal_api_key and workload == Workload.OFFLINE:
                     workload = Workload.ONLINE
-                    tag_queries(clickhouse_exception_type=exception_type, workload=str(workload))
-                    settings["use_hedged_requests"] = "1"
+                    tags["clickhouse_exception_type"] = exception_type
+                    tags["workload"] = str(workload)
                     continue
                 raise err from e
             finally:
