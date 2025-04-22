@@ -387,7 +387,7 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
 
     if (result && hasMinimumExposureForResults) {
         return (
-            <div className="relative">
+            <div className="relative w-full max-w-screen">
                 <ChartControls />
                 <ChartSVG chartSvgRef={chartSvgRef} />
                 <ChartTooltips />
