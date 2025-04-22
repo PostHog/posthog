@@ -2130,6 +2130,7 @@ const api = {
         }): Promise<PaginatedResponse<HogFunctionTemplateType>> {
             const finalParams = {
                 ...params,
+                limit: 500,
                 types: params.types.join(','),
             }
             return new ApiRequest().hogFunctionTemplates().withQueryString(finalParams).get()
