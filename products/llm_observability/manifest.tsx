@@ -27,6 +27,14 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             defaultDocsPath: '/docs/ai-engineering/observability',
         },
+        LLMObservabilityPlayground: {
+            import: () => import('./frontend/LLMObservabilityPlaygroundScene'),
+            projectBased: true,
+            name: 'LLM Playground',
+            activityScope: 'LLMObservability',
+            layout: 'app-container',
+            defaultDocsPath: '/docs/ai-engineering/observability',
+        },
     },
     routes: {
         '/llm-observability': ['LLMObservability', 'llmObservability'],
@@ -35,6 +43,7 @@ export const manifest: ProductManifest = {
         '/llm-observability/traces': ['LLMObservability', 'llmObservabilityTraces'],
         '/llm-observability/traces/:id': ['LLMObservabilityTrace', 'llmObservability'],
         '/llm-observability/users': ['LLMObservability', 'llmObservabilityUsers'],
+        '/llm-observability/playground': ['LLMObservability', 'llmObservabilityPlayground'],
     },
     redirects: {},
     urls: {
@@ -53,6 +62,7 @@ export const manifest: ProductManifest = {
             return `/llm-observability/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },
         llmObservabilityUsers: (): string => '/llm-observability/users',
+        llmObservabilityPlayground: (): string => '/llm-observability/playground',
     },
     fileSystemTypes: {},
     treeItemsNew: [],

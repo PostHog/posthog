@@ -392,3 +392,10 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
         if not hash:
             return self.get_ident(request)
         return f"throttle_wizard_query_{hash}"
+
+
+class LLMPlaygroundRateThrottle(UserRateThrottle):
+    # Throttle class that is applied for the LLM Playground
+    # This is more permissive than AI throttles because it's an internal tool
+    scope = "llm_playground"
+    rate = "500/day"

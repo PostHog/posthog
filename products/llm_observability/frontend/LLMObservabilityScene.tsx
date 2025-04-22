@@ -19,6 +19,7 @@ import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsQuery } from '~/queries/utils'
 
 import { LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID, llmObservabilityLogic } from './llmObservabilityLogic'
+import { LLMObservabilityPlaygroundScene } from './LLMObservabilityPlaygroundScene'
 import { LLMObservabilityReloadAction } from './LLMObservabilityReloadAction'
 import { LLMObservabilityTraces } from './LLMObservabilityTracesScene'
 import { LLMObservabilityUsers } from './LLMObservabilityUsers'
@@ -231,6 +232,12 @@ export function LLMObservabilityScene(): JSX.Element {
                         label: 'Users',
                         content: hasSentAiGenerationEvent ? <LLMObservabilityUsers /> : <LLMObservabilityNoEvents />,
                         link: combineUrl(urls.llmObservabilityUsers(), searchParams).url,
+                    },
+                    {
+                        key: 'playground',
+                        label: 'Playground',
+                        content: <LLMObservabilityPlaygroundScene />,
+                        link: combineUrl(urls.llmObservabilityPlayground(), searchParams).url,
                     },
                 ]}
             />
