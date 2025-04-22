@@ -466,12 +466,11 @@ class FunnelBase(ABC):
         skip_entity_filter=False,
         skip_step_filter=False,
     ) -> ast.SelectQuery:
-        query, funnelsFilter, breakdown, breakdownType, breakdownAttributionType = (
+        query, funnelsFilter, breakdown, breakdownType = (
             self.context.query,
             self.context.funnelsFilter,
             self.context.breakdown,
             self.context.breakdownType,
-            self.context.breakdownAttributionType,
         )
         entities_to_use = entities or query.series
 
