@@ -1591,7 +1591,12 @@ describe('surveyLogic filters for surveys responses', () => {
 
         await expectLogic(logic, () => {
             logic.actions.setAnswerFilters([answerFilter])
-        }).toDispatchActions(['setAnswerFilters', 'loadSurveyUserStats', 'loadSurveyMultipleChoiceResults'])
+        }).toDispatchActions([
+            'setAnswerFilters',
+            'loadSurveyBaseStats',
+            'loadSurveyDismissedAndSentCount',
+            'loadSurveyMultipleChoiceResults',
+        ])
     })
 
     describe('interval selection', () => {
