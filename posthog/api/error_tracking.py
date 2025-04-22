@@ -50,10 +50,10 @@ class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
         fields = ["id", "type"]
 
     def get_id(self, obj):
-        return obj.user_id or obj.user_group_id
+        return obj.user_id or obj.user_group_id or obj.role_id
 
     def get_type(self, obj):
-        return "user_group" if obj.user_group else "user"
+        return "user_group" if obj.user_group else ("role" if obj.role else "user")
 
 
 class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
@@ -237,6 +237,7 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_i
             defaults={
                 "user_id": None if assignee["type"] == "user_group" else assignee["id"],
                 "user_group_id": None if assignee["type"] == "user" else assignee["id"],
+                "role_id": None if assignee["type"] == "role" else assignee["id"],
             },
         )
 
