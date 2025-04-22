@@ -226,7 +226,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
             <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
                 <LemonInput
                     type="search"
-                    placeholder="Search for playlists"
+                    placeholder="Search for collections"
                     onChange={(value) => setSavedPlaylistsFilters({ search: value || undefined })}
                     value={filters.search || ''}
                 />

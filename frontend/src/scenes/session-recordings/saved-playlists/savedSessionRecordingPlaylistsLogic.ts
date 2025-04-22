@@ -33,6 +33,7 @@ export interface SavedSessionRecordingPlaylistsFilters {
     dateTo: string | dayjs.Dayjs | undefined | null
     page: number
     pinned: boolean
+    type?: 'collection' | 'saved_filters'
 }
 
 export interface SavedSessionRecordingPlaylistsLogicProps {
@@ -131,6 +132,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                     date_from: filters.dateFrom && filters.dateFrom != 'all' ? filters.dateFrom : undefined,
                     date_to: filters.dateTo ?? undefined,
                     pinned: filters.pinned ? true : undefined,
+                    type: 'collection',
                 }
 
                 const response = await api.recordings.listPlaylists(toParams(params))

@@ -81,7 +81,7 @@ function Header(): JSX.Element {
                             data-attr="save-recordings-playlist-button"
                             loading={newPlaylistHandler.loading}
                         >
-                            New playlist
+                            New collection
                         </LemonButton>
                     )}
                 </>

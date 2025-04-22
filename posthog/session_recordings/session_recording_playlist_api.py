@@ -279,6 +279,11 @@ class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel
                 queryset = queryset.exclude(
                     Q(filters={}) | Q(id__in=SessionRecordingPlaylistItem.objects.values_list("playlist_id", flat=True))
                 )
+            elif key == "type" and filters["type"] == "collection":
+                # Filter for playlists that have no filters or have items
+                queryset = queryset.filter(
+                    Q(id__in=SessionRecordingPlaylistItem.objects.values_list("playlist_id", flat=True))
+                )
             elif key == "pinned":
                 queryset = queryset.filter(pinned=True)
             elif key == "date_from":
