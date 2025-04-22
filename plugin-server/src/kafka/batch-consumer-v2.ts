@@ -17,7 +17,7 @@ import {
     gaugeBatchUtilization,
 } from './batch-consumer'
 import { getConsumerConfigFromEnv } from './config'
-import { disconnectConsumer, storeOffsetsForMessages } from './consumer'
+import { storeOffsetsForMessages } from './consumer'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
 const DEFAULT_FETCH_BATCH_SIZE = 1000
@@ -231,7 +231,10 @@ export class KafkaConsumer {
                 // Finally, disconnect from the broker. If stored offsets have changed via
                 // `storeOffsetsForMessages` above, they will be committed before shutdown (so long
                 // as this consumer is still part of the group).
-                await disconnectConsumer(this.rdKafkaConsumer)
+                // await disconnectConsumer(this.rdKafkaConsumer)
+
+                await new Promise((res, rej) => this.rdKafkaConsumer.disconnect((e, data) => (e ? rej(e) : res(data))))
+                logger.info('🔁', 'Disconnected node-rdkafka consumer')
             }
         }
 
@@ -254,6 +257,8 @@ export class KafkaConsumer {
             await this.consumerLoop
         }
 
-        await new Promise<void>((res, rej) => this.rdKafkaConsumer.disconnect((e) => (e ? rej(e) : res())))
+        if (this.rdKafkaConsumer.isConnected()) {
+            await new Promise<void>((res, rej) => this.rdKafkaConsumer.disconnect((e) => (e ? rej(e) : res())))
+        }
     }
 }

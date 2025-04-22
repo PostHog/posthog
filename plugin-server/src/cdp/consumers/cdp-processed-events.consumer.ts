@@ -3,6 +3,7 @@ import { chunk } from 'lodash'
 import { Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
+import { KafkaConsumer } from '~/src/kafka/batch-consumer-v2'
 import { Hub, RawClickHouseEvent } from '~/src/types'
 
 import {
@@ -29,11 +30,23 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     protected topic = KAFKA_EVENTS_JSON
     protected groupId = 'cdp-processed-events-consumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
+    protected kafkaConsumer: KafkaConsumer
 
     private cyclotronManager?: CyclotronManager
 
     constructor(hub: Hub) {
         super(hub)
+
+        console.log(this.topic, this.groupId) // DOes this work?
+
+        // connectionConfig: createRdConnectionConfigFromEnvVars(this.hub, 'consumer'),
+
+        this.kafkaConsumer = new KafkaConsumer({
+            groupId: this.groupId,
+            topic: this.topic,
+            autoCommit: true,
+            autoOffsetStore: false,
+        })
     }
 
     private async createCyclotronJobs(jobs: CyclotronJobInit[]) {
@@ -206,13 +219,17 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
 
     public async start(): Promise<void> {
         await super.start()
-        await this.startKafkaConsumer({
-            topic: this.topic,
-            groupId: this.groupId,
-            handleBatch: async (messages) => {
+
+        // Start consuming messages
+        await this.kafkaConsumer.connect(async (messages) => {
+            logger.info('🔁', `${this.name} - handling batch`, {
+                size: messages.length,
+            })
+
+            return await this.runInstrumented('handleEachBatch', async () => {
                 const invocationGlobals = await this._parseKafkaBatch(messages)
                 await this.processBatch(invocationGlobals)
-            },
+            })
         })
 
         this.cyclotronManager = this.hub.CYCLOTRON_DATABASE_URL
