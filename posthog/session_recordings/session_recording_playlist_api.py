@@ -243,6 +243,8 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
 
 class SessionRecordingPlaylistViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "session_recording_playlist"
+    scope_object_read_actions = ["list", "retrieve", "recordings"]
+    scope_object_write_actions = ["create", "update", "modify_recordings"]
     queryset = SessionRecordingPlaylist.objects.all()
     serializer_class = SessionRecordingPlaylistSerializer
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
