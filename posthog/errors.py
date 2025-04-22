@@ -47,7 +47,7 @@ def ch_error_type(e: Exception) -> str:
     "Provide a ClickHouse error type for observability"
     if not isinstance(e, ServerException):
         return type(e).__name__
-    return look_up_error_code_meta(e).label
+    return f"CHQueryError{look_up_error_code_meta(e).label}"
 
 
 def wrap_query_error(err: Exception) -> Exception:
@@ -75,7 +75,7 @@ def wrap_query_error(err: Exception) -> Exception:
         if meta.name in CLICKHOUSE_SPECIFIC_ERROR_LOOKUP:
             return CLICKHOUSE_SPECIFIC_ERROR_LOOKUP[meta.name]
 
-        name = f"CHQueryError{meta.name.replace('_', ' ').title().replace(' ', '')}"
+        name = f"CHQueryError{meta.label}"
         processed_error_class = ExposedCHQueryError if meta.user_safe else InternalCHQueryError
         message = meta.user_safe if isinstance(meta.user_safe, str) else err.message
         return type(name, (processed_error_class,), {})(message, code=err.code, code_name=meta.name.lower())
