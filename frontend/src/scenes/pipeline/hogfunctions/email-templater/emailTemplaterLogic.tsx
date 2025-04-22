@@ -25,6 +25,7 @@ export interface EmailTemplaterLogicProps {
     formKey: string
     formFieldsPrefix?: string
     globals?: Record<string, any>
+    emailMetaFields?: ('from' | 'to' | 'subject')[]
 }
 
 export const emailTemplaterLogic = kea<emailTemplaterLogicType>([

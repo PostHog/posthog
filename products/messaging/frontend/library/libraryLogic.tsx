@@ -19,8 +19,8 @@ export const libraryLogic = kea<libraryLogicType>([
                         path: urls.messagingLibrary(),
                     },
                     {
-                        key: 'library',
-                        name: 'Library',
+                        key: 'templates',
+                        name: 'Templates',
                         path: urls.messagingLibrary(),
                     },
                 ]

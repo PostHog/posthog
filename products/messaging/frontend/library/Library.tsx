@@ -10,9 +10,7 @@ import { libraryLogic } from './libraryLogic'
 import { templatesLogic } from './templatesLogic'
 import { TemplatesTable } from './TemplatesTable'
 
-// Wrapper component to ensure templatesLogic is unmounted when component unmounts
 function TemplatesSection(): JSX.Element {
-    // This will mount the logic when component mounts and unmount when component unmounts
     useValues(templatesLogic)
     return <TemplatesTable />
 }

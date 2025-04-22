@@ -38,6 +38,7 @@ class MessageTemplateViewSet(
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
+    scope_object = "INTERNAL"
     permission_classes = [IsAuthenticated]
 
     serializer_class = MessageTemplateSerializer
