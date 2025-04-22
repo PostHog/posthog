@@ -31,9 +31,12 @@ class FunnelUDFMixin:
         raise Exception("UDF doesn't use this")
 
     def _prop_vals(self: FunnelProtocol):
+        breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
         has_array_breakdown = self._query_has_array_breakdown()
         prop_vals = f"[{self._default_breakdown_selector()}]"
-        if self.context.breakdown:
+        if breakdown:
+            if breakdownType == BreakdownType.COHORT:
+                return "groupUniqArray(prop_basic)"
             if self.context.breakdownAttributionType == BreakdownAttributionType.FIRST_TOUCH:
                 if has_array_breakdown:
                     return "[argMinIf(prop_basic, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_basic)))]"
