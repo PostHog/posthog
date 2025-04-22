@@ -204,27 +204,6 @@ impl FeatureFlagMatcher {
         hash_key_override: Option<String>,
         request_id: Uuid,
     ) -> FlagsResponse {
-        let group_type_mapping_timer = common_metrics::timing_guard(FLAG_GROUP_DB_FETCH_TIME, &[]);
-        let mut errors_while_computing_flags = false;
-        if (self
-            .group_type_mapping_cache
-            .init(self.reader.clone())
-            .await)
-            .is_err()
-        {
-            errors_while_computing_flags = true;
-        }
-        group_type_mapping_timer
-            .label(
-                "outcome",
-                if errors_while_computing_flags {
-                    "error"
-                } else {
-                    "success"
-                },
-            )
-            .fin();
-
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
         let flags_have_experience_continuity_enabled = feature_flags
             .flags
@@ -283,10 +262,7 @@ impl FeatureFlagMatcher {
         eval_timer
             .label(
                 "outcome",
-                if flags_response.errors_while_computing_flags
-                    || flag_hash_key_override_error
-                    || errors_while_computing_flags
-                {
+                if flags_response.errors_while_computing_flags || flag_hash_key_override_error {
                     "error"
                 } else {
                     "success"
@@ -295,9 +271,7 @@ impl FeatureFlagMatcher {
             .fin();
 
         FlagsResponse::new(
-            flag_hash_key_override_error
-                || flags_response.errors_while_computing_flags
-                || errors_while_computing_flags,
+            flag_hash_key_override_error || flags_response.errors_while_computing_flags,
             flags_response.flags,
             None,
             request_id,
@@ -459,6 +433,39 @@ impl FeatureFlagMatcher {
         let mut flag_details_map = HashMap::new();
         let mut flags_needing_db_properties = Vec::new();
 
+        // Check if we need to fetch group type mappings – we have flags that use group properties (have group type indices)
+        let type_indexes: HashSet<GroupTypeIndex> = feature_flags
+            .flags
+            .iter()
+            .filter(|flag| flag.active && !flag.deleted)
+            .filter_map(|flag| flag.get_group_type_index())
+            .collect();
+
+        if !type_indexes.is_empty() {
+            let group_type_mapping_timer =
+                common_metrics::timing_guard(FLAG_GROUP_DB_FETCH_TIME, &[]);
+
+            if self
+                .group_type_mapping_cache
+                .init(self.reader.clone())
+                .await
+                .is_err()
+            {
+                errors_while_computing_flags = true;
+            }
+
+            group_type_mapping_timer
+                .label(
+                    "outcome",
+                    if errors_while_computing_flags {
+                        "error"
+                    } else {
+                        "success"
+                    },
+                )
+                .fin();
+        }
+
         // Step 1: Evaluate flags with locally computable property overrides first
         for flag in &feature_flags.flags {
             // we shouldn't have any disabled or deleted flags (the query should filter them out),
@@ -516,61 +523,28 @@ impl FeatureFlagMatcher {
             // We don't need to worry about this for group flags because they don't need person data, nor do we need to
             // do this for flags have have locally computable properties, since we don't need to fetch DB properties for them.
             // However, for flags that need DB properties, we need to return a "no person found" error.
-            match self
+            if let Err(e) = self
                 .prepare_flag_evaluation_state(&flags_needing_db_properties)
                 .await
             {
-                Ok(_) => {
-                    // Log an error, track a metric, and return early if no person_id is found
-                    // likely an issue where the person hasn't been ingested yet, i.e. an issue with the ingestion pipeline
-                    if self.flag_evaluation_state.get_person_id().is_none() {
-                        // No person found - mark all DB-dependent flags as "no match"
-                        // and return early
-                        for flag in flags_needing_db_properties {
-                            flag_details_map.insert(
-                                flag.key.clone(),
-                                FlagDetails::create_error(&flag, "no_person_found"),
-                            );
-                        }
-                        error!(
-                            "No person found for distinct_id '{}' while preparing flag evaluation state",
-                            self.distinct_id
-                        );
-                        inc(
-                            FLAG_EVALUATION_ERROR_COUNTER,
-                            &[("reason".to_string(), "no_person_found".to_string())],
-                            1,
-                        );
-                        errors_while_computing_flags = true;
-                        return FlagsResponse::new(
-                            errors_while_computing_flags,
-                            flag_details_map,
-                            None,
-                            request_id,
-                        );
-                    }
+                errors_while_computing_flags = true;
+                let reason = parse_exception_for_prometheus_label(&e);
+                for flag in flags_needing_db_properties {
+                    flag_details_map
+                        .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason));
                 }
-                // Log an error, track a metric, and return early if there's an error preparing the flag evaluation state (likely a DB error and hopefully transient)
-                Err(e) => {
-                    errors_while_computing_flags = true;
-                    let reason = parse_exception_for_prometheus_label(&e);
-                    for flag in flags_needing_db_properties {
-                        flag_details_map
-                            .insert(flag.key.clone(), FlagDetails::create_error(&flag, reason));
-                    }
-                    error!("Error preparing flag evaluation state: {:?}", e);
-                    inc(
-                        FLAG_EVALUATION_ERROR_COUNTER,
-                        &[("reason".to_string(), reason.to_string())],
-                        1,
-                    );
-                    return FlagsResponse::new(
-                        errors_while_computing_flags,
-                        flag_details_map,
-                        None,
-                        request_id,
-                    );
-                }
+                error!("Error preparing flag evaluation state: {:?}", e);
+                inc(
+                    FLAG_EVALUATION_ERROR_COUNTER,
+                    &[("reason".to_string(), reason.to_string())],
+                    1,
+                );
+                return FlagsResponse::new(
+                    errors_while_computing_flags,
+                    flag_details_map,
+                    None,
+                    request_id,
+                );
             }
 
             // Step 3: Evaluate remaining flags with cached properties
@@ -952,7 +926,6 @@ impl FeatureFlagMatcher {
                     Some(cohorts) => cohorts.clone(),
                     None => return Ok((false, FeatureFlagMatchReason::NoConditionMatch)),
                 };
-                // Get the person ID for the current distinct ID – this value should be cached at this point, and if we can't get it we return false.
                 if !self.evaluate_cohort_filters(
                     &cohort_filters,
                     &person_or_group_properties,
@@ -1020,9 +993,7 @@ impl FeatureFlagMatcher {
         } else {
             match self.get_person_properties_from_cache() {
                 Ok(props) => Ok(props),
-                Err(FlagError::PersonNotFound) => Ok(HashMap::new()), // NB: if we can't find a person associated with the distinct ID, we return an empty HashMap
-                Err(FlagError::PropertiesNotInCache) => Ok(HashMap::new()), // NB: if we can't find the properties in the cache, we return an empty HashMap
-                Err(e) => Err(e),
+                Err(_e) => Ok(HashMap::new()), // NB: if we can't find the properties in the cache, we return an empty HashMap because we just treat this person as one with no properties, essentially an anonymous user
             }
         }
     }
@@ -1260,8 +1231,6 @@ impl FeatureFlagMatcher {
         flags: &[FeatureFlag],
     ) -> Result<(), FlagError> {
         // Get cohorts first since we need the IDs
-        // NB: this is a blocking call, maybe could be factored out?  The idea here is that if there's no data in the application-level
-        // cache, we'll just fetch it from the DB when needed.  This is the only async method in flag matching.
         let cohorts = self.cohort_cache.get_cohorts(self.project_id).await?;
         self.flag_evaluation_state.set_cohorts(cohorts.clone());
 
@@ -1372,7 +1341,7 @@ impl FeatureFlagMatcher {
             // i just want to be able to differentiate between no properties because we fetched no properties,
             // and no properties because we failed to fetch
             // maybe I need a fetch indicator in the cache?
-            Ok(HashMap::new())
+            Err(FlagError::PersonNotFound)
         }
     }
 
@@ -4794,72 +4763,72 @@ mod tests {
         assert!(match_result.matches, "User should match the static cohort");
     }
 
-    #[tokio::test]
-    async fn test_no_person_id_early_return() {
-        let reader = setup_pg_reader_client(None).await;
-        let writer = setup_pg_writer_client(None).await;
-        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
-        let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
+    // #[tokio::test]
+    // async fn test_no_person_id_early_return() {
+    //     let reader = setup_pg_reader_client(None).await;
+    //     let writer = setup_pg_writer_client(None).await;
+    //     let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+    //     let team = insert_new_team_in_pg(reader.clone(), None).await.unwrap();
 
-        // Create a flag that requires DB properties
-        let flag = create_test_flag(
-            None,
-            Some(team.id),
-            None,
-            None,
-            Some(FlagFilters {
-                groups: vec![FlagGroupType {
-                    properties: Some(vec![PropertyFilter {
-                        key: "email".to_string(),
-                        value: json!("test@example.com"),
-                        operator: Some(OperatorType::Exact),
-                        prop_type: "person".to_string(),
-                        group_type_index: None,
-                        negation: None,
-                    }]),
-                    rollout_percentage: Some(100.0),
-                    variant: None,
-                }],
-                multivariate: None,
-                aggregation_group_type_index: None,
-                payloads: None,
-                super_groups: None,
-                holdout_groups: None,
-            }),
-            None,
-            None,
-            None,
-        );
+    //     // Create a flag that requires DB properties
+    //     let flag = create_test_flag(
+    //         None,
+    //         Some(team.id),
+    //         None,
+    //         None,
+    //         Some(FlagFilters {
+    //             groups: vec![FlagGroupType {
+    //                 properties: Some(vec![PropertyFilter {
+    //                     key: "email".to_string(),
+    //                     value: json!("test@example.com"),
+    //                     operator: Some(OperatorType::Exact),
+    //                     prop_type: "person".to_string(),
+    //                     group_type_index: None,
+    //                     negation: None,
+    //                 }]),
+    //                 rollout_percentage: Some(100.0),
+    //                 variant: None,
+    //             }],
+    //             multivariate: None,
+    //             aggregation_group_type_index: None,
+    //             payloads: None,
+    //             super_groups: None,
+    //             holdout_groups: None,
+    //         }),
+    //         None,
+    //         None,
+    //         None,
+    //     );
 
-        let mut matcher = FeatureFlagMatcher::new(
-            "nonexistent_user".to_string(), // Use a distinct_id that doesn't exist in the DB
-            team.id,
-            team.project_id,
-            reader.clone(),
-            writer.clone(),
-            cohort_cache.clone(),
-            None,
-            None,
-        );
+    //     let mut matcher = FeatureFlagMatcher::new(
+    //         "nonexistent_user".to_string(), // Use a distinct_id that doesn't exist in the DB
+    //         team.id,
+    //         team.project_id,
+    //         reader.clone(),
+    //         writer.clone(),
+    //         cohort_cache.clone(),
+    //         None,
+    //         None,
+    //     );
 
-        let result = matcher
-            .evaluate_all_feature_flags(
-                FeatureFlagList {
-                    flags: vec![flag.clone()],
-                },
-                None,
-                None,
-                None,
-                Uuid::new_v4(),
-            )
-            .await;
+    //     let result = matcher
+    //         .evaluate_all_feature_flags(
+    //             FeatureFlagList {
+    //                 flags: vec![flag.clone()],
+    //             },
+    //             None,
+    //             None,
+    //             None,
+    //             Uuid::new_v4(),
+    //         )
+    //         .await;
 
-        // Verify the response indicates an error and the flag is marked as "no match"
-        assert!(result.errors_while_computing_flags);
-        let flag_details = result.flags.get("test_flag").unwrap();
-        assert!(!flag_details.enabled);
-        assert_eq!(flag_details.reason.code, "no_person_found");
-    }
+    //     // Verify the response indicates an error and the flag is marked as "no match"
+    //     assert!(result.errors_while_computing_flags);
+    //     let flag_details = result.flags.get("test_flag").unwrap();
+    //     assert!(!flag_details.enabled);
+    //     assert_eq!(flag_details.reason.code, "no_person_found");
+    // }
 
     #[tokio::test]
     async fn test_no_person_id_with_overrides() {

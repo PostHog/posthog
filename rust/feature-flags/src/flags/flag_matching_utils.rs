@@ -155,7 +155,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     }
     person_processing_timer.fin();
 
-    // Only fetch group data if we have group types to look up
+    // Only fetch group property data if we have group types to look up
     if !group_type_indexes.is_empty() {
         let group_query = r#"
             SELECT 
