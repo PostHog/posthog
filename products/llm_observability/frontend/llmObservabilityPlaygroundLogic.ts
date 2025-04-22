@@ -26,6 +26,27 @@ export interface Message {
     content: string
 }
 
+const models = [
+    {
+        id: 'gpt-3.5-turbo',
+        name: 'GPT-3.5 Turbo',
+        provider: 'OpenAI',
+        description: 'Fast model for most tasks',
+    },
+    {
+        id: 'gpt-4o',
+        name: 'GPT-4o',
+        provider: 'OpenAI',
+        description: 'Advanced reasoning capabilities',
+    },
+    {
+        id: 'o1-mini',
+        name: 'O1-Mini',
+        provider: 'Anthropic',
+        description: 'Fast, compact model for general use',
+    },
+]
+
 export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLogicType>([
     path(['products', 'llm_observability', 'frontend', 'llmObservabilityPlaygroundLogic']),
 
@@ -64,29 +85,7 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
     }),
 
     selectors({
-        availableModels: [
-            () => [],
-            (): ModelOption[] => [
-                {
-                    id: 'gpt-3.5-turbo',
-                    name: 'GPT-3.5 Turbo',
-                    provider: 'OpenAI',
-                    description: 'Fast model for most tasks',
-                },
-                {
-                    id: 'gpt-4o',
-                    name: 'GPT-4o',
-                    provider: 'OpenAI',
-                    description: 'Advanced reasoning capabilities',
-                },
-                {
-                    id: 'o1-mini',
-                    name: 'O1-Mini',
-                    provider: 'Anthropic',
-                    description: 'Fast, compact model for general use',
-                },
-            ],
-        ],
+        availableModels: [() => [], (): ModelOption[] => models],
     }),
 
     loaders(({ values }) => ({
