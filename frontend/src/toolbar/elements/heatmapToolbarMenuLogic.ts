@@ -117,30 +117,19 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             },
         ],
         elementMetrics: [
-            { version: 0, map: new Map<HTMLElement, { visible: boolean }>() },
+            new Map<HTMLElement, { visible: boolean }>(),
             {
                 updateElementMetrics: (state, { observedElements }) => {
-                    let hadChanges = false
-                    for (const [element, visible] of observedElements) {
-                        const current = state.map.get(element)
-                        const hasChanged = current?.visible !== visible
-
-                        if (!hasChanged) {
-                            continue
-                        }
-
-                        state.map.set(element, { visible })
-                        hadChanges = true
-                    }
-
-                    if (!hadChanges) {
+                    if (observedElements.length === 0) {
                         return state
                     }
 
-                    return {
-                        version: state.version + 1,
-                        map: new Map(Array.from(state.map.entries())),
+                    const onUpdate = new Map(Array.from(state.entries()))
+                    for (const [element, visible] of observedElements) {
+                        onUpdate.set(element, { visible })
                     }
+
+                    return onUpdate
                 },
             },
         ],
@@ -160,17 +149,17 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                             properties: [
                                 wildcardHref === href
                                     ? {
-                                        key: '$current_url',
-                                        value: href,
-                                        operator: PropertyOperator.Exact,
-                                        type: PropertyFilterType.Event,
-                                    }
+                                          key: '$current_url',
+                                          value: href,
+                                          operator: PropertyOperator.Exact,
+                                          type: PropertyFilterType.Event,
+                                      }
                                     : {
-                                        key: '$current_url',
-                                        value: `^${wildcardHref.split('*').map(escapeRegex).join('.*')}$`,
-                                        operator: PropertyOperator.Regex,
-                                        type: PropertyFilterType.Event,
-                                    },
+                                          key: '$current_url',
+                                          value: `^${wildcardHref.split('*').map(escapeRegex).join('.*')}$`,
+                                          operator: PropertyOperator.Regex,
+                                          type: PropertyFilterType.Event,
+                                      },
                             ],
                             date_from: values.commonFilters.date_from,
                             date_to: values.commonFilters.date_to,
@@ -304,8 +293,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     return []
                 }
 
-                console.log('wat countedElements being called', elements?.length, elementMetrics.version)
-
                 cache.intersectionObserver.disconnect()
                 cache.intersectionObserver.observe(document.body)
 
@@ -317,7 +304,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                         continue
                     }
 
-                    const metrics = elementMetrics.map.get(trimmedElement) || {
+                    const metrics = elementMetrics.get(trimmedElement) || {
                         visible: isElementVisible(trimmedElement),
                         rect: trimmedElement.getBoundingClientRect(),
                     }
