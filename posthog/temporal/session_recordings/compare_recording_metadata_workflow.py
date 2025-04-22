@@ -20,6 +20,7 @@ def get_session_replay_events(
     started_after: dt.datetime,
     started_before: dt.datetime,
     session_length_limit_seconds: int = 172800,
+    timestamp_leeway_seconds: int = 0,
 ) -> list[tuple]:
     """Get session replay events from the specified table within the time range."""
     query = """
@@ -38,14 +39,17 @@ def get_session_replay_events(
             sum(console_log_count) as console_log_count,
             sum(console_warn_count) as console_warn_count,
             sum(console_error_count) as console_error_count,
-            sum(message_count) as message_count,
             sum(event_count) as event_count,
             argMinMerge(snapshot_source) as snapshot_source,
             argMinMerge(snapshot_library) as snapshot_library
             {block_fields}
-        FROM {table}
-        WHERE min_first_timestamp >= toDateTime(%(started_after)s)
-        AND max_last_timestamp <= toDateTime(%(started_before)s) + INTERVAL {session_length_limit_seconds} SECOND
+        FROM (
+            SELECT *
+            FROM {table}
+            WHERE min_first_timestamp >= toDateTime(%(started_after)s) - INTERVAL %(timestamp_leeway)s SECOND
+            AND max_last_timestamp <= toDateTime(%(started_before)s) + INTERVAL {session_length_limit_seconds} SECOND + INTERVAL %(timestamp_leeway)s SECOND
+            ORDER BY min_first_timestamp ASC
+        )
         GROUP BY
             session_id,
             team_id
@@ -73,6 +77,7 @@ def get_session_replay_events(
         {
             "started_after": started_after.strftime("%Y-%m-%d %H:%M:%S"),
             "started_before": started_before.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp_leeway": timestamp_leeway_seconds,
         },
     )
 
@@ -90,7 +95,6 @@ FIELD_NAMES = [
     "console_log_count",
     "console_warn_count",
     "console_error_count",
-    "message_count",
     "event_count",
     "snapshot_source",
     "snapshot_library",
@@ -105,6 +109,7 @@ class CompareRecordingMetadataActivityInputs:
     started_before: str = dataclasses.field()
     window_result_limit: int | None = dataclasses.field(default=None)
     session_length_limit_seconds: int = dataclasses.field(default=172800)  # 48h default
+    timestamp_leeway_seconds: int = dataclasses.field(default=0)  # No leeway by default
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -113,6 +118,7 @@ class CompareRecordingMetadataActivityInputs:
             "started_before": self.started_before,
             "window_result_limit": self.window_result_limit,
             "session_length_limit_seconds": self.session_length_limit_seconds,
+            "timestamp_leeway_seconds": self.timestamp_leeway_seconds,
         }
 
 
@@ -142,6 +148,7 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
                 started_after,
                 started_before,
                 inputs.session_length_limit_seconds,
+                inputs.timestamp_leeway_seconds,
             ),
             asyncio.to_thread(
                 get_session_replay_events,
@@ -149,6 +156,7 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
                 started_after,
                 started_before,
                 inputs.session_length_limit_seconds,
+                inputs.timestamp_leeway_seconds,
             ),
         )
 
@@ -167,6 +175,10 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
         all_differing_sessions_excluding_active_ms: list[tuple[str, int]] = []  # (session_id, team_id)
         differing_sessions_count = 0
         active_ms_diffs_percentage: list[float] = []
+        field_differences: dict[str, int] = {field: 0 for field in FIELD_NAMES}  # Track per-field differences
+        field_example_sessions: dict[str, list[tuple[str, int, typing.Any, typing.Any]]] = {
+            field: [] for field in FIELD_NAMES
+        }  # Track example sessions per field
 
         for session_key in set(v1_sessions.keys()) & set(v2_sessions.keys()):
             session_id, team_id = session_key
@@ -191,6 +203,10 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
                 if v1_data[i] != v2_data[i]:
                     diff = {"field": field_name, "v1_value": v1_data[i], "v2_value": v2_data[i]}
                     differences.append(diff)
+                    field_differences[field_name] += 1
+                    # Store example session if we haven't stored 3 examples for this field yet
+                    if len(field_example_sessions[field_name]) < 3:
+                        field_example_sessions[field_name].append((session_id, team_id, v1_data[i], v2_data[i]))
                     if field_name != "active_milliseconds":
                         differences_excluding_active_ms.append(diff)
 
@@ -233,11 +249,24 @@ async def compare_recording_metadata_activity(inputs: CompareRecordingMetadataAc
             total_differing_sessions=len(all_differing_sessions),
             total_differing_sessions_excluding_active_ms=len(all_differing_sessions_excluding_active_ms),
             active_ms_stats=active_ms_stats,
+            field_differences=field_differences,
             time_range={
                 "started_after": started_after.isoformat(),
                 "started_before": started_before.isoformat(),
             },
         )
+
+        # Log example differences for each field separately
+        for field_name, examples in field_example_sessions.items():
+            if examples:  # Only log fields that have differences
+                await logger.ainfo(
+                    f"Example differences for field: {field_name}",
+                    field=field_name,
+                    examples=[
+                        {"session_id": session_id, "team_id": team_id, "v1_value": v1_value, "v2_value": v2_value}
+                        for session_id, team_id, v1_value, v2_value in examples
+                    ],
+                )
 
         # Log sessions only in v1/v2 if any exist
         if only_in_v1:
@@ -261,6 +290,7 @@ class CompareRecordingMetadataWorkflowInputs:
     window_seconds: int = dataclasses.field(default=300)  # 5 minutes default
     window_result_limit: int | None = dataclasses.field(default=None)  # No limit by default
     session_length_limit_seconds: int = dataclasses.field(default=172800)  # 48h default
+    timestamp_leeway_seconds: int = dataclasses.field(default=0)  # No leeway by default
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -270,6 +300,7 @@ class CompareRecordingMetadataWorkflowInputs:
             "window_seconds": self.window_seconds,
             "window_result_limit": self.window_result_limit,
             "session_length_limit_seconds": self.session_length_limit_seconds,
+            "timestamp_leeway_seconds": self.timestamp_leeway_seconds,
         }
 
 
@@ -303,12 +334,17 @@ class CompareRecordingMetadataWorkflow(PostHogWorkflow):
         if not isinstance(session_length_limit_seconds, int) or session_length_limit_seconds <= 0:
             raise ValueError("session_length_limit_seconds must be a positive integer")
 
+        timestamp_leeway_seconds = loaded.get("timestamp_leeway_seconds", 0)
+        if not isinstance(timestamp_leeway_seconds, int) or timestamp_leeway_seconds < 0:
+            raise ValueError("timestamp_leeway_seconds must be a non-negative integer")
+
         return CompareRecordingMetadataWorkflowInputs(
             started_after=loaded["started_after"],
             started_before=loaded["started_before"],
             window_seconds=window_seconds,
             window_result_limit=window_result_limit,
             session_length_limit_seconds=session_length_limit_seconds,
+            timestamp_leeway_seconds=timestamp_leeway_seconds,
         )
 
     @staticmethod
@@ -337,11 +373,12 @@ class CompareRecordingMetadataWorkflow(PostHogWorkflow):
         logger = get_internal_logger()
         workflow_start = dt.datetime.now()
         logger.info(
-            "Starting comparison workflow for sessions between %s and %s using %d second windows%s",
+            "Starting comparison workflow for sessions between %s and %s using %d second windows%s%s",
             started_after,
             started_before,
             inputs.window_seconds,
             f" (limiting to {inputs.window_result_limit} sessions per window)" if inputs.window_result_limit else "",
+            f" (with {inputs.timestamp_leeway_seconds}s timestamp leeway)" if inputs.timestamp_leeway_seconds else "",
         )
 
         # Generate time windows
@@ -362,6 +399,7 @@ class CompareRecordingMetadataWorkflow(PostHogWorkflow):
                 started_before=window_end.isoformat(),
                 window_result_limit=inputs.window_result_limit,
                 session_length_limit_seconds=inputs.session_length_limit_seconds,
+                timestamp_leeway_seconds=inputs.timestamp_leeway_seconds,
             )
 
             await temporalio.workflow.execute_activity(

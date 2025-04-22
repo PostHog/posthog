@@ -70,7 +70,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
         context = HogQLContext(team_id=team_id, database=database)
 
-        fields = serialize_fields(view.hogql_definition().fields, context, view.name, table_type="external")
+        fields = serialize_fields(view.hogql_definition().fields, context, view.name_chain, table_type="external")
         return [
             SerializedField(
                 key=field.name,

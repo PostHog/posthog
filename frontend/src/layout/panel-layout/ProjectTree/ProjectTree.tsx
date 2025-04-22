@@ -91,12 +91,36 @@ export function ProjectTree(): JSX.Element {
 
         return (
             <>
+                {item.record?.path && item.record?.type !== 'folder' && item.record?.href ? (
+                    <>
+                        <MenuItem
+                            asChild
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                window.open(item.record?.href, '_blank')
+                            }}
+                        >
+                            <ButtonPrimitive menuItem>Open link in new tab</ButtonPrimitive>
+                        </MenuItem>
+                        <MenuItem
+                            asChild
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                void navigator.clipboard.writeText(document.location.origin + item.record?.href)
+                            }}
+                        >
+                            <ButtonPrimitive menuItem>Copy link address</ButtonPrimitive>
+                        </MenuItem>
+
+                        <MenuSeparator />
+                    </>
+                ) : null}
                 {item.record?.path ? (
                     <MenuItem
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            onItemChecked(item.id, !checkedItems[item.id])
+                            onItemChecked(item.id, !checkedItems[item.id], false)
                         }}
                     >
                         <ButtonPrimitive menuItem>{checkedItems[item.id] ? 'Deselect' : 'Select'}</ButtonPrimitive>

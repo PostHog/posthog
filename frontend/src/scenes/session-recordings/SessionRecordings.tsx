@@ -25,13 +25,13 @@ import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playli
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { NotebookNodeType, ReplayTabs } from '~/types'
+import { NotebookNodeType, ReplayTab, ReplayTabs } from '~/types'
 import { ProductKey } from '~/types'
 
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
-import { humanFriendlyTabName, sessionReplaySceneLogic } from './sessionReplaySceneLogic'
+import { sessionReplaySceneLogic } from './sessionReplaySceneLogic'
 import SessionRecordingTemplates from './templates/SessionRecordingTemplates'
 
 function Header(): JSX.Element {
@@ -41,11 +41,7 @@ function Header(): JSX.Element {
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
 
     // NB this relies on `updateSearchParams` being the only prop needed to pick the correct "Recent" tab list logic
-    const { filters, totalFiltersCount } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
-    const saveFiltersPlaylistHandler = useAsyncHandler(async () => {
-        await createPlaylist({ filters }, true)
-        reportRecordingPlaylistCreated('filters')
-    })
+    const { filters } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
 
     const newPlaylistHandler = useAsyncHandler(async () => {
         await createPlaylist({}, true)
@@ -75,23 +71,6 @@ function Header(): JSX.Element {
                                 }}
                                 type="secondary"
                             />
-                            <LemonButton
-                                fullWidth={false}
-                                data-attr="session-recordings-filters-save-as-playlist"
-                                type="primary"
-                                disabledReason={
-                                    totalFiltersCount === 0 ? 'Apply filters to save them as a playlist' : undefined
-                                }
-                                onClick={(e) =>
-                                    // choose the type of playlist handler so that analytics correctly report
-                                    // whether filters have been changed before saving
-                                    totalFiltersCount === 0
-                                        ? newPlaylistHandler.onEvent?.(e)
-                                        : saveFiltersPlaylistHandler.onEvent?.(e)
-                                }
-                            >
-                                Save as playlist
-                            </LemonButton>
                         </>
                     )}
 
@@ -236,6 +215,28 @@ function MainPanel(): JSX.Element {
     )
 }
 
+const ReplayPageTabs: ReplayTab[] = [
+    {
+        label: 'Recordings',
+        tooltipDocLink: 'https://posthog.com/docs/session-replay/tutorials',
+        key: ReplayTabs.Home,
+    },
+    {
+        label: 'Playlists',
+        tooltipDocLink: 'https://posthog.com/docs/session-replay/how-to-watch-recordings',
+        key: ReplayTabs.Playlists,
+        tooltip: 'View & create playlists',
+    },
+    {
+        label: 'Templates',
+        key: ReplayTabs.Templates,
+    },
+    {
+        label: 'Settings',
+        key: ReplayTabs.Settings,
+    },
+]
+
 function PageTabs(): JSX.Element {
     const { tab, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
 
@@ -243,17 +244,19 @@ function PageTabs(): JSX.Element {
         <LemonTabs
             activeKey={tab}
             onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
-            tabs={Object.values(ReplayTabs).map((replayTab) => {
+            tabs={ReplayPageTabs.map((replayTab) => {
                 return {
                     label: (
                         <>
-                            {humanFriendlyTabName(replayTab)}
-                            {replayTab === ReplayTabs.Templates && shouldShowNewBadge && (
+                            {replayTab.label}
+                            {replayTab.label === ReplayTabs.Templates && shouldShowNewBadge && (
                                 <LemonBadge className="ml-1" size="small" />
                             )}
                         </>
                     ),
-                    key: replayTab,
+                    key: replayTab.key,
+                    tooltip: replayTab.tooltip,
+                    tooltipDocLink: replayTab.tooltipDocLink,
                 }
             })}
         />

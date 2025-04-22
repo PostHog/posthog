@@ -6,6 +6,7 @@ from django.db import models
 from django.db.models import Q
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, wrap_query_error
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
@@ -48,6 +49,7 @@ SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] =
     DatabaseSerializedFieldType.BOOLEAN: "Bool",
     DatabaseSerializedFieldType.ARRAY: "Array",
     DatabaseSerializedFieldType.JSON: "Map",
+    DatabaseSerializedFieldType.DECIMAL: "Decimal",
 }
 
 ExtractErrors = {
@@ -112,6 +114,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
 
     __repr__ = sane_repr("name")
 
+    @property
+    def name_chain(self) -> list[str]:
+        return self.name.split(".")
+
     def soft_delete(self):
         from posthog.warehouse.models.join import DataWarehouseJoin
 
@@ -161,6 +167,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
                 access_secret=self.credential.access_secret,
                 context=placeholder_context,
             )
+
+            tag_queries(team_id=str(self.team.pk), table_id=str(self.id), warehouse_query=True)
 
             result = sync_execute(
                 f"""DESCRIBE TABLE (
@@ -222,6 +230,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
                 access_secret=self.credential.access_secret,
                 context=placeholder_context,
             )
+
+            tag_queries(team_id=str(self.team.pk), table_id=str(self.id), warehouse_query=True)
 
             result = sync_execute(
                 f"SELECT count() FROM {s3_table_func}",

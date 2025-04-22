@@ -8,7 +8,13 @@ from parameterized import parameterized
 
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.database.database import create_hogql_database, serialize_database
-from posthog.hogql.database.models import FieldTraverser, LazyJoin, StringDatabaseField, ExpressionField, Table
+from posthog.hogql.database.models import (
+    FieldTraverser,
+    LazyJoin,
+    StringDatabaseField,
+    ExpressionField,
+    Table,
+)
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
@@ -117,6 +123,29 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert saved_query_name not in database._view_table_names
         assert "DELETED" not in serialized_database
         assert "DELETED" not in database._view_table_names
+
+    def test_serialize_database_warehouse_table_s3_with_unknown_field(self):
+        credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="table_1",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "UnknownDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+        database = create_hogql_database(team=self.team)
+
+        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+
+        table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
+        assert table is not None
+
+        field = table.fields.get("id")
+        assert field is not None
+        assert field.type == "unknown"
+        assert field.schema_valid is True
 
     def test_serialize_database_warehouse_table_s3(self):
         credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
@@ -770,6 +799,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         db = create_hogql_database(team=self.team, modifiers=modifiers)
+
+        stripe_table = db.get_table("stripe.table")
+        assert isinstance(stripe_table, Table)
 
         # Ensure the correct table was retrieved by checking the original table name in dot notation mapping
         context = HogQLContext(

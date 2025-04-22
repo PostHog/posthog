@@ -38,6 +38,7 @@ type ButtonBaseProps = {
     disabled?: boolean
     active?: boolean
     tooltip?: TooltipProps['title']
+    tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
     buttonWrapper?: (button: JSX.Element) => JSX.Element
 } & VariantProps<typeof buttonVariants>
@@ -172,9 +173,9 @@ const buttonVariants = cva({
             `,
         },
         size: {
-            sm: `button-primitive-size-sm button-primitive-height-sm text-xs pl-[var(--button-padding-x-sm)] pr-[var(--button-padding-x-sm)]`,
-            base: `button-primitive-size-base button-primitive-height-base text-sm pl-[var(--button-padding-x-base)] pr-[var(--button-padding-x-base)]`,
-            lg: `button-primitive-size-lg button-primitive-height-lg text-base pl-[var(--button-padding-x-lg)] pr-[var(--button-padding-x-lg)]`,
+            sm: `button-primitive-size-sm button-primitive-height-sm text-xs`,
+            base: `button-primitive-size-base button-primitive-height-base text-sm`,
+            lg: `button-primitive-size-lg button-primitive-height-lg text-base`,
             fit: 'px-0',
         },
         iconOnly: {
@@ -280,6 +281,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement | HTMLAnchorElement,
         sideActionRight,
         tooltip,
         tooltipPlacement,
+        tooltipDocLink,
         ...rest
     } = props
     // If inside a ButtonGroup, use the context values, otherwise use props
@@ -330,9 +332,9 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement | HTMLAnchorElement,
         children
     )
 
-    if (tooltip) {
+    if (tooltip || tooltipDocLink) {
         buttonComponent = (
-            <Tooltip title={tooltip} placement={tooltipPlacement}>
+            <Tooltip title={tooltip} placement={tooltipPlacement} docLink={tooltipDocLink}>
                 {buttonComponent}
             </Tooltip>
         )

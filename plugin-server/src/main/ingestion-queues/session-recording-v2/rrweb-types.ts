@@ -86,27 +86,7 @@ export function hrefFrom(inputEvent: SnapshotEvent): string | undefined {
 
 // Constants for log levels
 export enum ConsoleLogLevel {
-    Log = 'log',
+    Info = 'info',
     Warn = 'warn',
     Error = 'error',
-}
-
-/**
- * Checks if an event is a console event and returns its log level, or null if it's not a console event
- */
-export function getConsoleLogLevel(inputEvent: SnapshotEvent): ConsoleLogLevel | null {
-    const event = inputEvent as
-        | { type?: number; data?: { plugin?: string; payload?: { level?: ConsoleLogLevel } } }
-        | undefined
-    if (event?.type === RRWebEventType.Plugin && event?.data?.plugin === 'rrweb/console@1') {
-        const level = event?.data?.payload?.level
-        if (level === ConsoleLogLevel.Log) {
-            return ConsoleLogLevel.Log
-        } else if (level === ConsoleLogLevel.Warn) {
-            return ConsoleLogLevel.Warn
-        } else if (level === ConsoleLogLevel.Error) {
-            return ConsoleLogLevel.Error
-        }
-    }
-    return null
 }
