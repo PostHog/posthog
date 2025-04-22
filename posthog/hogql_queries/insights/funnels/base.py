@@ -1064,7 +1064,7 @@ class FunnelBase(ABC):
 
     def _query_has_array_breakdown(self) -> bool:
         breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
-        return not isinstance(breakdown, str) and breakdownType != "cohort"
+        return breakdown is not None and not isinstance(breakdown, str) and breakdownType != "cohort"
 
     def _get_exclusion_condition(self) -> list[ast.Expr]:
         funnelsFilter = self.context.funnelsFilter
