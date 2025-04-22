@@ -19,7 +19,31 @@ import { deleteKeysWithPrefix } from '../_tests/redis'
 
 const mockNow: jest.Mock = require('../../../src/utils/now').now as any
 
-const createResult = (options: {
+const createHogResult = (options: {
+    id: string
+    duration?: number
+    finished?: boolean
+    error?: string
+}): HogFunctionInvocationResult => {
+    return {
+        invocation: {
+            ...createInvocation({ id: options.id }),
+            id: 'invocation-id',
+            teamId: 2,
+            timings: [
+                {
+                    kind: 'hog',
+                    duration_ms: options.duration ?? 0,
+                },
+            ],
+        },
+        finished: options.finished ?? true,
+        error: options.error,
+        logs: [],
+    }
+}
+
+const createAsyncResult = (options: {
     id: string
     duration?: number
     finished?: boolean
@@ -34,6 +58,35 @@ const createResult = (options: {
                 {
                     kind: 'async_function',
                     duration_ms: options.duration ?? 0,
+                },
+            ],
+        },
+        finished: options.finished ?? true,
+        error: options.error,
+        logs: [],
+    }
+}
+
+const createMixedResult = (options: {
+    id: string
+    hogDuration?: number
+    asyncDuration?: number
+    finished?: boolean
+    error?: string
+}): HogFunctionInvocationResult => {
+    return {
+        invocation: {
+            ...createInvocation({ id: options.id }),
+            id: 'invocation-id',
+            teamId: 2,
+            timings: [
+                {
+                    kind: 'hog',
+                    duration_ms: options.hogDuration ?? 0,
+                },
+                {
+                    kind: 'async_function',
+                    duration_ms: options.asyncDuration ?? 0,
                 },
             ],
         },
@@ -99,39 +152,39 @@ describe('HogWatcher', () => {
         })
 
         const cases: [{ cost: number; state: number }, HogFunctionInvocationResult[]][] = [
-            [{ cost: 0, state: 1 }, [createResult({ id: 'id1' })]],
+            [{ cost: 0, state: 1 }, [createAsyncResult({ id: 'id1' })]],
             [
                 { cost: 0, state: 1 },
-                [createResult({ id: 'id1' }), createResult({ id: 'id1' }), createResult({ id: 'id1' })],
+                [createAsyncResult({ id: 'id1' }), createAsyncResult({ id: 'id1' }), createAsyncResult({ id: 'id1' })],
             ],
             [
                 { cost: 0, state: 1 },
                 [
-                    createResult({ id: 'id1', duration: 10 }),
-                    createResult({ id: 'id1', duration: 20 }),
-                    createResult({ id: 'id1', duration: 100 }),
+                    createAsyncResult({ id: 'id1', duration: 10 }),
+                    createAsyncResult({ id: 'id1', duration: 20 }),
+                    createAsyncResult({ id: 'id1', duration: 100 }),
                 ],
             ],
             [
                 { cost: 12, state: 1 },
                 [
-                    createResult({ id: 'id1', duration: 1000 }),
-                    createResult({ id: 'id1', duration: 1000 }),
-                    createResult({ id: 'id1', duration: 1000 }),
+                    createAsyncResult({ id: 'id1', duration: 1000 }),
+                    createAsyncResult({ id: 'id1', duration: 1000 }),
+                    createAsyncResult({ id: 'id1', duration: 1000 }),
                 ],
             ],
-            [{ cost: 20, state: 1 }, [createResult({ id: 'id1', duration: 5000 })]],
-            [{ cost: 40, state: 1 }, [createResult({ id: 'id1', duration: 10000 })]],
+            [{ cost: 20, state: 1 }, [createAsyncResult({ id: 'id1', duration: 5000 })]],
+            [{ cost: 40, state: 1 }, [createAsyncResult({ id: 'id1', duration: 10000 })]],
             [
                 { cost: 141, state: 1 },
                 [
-                    createResult({ id: 'id1', duration: 5000 }),
-                    createResult({ id: 'id1', duration: 10000 }),
-                    createResult({ id: 'id1', duration: 20000 }),
+                    createAsyncResult({ id: 'id1', duration: 5000 }),
+                    createAsyncResult({ id: 'id1', duration: 10000 }),
+                    createAsyncResult({ id: 'id1', duration: 20000 }),
                 ],
             ],
 
-            [{ cost: 100, state: 1 }, [createResult({ id: 'id1', error: 'errored!' })]],
+            [{ cost: 100, state: 1 }, [createAsyncResult({ id: 'id1', error: 'errored!' })]],
         ]
 
         it.each(cases)('should update tokens based on results %s %s', async (expectedScore, results) => {
@@ -143,7 +196,7 @@ describe('HogWatcher', () => {
         })
 
         it('should max out scores', async () => {
-            let lotsOfResults = Array(10000).fill(createResult({ id: 'id1', error: 'error!' }))
+            let lotsOfResults = Array(10000).fill(createAsyncResult({ id: 'id1', error: 'error!' }))
 
             await watcher.observeResults(lotsOfResults)
 
@@ -155,7 +208,7 @@ describe('HogWatcher', () => {
                 }
             `)
 
-            lotsOfResults = Array(10000).fill(createResult({ id: 'id2' }))
+            lotsOfResults = Array(10000).fill(createAsyncResult({ id: 'id2' }))
 
             await watcher.observeResults(lotsOfResults)
 
@@ -171,9 +224,9 @@ describe('HogWatcher', () => {
         it('should refill over time', async () => {
             hub.CDP_WATCHER_REFILL_RATE = 10
             await watcher.observeResults([
-                createResult({ id: 'id1', duration: 10000 }),
-                createResult({ id: 'id1', duration: 10000 }),
-                createResult({ id: 'id1', duration: 10000 }),
+                createAsyncResult({ id: 'id1', duration: 10000 }),
+                createAsyncResult({ id: 'id1', duration: 10000 }),
+                createAsyncResult({ id: 'id1', duration: 10000 }),
             ])
 
             expect((await watcher.getState('id1')).tokens).toMatchInlineSnapshot(`9880`)
@@ -183,8 +236,79 @@ describe('HogWatcher', () => {
             expect((await watcher.getState('id1')).tokens).toMatchInlineSnapshot(`9990`)
         })
 
+        describe('function type cost differences', () => {
+            it('should apply higher cost to hog functions than async for same duration', async () => {
+                // Same duration (300ms) but different function types
+                await watcher.observeResults([createHogResult({ id: 'hog1', duration: 300 })])
+                await watcher.observeResults([createAsyncResult({ id: 'async1', duration: 300 })])
+
+                const hogState = await watcher.getState('hog1')
+                const asyncState = await watcher.getState('async1')
+
+                // Since the implementation now uses fixed costs for both,
+                // calculate expected costs based on the ratio calculation with maximum costs
+                const hogRatio = Math.min(1, Math.max(300 - 50, 0) / (500 - 50))
+                const asyncRatio = Math.min(1, Math.max(300 - 150, 0) / (5000 - 150))
+                const hogCost = Math.round(40 * hogRatio)
+                const asyncCost = Math.round(20 * asyncRatio)
+
+                expect(10000 - hogState.tokens).toBe(hogCost)
+                expect(10000 - asyncState.tokens).toBe(asyncCost)
+                expect(10000 - hogState.tokens).toBeGreaterThan(10000 - asyncState.tokens)
+            })
+
+            it('should not apply any cost below lower bounds', async () => {
+                // Both functions below their respective lower bounds
+                await watcher.observeResults([createHogResult({ id: 'hog_min', duration: 25 })])
+                await watcher.observeResults([createAsyncResult({ id: 'async_min', duration: 100 })])
+
+                const hogState = await watcher.getState('hog_min')
+                const asyncState = await watcher.getState('async_min')
+
+                // Both should have no cost
+                expect(10000 - hogState.tokens).toBe(0)
+                expect(10000 - asyncState.tokens).toBe(0)
+            })
+
+            it('should combine costs for mixed functions properly', async () => {
+                // Test combined cost calculation for mixed functions
+                await watcher.observeResults([
+                    createMixedResult({ id: 'mixed1', hogDuration: 200, asyncDuration: 1000 }),
+                ])
+
+                const mixedState = await watcher.getState('mixed1')
+
+                // Calculate expected costs based on the ratio calculation with maximum costs
+                const hogRatio = Math.min(1, Math.max(200 - 50, 0) / (500 - 50))
+                const asyncRatio = Math.min(1, Math.max(1000 - 150, 0) / (5000 - 150))
+                const expectedHogCost = Math.round(40 * hogRatio)
+                const expectedAsyncCost = Math.round(20 * asyncRatio)
+                const expectedTotalCost = expectedHogCost + expectedAsyncCost
+
+                // Combined cost should match the sum of individual costs
+                expect(10000 - mixedState.tokens).toBe(expectedTotalCost)
+            })
+
+            it('should penalize hog functions that exceed threshold by small amounts', async () => {
+                // Test near-threshold values for hog functions
+                await watcher.observeResults([createHogResult({ id: 'hog_60', duration: 60 })])
+                await watcher.observeResults([createHogResult({ id: 'hog_80', duration: 80 })])
+                await watcher.observeResults([createHogResult({ id: 'hog_100', duration: 100 })])
+
+                // There should be a progressive, noticeable penalty even for small overages
+                const tokens60 = (await watcher.getState('hog_60')).tokens
+                const tokens80 = (await watcher.getState('hog_80')).tokens
+                const tokens100 = (await watcher.getState('hog_100')).tokens
+
+                // Ensure progressive penalties
+                expect(10000 - tokens60).toBeGreaterThan(0) // Just over threshold should have some penalty
+                expect(10000 - tokens80).toBeGreaterThan(10000 - tokens60) // Higher duration = higher penalty
+                expect(10000 - tokens100).toBeGreaterThan(10000 - tokens80) // Even higher penalty
+            })
+        })
+
         it('should remain disabled for period', async () => {
-            const badResults = Array(100).fill(createResult({ id: 'id1', error: 'error!' }))
+            const badResults = Array(100).fill(createAsyncResult({ id: 'id1', error: 'error!' }))
 
             await watcher.observeResults(badResults)
 
@@ -278,7 +402,7 @@ describe('HogWatcher', () => {
             it('count the number of times it has been disabled', async () => {
                 // Trigger the temporary disabled state 3 times
                 for (let i = 0; i < 2; i++) {
-                    await watcher.observeResults([createResult({ id: 'id1', error: 'error!' })])
+                    await watcher.observeResults([createAsyncResult({ id: 'id1', error: 'error!' })])
                     expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.disabledForPeriod)
                     await reallyAdvanceTime(1000)
                     expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.degraded)
@@ -294,7 +418,7 @@ describe('HogWatcher', () => {
                     ['id1', HogWatcherState.disabledForPeriod],
                 ])
 
-                await watcher.observeResults([createResult({ id: 'id1', error: 'error!' })])
+                await watcher.observeResults([createAsyncResult({ id: 'id1', error: 'error!' })])
                 expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.disabledIndefinitely)
                 await reallyAdvanceTime(1000)
                 expect((await watcher.getState('id1')).state).toEqual(HogWatcherState.disabledIndefinitely)

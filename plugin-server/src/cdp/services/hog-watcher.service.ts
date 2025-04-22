@@ -131,15 +131,36 @@ export class HogWatcherService {
             let cost = (costs[result.invocation.hogFunction.id] = costs[result.invocation.hogFunction.id] || 0)
 
             if (result.finished) {
-                // If it is finished we can calculate the score based off of the timings
+                // If it is finished we can calculate the score based off of the timingsi
+                // Separate the duration calculations for 'hog' and 'async_function' kinds
+                const hogDurationMs = result.invocation.timings
+                    .filter((timing) => timing.kind === 'hog')
+                    .reduce((acc, timing) => acc + timing.duration_ms, 0)
 
-                const totalDurationMs = result.invocation.timings.reduce((acc, timing) => acc + timing.duration_ms, 0)
-                const lowerBound = this.hub.CDP_WATCHER_COST_TIMING_LOWER_MS
-                const upperBound = this.hub.CDP_WATCHER_COST_TIMING_UPPER_MS
-                const costTiming = this.hub.CDP_WATCHER_COST_TIMING
-                const ratio = Math.max(totalDurationMs - lowerBound, 0) / (upperBound - lowerBound)
+                const asyncDurationMs = result.invocation.timings
+                    .filter((timing) => timing.kind === 'async_function')
+                    .reduce((acc, timing) => acc + timing.duration_ms, 0)
 
-                cost += Math.round(costTiming * ratio)
+                // Use thresholds for hog VM execution
+                if (hogDurationMs > 0) {
+                    const lowerBound = this.hub.CDP_WATCHER_COST_TIMING_LOWER_MS
+                    const upperBound = this.hub.CDP_WATCHER_COST_TIMING_UPPER_MS
+                    const costTiming = this.hub.CDP_WATCHER_COST_TIMING
+                    const ratio = Math.max(hogDurationMs - lowerBound, 0) / (upperBound - lowerBound)
+                    cost += Math.round(costTiming * ratio)
+                }
+
+                // Use more lenient thresholds for async operations (network requests)
+                if (asyncDurationMs > 0) {
+                    // For async functions, we use the specific configured values for async
+                    const asyncLowerBound = this.hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS
+                    const asyncUpperBound = this.hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS
+                    const asyncCostTiming = this.hub.CDP_WATCHER_ASYNC_COST_TIMING
+
+                    const asyncRatio =
+                        Math.max(asyncDurationMs - asyncLowerBound, 0) / (asyncUpperBound - asyncLowerBound)
+                    cost += Math.round(asyncCostTiming * asyncRatio)
+                }
             }
 
             if (result.error) {

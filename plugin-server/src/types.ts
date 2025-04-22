@@ -100,6 +100,9 @@ export type CdpConfig = {
     CDP_WATCHER_COST_TIMING: number // The max cost of a slow function
     CDP_WATCHER_COST_TIMING_LOWER_MS: number // The lower bound in ms where the timing cost is not incurred
     CDP_WATCHER_COST_TIMING_UPPER_MS: number // The upper bound in ms where the timing cost is fully incurred
+    CDP_WATCHER_ASYNC_COST_TIMING: number // The max cost of a slow async function
+    CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS: number // The lower bound in ms where the async timing cost is not incurred
+    CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS: number // The upper bound in ms where the async timing cost is fully incurred
     CDP_WATCHER_THRESHOLD_DEGRADED: number // Percentage of the bucket where we count it as degraded
     CDP_WATCHER_BUCKET_SIZE: number // The total bucket size
     CDP_WATCHER_TTL: number // The expiry for the rate limit key
