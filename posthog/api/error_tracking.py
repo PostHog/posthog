@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.core.files.uploadedfile import UploadedFile
 import structlog
 import hashlib
@@ -11,6 +13,7 @@ from django.http import JsonResponse
 from django.conf import settings
 from django.db import transaction
 
+from common.hogvm.python.operation import Operation
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
@@ -25,6 +28,7 @@ from posthog.models.error_tracking import (
 )
 from posthog.models.activity_logging.activity_log import log_activity, Detail, Change, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.error_tracking.hogvm_stl import RUST_HOGVM_STL
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
 from loginas.utils import is_impersonated_session
@@ -450,6 +454,7 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
         # The rust HogVM expects a return statement, so we wrap the compiled filter expression in one
         expr = ast.ReturnStatement(expr=expr)
         bytecode = create_bytecode(expr).bytecode
+        validate_bytecode(bytecode)
         return bytecode
 
 
@@ -495,3 +500,16 @@ def construct_js_data_object(minified: bytes, source_map: bytes) -> bytearray:
     data.extend(len(sm_bytes).to_bytes(8, "little"))
     data.extend(sm_bytes)
     return data
+
+
+def validate_bytecode(bytecode: list[Any]) -> None:
+    for i, op in enumerate(bytecode):
+        if not isinstance(op, Operation):
+            continue
+        if op == Operation.CALL_GLOBAL:
+            name = bytecode[i + 1]
+            if not isinstance(name, str):
+                raise ValidationError(f"Expected string for global function name, got {type(name)}")
+            if name not in RUST_HOGVM_STL:
+                raise ValidationError(f"Unknown global function: {name}")
+            name += 1
