@@ -161,9 +161,9 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
             continue
         }
 
-        // Extract question id from the filter key - their format is $survey_response_<question_id>, where question_id is an UUID
-        const questionId = filter.key.split('_').pop()
-        if (!questionId) {
+        // split the string '$survey_response_' and take the last part, as that's the question id
+        const questionId = filter.key.split(`${SURVEY_RESPONSE_PROPERTY}_`).at(-1)
+        if (!questionId || !survey.questions.find((question) => question.id === questionId)) {
             continue
         }
         const questionIndex = survey.questions.findIndex((question) => question.id === questionId)
