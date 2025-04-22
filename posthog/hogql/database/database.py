@@ -13,6 +13,7 @@ from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
     DateDatabaseField,
+    DecimalDatabaseField,
     DateTimeDatabaseField,
     ExpressionField,
     FieldOrTable,
@@ -28,6 +29,7 @@ from posthog.hogql.database.models import (
     Table,
     TableGroup,
     VirtualTable,
+    UnknownDatabaseField,
 )
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
@@ -286,7 +288,7 @@ class Database(BaseModel):
             self.merge_or_setattr(f_name, f_def)
 
             # No need to add TableGroups to the view table names,
-            # they're already with their chained name
+            # they're already with their chained names
             if isinstance(f_def, TableGroup):
                 continue
 
@@ -984,6 +986,8 @@ def constant_type_to_serialized_field_type(constant_type: ast.ConstantType) -> D
         return DatabaseSerializedFieldType.INTEGER
     if isinstance(constant_type, ast.FloatType):
         return DatabaseSerializedFieldType.FLOAT
+    if isinstance(constant_type, ast.DecimalType):
+        return DatabaseSerializedFieldType.DECIMAL
     return None
 
 
@@ -1044,6 +1048,15 @@ def serialize_fields(
                         schema_valid=schema_valid,
                     )
                 )
+            elif isinstance(field, DecimalDatabaseField):
+                field_output.append(
+                    DatabaseSchemaField(
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.DECIMAL,
+                        schema_valid=schema_valid,
+                    )
+                )
             elif isinstance(field, StringDatabaseField):
                 field_output.append(
                     DatabaseSchemaField(
@@ -1095,6 +1108,15 @@ def serialize_fields(
                         name=field_key,
                         hogql_value=hogql_value,
                         type=DatabaseSerializedFieldType.ARRAY,
+                        schema_valid=schema_valid,
+                    )
+                )
+            elif isinstance(field, UnknownDatabaseField):
+                field_output.append(
+                    DatabaseSchemaField(
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.UNKNOWN,
                         schema_valid=schema_valid,
                     )
                 )

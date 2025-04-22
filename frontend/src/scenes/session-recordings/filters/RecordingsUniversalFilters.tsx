@@ -402,6 +402,7 @@ const RecordingsUniversalFilterGroup = ({
                                 )}
                                 <RecordingsUniversalFilterGroup size={size} totalFiltersCount={totalFiltersCount} />
                             </div>
+                            <div className="font-semibold mb-1">Add filter:</div>
                             <UniversalFilters.PureTaxonomicFilter />
                         </UniversalFilters.Group>
                     </div>
