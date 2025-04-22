@@ -248,13 +248,13 @@ describe('HogWatcher', () => {
 
                 // Since the implementation now uses fixed costs for both,
                 // calculate expected costs based on the ratio calculation with maximum costs
-                const hogRatio = Math.min(
-                    1,
+                const hogRatio = Math.max(
+                    0,
                     Math.max(executionDuration - hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS, 0) /
                         (hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS - hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS)
                 )
-                const asyncRatio = Math.min(
-                    1,
+                const asyncRatio = Math.max(
+                    0,
                     Math.max(executionDuration - hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS, 0) /
                         (hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS - hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS)
                 )
@@ -294,13 +294,13 @@ describe('HogWatcher', () => {
                 const mixedState = await watcher.getState('mixed1')
 
                 // Calculate expected costs based on the ratio calculation with maximum costs
-                const hogRatio = Math.min(
-                    1,
+                const hogRatio = Math.max(
+                    0,
                     Math.max(hogExecutionDuration - hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS, 0) /
                         (hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS - hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS)
                 )
-                const asyncRatio = Math.min(
-                    1,
+                const asyncRatio = Math.max(
+                    0,
                     Math.max(asyncExecutionDuration - hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS, 0) /
                         (hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS - hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS)
                 )
