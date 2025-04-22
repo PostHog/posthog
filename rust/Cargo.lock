@@ -2246,6 +2246,7 @@ dependencies = [
  "metrics",
  "moka",
  "once_cell",
+ "percent-encoding",
  "petgraph",
  "rand",
  "rayon",

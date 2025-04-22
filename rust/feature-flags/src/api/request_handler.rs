@@ -20,16 +20,15 @@ use common_cookieless::{CookielessServerHashMode, EventData, TeamData};
 use common_geoip::GeoIpClient;
 use flate2::read::GzDecoder;
 use limiters::redis::ServiceName;
+use percent_encoding::percent_decode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use serde_urlencoded;
 use std::{
     collections::{HashMap, HashSet},
     io::Read,
     net::IpAddr,
     sync::Arc,
 };
-use urlencoding;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Default)]
@@ -71,12 +70,6 @@ pub struct FlagsQueryParams {
     #[serde(alias = "_")]
     pub sent_at: Option<i64>,
 }
-
-#[derive(Deserialize)]
-struct FormData {
-    data: String,
-}
-
 pub struct RequestContext {
     /// Shared state holding services (DB, Redis, GeoIP, etc.)
     pub state: State<router::State>,
@@ -437,54 +430,69 @@ fn decode_base64(body: Bytes) -> Result<Bytes, FlagError> {
     Ok(Bytes::from(decoded))
 }
 
-/// Parses an `application/x-www-form-urlencoded` body, extracting the `data` field, and decodes it.
-fn decode_form_data(
+/// Decodes form-encoded data that contains a base64-encoded JSON FlagRequest.
+/// Expects data in the format: data=<base64-encoded-json> or just <base64-encoded-json>
+pub fn decode_form_data(
     body: Bytes,
     compression: Option<Compression>,
 ) -> Result<FlagRequest, FlagError> {
-    match compression {
-        Some(Compression::Gzip) => Err(FlagError::RequestDecodingError(
-            "Gzip compression not supported for form-urlencoded data".to_string(),
-        )),
-        Some(Compression::Unsupported) => Err(FlagError::RequestDecodingError(
-            "Unsupported compression type".to_string(),
-        )),
-        Some(Compression::Base64) | None => {
-            // Parse form data into a utf-8 string
-            let form_data_str = String::from_utf8(body.to_vec()).map_err(|e| {
-                FlagError::RequestDecodingError(format!("Invalid UTF-8 in form data: {}", e))
-            })?;
+    // Convert bytes to string first so we can manipluate it
+    let form_data = String::from_utf8(body.to_vec()).map_err(|e| {
+        tracing::debug!("Invalid UTF-8 in form data: {}", e);
+        FlagError::RequestDecodingError("Invalid UTF-8 in form data".into())
+    })?;
 
-            let form: FormData = serde_urlencoded::from_str(&form_data_str).map_err(|e| {
-                FlagError::RequestDecodingError(format!("Failed to parse form data: {}", e))
-            })?;
+    // URL decode the string if needed
+    let decoded_form = percent_decode(form_data.as_bytes())
+        .decode_utf8()
+        .map_err(|e| {
+            tracing::debug!("Failed to URL decode form data: {}", e);
+            FlagError::RequestDecodingError("Failed to URL decode form data".into())
+        })?;
 
-            // URL decode first (matching Python's unquote)
-            let decoded_form = urlencoding::decode(&form.data)
-                .map_err(|e| FlagError::RequestDecodingError(format!("URL decode error: {}", e)))?
-                .into_owned();
+    // Extract base64 part, handling both with and without 'data=' prefix
+    // see https://github.com/PostHog/posthog/blob/master/posthog/utils.py#L693-L699
+    let base64_str = if decoded_form.starts_with("data=") {
+        decoded_form.split('=').nth(1).unwrap_or("")
+    } else {
+        &decoded_form
+    };
 
-            // Remove spaces only (not all whitespace)
-            let no_spaces = decoded_form.replace(' ', "");
-
-            // Add padding if necessary
-            let padded = match no_spaces.len() % 4 {
-                0 => no_spaces,
-                n => no_spaces + &"=".repeat(4 - n),
-            };
-
-            // Finally decode base64
-            let decoded = general_purpose::STANDARD.decode(&padded).map_err(|e| {
-                FlagError::RequestDecodingError(format!("Base64 decoding error: {}", e))
-            })?;
-
-            // Use from_utf8_lossy to handle invalid UTF-8 sequences (matching Python's surrogatepass)
-            let decoded_str = String::from_utf8_lossy(&decoded);
-
-            serde_json::from_str(&decoded_str)
-                .map_err(|e| FlagError::RequestDecodingError(format!("JSON parsing error: {}", e)))
-        }
+    // Remove whitespace and add padding if necessary
+    // https://github.com/PostHog/posthog/blob/master/posthog/utils.py#L701-L705
+    let mut cleaned_base64 = base64_str.replace(' ', "");
+    let padding_needed = cleaned_base64.len() % 4;
+    if padding_needed > 0 {
+        cleaned_base64.push_str(&"=".repeat(4 - padding_needed));
     }
+
+    // Handle compression if specified (we don't support gzip for form-urlencoded data)
+    let decoded = match compression {
+        Some(Compression::Gzip) => {
+            return Err(FlagError::RequestDecodingError(
+                "Gzip compression not supported for form-urlencoded data".into(),
+            ))
+        }
+        Some(Compression::Base64) | None => decode_base64(Bytes::from(cleaned_base64))?,
+        Some(Compression::Unsupported) => {
+            return Err(FlagError::RequestDecodingError(
+                "Unsupported compression type".into(),
+            ))
+        }
+    };
+
+    // Convert to UTF-8 string with utf8_lossy to handle invalid UTF-8 sequences
+    // this is equivalent to using Python's `surrogatepass`, since it just replaces
+    // unparseable characters with the Unicode replacement character (U+FFFD) instead of failing to decode the request
+    // at all.
+    // TODO add a counter for how often we do this.
+    let json_str = String::from_utf8_lossy(&decoded).into_owned();
+
+    // Parse JSON into FlagRequest
+    serde_json::from_str(&json_str).map_err(|e| {
+        tracing::debug!("failed to parse JSON: {}", e);
+        FlagError::RequestDecodingError("invalid JSON structure".into())
+    })
 }
 
 async fn handle_cookieless_distinct_id(
@@ -926,7 +934,9 @@ mod tests {
     }
 
     #[test]
-    fn test_decode_form_data_padding() {
+    fn test_decode_form_data_kludges() {
+        // see https://github.com/PostHog/posthog/blob/master/posthog/utils.py#L686-L708
+        // for the list of kludges we need to support
         let test_cases = vec![
             // No padding needed
             ("data=eyJ0b2tlbiI6InRlc3QifQ==", true),
@@ -936,6 +946,8 @@ mod tests {
             ("data=eyJ0b2tlbiI6InRlc3QifQ", true),
             // With whitespace
             ("data=eyJ0b2tlbiI6I nRlc3QifQ==", true),
+            // Missing data= prefix
+            ("eyJ0b2tlbiI6InRlc3QifQ==", true),
         ];
 
         for (input, should_succeed) in test_cases {
@@ -962,7 +974,7 @@ mod tests {
     }
 
     #[test]
-    fn test_decode_form_data_with_emojis() {
+    fn test_handle_unencoded_form_data_with_emojis() {
         let json = json!({
             "token": "test_token",
             "distinct_id": "test_id",
@@ -975,6 +987,33 @@ mod tests {
         let body = Bytes::from(format!("data={}", base64));
 
         let result = decode_form_data(body, None);
+        assert!(result.is_ok(), "Failed to decode emoji content");
+
+        let request = result.unwrap();
+        assert_eq!(request.token, Some("test_token".to_string()));
+        assert_eq!(request.distinct_id, Some("test_id".to_string()));
+
+        let person_properties = request.person_properties.unwrap();
+        assert_eq!(
+            person_properties.get("bio").unwrap(),
+            &Value::String("Hello 👋 World 🌍".to_string())
+        );
+    }
+
+    #[test]
+    fn test_decode_base64_encoded_form_data_with_emojis() {
+        let json = json!({
+            "token": "test_token",
+            "distinct_id": "test_id",
+            "person_properties": {
+                "bio": "Hello 👋 World 🌍"
+            }
+        });
+
+        let base64 = general_purpose::STANDARD.encode(json.to_string());
+        let body = Bytes::from(format!("data={}", base64));
+
+        let result = decode_form_data(body, Some(Compression::Base64));
         assert!(result.is_ok(), "Failed to decode emoji content");
 
         let request = result.unwrap();
@@ -1019,8 +1058,6 @@ mod tests {
     #[test]
     fn test_decode_form_data_malformed_input() {
         let test_cases = vec![
-            // Missing data= prefix
-            "eyJ0b2tlbiI6InRlc3QifQ==",
             // Invalid base64
             "data=!@#$%",
             // Valid base64 but invalid JSON
