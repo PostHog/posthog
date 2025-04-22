@@ -42,17 +42,21 @@ BEGIN
 END $$;
 `
 
+export const POSTGRES_DELETE_PRE_PERSON_TABLES_QUERY = `
+DO $$
+BEGIN
+    DELETE FROM posthog_featureflaghashkeyoverride CASCADE;
+    DELETE FROM posthog_cohortpeople CASCADE;
+    DELETE FROM posthog_cohort CASCADE;
+    DELETE FROM posthog_featureflag CASCADE;
+END $$;
+`
+
 export const POSTGRES_DELETE_OTHER_TABLES_QUERY = `
 DO $$
 DECLARE
     r RECORD;
 BEGIN
-    -- Delete from tables in order of dependencies
-    DELETE FROM posthog_featureflaghashkeyoverride CASCADE;
-    DELETE FROM posthog_cohortpeople CASCADE;
-    DELETE FROM posthog_cohort CASCADE;
-    DELETE FROM posthog_featureflag CASCADE;
-
     -- Then handle remaining tables
     FOR r IN (
         SELECT tablename
@@ -73,6 +77,14 @@ export async function resetTestDatabase(
 ): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }
     const db = new PostgresRouter(config)
+
+    // Delete pre-person tables using COMMON_WRITE
+    await db
+        .query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_PRE_PERSON_TABLES_QUERY, undefined, 'delete-pre-person-tables')
+        .catch((e) => {
+            console.error('Error deleting pre-person tables', e)
+            throw e
+        })
 
     // Delete person tables using PERSONS_WRITE
     await db
