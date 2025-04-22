@@ -2257,7 +2257,6 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
- "serde_urlencoded",
  "sha1",
  "sqlx",
  "strum",
