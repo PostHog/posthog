@@ -3,7 +3,7 @@ import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { useState } from 'react'
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightsWrapper } from 'scenes/insights/InsightsWrapper/InsightsWrapper'
+import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 

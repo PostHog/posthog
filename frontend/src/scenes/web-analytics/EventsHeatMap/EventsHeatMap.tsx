@@ -4,7 +4,7 @@ import { useValues } from 'kea'
 import React, { useCallback, useEffect, useState } from 'react'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
-import { InsightsWrapper } from 'scenes/insights/InsightsWrapper/InsightsWrapper'
+import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 
 import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
