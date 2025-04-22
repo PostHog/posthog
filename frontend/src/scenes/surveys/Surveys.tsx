@@ -26,6 +26,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
 import { SceneExport } from 'scenes/sceneTypes'
+import { isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -330,7 +331,7 @@ export function Surveys(): JSX.Element {
                                                                     Launch survey
                                                                 </LemonButton>
                                                             )}
-                                                            {survey.start_date && !survey.end_date && (
+                                                            {isSurveyRunning(survey) && (
                                                                 <LemonButton
                                                                     fullWidth
                                                                     onClick={() => {

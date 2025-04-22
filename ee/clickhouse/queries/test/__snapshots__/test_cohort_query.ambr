@@ -592,7 +592,7 @@
 # ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.2
   '''
-  
+  /* cohort_calculation: */
   SELECT id
   FROM person
   WHERE team_id = 99999

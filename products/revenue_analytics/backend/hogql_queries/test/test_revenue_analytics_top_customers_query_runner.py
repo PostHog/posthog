@@ -1,5 +1,6 @@
 from freezegun import freeze_time
 from pathlib import Path
+from decimal import Decimal
 
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
     RevenueAnalyticsTopCustomersQueryRunner,
@@ -12,6 +13,7 @@ from posthog.schema import (
     DateRange,
     RevenueAnalyticsTopCustomersQuery,
     RevenueAnalyticsTopCustomersQueryResponse,
+    RevenueAnalyticsTopCustomersGroupBy,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -32,7 +34,7 @@ TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.top_customers_query
 
 @snapshot_clickhouse_queries
 class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTest):
-    QUERY_TIMESTAMP = "2025-02-15"
+    QUERY_TIMESTAMP = "2025-04-21"
 
     def setUp(self):
         super().setUp()
@@ -89,13 +91,21 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.cleanUpCustomersFilesystem()
         super().tearDown()
 
-    def _run_revenue_analytics_top_customers_query(self):
+    def _run_revenue_analytics_top_customers_query(
+        self,
+        *,
+        date_range: DateRange | None = None,
+        group_by: RevenueAnalyticsTopCustomersGroupBy | None = None,
+    ):
+        if date_range is None:
+            date_range: DateRange = DateRange(date_from="all")
+
+        if group_by is None:
+            group_by: RevenueAnalyticsTopCustomersGroupBy = "month"
+
         with freeze_time(self.QUERY_TIMESTAMP):
-            query = RevenueAnalyticsTopCustomersQuery(dateRange=DateRange(date_from="-30d"))
-            runner = RevenueAnalyticsTopCustomersQueryRunner(
-                team=self.team,
-                query=query,
-            )
+            query = RevenueAnalyticsTopCustomersQuery(dateRange=date_range, groupBy=group_by)
+            runner = RevenueAnalyticsTopCustomersQueryRunner(team=self.team, query=query)
 
             response = runner.calculate()
             RevenueAnalyticsTopCustomersQueryResponse.model_validate(response)
@@ -120,3 +130,26 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         # Mostly interested in the number of results
         # but also the query snapshot is more important than the results
         self.assertEqual(len(results), 16)
+
+    def test_with_data_and_limited_date_range(self):
+        results = self._run_revenue_analytics_top_customers_query(
+            date_range=DateRange(date_from="2025-02-03", date_to="2025-03-04"),
+        ).results
+
+        self.assertEqual(len(results), 9)
+
+    def test_with_data_group_by_all(self):
+        results = self._run_revenue_analytics_top_customers_query(group_by="all").results
+
+        # Only one entry for each customer, sorted by ID
+        results = sorted(results, key=lambda x: x[1])
+        self.assertEqual(
+            results,
+            [
+                ("John Doe", "cus_1", Decimal("480.34"), "all"),
+                ("Jane Doe", "cus_2", Decimal("725.6066001453"), "all"),
+                ("John Smith", "cus_3", Decimal("247.8088762801"), "all"),
+                ("Jane Smith", "cus_4", Decimal("570.4584866436"), "all"),
+                ("John Doe Jr", "cus_5", Decimal("399.8994324913"), "all"),
+            ],
+        )

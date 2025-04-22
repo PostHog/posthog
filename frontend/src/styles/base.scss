@@ -335,15 +335,30 @@
     // Used for interactive elements and highlights, inputs, toggles, charts, etc.
     // //////////////////////////////////////////////////////////
     --accent: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
+    --accent-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        var(--primitive-posthog-brand-yellow-lightness)
+    );
     --accent-hover: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 10%)
     );
+    --accent-hover-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        calc(var(--primitive-posthog-brand-yellow-lightness) + 10%)
+    );
     --accent-active: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 15%)
+    );
+    --accent-active-inverted: hsl(
+        var(--primitive-posthog-brand-yellow-hue),
+        var(--primitive-posthog-brand-yellow-saturation),
+        calc(var(--primitive-posthog-brand-yellow-lightness) + 15%)
     );
     --accent-highlight-primary: hsla(
         var(--brand-primary-hue),
@@ -780,15 +795,30 @@
     // Accent colors (dark mode)
     // //////////////////////////////////////////////////////////
     --accent: hsl(var(--brand-primary-hue), var(--brand-primary-saturation), var(--brand-primary-lightness));
+    --accent-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        var(--primitive-posthog-brand-orange-lightness)
+    );
     --accent-hover: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 10%)
     );
+    --accent-hover-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        calc(var(--primitive-posthog-brand-orange-lightness) + 10%)
+    );
     --accent-active: hsl(
         var(--brand-primary-hue),
         var(--brand-primary-saturation),
         calc(var(--brand-primary-lightness) + 15%)
+    );
+    --accent-active-inverted: hsl(
+        var(--primitive-posthog-brand-orange-hue),
+        var(--primitive-posthog-brand-orange-saturation),
+        calc(var(--primitive-posthog-brand-orange-lightness) + 15%)
     );
 
     // Used for highlighting search results, and other subtle accent sitations

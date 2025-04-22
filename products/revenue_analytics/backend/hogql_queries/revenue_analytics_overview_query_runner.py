@@ -68,7 +68,7 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner):
                 ),
             ],
             select_from=ast.JoinExpr(table=charge_subquery),
-            where=self.where_clause(),
+            where=self.timestamp_where_clause(),
         )
 
     def calculate(self):

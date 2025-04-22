@@ -3,7 +3,6 @@ from collections.abc import Generator
 from django.conf import settings
 import anthropic
 from anthropic.types import MessageParam, TextBlockParam, ThinkingConfigEnabledParam
-from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -44,13 +43,6 @@ class AnthropicProvider:
         if model_id not in AnthropicConfig.SUPPORTED_MODELS:
             raise ValueError(f"Model {model_id} is not supported")
 
-    def validate_messages(self, messages: list[dict[str, Any]]) -> None:
-        if not messages:
-            raise ValueError("Messages list cannot be empty")
-        for msg in messages:
-            if "role" not in msg or "content" not in msg:
-                raise ValueError("Each message must contain 'role' and 'content' fields")
-
     @classmethod
     def get_api_key(cls) -> str:
         api_key = settings.ANTHROPIC_API_KEY
@@ -58,7 +50,7 @@ class AnthropicProvider:
             raise ValueError("ANTHROPIC_API_KEY is not set in environment or settings")
         return api_key
 
-    def prepare_messages_with_cache_control(self, messages: list[dict[str, Any]]) -> list[MessageParam]:
+    def prepare_messages_with_cache_control(self, messages: list[MessageParam]) -> list[MessageParam]:
         """
         Prepare messages with cache control for supported models.
         Marks the latest and second-to-last user messages as ephemeral.
@@ -72,30 +64,34 @@ class AnthropicProvider:
             if index in [last_user_msg_index, second_last_msg_user_index]:
                 # Handle both string content and list of content blocks
                 if isinstance(message["content"], str):
-                    prepared_message = {
-                        **message,
-                        "content": [
-                            {"type": "text", "text": message["content"], "cache_control": {"type": "ephemeral"}}
-                        ],
-                    }
+                    prepared_message = MessageParam(
+                        content=[{"type": "text", "text": message["content"], "cache_control": {"type": "ephemeral"}}],
+                        role=message["role"],
+                    )
                 else:
                     # Handle content that's already a list of blocks
                     content_blocks = []
-                    for i, content_block in enumerate(message["content"]):
-                        if i == len(message["content"]) - 1:
+                    content = list(message["content"])  # Convert iterable to list for len()
+                    for i, content_block in enumerate(content):
+                        if i == len(content) - 1:
                             # Add cache control to the last block
-                            content_blocks.append({**content_block, "cache_control": {"type": "ephemeral"}})
+                            content_blocks.append(
+                                {
+                                    **dict(content_block),  # Convert to dict for unpacking
+                                    "cache_control": {"type": "ephemeral"},
+                                }
+                            )
                         else:
-                            content_blocks.append(content_block)
-                    prepared_message = {**message, "content": content_blocks}
+                            content_blocks.append(dict(content_block))  # Convert to dict
+                    prepared_message = MessageParam(content=content_blocks, role=message["role"])  # type: ignore
             else:
-                prepared_message = message
-            prepared_messages.append(MessageParam(content=prepared_message["content"], role=prepared_message["role"]))
+                prepared_message = MessageParam(content=message["content"], role=message["role"])
+            prepared_messages.append(prepared_message)
 
         return prepared_messages
 
     def stream_response(
-        self, system: str, messages: list[dict[str, Any]], thinking: bool = False
+        self, system: str, messages: list[MessageParam], thinking: bool = False
     ) -> Generator[str, None]:
         """
         Async generator function that yields SSE formatted data

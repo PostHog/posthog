@@ -6,7 +6,7 @@ import posthoganalytics
 import structlog
 from django.conf import settings
 from django.db import connection, models
-from django.db.models import Case, Q, When, QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
 
 from django.utils import timezone
@@ -218,7 +218,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def calculate_people_ch(self, pending_version: int, *, initiating_user_id: Optional[int] = None):
         from posthog.models.cohort.util import recalculate_cohortpeople
-        from posthog.tasks.calculate_cohort import clear_stale_cohort
 
         use_hogql_cohorts = posthoganalytics.feature_enabled(
             "enable_hogql_cohort_calculation",
@@ -273,8 +272,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             version=pending_version,
             duration=(time.monotonic() - start_time),
         )
-
-        clear_stale_cohort.delay(self.pk, before_version=pending_version)
 
     def insert_users_by_list(self, items: list[str], *, team_id: Optional[int] = None) -> None:
         """
@@ -400,13 +397,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             capture_exception(err)
 
     __repr__ = sane_repr("id", "name", "last_calculation")
-
-
-def get_and_update_pending_version(cohort: Cohort):
-    cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
-    cohort.save(update_fields=["pending_version"])
-    cohort.refresh_from_db()
-    return cohort.pending_version
 
 
 class CohortPeople(models.Model):
