@@ -96,7 +96,7 @@ export function DeltaChart({
         return HORIZONTAL_PADDING + percentage * (VIEW_BOX_WIDTH - 2 * HORIZONTAL_PADDING)
     }
 
-    // Panel width defined in utility classes: w-1/5
+    const metricTitlePanelWidth = '20%'
 
     const ticksSvgRef = useRef<SVGSVGElement>(null)
     const chartSvgRef = useRef<SVGSVGElement>(null)
@@ -105,8 +105,8 @@ export function DeltaChart({
     // based on their viewBox and the viewport size, making it challenging
     // to match their effective rendered heights with regular div elements.
     // Use underscore prefix to indicate these state variables are used indirectly
-    const [, setTicksSvgHeight] = useState<number>(0)
-    const [, setChartSvgHeight] = useState<number>(0)
+    const [ticksSvgHeight, setTicksSvgHeight] = useState<number>(0)
+    const [chartSvgHeight, setChartSvgHeight] = useState<number>(0)
 
     useEffect(() => {
         const ticksSvg = ticksSvgRef.current
@@ -138,13 +138,19 @@ export function DeltaChart({
     return (
         <div className="rounded bg-[var(--bg-table)]">
             {/* Metric title panel */}
-            <div className="inline-align-top w-1/5">
-                {isFirstMetric && <svg className="h-full" />}
+            {/* eslint-disable-next-line react/forbid-dom-props */}
+            <div style={{ width: metricTitlePanelWidth, verticalAlign: 'top', display: 'inline-block' }}>
+                {isFirstMetric && (
+                    <svg
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ height: `${ticksSvgHeight}px` }}
+                    />
+                )}
                 {isFirstMetric && <div className="w-full border-t border-primary" />}
                 <div
-                    className="p-2 border-r h-full"
                     // eslint-disable-next-line react/forbid-dom-props
-                    style={{ borderColor: colors.BOUNDARY_LINES }} // Dynamic color from theme
+                    style={{ height: `${chartSvgHeight}px`, borderRight: `1px solid ${colors.BOUNDARY_LINES}` }}
+                    className="p-2"
                 >
                     <MetricHeader
                         metricIndex={metricIndex}
@@ -155,7 +161,7 @@ export function DeltaChart({
                 </div>
             </div>
             {/* SVGs container */}
-            <div className="inline-align-top min-w-[780px] w-4/5">
+            <div className="inline-block align-top min-w-[780px] w-4/5">
                 {/* Ticks */}
                 {isFirstMetric && (
                     <div className="flex justify-center">
