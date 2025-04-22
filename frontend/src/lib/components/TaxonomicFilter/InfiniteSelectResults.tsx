@@ -2,26 +2,17 @@ import { LemonTag } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import {
-    TaxonomicFilterGroupType,
-    TaxonomicFilterLogicProps,
-    TooltipOffset,
-} from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { cn } from 'lib/utils/css-classes'
 
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
-// Number of taxonomic groups after which we switch to vertical layout by default
-const VERTICAL_LAYOUT_THRESHOLD = 4
-
 export interface InfiniteSelectResultsProps {
     focusInput: () => void
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
     popupAnchorElement: HTMLDivElement | null
-    useVerticalLayout?: boolean
-    tooltipOffset?: TooltipOffset
 }
 
 function CategoryPill({
@@ -75,11 +66,16 @@ export function InfiniteSelectResults({
     focusInput,
     taxonomicFilterLogicProps,
     popupAnchorElement,
-    useVerticalLayout: useVerticalLayoutProp,
-    tooltipOffset,
 }: InfiniteSelectResultsProps): JSX.Element {
-    const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
-        useValues(taxonomicFilterLogic)
+    const {
+        activeTab,
+        taxonomicGroups,
+        taxonomicGroupTypes,
+        activeTaxonomicGroup,
+        value,
+        hasMultipleGroups,
+        hasVerticalLayout,
+    } = useValues(taxonomicFilterLogic)
 
     const openTab = activeTab || taxonomicGroups[0].type
     const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: openTab })
@@ -89,13 +85,6 @@ export function InfiniteSelectResults({
     const { totalListCount, items } = useValues(logic)
 
     const RenderComponent = activeTaxonomicGroup?.render
-
-    const hasMultipleGroups = taxonomicGroupTypes.length > 1
-
-    const useVerticalLayout =
-        useVerticalLayoutProp !== undefined
-            ? useVerticalLayoutProp
-            : taxonomicGroupTypes.length > VERTICAL_LAYOUT_THRESHOLD
 
     const listComponent = RenderComponent ? (
         <RenderComponent
@@ -110,21 +99,18 @@ export function InfiniteSelectResults({
                     {taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}
                 </div>
             )}
-            <InfiniteList
-                popupAnchorElement={popupAnchorElement}
-                tooltipOffset={useVerticalLayout ? tooltipOffset : {}}
-            />
+            <InfiniteList popupAnchorElement={popupAnchorElement} />
         </>
     )
 
     const showEmptyState = totalListCount === 0 && taxonomicFilterGroupTypesWithEmptyStates.includes(openTab)
 
     return (
-        <div className={cn('flex h-full', useVerticalLayout ? 'flex-row' : 'flex-col')}>
+        <div className={cn('flex h-full', hasVerticalLayout ? 'flex-row' : 'flex-col')}>
             {hasMultipleGroups && (
                 <div
                     className={cn(
-                        useVerticalLayout ? 'border-r pr-2 mr-2 flex-shrink-0' : 'border-b mb-2',
+                        hasVerticalLayout ? 'border-r pr-2 mr-2 flex-shrink-0' : 'border-b mb-2',
                         'border-primary'
                     )}
                 >
@@ -132,7 +118,7 @@ export function InfiniteSelectResults({
                     <div
                         className={cn(
                             'taxonomic-pills flex',
-                            useVerticalLayout ? 'flex-col gap-1' : 'gap-0.5 flex-wrap'
+                            hasVerticalLayout ? 'flex-col gap-1' : 'gap-0.5 flex-wrap'
                         )}
                     >
                         {taxonomicGroupTypes.map((groupType) => {

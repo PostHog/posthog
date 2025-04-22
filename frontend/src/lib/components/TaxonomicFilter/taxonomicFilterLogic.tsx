@@ -54,6 +54,9 @@ import {
 import { InlineHogQLEditor } from './InlineHogQLEditor'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
+// Number of taxonomic groups after which we switch to vertical layout by default
+const VERTICAL_LAYOUT_THRESHOLD = 4
+
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
         if (CORE_FILTER_DEFINITIONS_BY_GROUP.events[eventDefinition.name]) {
@@ -160,7 +163,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             },
         ],
     })),
-    selectors({
+    selectors(({ props }) => ({
         selectedItemMeta: [() => [(_, props) => props.filter], (filter) => filter],
         taxonomicFilterLogicKey: [
             (_, p) => [p.taxonomicFilterLogicKey],
@@ -184,6 +187,16 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         propertyAllowList: [
             () => [(_, props) => props.propertyAllowList],
             (propertyAllowList) => propertyAllowList as TaxonomicFilterLogicProps['propertyAllowList'],
+        ],
+
+        hasMultipleGroups: [(s) => [s.taxonomicGroupTypes], (taxonomicGroupTypes) => taxonomicGroupTypes.length > 1],
+        hasVerticalLayout: [
+            (s) => [s.taxonomicGroupTypes],
+            (taxonomicGroupTypes) => {
+                return props.useVerticalLayout != null
+                    ? props.useVerticalLayout
+                    : taxonomicGroupTypes.length > VERTICAL_LAYOUT_THRESHOLD
+            },
         ],
         taxonomicGroups: [
             (s) => [
@@ -680,7 +693,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     .join('')
             },
         ],
-    }),
+    })),
     listeners(({ actions, values, props }) => ({
         selectItem: ({ group, value, item, originalQuery }) => {
             if (item) {

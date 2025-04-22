@@ -14,7 +14,6 @@ import {
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
-    TooltipOffset,
 } from 'lib/components/TaxonomicFilter/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
@@ -577,15 +576,14 @@ function DefinitionEdit(): JSX.Element {
     )
 }
 
-function handleTooltipOffset(tooltipOffset?: TooltipOffset): Middleware {
+function adjustOffset(): Middleware {
     return {
         name: 'adjustForSidebar',
         async fn({ placement, x }: MiddlewareState) {
-            if (tooltipOffset?.left != null && placement.startsWith('left')) {
-                // Shift the tooltip further left to clear the sidebar
-                return { x: x - tooltipOffset.left }
-            } else if (tooltipOffset?.right != null && placement.startsWith('right')) {
-                return { x: x + tooltipOffset.right }
+            if (placement.startsWith('left')) {
+                return { x: x - 201 }
+            } else if (placement.startsWith('right')) {
+                return { x: x + 13 }
             }
 
             return {}
@@ -598,7 +596,7 @@ interface ControlledDefinitionPopoverContentsProps {
     item: TaxonomicDefinitionTypes
     group: TaxonomicFilterGroup
     highlightedItemElement: HTMLDivElement | null
-    tooltipOffset?: TooltipOffset
+    hasVerticalLayout: boolean
 }
 
 export function ControlledDefinitionPopover({
@@ -606,7 +604,7 @@ export function ControlledDefinitionPopover({
     item,
     group,
     highlightedItemElement,
-    tooltipOffset,
+    hasVerticalLayout,
 }: ControlledDefinitionPopoverContentsProps): JSX.Element | null {
     const { state, singularType, definition } = useValues(definitionPopoverLogic)
     const { setDefinition } = useActions(definitionPopoverLogic)
@@ -654,7 +652,7 @@ export function ControlledDefinitionPopover({
             fallbackPlacements={['left']}
             middleware={[
                 hide(), // Hide the definition popover when the reference is off-screen
-                handleTooltipOffset(tooltipOffset),
+                ...(hasVerticalLayout ? [adjustOffset()] : []), // Shift the definition popover further left to clear the categories sidebar
             ]}
         />
     )

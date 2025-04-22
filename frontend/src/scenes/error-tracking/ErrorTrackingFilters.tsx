@@ -79,6 +79,7 @@ const UniversalSearch = (): JSX.Element => {
         onEnter: onClose,
         autoSelectItem: false,
         initialSearchQuery: searchQuery,
+        useVerticalLayout: true,
     }
 
     return (
@@ -89,7 +90,6 @@ const UniversalSearch = (): JSX.Element => {
                         focusInput={() => searchInputRef.current?.focus()}
                         taxonomicFilterLogicProps={taxonomicFilterLogicProps}
                         popupAnchorElement={floatingRef.current}
-                        useVerticalLayout={true}
                     />
                 }
                 matchWidth

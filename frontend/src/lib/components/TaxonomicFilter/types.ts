@@ -20,8 +20,6 @@ export interface SimpleOption {
 
 export type ExcludedProperties = { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
 
-export type TooltipOffset = { left?: number; right?: number }
-
 export interface TaxonomicFilterProps {
     groupType?: TaxonomicFilterGroupType
     value?: TaxonomicFilterValue
@@ -53,10 +51,8 @@ export interface TaxonomicFilterProps {
      * When undefined (default), vertical/columnar layout is automatically used when there are more than VERTICAL_LAYOUT_THRESHOLD (4) groups.
      * Set to true to force vertical/columnar layout, or false to force horizontal layout.
      */
-    useVerticalLayout?: boolean
+    useVerticalLayout?: boolean | null
     initialSearchQuery?: string
-    /** Left and right offsets of definition tooltips in vertical layout. */
-    tooltipOffset?: TooltipOffset
 }
 
 export interface DataWarehousePopoverField {
