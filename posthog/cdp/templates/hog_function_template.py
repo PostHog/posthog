@@ -33,7 +33,7 @@ HogFunctionTemplateType = Literal[
 ]
 
 
-HogFunctionTemplateKind = Literal["messaging_campaign", "messaging_template"]
+HogFunctionTemplateKind = Literal["messaging_campaign"]
 
 
 @dataclasses.dataclass(frozen=True)
