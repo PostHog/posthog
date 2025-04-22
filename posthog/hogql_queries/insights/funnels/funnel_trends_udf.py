@@ -80,7 +80,12 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelTrends):
         else:
             fn = "aggregate_funnel_trends"
 
-        prop_selector = "prop_basic" if self.context.breakdown else self._default_breakdown_selector()
+        if not self.context.breakdown:
+            prop_selector = self._default_breakdown_selector()
+        elif self._query_has_array_breakdown():
+            prop_selector = "arrayMap(x -> ifNull(x, ''), prop_basic)"
+        else:
+            prop_selector = "ifNull(prop_basic, '')"
 
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 

@@ -120,7 +120,12 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         else:
             fn = "aggregate_funnel"
 
-        prop_selector = "prop_basic" if self.context.breakdown else self._default_breakdown_selector()
+        if not self.context.breakdown:
+            prop_selector = self._default_breakdown_selector()
+        elif self._query_has_array_breakdown():
+            prop_selector = "arrayMap(x -> ifNull(x, ''), prop_basic)"
+        else:
+            prop_selector = "ifNull(prop_basic, '')"
 
         prop_vals = self._prop_vals()
 
