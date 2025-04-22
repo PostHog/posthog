@@ -141,7 +141,7 @@ export class HogWatcherService {
                     .filter((timing) => timing.kind === 'async_function')
                     .reduce((acc, timing) => acc + timing.duration_ms, 0)
 
-                // Use thresholds for hog VM execution
+                // Use thresholds for hog kind execution
                 if (hogDurationMs > 0) {
                     const lowerBound = this.hub.CDP_WATCHER_COST_TIMING_LOWER_MS
                     const upperBound = this.hub.CDP_WATCHER_COST_TIMING_UPPER_MS
@@ -150,9 +150,8 @@ export class HogWatcherService {
                     cost += Math.round(costTiming * ratio)
                 }
 
-                // Use more lenient thresholds for async operations (network requests)
+                // Use more lenient thresholds for async kind (network requests)
                 if (asyncDurationMs > 0) {
-                    // For async functions, we use the specific configured values for async
                     const asyncLowerBound = this.hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS
                     const asyncUpperBound = this.hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS
                     const asyncCostTiming = this.hub.CDP_WATCHER_ASYNC_COST_TIMING
