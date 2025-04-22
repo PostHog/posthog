@@ -544,6 +544,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                   icon: <IconPiggyBank />,
                                   to: urls.revenueAnalytics(),
                                   tag: 'beta' as const,
+                                  tooltipDocLink: 'https://posthog.com/docs/web-analytics/revenue-tracking',
                               }
                             : null,
                         {
