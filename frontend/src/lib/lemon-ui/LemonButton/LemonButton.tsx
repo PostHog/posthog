@@ -75,6 +75,7 @@ export interface LemonButtonPropsBase
 
 export type SideAction = Pick<
     LemonButtonProps,
+    | 'id'
     | 'onClick'
     | 'to'
     | 'loading'

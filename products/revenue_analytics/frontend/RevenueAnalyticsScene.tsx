@@ -1,5 +1,5 @@
 import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonDivider, Link, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -85,6 +85,15 @@ export function RevenueAnalyticsSceneContent(): JSX.Element {
 
     return (
         <div>
+            <LemonBanner
+                type="info"
+                dismissKey="revenue-analytics-beta"
+                className="mb-2"
+                action={{ children: 'Send feedback', id: 'revenue-analytics-feedback-button' }}
+            >
+                Revenue Analytics is in beta. Please let us know what you'd like to see here and/or report any issues
+                directly to us!
+            </LemonBanner>
             <div
                 className={cn(
                     'sticky z-20 bg-primary border-b py-2',
