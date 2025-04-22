@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { BatchConsumer, startBatchConsumer } from '../kafka/batch-consumer'
+import { KafkaConsumer } from '../kafka/batch-consumer-v2'
 import { createRdConnectionConfigFromEnvVars } from '../kafka/config'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
@@ -92,8 +93,7 @@ export class IngestionConsumer {
     protected dlqTopic: string
     protected overflowTopic?: string
     protected testingTopic?: string
-
-    batchConsumer?: BatchConsumer
+    protected kafkaConsumer: KafkaConsumer
     isStopping = false
     protected heartbeat = () => {}
     protected promises: Set<Promise<any>> = new Set()
@@ -140,6 +140,11 @@ export class IngestionConsumer {
 
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
+
+        this.kafkaConsumer = new KafkaConsumer({
+            groupId: this.groupId,
+            topic: this.topic,
+        })
     }
 
     public get service(): PluginServerService {
@@ -147,7 +152,6 @@ export class IngestionConsumer {
             id: this.name,
             onShutdown: async () => await this.stop(),
             healthcheck: () => this.isHealthy() ?? false,
-            batchConsumer: this.batchConsumer,
         }
     }
 
@@ -177,7 +181,7 @@ export class IngestionConsumer {
 
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
         logger.info('🔁', `${this.name} - stopping batch consumer`)
-        await this.batchConsumer?.stop()
+        await this.kafkaConsumer?.disconnect()
         logger.info('🔁', `${this.name} - stopping kafka producer`)
         await this.kafkaProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping kafka overflow producer`)
@@ -188,7 +192,7 @@ export class IngestionConsumer {
     }
 
     public isHealthy() {
-        return this.batchConsumer?.isHealthy()
+        return this.kafkaConsumer?.isHealthy()
     }
 
     private scheduleWork<T>(promise: Promise<T>): Promise<T> {
