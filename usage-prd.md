@@ -307,30 +307,17 @@ This approach was chosen over alternatives that attempted to leverage the existi
 
 ### Component Structure
 
-The implementation consists of these core components:
+The implementation now utilizes shared components for consistency:
 
-1. **billingUsageLogic**: Kea logic for state management and API interaction
-   - Uses shared default filter settings
-   - Auto-loads data on mount
-   - Manages filters, date ranges, and data fetching
-
-2. **BillingLineGraph**: Chart.js-based visualization component (within `BillingUsage.tsx`)
-   - Renders time-series data
-   - Supports series toggling
-   - Provides interactive tooltips
-
-3. **LemonTable implementation**: Table view for detailed data
-   - Shows values for all dates
-   - Supports sorting by columns
-   - Includes toggles for series visibility
-   - Shows totals next to series names
-
-4. **Filter Controls**: LemonUI components for data filtering
-   - Usage type selector
-   - Breakdown options
-   - Date range picker
-   - Interval selector
-   - Compare toggle
+1.  **`billingUsageLogic` / `billingSpendLogic`**: Kea logics for state management and API interaction.
+    - Manage filter state (usage type, breakdown, interval, compare, date range).
+    - Handle API calls via loaders to fetch data (`/api/billing/usage/` or `/api/billing/spend/`).
+    - Provide processed data (`series`, `dates`) to the UI via selectors.
+    - Auto-load data on mount and when filters change.
+2.  **`BillingLineGraph`**: A shared Chart.js-based visualization component (extracted from `BillingUsage`/`BillingSpendView`). Handles rendering time-series data, custom tooltips (sorted, custom style), and optional legend.
+3.  **`BillingDataTable`**: A shared LemonTable-based component (extracted from `BillingUsage`/`BillingSpendView`). Handles displaying detailed series data, toggling visibility, default sorting by total, and series color indicators.
+4.  **`BillingUsage` / `BillingSpendView`**: Parent components that connect to their respective Kea logic, orchestrate filters, and pass data/actions to the shared graph and table components.
+5.  **Filter Controls**: LemonUI components for data filtering (Usage type, Breakdown, Date range, Interval, Compare).
 
 ### User Experience
 
@@ -345,28 +332,14 @@ The implementation consists of these core components:
 
 ### Frontend Implementation
 
-When modifying or extending the billing usage visualization:
+When modifying or extending the billing usage/spend visualization:
 
-1. **Continue with BillingUsage.tsx approach**:
-   - Refer to this component as the canonical implementation
-   - Extend this component rather than other variations
-   - Maintain the direct Chart.js approach
-
-2. **CSS and Styling**:
-   - Follow the established pattern with a separate SCSS file (`BillingUsage.scss`)
-   - Use CSS variables for colors
-   - Leverage Tailwind classes where appropriate
-   - Avoid inline styles
-
-3. **State Management**:
-   - Use billingUsageLogic for all data and filter state
-   - Keep local state in React for UI-only concerns (like hiddenSeries)
-   - Maintain the clear separation of logic and presentation
-
-4. **Component Structure**:
-   - Keep the BillingLineGraph as a separate component
-   - Maintain the pattern of extracting complex rendering logic
-   - Extract reusable helper functions and components
+1.  **Utilize Shared Components**: Modifications to the graph or table should primarily happen within `BillingLineGraph.tsx` or `BillingDataTable.tsx`.
+2.  **Parent Component Logic**: `BillingUsage.tsx` and `BillingSpendView.tsx` manage filters and integrate the shared components.
+3.  **State Management**: All state related to filters and fetched data must reside within the corresponding Kea logic (`billingUsageLogic` or `billingSpendLogic`). Avoid local React state (`useState`) for data or filters.
+4.  **CSS and Styling**:
+    - Main styles are in `BillingUsage.scss` (used by both views currently).
+    - Shared components use standard LemonUI/Tailwind patterns.
 
 ## Data Flow in Frontend
 

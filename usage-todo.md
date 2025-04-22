@@ -99,6 +99,9 @@ After exploring multiple approaches, we've decided to standardize on the impleme
 - [x] Ensure auto-loading of data with default filters on component mount
 
 ### Step 13: Complete BillingUsage Implementation
+- [x] Refactored graph and table into shared `BillingLineGraph.tsx` and `BillingDataTable.tsx` components.
+- [x] Implemented custom tooltip with sorting in `BillingLineGraph`.
+- [x] Added default sorting and improved series display in `BillingDataTable`.
 - [ ] Review and optimize BillingUsage implementation (formerly BillingUsage4)
 - [ ] Ensure all needed features are properly implemented
 - [ ] Clean up unnecessary code and optimize performance
