@@ -1,95 +1,23 @@
-import { IconActivity, IconClock, IconGraph, IconMinus, IconTrending } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonModal, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
+import { IconGraph } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { NodeKind } from '~/queries/schema/schema-general'
-import { InsightType, TrendExperimentVariant } from '~/types'
+import { InsightType } from '~/types'
 
-import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
-import { ExploreButton, ResultsQuery, VariantTag } from '../ExperimentView/components'
-import { SignificanceText, WinningVariantText } from '../ExperimentView/Overview'
-import { SummaryTable } from '../ExperimentView/SummaryTable'
+import { VariantTag } from '../ExperimentView/components'
+import { ChartEmptyState } from './ChartEmptyState'
+import { ChartLoadingState } from './ChartLoadingState'
+import { ChartModal } from './ChartModal'
+import { useChartColors } from './colors'
+import { EmptyStateTooltip } from './EmptyStateTooltip'
+import { GridLines } from './GridLines'
 import { MetricHeader } from './MetricHeader'
-import { NoResultEmptyState } from './NoResultEmptyState'
-
-function formatTickValue(value: number): string {
-    if (value === 0) {
-        return '0%'
-    }
-
-    // Determine number of decimal places needed
-    const absValue = Math.abs(value)
-    let decimals = 0
-
-    if (absValue < 0.01) {
-        decimals = 3
-    } else if (absValue < 0.1) {
-        decimals = 2
-    } else if (absValue < 1) {
-        decimals = 1
-    } else {
-        decimals = 0
-    }
-
-    return `${(value * 100).toFixed(decimals)}%`
-}
-
-export function generateViolinPath(x1: number, x2: number, y: number, height: number, deltaX: number): string {
-    // Create points for the violin curve
-    const points: [number, number][] = []
-    const steps = 20
-    const maxWidth = height / 2
-
-    // Generate left side points (x1 to deltaX)
-    for (let i = 0; i <= steps; i++) {
-        const t = i / steps
-        const x = x1 + (deltaX - x1) * t
-        // Standard normal distribution PDF from x1 to deltaX
-        const z = (t - 1) * 2 // Reduced scale factor from 2.5 to 2 for thicker tails
-        const width = Math.exp(-0.5 * z * z) * maxWidth
-        points.push([x, y + height / 2 - width])
-    }
-
-    // Generate right side points (deltaX to x2)
-    for (let i = 0; i <= steps; i++) {
-        const t = i / steps
-        const x = deltaX + (x2 - deltaX) * t
-        // Standard normal distribution PDF from deltaX to x2
-        const z = t * 2 // Reduced scale factor from 2.5 to 2 for thicker tails
-        const width = Math.exp(-0.5 * z * z) * maxWidth
-        points.push([x, y + height / 2 - width])
-    }
-
-    // Generate bottom curve points (mirror of top)
-    for (let i = steps; i >= 0; i--) {
-        const t = i / steps
-        const x = deltaX + (x2 - deltaX) * t
-        const z = t * 2
-        const width = Math.exp(-0.5 * z * z) * maxWidth
-        points.push([x, y + height / 2 + width])
-    }
-    for (let i = steps; i >= 0; i--) {
-        const t = i / steps
-        const x = x1 + (deltaX - x1) * t
-        const z = (t - 1) * 2
-        const width = Math.exp(-0.5 * z * z) * maxWidth
-        points.push([x, y + height / 2 + width])
-    }
-
-    // Create SVG path
-    return `
-        M ${points[0][0]} ${points[0][1]}
-        ${points.map((point) => `L ${point[0]} ${point[1]}`).join(' ')}
-        Z
-    `
-}
+import { SignificanceHighlight } from './SignificanceHighlight'
+import { VariantTooltip } from './VariantTooltip'
+import { generateViolinPath } from './violinUtils'
 
 export function DeltaChart({
     isSecondary,
@@ -128,17 +56,11 @@ export function DeltaChart({
         hasMinimumExposureForResults,
     } = useValues(experimentLogic)
 
-    const {
-        // openPrimaryMetricModal,
-        // openSecondaryMetricModal,
-        // openPrimarySharedMetricModal,
-        // openSecondarySharedMetricModal,
-        openVariantDeltaTimeseriesModal,
-    } = useActions(experimentLogic)
+    const { openVariantDeltaTimeseriesModal } = useActions(experimentLogic)
 
     const [tooltipData, setTooltipData] = useState<{ x: number; y: number; variant: string } | null>(null)
     const [emptyStateTooltipVisible, setEmptyStateTooltipVisible] = useState(true)
-    const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
+    const [tooltipPosition] = useState({ x: 0, y: 0 })
     const [isModalOpen, setIsModalOpen] = useState(false)
 
     const getScaleAddition = (variantCount: number): number => {
@@ -161,22 +83,9 @@ export function DeltaChart({
     const TICK_PANEL_HEIGHT = 20
     const VIEW_BOX_WIDTH = 800
     const HORIZONTAL_PADDING = 20
-    const CONVERSION_RATE_RECT_WIDTH = 2
-    const TICK_FONT_SIZE = 9
-    const CHART_MAX_WIDTH = 1000
+    // Width defined in utility classes: max-w-[1000px]
 
-    const { isDarkModeOn } = useValues(themeLogic)
-    const COLORS = {
-        TICK_TEXT_COLOR: 'var(--text-tertiary)',
-        BOUNDARY_LINES: 'var(--border-primary)',
-        ZERO_LINE: 'var(--border-bold)',
-        BAR_NEGATIVE: isDarkModeOn ? '#c32f45' : '#f84257',
-        BAR_POSITIVE: isDarkModeOn ? '#12a461' : '#36cd6f',
-        BAR_DEFAULT: isDarkModeOn ? 'rgb(121 121 121)' : 'rgb(217 217 217)',
-        BAR_CONTROL: isDarkModeOn ? 'rgba(217, 217, 217, 0.2)' : 'rgba(217, 217, 217, 0.4)',
-        BAR_MIDDLE_POINT: 'black',
-        BAR_MIDDLE_POINT_CONTROL: 'rgba(0, 0, 0, 0.4)',
-    }
+    const colors = useChartColors()
 
     // Update chart height calculation to include only one BAR_PADDING for each space between bars
     const chartHeight = BAR_PADDING + (BAR_HEIGHT + BAR_PADDING) * variants.length
@@ -187,7 +96,7 @@ export function DeltaChart({
         return HORIZONTAL_PADDING + percentage * (VIEW_BOX_WIDTH - 2 * HORIZONTAL_PADDING)
     }
 
-    const metricTitlePanelWidth = '20%'
+    // Panel width defined in utility classes: w-1/5
 
     const ticksSvgRef = useRef<SVGSVGElement>(null)
     const chartSvgRef = useRef<SVGSVGElement>(null)
@@ -195,8 +104,9 @@ export function DeltaChart({
     // we're fitting regular divs to match SVG viewports. SVGs scale
     // based on their viewBox and the viewport size, making it challenging
     // to match their effective rendered heights with regular div elements.
-    const [ticksSvgHeight, setTicksSvgHeight] = useState<number>(0)
-    const [chartSvgHeight, setChartSvgHeight] = useState<number>(0)
+    // Use underscore prefix to indicate these state variables are used indirectly
+    const [, setTicksSvgHeight] = useState<number>(0)
+    const [, setChartSvgHeight] = useState<number>(0)
 
     useEffect(() => {
         const ticksSvg = ticksSvgRef.current
@@ -228,19 +138,13 @@ export function DeltaChart({
     return (
         <div className="rounded bg-[var(--bg-table)]">
             {/* Metric title panel */}
-            {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div style={{ width: metricTitlePanelWidth, verticalAlign: 'top', display: 'inline-block' }}>
-                {isFirstMetric && (
-                    <svg
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ height: `${ticksSvgHeight}px` }}
-                    />
-                )}
+            <div className="inline-align-top w-1/5">
+                {isFirstMetric && <svg className="h-full" />}
                 {isFirstMetric && <div className="w-full border-t border-primary" />}
                 <div
+                    className="p-2 border-r h-full"
                     // eslint-disable-next-line react/forbid-dom-props
-                    style={{ height: `${chartSvgHeight}px`, borderRight: `1px solid ${COLORS.BOUNDARY_LINES}` }}
-                    className="p-2"
+                    style={{ borderColor: colors.BOUNDARY_LINES }} // Dynamic color from theme
                 >
                     <MetricHeader
                         metricIndex={metricIndex}
@@ -251,15 +155,7 @@ export function DeltaChart({
                 </div>
             </div>
             {/* SVGs container */}
-            <div
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    width: `calc(100% - ${metricTitlePanelWidth})`,
-                    verticalAlign: 'top',
-                    display: 'inline-block',
-                    minWidth: '780px',
-                }}
-            >
+            <div className="inline-align-top min-w-[780px] w-4/5">
                 {/* Ticks */}
                 {isFirstMetric && (
                     <div className="flex justify-center">
@@ -267,9 +163,7 @@ export function DeltaChart({
                             ref={ticksSvgRef}
                             viewBox={`0 0 ${VIEW_BOX_WIDTH} ${TICK_PANEL_HEIGHT}`}
                             preserveAspectRatio="xMidYMid meet"
-                            className={result ? 'ml-12' : undefined}
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ minHeight: `${TICK_PANEL_HEIGHT}px`, maxWidth: `${CHART_MAX_WIDTH}px` }}
+                            className={`${result ? 'ml-12' : ''} min-h-[20px] max-w-[1000px]`}
                         >
                             {tickValues.map((value, index) => {
                                 const x = valueToX(value)
@@ -280,11 +174,11 @@ export function DeltaChart({
                                             y={TICK_PANEL_HEIGHT / 2}
                                             textAnchor="middle"
                                             dominantBaseline="middle"
-                                            fontSize={TICK_FONT_SIZE}
-                                            fill={COLORS.TICK_TEXT_COLOR}
+                                            fontSize={9}
+                                            fill={colors.TICK_TEXT_COLOR}
                                             fontWeight="600"
                                         >
-                                            {formatTickValue(value)}
+                                            {value === 0 ? '0%' : `${(value * 100).toFixed(value < 0.1 ? 1 : 0)}%`}
                                         </text>
                                     </g>
                                 )
@@ -293,20 +187,18 @@ export function DeltaChart({
                     </div>
                 )}
                 {isFirstMetric && <div className="w-full border-t border-primary" />}
+
                 {/* Chart */}
                 {result && hasMinimumExposureForResults ? (
                     <div className="relative">
                         {/* Chart is z-index 100, so we need to be above it */}
-                        {/* eslint-disable-next-line react/forbid-dom-props */}
-                        <div className="absolute top-2 left-2" style={{ zIndex: 102 }}>
+                        <div className="absolute top-2 left-2 z-[102]">
                             <SignificanceHighlight metricIndex={metricIndex} isSecondary={isSecondary} />
                         </div>
                         {(isSecondary || (!isSecondary && primaryMetricsLengthWithSharedMetrics > 1)) && (
                             <div
-                                className="absolute bottom-2 left-2 flex justify-center bg-[var(--bg-table)]"
+                                className="absolute bottom-2 left-2 flex justify-center bg-[var(--bg-table)] z-[101]"
                                 // Chart is z-index 100, so we need to be above it
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ zIndex: 101 }}
                             >
                                 <LemonButton
                                     type="secondary"
@@ -323,25 +215,12 @@ export function DeltaChart({
                                 ref={chartSvgRef}
                                 viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
                                 preserveAspectRatio="xMidYMid meet"
-                                className="ml-12"
+                                className="ml-12 max-w-[1000px]"
                                 // eslint-disable-next-line react/forbid-dom-props
-                                style={{ minHeight: `${chartHeight}px`, maxWidth: `${CHART_MAX_WIDTH}px` }}
+                                style={{ minHeight: `${chartHeight}px` }} // Dynamic height based on variant count
                             >
                                 {/* Vertical grid lines */}
-                                {tickValues.map((value, index) => {
-                                    const x = valueToX(value)
-                                    return (
-                                        <line
-                                            key={index}
-                                            x1={x}
-                                            y1={0}
-                                            x2={x}
-                                            y2={chartSvgHeight + 20}
-                                            stroke={value === 0 ? COLORS.ZERO_LINE : COLORS.BOUNDARY_LINES}
-                                            strokeWidth={value === 0 ? 1 : 0.5}
-                                        />
-                                    )
-                                })}
+                                <GridLines tickValues={tickValues} valueToX={valueToX} height={chartHeight} />
 
                                 {variants.map((variant, index) => {
                                     const interval = credibleIntervalForVariant(result, variant.key, metricType)
@@ -349,13 +228,9 @@ export function DeltaChart({
 
                                     let delta: number
                                     if (metricType === InsightType.TRENDS) {
-                                        const controlVariant = result.variants.find(
-                                            (v: TrendExperimentVariant) => v.key === 'control'
-                                        ) as TrendExperimentVariant
+                                        const controlVariant = result.variants.find((v: any) => v.key === 'control')
 
-                                        const variantData = result.variants.find(
-                                            (v: TrendExperimentVariant) => v.key === variant.key
-                                        ) as TrendExperimentVariant
+                                        const variantData = result.variants.find((v: any) => v.key === variant.key)
 
                                         if (
                                             !variantData?.count ||
@@ -421,17 +296,16 @@ export function DeltaChart({
                                                 />
                                             </foreignObject>
 
+                                            {/* Violin plot */}
                                             {variant.key === 'control' ? (
-                                                // Control variant - dashed violin
                                                 <path
                                                     d={generateViolinPath(x1, x2, y, BAR_HEIGHT, deltaX)}
-                                                    fill={COLORS.BAR_CONTROL}
-                                                    stroke={COLORS.BOUNDARY_LINES}
+                                                    fill={colors.BAR_CONTROL}
+                                                    stroke={colors.BOUNDARY_LINES}
                                                     strokeWidth={1}
                                                     strokeDasharray="2,2"
                                                 />
                                             ) : (
-                                                // Test variants - single violin with gradient fill
                                                 <>
                                                     <defs>
                                                         <linearGradient
@@ -445,18 +319,18 @@ export function DeltaChart({
                                                         >
                                                             {lower < 0 && upper > 0 ? (
                                                                 <>
-                                                                    <stop offset="0%" stopColor={COLORS.BAR_NEGATIVE} />
+                                                                    <stop offset="0%" stopColor={colors.BAR_NEGATIVE} />
                                                                     <stop
                                                                         offset={`${(-lower / (upper - lower)) * 100}%`}
-                                                                        stopColor={COLORS.BAR_NEGATIVE}
+                                                                        stopColor={colors.BAR_NEGATIVE}
                                                                     />
                                                                     <stop
                                                                         offset={`${(-lower / (upper - lower)) * 100}%`}
-                                                                        stopColor={COLORS.BAR_POSITIVE}
+                                                                        stopColor={colors.BAR_POSITIVE}
                                                                     />
                                                                     <stop
                                                                         offset="100%"
-                                                                        stopColor={COLORS.BAR_POSITIVE}
+                                                                        stopColor={colors.BAR_POSITIVE}
                                                                     />
                                                                 </>
                                                             ) : (
@@ -464,8 +338,8 @@ export function DeltaChart({
                                                                     offset="100%"
                                                                     stopColor={
                                                                         upper <= 0
-                                                                            ? COLORS.BAR_NEGATIVE
-                                                                            : COLORS.BAR_POSITIVE
+                                                                            ? colors.BAR_NEGATIVE
+                                                                            : colors.BAR_POSITIVE
                                                                     }
                                                                 />
                                                             )}
@@ -479,6 +353,7 @@ export function DeltaChart({
                                                     />
                                                 </>
                                             )}
+
                                             {/* Delta marker */}
                                             <g transform={`translate(${deltaX}, 0)`}>
                                                 <line
@@ -488,10 +363,10 @@ export function DeltaChart({
                                                     y2={y + BAR_HEIGHT}
                                                     stroke={
                                                         variant.key === 'control'
-                                                            ? COLORS.BAR_MIDDLE_POINT_CONTROL
-                                                            : COLORS.BAR_MIDDLE_POINT
+                                                            ? colors.BAR_MIDDLE_POINT_CONTROL
+                                                            : colors.BAR_MIDDLE_POINT
                                                     }
-                                                    strokeWidth={CONVERSION_RATE_RECT_WIDTH}
+                                                    strokeWidth={2}
                                                     vectorEffect="non-scaling-stroke"
                                                     shapeRendering="crispEdges"
                                                 />
@@ -503,388 +378,52 @@ export function DeltaChart({
                         </div>
                     </div>
                 ) : resultsLoading ? (
-                    <svg
-                        ref={chartSvgRef}
-                        viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
-                        preserveAspectRatio="xMidYMid meet"
-                    >
-                        <foreignObject
-                            x={VIEW_BOX_WIDTH / 2 - 100} // Center the 200px wide container
-                            y={chartHeight / 2 - 10} // Roughly center vertically
-                            width="200"
-                            height="20"
-                        >
-                            <div
-                                className="flex items-center justify-center text-secondary cursor-default"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ fontSize: '10px', fontWeight: 400 }}
-                            >
-                                <span>Results loading&hellip;</span>
-                            </div>
-                        </foreignObject>
-                    </svg>
+                    <ChartLoadingState width={VIEW_BOX_WIDTH} height={chartHeight} />
                 ) : (
-                    <svg
-                        ref={chartSvgRef}
-                        viewBox={`0 0 ${VIEW_BOX_WIDTH} ${chartHeight}`}
-                        preserveAspectRatio="xMidYMid meet"
-                    >
-                        {!experiment.start_date ? (
-                            <foreignObject x="0" y={chartHeight / 2 - 10} width={VIEW_BOX_WIDTH} height="20">
-                                <div
-                                    className="flex items-center ml-2 xl:ml-0 xl:justify-center text-secondary cursor-default"
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ fontSize: '10px', fontWeight: 400 }}
-                                >
-                                    <LemonTag size="small" className="mr-2">
-                                        <IconClock fontSize="1em" />
-                                    </LemonTag>
-                                    <span>Waiting for experiment to start&hellip;</span>
-                                </div>
-                            </foreignObject>
-                        ) : !hasMinimumExposureForResults ? (
-                            <foreignObject x="0" y={chartHeight / 2 - 10} width={VIEW_BOX_WIDTH} height="20">
-                                <div
-                                    className="flex items-center ml-2 xl:ml-0 xl:justify-center text-secondary cursor-default"
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ fontSize: '10px', fontWeight: 400 }}
-                                >
-                                    <LemonTag size="small" className="mr-2">
-                                        <IconActivity fontSize="1em" />
-                                    </LemonTag>
-                                    <span>
-                                        Waiting for {EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS}+ exposures per variant to
-                                        show results
-                                    </span>
-                                </div>
-                            </foreignObject>
-                        ) : (
-                            <foreignObject
-                                x={0}
-                                y={chartHeight / 2 - 10}
-                                width={VIEW_BOX_WIDTH}
-                                height="20"
-                                onMouseEnter={(e) => {
-                                    const rect = e.currentTarget.getBoundingClientRect()
-                                    setTooltipPosition({
-                                        x: rect.left + rect.width / 2,
-                                        y: rect.top,
-                                    })
-                                    setEmptyStateTooltipVisible(true)
-                                }}
-                                onMouseLeave={() => setEmptyStateTooltipVisible(false)}
-                            >
-                                <div
-                                    className="flex items-center ml-2 xl:ml-0 xl:justify-center text-secondary cursor-default"
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ fontSize: '10px', fontWeight: 400 }}
-                                >
-                                    {error?.hasDiagnostics ? (
-                                        <LemonTag size="small" type="highlight" className="mr-2">
-                                            <IconActivity className="mr-1" fontSize="1em" />
-                                            <span className="font-semibold">
-                                                {(() => {
-                                                    try {
-                                                        return Object.values(error.detail).filter((v) => v === false)
-                                                            .length
-                                                    } catch {
-                                                        return '0'
-                                                    }
-                                                })()}
-                                            </span>
-                                            /
-                                            <span className="font-semibold">
-                                                {metricType === InsightType.TRENDS ? '3' : '2'}
-                                            </span>
-                                        </LemonTag>
-                                    ) : (
-                                        <LemonTag size="small" type="danger" className="mr-1">
-                                            Error
-                                        </LemonTag>
-                                    )}
-                                    <span>Results not yet available</span>
-                                </div>
-                            </foreignObject>
-                        )}
-                    </svg>
+                    <ChartEmptyState
+                        width={VIEW_BOX_WIDTH}
+                        height={chartHeight}
+                        experimentStarted={!!experiment.start_date}
+                        hasMinimumExposure={hasMinimumExposureForResults}
+                        error={error}
+                    />
                 )}
 
                 {/* Variant result tooltip */}
                 {tooltipData && (
-                    <div
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            position: 'fixed',
-                            left: tooltipData.x,
-                            top: tooltipData.y,
-                            transform: 'translate(-50%, -100%)',
-                            backgroundColor: 'var(--bg-surface-primary)',
-                            border: '1px solid var(--border-primary)',
-                            padding: '8px 12px',
-                            borderRadius: '6px',
-                            fontSize: '13px',
-                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                            pointerEvents: 'none',
-                            zIndex: 100,
-                            minWidth: '300px',
-                        }}
-                    >
-                        <div className="flex flex-col gap-1">
-                            <VariantTag experimentId={experimentId} variantKey={tooltipData.variant} />
-                            <div className="inline-flex">
-                                <span className="text-secondary font-semibold mb-1">Win probability:</span>
-                                {result?.probability?.[tooltipData.variant] !== undefined ? (
-                                    <span className="flex items-center justify-between flex-1 pl-6">
-                                        <LemonProgress
-                                            className="w-3/4 mr-4"
-                                            percent={result.probability[tooltipData.variant] * 100}
-                                        />
-                                        <span className="font-semibold">
-                                            {(result.probability[tooltipData.variant] * 100).toFixed(2)}%
-                                        </span>
-                                    </span>
-                                ) : (
-                                    '—'
-                                )}
-                            </div>
-                            {metricType === InsightType.TRENDS ? (
-                                <>
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-secondary font-semibold">
-                                            {metricType === InsightType.TRENDS &&
-                                            result.exposure_query?.series?.[0]?.math
-                                                ? 'Total'
-                                                : 'Count'}
-                                            :
-                                        </span>
-                                        <span className="font-semibold">
-                                            {(() => {
-                                                const count = countDataForVariant(result, tooltipData.variant)
-                                                return count !== null ? humanFriendlyNumber(count) : '—'
-                                            })()}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-secondary font-semibold">Exposure:</span>
-                                        <span className="font-semibold">
-                                            {(() => {
-                                                const exposure = exposureCountDataForVariant(
-                                                    result,
-                                                    tooltipData.variant
-                                                )
-                                                return exposure !== null ? humanFriendlyNumber(exposure) : '—'
-                                            })()}
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-secondary font-semibold">Mean:</span>
-                                        <span className="font-semibold">
-                                            {(() => {
-                                                const variant = result.variants.find(
-                                                    (v: TrendExperimentVariant) => v.key === tooltipData.variant
-                                                )
-                                                return variant?.count && variant?.absolute_exposure
-                                                    ? (variant.count / variant.absolute_exposure).toFixed(2)
-                                                    : '—'
-                                            })()}
-                                        </span>
-                                    </div>
-                                </>
-                            ) : (
-                                <div className="flex justify-between items-center">
-                                    <span className="text-secondary font-semibold">Conversion rate:</span>
-                                    <span className="font-semibold">
-                                        {conversionRateForVariant(result, tooltipData.variant)?.toFixed(2)}%
-                                    </span>
-                                </div>
-                            )}
-                            <div className="flex justify-between items-center">
-                                <span className="text-secondary font-semibold">Delta:</span>
-                                <span className="font-semibold">
-                                    {tooltipData.variant === 'control' ? (
-                                        <em className="text-secondary">Baseline</em>
-                                    ) : (
-                                        (() => {
-                                            if (metricType === InsightType.TRENDS) {
-                                                const controlVariant = result.variants.find(
-                                                    (v: TrendExperimentVariant) => v.key === 'control'
-                                                )
-                                                const variant = result.variants.find(
-                                                    (v: TrendExperimentVariant) => v.key === tooltipData.variant
-                                                )
-
-                                                if (
-                                                    !variant?.count ||
-                                                    !variant?.absolute_exposure ||
-                                                    !controlVariant?.count ||
-                                                    !controlVariant?.absolute_exposure
-                                                ) {
-                                                    return '—'
-                                                }
-
-                                                const controlMean =
-                                                    controlVariant.count / controlVariant.absolute_exposure
-                                                const variantMean = variant.count / variant.absolute_exposure
-                                                const delta = (variantMean - controlMean) / controlMean
-                                                return delta ? (
-                                                    <span className={delta > 0 ? 'text-success' : 'text-danger'}>
-                                                        {`${delta > 0 ? '+' : ''}${(delta * 100).toFixed(2)}%`}
-                                                    </span>
-                                                ) : (
-                                                    '—'
-                                                )
-                                            }
-
-                                            const variantRate = conversionRateForVariant(result, tooltipData.variant)
-                                            const controlRate = conversionRateForVariant(result, 'control')
-                                            const delta =
-                                                variantRate && controlRate
-                                                    ? (variantRate - controlRate) / controlRate
-                                                    : 0
-                                            return delta ? (
-                                                <span className={delta > 0 ? 'text-success' : 'text-danger'}>
-                                                    {`${delta > 0 ? '+' : ''}${(delta * 100).toFixed(2)}%`}
-                                                </span>
-                                            ) : (
-                                                '—'
-                                            )
-                                        })()
-                                    )}
-                                </span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                                <span className="text-secondary font-semibold">Credible interval:</span>
-                                <span className="font-semibold">
-                                    {(() => {
-                                        const interval = credibleIntervalForVariant(
-                                            result,
-                                            tooltipData.variant,
-                                            metricType
-                                        )
-                                        const [lower, upper] = interval
-                                            ? [interval[0] / 100, interval[1] / 100]
-                                            : [0, 0]
-                                        return `[${lower > 0 ? '+' : ''}${(lower * 100).toFixed(2)}%, ${
-                                            upper > 0 ? '+' : ''
-                                        }${(upper * 100).toFixed(2)}%]`
-                                    })()}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
+                    <VariantTooltip
+                        tooltipData={tooltipData}
+                        experimentId={experimentId}
+                        result={result}
+                        metricType={metricType}
+                        conversionRateForVariant={conversionRateForVariant}
+                        countDataForVariant={countDataForVariant}
+                        exposureCountDataForVariant={exposureCountDataForVariant}
+                        credibleIntervalForVariant={credibleIntervalForVariant}
+                    />
                 )}
 
                 {/* Empty state tooltip */}
-                {emptyStateTooltipVisible && (
-                    <div
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            position: 'fixed',
-                            left: tooltipPosition.x,
-                            top: tooltipPosition.y,
-                            transform: 'translate(-50%, -100%)',
-                            backgroundColor: 'var(--bg-surface-primary)',
-                            border: '1px solid var(--border-primary)',
-                            padding: '8px 12px',
-                            borderRadius: '6px',
-                            fontSize: '13px',
-                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                            zIndex: 100,
-                            minWidth: '200px',
-                        }}
-                        onMouseEnter={() => setEmptyStateTooltipVisible(true)}
-                        onMouseLeave={() => setEmptyStateTooltipVisible(false)}
-                    >
-                        <NoResultEmptyState error={error} metric={metric} />
-                    </div>
+                {emptyStateTooltipVisible && error && (
+                    <EmptyStateTooltip
+                        tooltipPosition={tooltipPosition}
+                        error={error}
+                        metric={metric}
+                        setEmptyStateTooltipVisible={setEmptyStateTooltipVisible}
+                    />
                 )}
             </div>
 
-            <LemonModal
+            {/* Modal for metric details */}
+            <ChartModal
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
-                width={1200}
-                title={`Metric results: ${metric.name || 'Untitled metric'}`}
-                footer={
-                    <LemonButton
-                        form="secondary-metric-modal-form"
-                        type="secondary"
-                        onClick={() => setIsModalOpen(false)}
-                    >
-                        Close
-                    </LemonButton>
-                }
-            >
-                {/* TODO: Only show explore button if the metric is a trends or funnels query. Not supported yet with new query runner */}
-                {result &&
-                    (result.kind === NodeKind.ExperimentTrendsQuery ||
-                        result.kind === NodeKind.ExperimentFunnelsQuery) && (
-                        <div className="flex justify-end">
-                            <ExploreButton result={result} />
-                        </div>
-                    )}
-                <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
-                    <div className="items-center inline-flex flex-wrap">
-                        <WinningVariantText result={result} experimentId={experimentId} />
-                        <SignificanceText metricIndex={metricIndex} />
-                    </div>
-                </LemonBanner>
-                <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
-                {/* TODO: Only show results query if the metric is a trends or funnels query. Not supported yet with new query runner */}
-                {result &&
-                    (result.kind === NodeKind.ExperimentTrendsQuery ||
-                        result.kind === NodeKind.ExperimentFunnelsQuery) && (
-                        <ResultsQuery result={result} showTable={true} />
-                    )}
-            </LemonModal>
+                metric={metric}
+                metricIndex={metricIndex}
+                isSecondary={isSecondary}
+                result={result}
+                experimentId={experimentId}
+            />
         </div>
-    )
-}
-
-function SignificanceHighlight({
-    metricIndex = 0,
-    isSecondary = false,
-    className = '',
-}: {
-    metricIndex?: number
-    isSecondary?: boolean
-    className?: string
-}): JSX.Element {
-    const { isPrimaryMetricSignificant, isSecondaryMetricSignificant, significanceDetails } = useValues(experimentLogic)
-    const isSignificant = isSecondary
-        ? isSecondaryMetricSignificant(metricIndex)
-        : isPrimaryMetricSignificant(metricIndex)
-    const result: { color: LemonTagType; label: string } = isSignificant
-        ? { color: 'success', label: 'Significant' }
-        : { color: 'primary', label: 'Not significant' }
-
-    const inner = isSignificant ? (
-        <div className="bg-success-highlight text-success-light px-1.5 py-0.5 flex items-center gap-1 rounded border border-success-light">
-            <IconTrending fontSize={20} fontWeight={600} />
-            <span className="text-xs font-semibold">{result.label}</span>
-        </div>
-    ) : (
-        <div className="bg-warning-highlight text-warning-dark px-1.5 py-0.5 flex items-center gap-1 rounded border border-warning">
-            <IconMinus fontSize={20} fontWeight={600} />
-            <span className="text-xs font-semibold">{result.label}</span>
-        </div>
-    )
-
-    const details = significanceDetails(metricIndex)
-
-    return details ? (
-        <Tooltip title={details}>
-            <div
-                className={clsx({
-                    'cursor-default': true,
-                    'bg-[var(--bg-table)]': true,
-                    [className]: true,
-                })}
-            >
-                {inner}
-            </div>
-        </Tooltip>
-    ) : (
-        <div className={clsx({ 'bg-[var(--bg-table)]': true, [className]: true })}>{inner}</div>
     )
 }

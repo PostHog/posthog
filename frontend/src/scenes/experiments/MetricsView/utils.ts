@@ -37,3 +37,25 @@ export const getDefaultMetricTitle = (metric: ExperimentMetric): string => {
             return getDefaultName(metric.series[0]) || 'Untitled funnel'
     }
 }
+
+export function formatTickValue(value: number): string {
+    if (value === 0) {
+        return '0%'
+    }
+
+    // Determine number of decimal places needed
+    const absValue = Math.abs(value)
+    let decimals = 0
+
+    if (absValue < 0.01) {
+        decimals = 3
+    } else if (absValue < 0.1) {
+        decimals = 2
+    } else if (absValue < 1) {
+        decimals = 1
+    } else {
+        decimals = 0
+    }
+
+    return `${(value * 100).toFixed(decimals)}%`
+}
