@@ -930,51 +930,38 @@
             if(ifNull(less(row_number, 25), 0), breakdown, 'Other') AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop_basic, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_v7(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                                       and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                                      and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                                      and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
+               arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', prop, arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                    and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                    and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                   and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                   and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings,
                aggregation_target AS aggregation_target
         FROM
-          (SELECT timestamp AS timestamp,
-                  aggregation_target AS aggregation_target,
-                  uuid AS uuid,
-                          `$session_id` AS `$session_id`,
-                          `$window_id` AS `$window_id`,
-                          step_0 AS step_0,
-                          step_1 AS step_1,
-                          step_2 AS step_2,
-                          prop_basic AS prop_basic,
-                          prop,
-                          prop_vals AS prop_vals,
-                          prop_vals AS prop
-           FROM
-             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e.`$group_0` AS aggregation_target,
-                     e.uuid AS uuid,
-                     e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
-                     if(equals(e.event, 'sign up'), 1, 0) AS step_0,
-                     if(equals(e.event, 'play movie'), 1, 0) AS step_1,
-                     if(equals(e.event, 'buy'), 1, 0) AS step_2,
-                     ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
-                     prop_basic AS prop,
-                     argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
-              FROM events AS e
-              LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
-                        groups.group_type_index AS index,
-                        groups.group_key AS key
-                 FROM groups
-                 WHERE and(equals(groups.team_id, 99999), equals(index, 0))
-                 GROUP BY groups.group_type_index,
-                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
+          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  e.`$group_0` AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  if(equals(e.event, 'sign up'), 1, 0) AS step_0,
+                  if(equals(e.event, 'play movie'), 1, 0) AS step_1,
+                  if(equals(e.event, 'buy'), 1, 0) AS step_2,
+                  ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
+                  prop_basic AS prop
+           FROM events AS e
+           LEFT JOIN
+             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                     groups.group_type_index AS index,
+                     groups.group_key AS key
+              FROM groups
+              WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+              GROUP BY groups.group_type_index,
+                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
@@ -1014,51 +1001,38 @@
             if(ifNull(less(row_number, 25), 0), breakdown, 'Other') AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop_basic, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_v7(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                                       and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                                      and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                                      and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
+               arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', prop, arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                    and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                    and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                   and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                   and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings,
                aggregation_target AS aggregation_target
         FROM
-          (SELECT timestamp AS timestamp,
-                  aggregation_target AS aggregation_target,
-                  uuid AS uuid,
-                          `$session_id` AS `$session_id`,
-                          `$window_id` AS `$window_id`,
-                          step_0 AS step_0,
-                          step_1 AS step_1,
-                          step_2 AS step_2,
-                          prop_basic AS prop_basic,
-                          prop,
-                          prop_vals AS prop_vals,
-                          prop_vals AS prop
-           FROM
-             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e.`$group_0` AS aggregation_target,
-                     e.uuid AS uuid,
-                     e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
-                     if(equals(e.event, 'sign up'), 1, 0) AS step_0,
-                     if(equals(e.event, 'play movie'), 1, 0) AS step_1,
-                     if(equals(e.event, 'buy'), 1, 0) AS step_2,
-                     ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
-                     prop_basic AS prop,
-                     argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
-              FROM events AS e
-              LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
-                        groups.group_type_index AS index,
-                        groups.group_key AS key
-                 FROM groups
-                 WHERE and(equals(groups.team_id, 99999), equals(index, 0))
-                 GROUP BY groups.group_type_index,
-                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
+          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  e.`$group_0` AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  if(equals(e.event, 'sign up'), 1, 0) AS step_0,
+                  if(equals(e.event, 'play movie'), 1, 0) AS step_1,
+                  if(equals(e.event, 'buy'), 1, 0) AS step_2,
+                  ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
+                  prop_basic AS prop
+           FROM events AS e
+           LEFT JOIN
+             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                     groups.group_type_index AS index,
+                     groups.group_key AS key
+              FROM groups
+              WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+              GROUP BY groups.group_type_index,
+                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
@@ -1098,58 +1072,45 @@
             if(ifNull(less(row_number, 25), 0), breakdown, 'Other') AS final_prop
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop_basic, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_v7(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                                       and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                                      and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                                      and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
+               arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', prop, arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                    and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                    and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                   and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                   and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings,
                aggregation_target AS aggregation_target
         FROM
-          (SELECT timestamp AS timestamp,
-                  aggregation_target AS aggregation_target,
-                  uuid AS uuid,
-                          `$session_id` AS `$session_id`,
-                          `$window_id` AS `$window_id`,
-                          step_0 AS step_0,
-                          step_1 AS step_1,
-                          step_2 AS step_2,
-                          prop_basic AS prop_basic,
-                          prop,
-                          prop_vals AS prop_vals,
-                          prop_vals AS prop
-           FROM
-             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                     e.uuid AS uuid,
-                     e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
-                     if(equals(e.event, 'sign up'), 1, 0) AS step_0,
-                     if(equals(e.event, 'play movie'), 1, 0) AS step_1,
-                     if(equals(e.event, 'buy'), 1, 0) AS step_2,
-                     ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
-                     prop_basic AS prop,
-                     argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
-              FROM events AS e
-              LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                        person_distinct_id_overrides.distinct_id AS distinct_id
-                 FROM person_distinct_id_overrides
-                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                 GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
-                        groups.group_type_index AS index,
-                        groups.group_key AS key
-                 FROM groups
-                 WHERE and(equals(groups.team_id, 99999), equals(index, 0))
-                 GROUP BY groups.group_type_index,
-                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
+          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  if(equals(e.event, 'sign up'), 1, 0) AS step_0,
+                  if(equals(e.event, 'play movie'), 1, 0) AS step_1,
+                  if(equals(e.event, 'buy'), 1, 0) AS step_2,
+                  ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
+                  prop_basic AS prop
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           LEFT JOIN
+             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                     groups.group_type_index AS index,
+                     groups.group_key AS key
+              FROM groups
+              WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+              GROUP BY groups.group_type_index,
+                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
@@ -1177,58 +1138,45 @@
             actor_id AS id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop_basic, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_v7(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                                       and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                                      and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                                      and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
+               arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', prop, arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                    and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                    and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                   and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                   and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings,
                aggregation_target AS aggregation_target
         FROM
-          (SELECT timestamp AS timestamp,
-                  aggregation_target AS aggregation_target,
-                  uuid AS uuid,
-                          `$session_id` AS `$session_id`,
-                          `$window_id` AS `$window_id`,
-                          step_0 AS step_0,
-                          step_1 AS step_1,
-                          step_2 AS step_2,
-                          prop_basic AS prop_basic,
-                          prop,
-                          prop_vals AS prop_vals,
-                          prop_vals AS prop
-           FROM
-             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                     e.uuid AS uuid,
-                     e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
-                     if(equals(e.event, 'sign up'), 1, 0) AS step_0,
-                     if(equals(e.event, 'play movie'), 1, 0) AS step_1,
-                     if(equals(e.event, 'buy'), 1, 0) AS step_2,
-                     ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
-                     prop_basic AS prop,
-                     argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
-              FROM events AS e
-              LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                        person_distinct_id_overrides.distinct_id AS distinct_id
-                 FROM person_distinct_id_overrides
-                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                 GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
-                        groups.group_type_index AS index,
-                        groups.group_key AS key
-                 FROM groups
-                 WHERE and(equals(groups.team_id, 99999), equals(index, 0))
-                 GROUP BY groups.group_type_index,
-                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
+          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  if(equals(e.event, 'sign up'), 1, 0) AS step_0,
+                  if(equals(e.event, 'play movie'), 1, 0) AS step_1,
+                  if(equals(e.event, 'buy'), 1, 0) AS step_2,
+                  ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
+                  prop_basic AS prop
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           LEFT JOIN
+             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                     groups.group_type_index AS index,
+                     groups.group_key AS key
+              FROM groups
+              WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+              GROUP BY groups.group_type_index,
+                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(ifNull(greaterOrEquals(step_reached, 0), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
@@ -1259,58 +1207,45 @@
             actor_id AS id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop_basic, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_v7(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                                       and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                                      and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                                      and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
+               arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', prop, arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                    and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                    and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                   and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                   and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings,
                aggregation_target AS aggregation_target
         FROM
-          (SELECT timestamp AS timestamp,
-                  aggregation_target AS aggregation_target,
-                  uuid AS uuid,
-                          `$session_id` AS `$session_id`,
-                          `$window_id` AS `$window_id`,
-                          step_0 AS step_0,
-                          step_1 AS step_1,
-                          step_2 AS step_2,
-                          prop_basic AS prop_basic,
-                          prop,
-                          prop_vals AS prop_vals,
-                          prop_vals AS prop
-           FROM
-             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                     e.uuid AS uuid,
-                     e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
-                     if(equals(e.event, 'sign up'), 1, 0) AS step_0,
-                     if(equals(e.event, 'play movie'), 1, 0) AS step_1,
-                     if(equals(e.event, 'buy'), 1, 0) AS step_2,
-                     ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
-                     prop_basic AS prop,
-                     argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
-              FROM events AS e
-              LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                        person_distinct_id_overrides.distinct_id AS distinct_id
-                 FROM person_distinct_id_overrides
-                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                 GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
-                        groups.group_type_index AS index,
-                        groups.group_key AS key
-                 FROM groups
-                 WHERE and(equals(groups.team_id, 99999), equals(index, 0))
-                 GROUP BY groups.group_type_index,
-                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
+          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  if(equals(e.event, 'sign up'), 1, 0) AS step_0,
+                  if(equals(e.event, 'play movie'), 1, 0) AS step_1,
+                  if(equals(e.event, 'buy'), 1, 0) AS step_2,
+                  ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
+                  prop_basic AS prop
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           LEFT JOIN
+             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                     groups.group_type_index AS index,
+                     groups.group_key AS key
+              FROM groups
+              WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+              GROUP BY groups.group_type_index,
+                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(ifNull(greaterOrEquals(step_reached, 1), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
@@ -1341,58 +1276,45 @@
             actor_id AS id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop_basic, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_v7(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                                       and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                                      and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                                      and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
+               arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', prop, arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                    and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                    and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                   and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                   and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings,
                aggregation_target AS aggregation_target
         FROM
-          (SELECT timestamp AS timestamp,
-                  aggregation_target AS aggregation_target,
-                  uuid AS uuid,
-                          `$session_id` AS `$session_id`,
-                          `$window_id` AS `$window_id`,
-                          step_0 AS step_0,
-                          step_1 AS step_1,
-                          step_2 AS step_2,
-                          prop_basic AS prop_basic,
-                          prop,
-                          prop_vals AS prop_vals,
-                          prop_vals AS prop
-           FROM
-             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                     e.uuid AS uuid,
-                     e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
-                     if(equals(e.event, 'sign up'), 1, 0) AS step_0,
-                     if(equals(e.event, 'play movie'), 1, 0) AS step_1,
-                     if(equals(e.event, 'buy'), 1, 0) AS step_2,
-                     ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
-                     prop_basic AS prop,
-                     argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
-              FROM events AS e
-              LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                        person_distinct_id_overrides.distinct_id AS distinct_id
-                 FROM person_distinct_id_overrides
-                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                 GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
-                        groups.group_type_index AS index,
-                        groups.group_key AS key
-                 FROM groups
-                 WHERE and(equals(groups.team_id, 99999), equals(index, 0))
-                 GROUP BY groups.group_type_index,
-                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
+          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  if(equals(e.event, 'sign up'), 1, 0) AS step_0,
+                  if(equals(e.event, 'play movie'), 1, 0) AS step_1,
+                  if(equals(e.event, 'buy'), 1, 0) AS step_2,
+                  ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
+                  prop_basic AS prop
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           LEFT JOIN
+             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                     groups.group_type_index AS index,
+                     groups.group_key AS key
+              FROM groups
+              WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+              GROUP BY groups.group_type_index,
+                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(ifNull(greaterOrEquals(step_reached, 0), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
@@ -1423,58 +1345,45 @@
             actor_id AS id
      FROM
        (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, prop_basic, arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_v7(3, 1209600, 'first_touch', 'ordered', groupUniqArray(prop), arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                                       and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                                       and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                                      and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                                      and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               [argMinIf(prop_basic, timestamp, isNotNull(prop_basic))] AS prop,
+               arrayJoin(aggregate_funnel(3, 1209600, 'first_touch', 'ordered', prop, arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                    and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                    and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                   and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                   and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                af_tuple.1 AS step_reached,
                plus(af_tuple.1, 1) AS steps,
                af_tuple.2 AS breakdown,
                af_tuple.3 AS timings,
                aggregation_target AS aggregation_target
         FROM
-          (SELECT timestamp AS timestamp,
-                  aggregation_target AS aggregation_target,
-                  uuid AS uuid,
-                          `$session_id` AS `$session_id`,
-                          `$window_id` AS `$window_id`,
-                          step_0 AS step_0,
-                          step_1 AS step_1,
-                          step_2 AS step_2,
-                          prop_basic AS prop_basic,
-                          prop,
-                          prop_vals AS prop_vals,
-                          prop_vals AS prop
-           FROM
-             (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                     e.uuid AS uuid,
-                     e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
-                     if(equals(e.event, 'sign up'), 1, 0) AS step_0,
-                     if(equals(e.event, 'play movie'), 1, 0) AS step_1,
-                     if(equals(e.event, 'buy'), 1, 0) AS step_2,
-                     ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
-                     prop_basic AS prop,
-                     argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
-              FROM events AS e
-              LEFT OUTER JOIN
-                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                        person_distinct_id_overrides.distinct_id AS distinct_id
-                 FROM person_distinct_id_overrides
-                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
-                 GROUP BY person_distinct_id_overrides.distinct_id
-                 HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              LEFT JOIN
-                (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
-                        groups.group_type_index AS index,
-                        groups.group_key AS key
-                 FROM groups
-                 WHERE and(equals(groups.team_id, 99999), equals(index, 0))
-                 GROUP BY groups.group_type_index,
-                          groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-              WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))))
+          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  if(equals(e.event, 'sign up'), 1, 0) AS step_0,
+                  if(equals(e.event, 'play movie'), 1, 0) AS step_1,
+                  if(equals(e.event, 'buy'), 1, 0) AS step_2,
+                  ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
+                  prop_basic AS prop
+           FROM events AS e
+           LEFT OUTER JOIN
+             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                     person_distinct_id_overrides.distinct_id AS distinct_id
+              FROM person_distinct_id_overrides
+              WHERE equals(person_distinct_id_overrides.team_id, 99999)
+              GROUP BY person_distinct_id_overrides.distinct_id
+              HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           LEFT JOIN
+             (SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', ''), toTimeZone(groups._timestamp, 'UTC')) AS properties___industry,
+                     groups.group_type_index AS index,
+                     groups.group_key AS key
+              FROM groups
+              WHERE and(equals(groups.team_id, 99999), equals(index, 0))
+              GROUP BY groups.group_type_index,
+                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(ifNull(greaterOrEquals(step_reached, 1), 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
