@@ -247,9 +247,17 @@ describe('HogWatcher', () => {
 
                 // Since the implementation now uses fixed costs for both,
                 // calculate expected costs based on the ratio calculation with maximum costs
-                const hogRatio = Math.min(1, Math.max(300 - 50, 0) / (500 - 50))
-                const asyncRatio = Math.min(1, Math.max(300 - 150, 0) / (5000 - 150))
-                const hogCost = Math.round(40 * hogRatio)
+                const hogRatio = Math.min(
+                    1,
+                    Math.max(300 - hub.CDP_WATCHER_COST_TIMING_LOWER_MS, 0) /
+                        (hub.CDP_WATCHER_COST_TIMING_UPPER_MS - hub.CDP_WATCHER_COST_TIMING_LOWER_MS)
+                )
+                const asyncRatio = Math.min(
+                    1,
+                    Math.max(300 - hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS, 0) /
+                        (hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS - hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS)
+                )
+                const hogCost = Math.round(hub.CDP_WATCHER_COST_TIMING * hogRatio)
                 const asyncCost = Math.round(20 * asyncRatio)
 
                 expect(10000 - hogState.tokens).toBe(hogCost)
