@@ -1,13 +1,10 @@
-import datetime as dt
-import logging
-
+import structlog
 from django.core.management.base import BaseCommand, CommandError
 
 from posthog.batch_exports.service import sync_batch_export
 from posthog.models import BatchExport
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger = structlog.get_logger(__name__)
 
 
 class Command(BaseCommand):
@@ -32,17 +29,11 @@ class Command(BaseCommand):
         except BatchExport.MultipleObjectsReturned:
             raise CommandError("More than one existing batch export found (this should never happen)!")
 
-        display("Updating batch export schedule...", batch_export_id=batch_export.id)
+        logger.info("Updating batch export schedule...", batch_export_id=batch_export.id)
 
-        sync_batch_export(batch_export, created=False)
+        try:
+            sync_batch_export(batch_export, created=False)
+        except Exception:
+            logger.exception("Error updating batch export schedule", batch_export_id=batch_export.id)
 
-        display("Batch export schedule updated")
-
-
-def display(message, **kwargs):
-    print(message)  # noqa: T201
-    for key, value in kwargs.items():
-        if isinstance(value, dt.datetime):
-            value = value.strftime("%Y-%m-%d %H:%M:%S")
-        print(f"  {key} = {value}")  # noqa: T201
-    print()  # noqa: T201
+        logger.info("Batch export schedule updated")
