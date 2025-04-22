@@ -65,7 +65,7 @@ class ExternalDataSource(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
     prefix = models.CharField(max_length=100, null=True, blank=True)
     revenue_analytics_enabled = models.BooleanField(default=False)
 
-    __repr__ = sane_repr("id", "source_id", "connection_id", "destination_id", "team_id")
+    __repr__ = sane_repr("id")
 
     def soft_delete(self):
         self.deleted = True

@@ -348,7 +348,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     key: 'data-warehouse-tables',
                     noun: ['PostHog', 'PostHog'],
                     loading: databaseLoading,
-                    icon: <DataWarehouseSourceIcon type="PostHog" sizePx={18} disableTooltip />,
+                    icon: <DataWarehouseSourceIcon type="PostHog" size="xsmall" disableTooltip />,
                     items: posthogTables.map((table) => ({
                         key: table.id,
                         name: table.name,

@@ -3,15 +3,18 @@ import { LemonButton, LemonDivider, Link, SpinnerOverlay } from '@posthog/lemon-
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { PipelineStage, ProductKey } from '~/types'
 
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
+import { revenueEventsSettingsLogic } from './settings/revenueEventsSettingsLogic'
 import { GrossRevenueTile } from './tiles/GrossRevenueTile'
 import { OverviewTile } from './tiles/OverviewTile'
 import { RevenueGrowthRateTile } from './tiles/RevenueGrowthRateTile'
@@ -23,7 +26,20 @@ export const scene: SceneExport = {
 }
 
 export function RevenueAnalyticsScene(): JSX.Element {
+    return (
+        <BindLogic logic={revenueEventsSettingsLogic} props={{}}>
+            <BindLogic logic={revenueAnalyticsLogic} props={{}}>
+                <BindLogic logic={dataNodeCollectionLogic} props={{ key: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
+                    <RevenueAnalyticsSceneContent />
+                </BindLogic>
+            </BindLogic>
+        </BindLogic>
+    )
+}
+
+export function RevenueAnalyticsSceneContent(): JSX.Element {
     const { hasRevenueTables } = useValues(revenueAnalyticsLogic)
+    const { mobileLayout } = useValues(navigationLogic)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
 
     if (hasRevenueTables === null) {
@@ -68,14 +84,18 @@ export function RevenueAnalyticsScene(): JSX.Element {
     }
 
     return (
-        <BindLogic logic={revenueAnalyticsLogic} props={{}}>
-            <BindLogic logic={dataNodeCollectionLogic} props={{ key: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-                <div className="flex flex-col gap-2">
-                    <RevenueAnalyticsFilters />
-                    <RevenueAnalyticsTables />
-                </div>
-            </BindLogic>
-        </BindLogic>
+        <div>
+            <div
+                className={cn(
+                    'sticky z-20 bg-primary border-b py-2',
+                    mobileLayout ? 'top-[var(--breadcrumbs-height-full)]' : 'top-[var(--breadcrumbs-height-compact)]'
+                )}
+            >
+                <RevenueAnalyticsFilters />
+            </div>
+
+            <RevenueAnalyticsTables />
+        </div>
     )
 }
 

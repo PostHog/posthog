@@ -2,19 +2,20 @@ import { LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { router } from 'node_modules/kea-router/lib'
-import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataSource, PipelineStage } from '~/types'
+
+import { revenueEventsSettingsLogic } from './revenueEventsSettingsLogic'
 
 export function ExternalDataSourceConfiguration({
     buttonRef,
 }: {
     buttonRef: React.RefObject<HTMLButtonElement>
 }): JSX.Element {
-    const { dataWarehouseSources } = useValues(dataWarehouseSettingsLogic)
-    const { updateSource } = useActions(dataWarehouseSettingsLogic)
+    const { dataWarehouseSources } = useValues(revenueEventsSettingsLogic)
+    const { updateSource } = useActions(revenueEventsSettingsLogic)
 
     return (
         <div>
