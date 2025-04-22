@@ -194,7 +194,9 @@ impl FingerprintedErrProps {
             Some(e.exception_message.clone())
         });
 
-        let handled = self.exception_list.first()
+        let handled = self
+            .exception_list
+            .first()
             .and_then(|e| e.mechanism.as_ref())
             .and_then(|m| m.handled)
             .unwrap_or(false);
