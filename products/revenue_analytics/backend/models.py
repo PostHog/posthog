@@ -139,7 +139,7 @@ class RevenueAnalyticsRevenueView(SavedQuery):
 
     @staticmethod
     def for_events(team: "Team") -> list["RevenueAnalyticsRevenueView"]:
-        if len(team.revenue_config.events) == 0:
+        if len(team.revenue_config.events or []) == 0:
             return []
 
         revenue_config = team.revenue_config

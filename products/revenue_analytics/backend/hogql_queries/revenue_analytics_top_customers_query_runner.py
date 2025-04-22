@@ -1,3 +1,5 @@
+from typing import cast
+
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.schema import (
@@ -54,7 +56,8 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner):
         _, customer_subquery = self.revenue_subqueries()
         if customer_subquery is not None:
             base_query.select[0] = ast.Alias(alias="name", expr=ast.Field(chain=["customers", "name"]))
-            base_query.select_from.next_join = ast.JoinExpr(
+            select_from = cast(ast.JoinExpr, base_query.select_from)
+            select_from.next_join = ast.JoinExpr(
                 table=customer_subquery,
                 alias="customers",
                 join_type="INNER JOIN",
