@@ -68,7 +68,6 @@ export function TaxonomicFilter({
         hideBehavioralCohorts,
         showNumericalPropsOnly,
         dataWarehousePopoverFields,
-        useVerticalLayout,
         autoSelectItem: true,
     }
 
