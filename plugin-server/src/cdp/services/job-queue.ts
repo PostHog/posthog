@@ -127,7 +127,7 @@ export class CyclotronJobQueue {
             shouldUseBulkJobCopy: this.hub.CDP_CYCLOTRON_USE_BULK_COPY_JOB,
         })
 
-        await this.cyclotronManager?.connect()
+        await this.cyclotronManager.connect()
     }
 
     private getCyclotronWorker(): CyclotronWorker {
