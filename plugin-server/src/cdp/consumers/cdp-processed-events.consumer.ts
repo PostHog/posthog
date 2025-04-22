@@ -216,18 +216,6 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     public async start(): Promise<void> {
         await super.start()
 
-        // Start consuming messages
-        await this.kafkaConsumer.connect(async (messages) => {
-            logger.info('🔁', `${this.name} - handling batch`, {
-                size: messages.length,
-            })
-
-            return await this.runInstrumented('handleEachBatch', async () => {
-                const invocationGlobals = await this._parseKafkaBatch(messages)
-                await this.processBatch(invocationGlobals)
-            })
-        })
-
         this.cyclotronManager = this.hub.CYCLOTRON_DATABASE_URL
             ? new CyclotronManager({
                   shards: [
@@ -242,5 +230,22 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
             : undefined
 
         await this.cyclotronManager?.connect()
+
+        // Start consuming messages
+        await this.kafkaConsumer.connect(async (messages) => {
+            logger.info('🔁', `${this.name} - handling batch`, {
+                size: messages.length,
+            })
+
+            return await this.runInstrumented('handleEachBatch', async () => {
+                const invocationGlobals = await this._parseKafkaBatch(messages)
+                await this.processBatch(invocationGlobals)
+            })
+        })
+    }
+
+    public async stop(): Promise<void> {
+        await this.kafkaConsumer.disconnect()
+        await super.stop()
     }
 }

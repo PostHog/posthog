@@ -11,14 +11,14 @@ import { hostname } from 'os'
 import { defaultConfig } from '../config/config'
 import { logger } from '../utils/logger'
 import { ensureTopicExists } from './admin'
+import { getConsumerConfigFromEnv } from './config'
 import {
     consumedBatchDuration,
     consumedMessageSizeBytes,
     consumerBatchSize,
     gaugeBatchUtilization,
-} from './batch-consumer'
-import { getConsumerConfigFromEnv } from './config'
-import { storeOffsetsForMessages } from './consumer'
+    storeOffsetsForMessages,
+} from './consumer'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
 const DEFAULT_FETCH_BATCH_SIZE = 1000
@@ -229,7 +229,6 @@ export class KafkaConsumer {
                     }
                 }
             } catch (error) {
-                logger.error('🔁', 'main_loop_error', { error })
                 throw error
             } finally {
                 logger.info('🔁', 'main_loop_stopping')
@@ -237,15 +236,13 @@ export class KafkaConsumer {
                 // Finally, disconnect from the broker. If stored offsets have changed via
                 // `storeOffsetsForMessages` above, they will be committed before shutdown (so long
                 // as this consumer is still part of the group).
-                // await disconnectConsumer(this.rdKafkaConsumer)
-
-                await new Promise((res, rej) => this.rdKafkaConsumer.disconnect((e, data) => (e ? rej(e) : res(data))))
+                await this.disconnectConsumer()
                 logger.info('🔁', 'Disconnected node-rdkafka consumer')
             }
         }
 
         this.consumerLoop = startConsuming().catch((error) => {
-            logger.error('🔁', 'consumer_loop_error', { error })
+            logger.error('🔁', 'consumer_loop_error', { error: String(error) })
             // We re-throw the error as that way it will be caught in server.ts and trigger a full shutdown
             throw error
         })
@@ -263,6 +260,10 @@ export class KafkaConsumer {
             await this.consumerLoop
         }
 
+        await this.disconnectConsumer()
+    }
+
+    private async disconnectConsumer() {
         if (this.rdKafkaConsumer.isConnected()) {
             await new Promise<void>((res, rej) => this.rdKafkaConsumer.disconnect((e) => (e ? rej(e) : res())))
         }

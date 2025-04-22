@@ -114,7 +114,6 @@ export abstract class CdpConsumerBase {
         await this.kafkaProducer?.disconnect()
         logger.info('🔁', `${this.name} - stopping hog function manager`)
         await this.hogFunctionManager.stop()
-
         logger.info('👍', `${this.name} - stopped!`)
     }
 
