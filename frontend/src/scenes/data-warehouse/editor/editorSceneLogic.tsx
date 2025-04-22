@@ -1,4 +1,4 @@
-import { IconDatabase, IconDatabaseBolt, IconDocument } from '@posthog/icons'
+import { IconDatabase, IconDocument } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
@@ -264,7 +264,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                 icon:
                                     isSavedQuery && view.last_run_at ? (
                                         <Tooltip title="Materialized view">
-                                            <IconDatabaseBolt />
+                                            <IconDatabase />
                                         </Tooltip>
                                     ) : (
                                         <Tooltip title="View">
@@ -348,7 +348,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     key: 'data-warehouse-tables',
                     noun: ['PostHog', 'PostHog'],
                     loading: databaseLoading,
-                    icon: <DataWarehouseSourceIcon type="PostHog" sizePx={18} disableTooltip />,
+                    icon: <DataWarehouseSourceIcon type="PostHog" size="xsmall" disableTooltip />,
                     items: posthogTables.map((table) => ({
                         key: table.id,
                         name: table.name,

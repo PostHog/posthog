@@ -35,7 +35,11 @@ impl OverflowLimiter {
 
         let keys_to_reroute: HashSet<String> = match keys_to_reroute {
             None => HashSet::new(),
-            Some(values) => values.split(',').map(String::from).collect(),
+            Some(values) => values
+                .split(',')
+                .map(String::from)
+                .filter(|s| !s.is_empty())
+                .collect(),
         };
 
         OverflowLimiter {
@@ -50,12 +54,15 @@ impl OverflowLimiter {
     // If this method returns true, the event should be rerouted to the overflow topic
     // without a partition key, to avoid hot partitions in that pipeline.
     pub fn is_limited(&self, event_key: &String) -> bool {
+        if event_key.is_empty() {
+            return false;
+        }
         // is the event key in the forced_keys list?
         let forced_key_match = self.keys_to_reroute.contains(event_key);
 
         // is the token (first component of the event key) in the forced_keys list?
-        let forced_token_match = match event_key.split(':').next() {
-            Some(token) => !token.is_empty() && self.keys_to_reroute.contains(token),
+        let forced_token_match = match event_key.split(':').find(|s| !s.trim().is_empty()) {
+            Some(token) => self.keys_to_reroute.contains(token),
             None => false,
         };
 
@@ -119,6 +126,38 @@ mod tests {
         let key = String::from("test:user");
         assert!(!limiter.is_limited(&key));
         assert!(limiter.is_limited(&key));
+    }
+
+    #[tokio::test]
+    async fn empty_entry_in_event_key_csv() {
+        let limiter = OverflowLimiter::new(
+            NonZeroU32::new(10).unwrap(),
+            NonZeroU32::new(10).unwrap(),
+            Some(String::from("token1,token2:user2,")), // 3 strings, last is ""
+            false,
+        );
+
+        // limiter should behave as normal even when an empty string entry
+        // slipped through the env var to OverflowLimiter::new
+        let key = String::from("token3:user3");
+        assert!(!limiter.is_limited(&key));
+        assert!(!limiter.is_limited(&key));
+        assert!(!limiter.is_limited(&key));
+
+        let key = String::from("token3");
+        assert!(!limiter.is_limited(&key));
+        assert!(!limiter.is_limited(&key));
+        assert!(!limiter.is_limited(&key));
+
+        let key = String::from("token1");
+        assert!(limiter.is_limited(&key));
+
+        let key = String::from("token2:user2");
+        assert!(limiter.is_limited(&key));
+
+        // empty *incoming* event key doesn't trigger limiter in error
+        let empty_key = String::from("");
+        assert!(!limiter.is_limited(&empty_key))
     }
 
     #[tokio::test]

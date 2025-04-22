@@ -1,8 +1,10 @@
 import './EventsHeatMap.scss'
 
 import { useValues } from 'kea'
+import { InsightsWrapper } from 'products/revenue_analytics/frontend/nodes/utils'
 import React, { useCallback, useEffect, useState } from 'react'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
+import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 
 import { useResizeObserver } from '~/lib/hooks/useResizeObserver'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -67,7 +69,7 @@ export function EventsHeatMap({ query, context, cachedResults }: EventsHeatMapPr
         updateSize()
     }, [elementRef, updateSize])
 
-    const { response } = useValues(
+    const { response, responseLoading, queryId } = useValues(
         dataNodeLogic({
             query,
             key: 'events-heat-map',
@@ -75,6 +77,14 @@ export function EventsHeatMap({ query, context, cachedResults }: EventsHeatMapPr
             cachedResults,
         })
     )
+
+    if (responseLoading) {
+        return (
+            <InsightsWrapper>
+                <InsightLoadingState queryId={queryId} key={queryId} insightProps={context.insightProps ?? {}} />
+            </InsightsWrapper>
+        )
+    }
 
     const { matrix, maxOverall, xAggregations, yAggregations, maxXAggregation, maxYAggregation, overallValue } =
         processData(response?.results ?? [])

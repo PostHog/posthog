@@ -92,7 +92,11 @@ def revenue_comparison_and_value_exprs_for_events(
     config: RevenueTrackingConfig,
     event_config: RevenueTrackingEventItem,
     do_currency_conversion: bool = True,
+    amount_expr: ast.Expr | None = None,
 ) -> tuple[ast.Expr, ast.Expr]:
+    if amount_expr is None:
+        amount_expr = ast.Field(chain=["events", "properties", event_config.revenueProperty])
+
     # Check whether the event is the one we're looking for
     comparison_expr = ast.CompareOperation(
         left=ast.Field(chain=["event"]),
@@ -111,12 +115,12 @@ def revenue_comparison_and_value_exprs_for_events(
                 ast.Call(
                     name="toDecimal",
                     args=[
-                        ast.Field(chain=["events", "properties", event_config.revenueProperty]),
+                        amount_expr,
                         ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION),
                     ],
                 ),
                 convert_currency_call(
-                    ast.Field(chain=["events", "properties", event_config.revenueProperty]),
+                    amount_expr,
                     currency_expression_for_events(config, event_config),
                     ast.Constant(value=(config.baseCurrency or DEFAULT_CURRENCY).value),
                     ast.Call(name="_toDate", args=[ast.Field(chain=["events", "timestamp"])]),
@@ -127,7 +131,7 @@ def revenue_comparison_and_value_exprs_for_events(
         value_expr = ast.Call(
             name="toDecimal",
             args=[
-                ast.Field(chain=["events", "properties", event_config.revenueProperty]),
+                amount_expr,
                 ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION),
             ],
         )
@@ -140,6 +144,7 @@ def revenue_comparison_and_value_exprs_for_events(
 def revenue_expression_for_events(
     config: Union[RevenueTrackingConfig, dict, None],
     do_currency_conversion: bool = True,
+    amount_expr: ast.Expr | None = None,
 ) -> ast.Expr:
     if isinstance(config, dict):
         config = RevenueTrackingConfig.model_validate(config)
@@ -150,7 +155,10 @@ def revenue_expression_for_events(
     exprs: list[ast.Expr] = []
     for event in config.events:
         comparison_expr, value_expr = revenue_comparison_and_value_exprs_for_events(
-            config, event, do_currency_conversion
+            config,
+            event,
+            do_currency_conversion=do_currency_conversion,
+            amount_expr=amount_expr,
         )
         exprs.extend([comparison_expr, value_expr])
 

@@ -1723,6 +1723,14 @@ class RevenueCurrencyPropertyConfig(BaseModel):
     static: Optional[CurrencyCode] = None
 
 
+class RevenueSources(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dataWarehouseSources: list[str]
+    events: list[str]
+
+
 class RevenueTrackingEventItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7457,6 +7465,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsGrowthRateQueryResponse(BaseModel
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[RevenueAnalyticsGrowthRateQueryResponse] = None
+    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
@@ -7469,6 +7478,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
+    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
@@ -7481,6 +7491,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseMod
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
+    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsGrowthRateQuery(BaseModel):
@@ -7493,6 +7504,7 @@ class RevenueAnalyticsGrowthRateQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[RevenueAnalyticsGrowthRateQueryResponse] = None
+    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsOverviewQuery(BaseModel):
@@ -7505,6 +7517,7 @@ class RevenueAnalyticsOverviewQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
+    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsTopCustomersQuery(BaseModel):
@@ -7518,6 +7531,7 @@ class RevenueAnalyticsTopCustomersQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
+    revenueSources: RevenueSources
 
 
 class RevenueExampleDataWarehouseTablesQuery(BaseModel):
