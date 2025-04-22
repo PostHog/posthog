@@ -1833,7 +1833,7 @@ export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extend
 }
 
 export interface RevenueSources {
-    // These represent the IDs we're interested in from the data warehouse sources§
+    // These represent the IDs we're interested in from the data warehouse sources
     dataWarehouseSources: string[]
 
     // This is a list of strings that represent the event names we're interested in
