@@ -1,7 +1,8 @@
 import { LemonCheckbox, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
+import { getSeriesColor } from 'lib/colors' // Import getSeriesColor
 import { dayjs } from 'lib/dayjs'
 
-import { BillingSeriesType, SeriesColorDot } from './BillingLineGraph' // Reuse type and color dot
+import { BillingSeriesType, SeriesColorDot } from './BillingLineGraph'
 
 // Props for the reusable table component
 export interface BillingDataTableProps {
@@ -69,7 +70,7 @@ export function BillingDataTable({
             const total = record.data.reduce((sum, val) => sum + val, 0)
             return <div className="text-right font-semibold">{valueFormatter(total)}</div> // Use formatter
         },
-        key: 'total',
+        key: 'total', // Keep key as 'total' for sorting
         sorter: (a: BillingSeriesType, b: BillingSeriesType) => {
             const totalA = a.data.reduce((sum, val) => sum + val, 0)
             const totalB = b.data.reduce((sum, val) => sum + val, 0)
@@ -94,10 +95,12 @@ export function BillingDataTable({
             render: (_, record: BillingSeriesType) => {
                 const isHidden = hiddenSeries.includes(record.id)
                 return (
-                    <div className="flex items-center">
+                    <div className="flex items-center gap-1">
                         <LemonCheckbox checked={!isHidden} onChange={() => toggleSeries(record.id)} className="mr-2" />
                         <SeriesColorDot colorIndex={record.id} />
-                        <span className="font-medium">{record.label}</span>
+                        <span className="font-medium whitespace-nowrap overflow-hidden text-ellipsis max-w-xs">
+                            {record.label}
+                        </span>
                     </div>
                 )
             },
@@ -118,6 +121,11 @@ export function BillingDataTable({
                 embedded
                 size="small"
                 rowClassName={(record) => (hiddenSeries.includes(record.id) ? 'opacity-50' : '')}
+                defaultSorting={{
+                    columnKey: 'total',
+                    order: -1,
+                }}
+                rowRibbonColor={(record) => getSeriesColor(record.id % 15)}
             />
         </div>
     )
