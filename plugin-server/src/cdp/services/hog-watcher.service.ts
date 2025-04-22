@@ -143,14 +143,14 @@ export class HogWatcherService {
                 // Calculate cost based on individual timings, not the total
                 let costForTimings = 0
 
+                // Calculate cost for this individual timing
+                const lowerBound = this.hub.CDP_WATCHER_COST_TIMING_LOWER_MS
+                const upperBound = this.hub.CDP_WATCHER_COST_TIMING_UPPER_MS
+                const costTiming = this.hub.CDP_WATCHER_COST_TIMING
+
                 for (const timing of result.invocation.timings) {
                     // Record metrics for this timing entry
                     hogFunctionExecutionTimeSummary.labels(timing.kind).observe(timing.duration_ms)
-
-                    // Calculate cost for this individual timing
-                    const lowerBound = this.hub.CDP_WATCHER_COST_TIMING_LOWER_MS
-                    const upperBound = this.hub.CDP_WATCHER_COST_TIMING_UPPER_MS
-                    const costTiming = this.hub.CDP_WATCHER_COST_TIMING
                     const ratio = Math.max(timing.duration_ms - lowerBound, 0) / (upperBound - lowerBound)
 
                     // Add to the total cost for this result
