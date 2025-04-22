@@ -285,8 +285,6 @@ export function BillingUsage(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <h2>Usage Details (Custom Graph)</h2>
-
             <div className="flex gap-2 items-center flex-wrap">
                 <LemonSelect
                     value={filters.usage_type}

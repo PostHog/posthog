@@ -316,9 +316,6 @@ export function BillingSpendView(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            {/* Changed title */}
-            <h2>Spend Details</h2>
-
             <div className="flex gap-2 items-center flex-wrap">
                 {/* Removed Usage Type LemonSelect */}
                 <LemonSelect<string | null>
