@@ -3,16 +3,15 @@ import { chunk } from 'lodash'
 import { Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
-import { KafkaConsumer } from '~/src/kafka/batch-consumer-v2'
-import { Hub, RawClickHouseEvent } from '~/src/types'
-
 import {
     convertToHogFunctionInvocationGlobals,
     isLegacyPluginHogFunction,
     serializeHogFunctionInvocation,
 } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
+import { KafkaConsumer } from '../../kafka/batch-consumer-v2'
 import { runInstrumentedFunction } from '../../main/utils'
+import { Hub, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { HogWatcherState } from '../services/hog-watcher.service'
