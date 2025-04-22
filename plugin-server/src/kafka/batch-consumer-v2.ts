@@ -8,39 +8,75 @@ import {
     TopicPartitionOffset,
 } from 'node-rdkafka'
 
+import { defaultConfig } from '../config/config'
 import { logger } from '../utils/logger'
 import { ensureTopicExists } from './admin'
+import {
+    consumedBatchDuration,
+    consumedMessageSizeBytes,
+    consumerBatchSize,
+    gaugeBatchUtilization,
+} from './batch-consumer'
 import { getConsumerConfigFromEnv } from './config'
-import { countPartitionsPerTopic } from './consumer'
+import { disconnectConsumer, storeOffsetsForMessages } from './consumer'
 
-export type KafkaConsumerConfig = Omit<ConsumerGlobalConfig, 'group.id'> & {
+const DEFAULT_BATCH_TIMEOUT_MS = 500
+const DEFAULT_FETCH_BATCH_SIZE = 1000
+const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
+const MAX_HEALTH_HEARTBEAT_INTERVAL_MS = 60_000
+
+export type KafkaConsumerConfig = Omit<
+    ConsumerGlobalConfig,
+    'group.id' | 'enable.auto.offset.store' | 'enable.auto.commit'
+> & {
     groupId: string
     topic: string
     batchTimeoutMs?: number
+    callEachBatchWhenEmpty?: boolean
+    autoOffsetStore?: boolean
+    autoCommit?: boolean
 }
 
 export class KafkaConsumer {
     private isStopping = false
     private lastHeartbeatTime = 0
     private rdKafkaConsumer: RdKafkaConsumer
+    private consumerConfig: ConsumerGlobalConfig
+    private groupId: string
+    private topic: string
+    private autoCommit: boolean
+    private autoOffsetStore: boolean
+    private fetchBatchSize: number
+    private maxHealthHeartbeatIntervalMs: number
+
+    private consumerLoop: Promise<void> | undefined
 
     constructor(private config: KafkaConsumerConfig) {
-        this.rdKafkaConsumer = this.createConsumer(config)
-    }
+        const {
+            groupId,
+            topic,
+            autoCommit = true,
+            autoOffsetStore = false,
+            ...additionalConfig
+        }: KafkaConsumerConfig = config
+        this.groupId = groupId
+        this.topic = topic
+        this.autoCommit = autoCommit
+        this.autoOffsetStore = autoOffsetStore
+        this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE || DEFAULT_FETCH_BATCH_SIZE
+        this.maxHealthHeartbeatIntervalMs =
+            defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
 
-    private createConsumer({ groupId, topic, ...config }: KafkaConsumerConfig, topicConfig: ConsumerTopicConfig = {}) {
-        const consumerConfig: ConsumerGlobalConfig = {
-            // Default settings
-            'enable.auto.offset.store': false,
-            'enable.auto.commit': true,
+        this.consumerConfig = {
+            // NOTE: These values can ble overridden with env vars rather than by hard coded config values
+            // This makes it much easier to tune kafka without needless code changes
+            'enable.auto.offset.store': false, // NOTE: This is always false - we handle it using a custom function
+            'enable.auto.commit': autoCommit,
             'partition.assignment.strategy': 'cooperative-sticky',
             rebalance_cb: true,
             offset_commit_cb: true,
             'enable.partition.eof': true,
             'group.id': groupId,
-
-            // NOTE: These values can be overridden with env vars rather than by hard coded config values
-            // This makes it much easier to tune kafka without needless code changes
             'session.timeout.ms': 30_000,
             'max.poll.interval.ms': 300_000,
             'max.partition.fetch.bytes': 1_048_576,
@@ -49,20 +85,34 @@ export class KafkaConsumer {
             'fetch.wait.max.ms': 50,
             'queued.min.messages': 100000,
             'queued.max.messages.kbytes': 102400, // 1048576 is the default, we go smaller to reduce mem usage.
-
-            // Custom settings and overrides - this is where most configuration should be done
+            // Custom settings and overrides - this is where most configuration overrides should be done
             ...getConsumerConfigFromEnv(),
-            ...config,
+            // Finally any specifically given consumer config overrides
+            ...additionalConfig,
         }
 
-        const consumerTopicConfig: ConsumerTopicConfig = {
+        this.rdKafkaConsumer = this.createConsumer()
+    }
+
+    public heartbeat() {
+        // Can be called externally to update the heartbeat time and keep the consumer alive
+        this.lastHeartbeatTime = Date.now()
+
+        // this is called as a readiness and a liveness probe
+        const isWithinInterval = Date.now() - this.lastHeartbeatTime < MAX_HEALTH_HEARTBEAT_INTERVAL_MS
+        const isConnected = this.rdKafkaConsumer.isConnected()
+        return isConnected && isWithinInterval
+    }
+
+    public isHealthy() {
+        return this.rdKafkaConsumer.isConnected()
+    }
+
+    private createConsumer() {
+        const consumer = new RdKafkaConsumer(this.consumerConfig, {
             // Default settings
             'auto.offset.reset': 'earliest',
-            // Custom settings and overrides
-            ...topicConfig,
-        }
-
-        const consumer = new RdKafkaConsumer(consumerConfig, consumerTopicConfig)
+        })
 
         consumer.on('event.log', (log) => {
             logger.info('📝', 'librdkafka log', { log: log })
@@ -91,7 +141,9 @@ export class KafkaConsumer {
         return consumer
     }
 
-    public async connect() {
+    public async connect(eachBatch: (messages: Message[]) => Promise<void>) {
+        const { topic, groupId, callEachBatchWhenEmpty = false } = this.config
+
         await new Promise<void>((resolve, reject) => {
             this.rdKafkaConsumer.connect({}, (error, data) => {
                 if (error) {
@@ -103,6 +155,7 @@ export class KafkaConsumer {
                 }
             })
         })
+        this.heartbeat() // Setup the heartbeat so we are healthy since connection is established
 
         // Before subscribing, we need to ensure that the topic exists. We don't
         // currently have a way to manage topic creation elsewhere (we handle this
@@ -120,32 +173,34 @@ export class KafkaConsumer {
         // batches from this queue, but guarantee we are still running (with smaller
         // batches) if the queue is not full enough. batchingTimeoutMs is that
         // timeout, to return messages even if fetchBatchSize is not reached.
-        this.rdKafkaConsumer.setDefaultConsumeTimeout(this.config.batchTimeoutMs)
+        this.rdKafkaConsumer.setDefaultConsumeTimeout(this.config.batchTimeoutMs || DEFAULT_BATCH_TIMEOUT_MS)
         this.rdKafkaConsumer.subscribe([this.config.topic])
+
+        // TODO: Make this a new
 
         const startConsuming = async () => {
             try {
                 while (!this.isStopping) {
                     logger.debug('🔁', 'main_loop_consuming')
-                    await new Promise<Message[]>((resolve, reject) => {
-                        this.rdKafkaConsumer.consume(fetchBatchSize, (error: LibrdKafkaError, messages: Message[]) => {
-                            if (error) {
-                                reject(error)
-                            } else {
-                                resolve(messages)
+                    const messages = await new Promise<Message[]>((resolve, reject) => {
+                        this.rdKafkaConsumer.consume(
+                            this.fetchBatchSize,
+                            (error: LibrdKafkaError, messages: Message[]) => {
+                                if (error) {
+                                    reject(error)
+                                } else {
+                                    resolve(messages)
+                                }
                             }
-                        })
+                        )
                     })
 
-                    // It's important that we only set the `lastHeartbeatTime` after a successful consume
-                    // call. Even if we received 0 messages, a successful call means we are actually
-                    // subscribed and didn't receive, for example, an error about an inconsistent group
-                    // protocol. If we never manage to consume, we don't want our health checks to pass.
-                    lastHeartbeatTime = Date.now()
+                    // After successfully pulling a batch, we can update our heartbeat time
+                    this.heartbeat()
 
-                    for (const [topic, count] of countPartitionsPerTopic(consumer.assignments())) {
-                        kafkaAbsolutePartitionCount.labels({ topic }).set(count)
-                    }
+                    // for (const [topic, count] of countPartitionsPerTopic(this.rdKafkaConsumer.assignments())) {
+                    //     kafkaAbsolutePartitionCount.labels({ topic }).set(count)
+                    // }
 
                     if (!messages) {
                         logger.debug('🔁', 'main_loop_empty_batch', { cause: 'undefined' })
@@ -153,7 +208,7 @@ export class KafkaConsumer {
                         continue
                     }
 
-                    gaugeBatchUtilization.labels({ groupId }).set(messages.length / fetchBatchSize)
+                    gaugeBatchUtilization.labels({ groupId }).set(messages.length / this.fetchBatchSize)
 
                     logger.debug('🔁', 'main_loop_consumed', { messagesLength: messages.length })
                     if (!messages.length && !callEachBatchWhenEmpty) {
@@ -162,26 +217,13 @@ export class KafkaConsumer {
                         continue
                     }
 
-                    const startProcessingTimeMs = new Date().valueOf()
-                    const batchSummary = new BatchSummary()
-
                     consumerBatchSize.labels({ topic, groupId }).observe(messages.length)
                     for (const message of messages) {
                         consumedMessageSizeBytes.labels({ topic, groupId }).observe(message.size)
-                        batchSummary.record(message)
                     }
 
-                    // NOTE: we do not handle any retries. This should be handled by
-                    // the implementation of `eachBatch`.
-                    logger.debug('⏳', `Starting to process batch of ${messages.length} events...`, batchSummary)
-                    await eachBatch(messages, {
-                        heartbeat: () => {
-                            lastHeartbeatTime = Date.now()
-                        },
-                    })
-
-                    messagesProcessed += messages.length
-                    batchesProcessed += 1
+                    const startProcessingTimeMs = new Date().valueOf()
+                    await eachBatch(messages)
 
                     const processingTimeMs = new Date().valueOf() - startProcessingTimeMs
                     consumedBatchDuration.labels({ topic, groupId }).observe(processingTimeMs)
@@ -190,13 +232,12 @@ export class KafkaConsumer {
                         Math.round(processingTimeMs / 10) / 100
                     }s`
                     if (processingTimeMs > SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS) {
-                        logger.warn('🕒', `Slow batch: ${logSummary}`, batchSummary)
-                    } else {
-                        logger.debug('⌛️', logSummary, batchSummary)
+                        logger.warn('🕒', `Slow batch: ${logSummary}`)
                     }
 
-                    if (autoCommit && autoOffsetStore) {
-                        storeOffsetsForMessages(messages, consumer)
+                    if (this.autoCommit && this.autoOffsetStore) {
+                        // TODO: Move this into this class
+                        storeOffsetsForMessages(messages, this.rdKafkaConsumer)
                     }
                 }
             } catch (error) {
@@ -204,66 +245,29 @@ export class KafkaConsumer {
                 throw error
             } finally {
                 logger.info('🔁', 'main_loop_stopping')
-                clearInterval(statusLogInterval)
 
                 // Finally, disconnect from the broker. If stored offsets have changed via
                 // `storeOffsetsForMessages` above, they will be committed before shutdown (so long
                 // as this consumer is still part of the group).
-                await disconnectConsumer(consumer)
+                await disconnectConsumer(this.rdKafkaConsumer)
             }
         }
 
-        const mainLoop = startConsuming()
-
-        const isHealthy = () => {
-            // this is called as a readiness and a liveness probe
-            const hasRun = lastHeartbeatTime > 0
-            const isWithinInterval = Date.now() - lastHeartbeatTime < maxHealthHeartbeatIntervalMs
-            const isConnected = consumer.isConnected()
-            return hasRun ? isConnected && isWithinInterval : isConnected
-        }
-
-        const stop = async () => {
-            logger.info('🔁', 'Stopping kafka batch consumer')
-
-            // First we signal to the mainLoop that we should be stopping. The main
-            // loop should complete one loop, flush the producer, and store its offsets.
-            isShuttingDown = true
-
-            // Wait for the main loop to finish, but only give it 30 seconds
-            await join(30000)
-        }
-
-        const join = async (timeout?: number) => {
-            if (timeout) {
-                // If we have a timeout set we want to wait for the main loop to finish
-                // but also want to ensure that we don't wait forever. We do this by
-                // creating a promise that will resolve after the timeout, and then
-                // waiting for either the main loop to finish or the timeout to occur.
-                // We need to make sure that if the main loop finishes before the
-                // timeout, we don't leave the timeout around to resolve later thus
-                // keeping file descriptors open, so make sure to call clearTimeout
-                // on the timer handle.
-                await new Promise((resolve) => {
-                    const timerHandle = setTimeout(() => {
-                        resolve(null)
-                    }, timeout)
-
-                    // eslint-disable-next-line @typescript-eslint/no-floating-promises
-                    mainLoop.finally(() => {
-                        resolve(null)
-                        clearTimeout(timerHandle)
-                    })
-                })
-            } else {
-                await mainLoop
-            }
-        }
-
-        return { isHealthy, stop, join, consumer }
+        this.consumerLoop = startConsuming()
     }
 
     public async disconnect() {
+        if (this.isStopping) {
+            return
+        }
+        // Mark as stopping - this will also essentially stop the consumer loop
+        this.isStopping = true
+
+        // Allow the in progress consumer loop to finish if possible
+        if (this.consumerLoop) {
+            await this.consumerLoop
+        }
+
         await new Promise<void>((resolve, reject) => {
             this.rdKafkaConsumer.disconnect((error) => {
                 if (error) {

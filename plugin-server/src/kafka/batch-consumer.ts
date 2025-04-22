@@ -400,7 +400,7 @@ export const consumerBatchSize = new Histogram({
     buckets: exponentialBuckets(1, 3, 5),
 })
 
-const consumedMessageSizeBytes = new Histogram({
+export const consumedMessageSizeBytes = new Histogram({
     name: 'consumed_message_size_bytes',
     help: 'Size of consumed message value in bytes',
     labelNames: ['topic', 'groupId', 'messageType'],
@@ -413,7 +413,7 @@ const kafkaAbsolutePartitionCount = new Gauge({
     labelNames: ['topic'],
 })
 
-const gaugeBatchUtilization = new Gauge({
+export const gaugeBatchUtilization = new Gauge({
     name: 'consumer_batch_utilization',
     help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
     labelNames: ['groupId'],
