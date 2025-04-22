@@ -6,6 +6,7 @@ use crate::{
         flag_group_type_mapping::GroupTypeMappingCache, flag_matching::FeatureFlagMatcher,
         flag_models::FeatureFlagList, flag_request::FlagRequest, flag_service::FlagService,
     },
+    metrics::consts::FLAG_REQUEST_KLUDGE_COUNTER,
     router,
     team::team_models::Team,
 };
@@ -18,6 +19,7 @@ use bytes::Bytes;
 use chrono;
 use common_cookieless::{CookielessServerHashMode, EventData, TeamData};
 use common_geoip::GeoIpClient;
+use common_metrics::inc;
 use flate2::read::GzDecoder;
 use limiters::redis::ServiceName;
 use percent_encoding::percent_decode;
@@ -455,6 +457,12 @@ pub fn decode_form_data(
     let base64_str = if decoded_form.starts_with("data=") {
         decoded_form.split('=').nth(1).unwrap_or("")
     } else {
+        // Count how often we receive base64 data without the 'data=' prefix
+        inc(
+            FLAG_REQUEST_KLUDGE_COUNTER,
+            &[("type".to_string(), "missing_data_prefix".to_string())],
+            1,
+        );
         &decoded_form
     };
 
@@ -463,6 +471,11 @@ pub fn decode_form_data(
     let mut cleaned_base64 = base64_str.replace(' ', "");
     let padding_needed = cleaned_base64.len() % 4;
     if padding_needed > 0 {
+        inc(
+            FLAG_REQUEST_KLUDGE_COUNTER,
+            &[("type".to_string(), "padding_needed".to_string())],
+            1,
+        );
         cleaned_base64.push_str(&"=".repeat(4 - padding_needed));
     }
 
@@ -485,8 +498,18 @@ pub fn decode_form_data(
     // this is equivalent to using Python's `surrogatepass`, since it just replaces
     // unparseable characters with the Unicode replacement character (U+FFFD) instead of failing to decode the request
     // at all.
-    // TODO add a counter for how often we do this.
-    let json_str = String::from_utf8_lossy(&decoded).into_owned();
+    let json_str = {
+        let lossy_str = String::from_utf8_lossy(&decoded);
+        // Count how often we receive base64 data with invalid UTF-8 sequences
+        if lossy_str.contains('\u{FFFD}') {
+            inc(
+                FLAG_REQUEST_KLUDGE_COUNTER,
+                &[("type".to_string(), "lossy_utf8".to_string())],
+                1,
+            );
+        }
+        lossy_str.into_owned()
+    };
 
     // Parse JSON into FlagRequest
     serde_json::from_str(&json_str).map_err(|e| {
