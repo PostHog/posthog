@@ -1,6 +1,7 @@
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 
+import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
 import EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY from '~/mocks/fixtures/api/experiments/_experiment_v3_with_one_metric.json'
 import metricFunnelEventsJson from '~/mocks/fixtures/api/experiments/_metric_funnel_events.json'
 import metricTrendActionJson from '~/mocks/fixtures/api/experiments/_metric_trend_action.json'
@@ -20,6 +21,7 @@ import {
 import {
     AccessControlLevel,
     ChartDisplayType,
+    Experiment,
     ExperimentMetricMathType,
     FeatureFlagFilters,
     FeatureFlagType,
@@ -29,12 +31,16 @@ import {
 } from '~/types'
 
 import { getNiceTickValues } from './MetricsView/MetricsView'
+import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
     filterToMetricConfig,
     getViewRecordingFilters,
+    isLegacyExperiment,
+    isLegacyExperimentQuery,
+    isLegacySharedMetric,
     metricToFilter,
     metricToQuery,
     percentageDistribution,
@@ -860,5 +866,158 @@ describe('metricToQuery', () => {
 
         const query = metricToQuery(metric as ExperimentMetric, false)
         expect(query).toBeUndefined()
+    })
+})
+
+describe('isLegacyExperimentQuery', () => {
+    it('returns true for ExperimentTrendsQuery', () => {
+        const query = {
+            kind: NodeKind.ExperimentTrendsQuery,
+            count_query: {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+            },
+        }
+        expect(isLegacyExperimentQuery(query)).toBe(true)
+    })
+
+    it('returns true for ExperimentFunnelsQuery', () => {
+        const query = {
+            kind: NodeKind.ExperimentFunnelsQuery,
+            funnels_query: {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+            },
+        }
+        expect(isLegacyExperimentQuery(query)).toBe(true)
+    })
+
+    it('returns false for ExperimentMetric', () => {
+        const query = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: 'test',
+            },
+        }
+        expect(isLegacyExperimentQuery(query)).toBe(false)
+    })
+
+    it('returns false for null/undefined', () => {
+        expect(isLegacyExperimentQuery(null)).toBe(false)
+        expect(isLegacyExperimentQuery(undefined)).toBe(false)
+    })
+
+    it('returns false for non-object values', () => {
+        expect(isLegacyExperimentQuery('string')).toBe(false)
+        expect(isLegacyExperimentQuery(123)).toBe(false)
+    })
+})
+
+describe('hasLegacyMetrics', () => {
+    it('returns true if experiment has legacy metrics', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [
+                {
+                    kind: NodeKind.ExperimentTrendsQuery,
+                    count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                },
+            ],
+            metrics_secondary: [],
+            saved_metrics: [],
+        } as unknown as Experiment
+
+        expect(isLegacyExperiment(experiment)).toBe(true)
+    })
+
+    it('returns true if experiment has legacy secondary metrics', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [],
+            metrics_secondary: [
+                {
+                    kind: NodeKind.ExperimentFunnelsQuery,
+                    funnels_query: { kind: NodeKind.FunnelsQuery, series: [] },
+                },
+            ],
+            saved_metrics: [],
+        } as unknown as Experiment
+
+        expect(isLegacyExperiment(experiment)).toBe(true)
+    })
+
+    it('returns true if experiment has legacy saved metrics', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [],
+            metrics_secondary: [],
+            saved_metrics: [
+                {
+                    kind: NodeKind.ExperimentTrendsQuery,
+                    count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                },
+            ],
+        } as unknown as Experiment
+
+        expect(isLegacyExperiment(experiment)).toBe(true)
+    })
+
+    it('returns false if experiment has no legacy metrics', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [
+                {
+                    kind: NodeKind.ExperimentMetric,
+                    metric_type: ExperimentMetricType.MEAN,
+                    source: { kind: NodeKind.EventsNode, event: 'test' },
+                },
+            ],
+            metrics_secondary: [],
+            saved_metrics: [],
+        } as unknown as Experiment
+
+        expect(isLegacyExperiment(experiment)).toBe(false)
+    })
+
+    it('returns false if experiment has no metrics', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [],
+            metrics_secondary: [],
+            saved_metrics: [],
+        } as unknown as Experiment
+
+        expect(isLegacyExperiment(experiment)).toBe(false)
+    })
+})
+
+describe('hasLegacySharedMetrics', () => {
+    it('returns true if shared metrics contain legacy query', () => {
+        const sharedMetric = {
+            query: {
+                kind: NodeKind.ExperimentTrendsQuery,
+                count_query: { kind: NodeKind.TrendsQuery, series: [] },
+            },
+        } as unknown as SharedMetric
+
+        expect(isLegacySharedMetric(sharedMetric)).toBe(true)
+    })
+
+    it('returns false if shared metrics contain no legacy queries', () => {
+        const sharedMetric = {
+            query: {
+                kind: NodeKind.ExperimentMetric,
+                metric_type: ExperimentMetricType.MEAN,
+                source: { kind: NodeKind.EventsNode, event: 'test' },
+            },
+        } as unknown as SharedMetric
+
+        expect(isLegacySharedMetric(sharedMetric)).toBe(false)
+    })
+
+    it('returns false for empty shared metrics array', () => {
+        expect(isLegacySharedMetric({} as SharedMetric)).toBe(false)
     })
 })

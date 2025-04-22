@@ -4,8 +4,9 @@ from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateDatabaseField,
     DateTimeDatabaseField,
-    FloatDatabaseField,
     IntegerDatabaseField,
+    FloatDatabaseField,
+    DecimalDatabaseField,
     StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
@@ -93,7 +94,7 @@ CLICKHOUSE_HOGQL_MAPPING = {
     "Array": StringArrayDatabaseField,
     "Map": StringJSONDatabaseField,
     "Bool": BooleanDatabaseField,
-    "Decimal": FloatDatabaseField,
+    "Decimal": DecimalDatabaseField,
     "FixedString": StringDatabaseField,
 }
 
