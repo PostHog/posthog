@@ -126,7 +126,7 @@ export const templateLogic = kea<templateLogicType>([
                 if (!props.messageId) {
                     return null
                 }
-                return await api.messaging.getMessage(props.messageId)
+                return await api.hogFunctions.get(props.messageId)
             },
         },
     })),
@@ -145,7 +145,7 @@ export const templateLogic = kea<templateLogicType>([
                 name: message.name,
                 description: message.description,
                 content: {
-                    email: message.content.value,
+                    email: message.inputs?.email?.value,
                 },
             })
         },
