@@ -690,12 +690,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                             id: `search-loading/`,
                             name: 'Loading...',
                             icon: <Spinner />,
+                            disableSelect: true,
                         })
                     } else {
                         results.push({
                             id: `search-load-more/${searchResults.searchTerm}`,
                             name: 'Load more...',
                             icon: <IconPlus />,
+                            disableSelect: true,
                             onClick: () =>
                                 projectTreeLogic.actions.loadSearchResults(
                                     searchResults.searchTerm,
