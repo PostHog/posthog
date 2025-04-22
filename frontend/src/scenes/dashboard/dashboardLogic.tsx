@@ -965,8 +965,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         // Overwrite the variable `value` from the insight
                         const resultVar: Variable = {
                             ...foundVar,
-                            value: overridenValue ?? v.value ?? foundVar.value,
-                            isNull: overridenIsNull ?? v.isNull ?? foundVar.isNull,
+                            value: overridenValue,
+                            isNull: overridenIsNull,
                         }
 
                         const insightsUsingVariable = dataVizNodes
