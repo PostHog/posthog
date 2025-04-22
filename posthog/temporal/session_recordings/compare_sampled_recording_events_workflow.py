@@ -28,6 +28,7 @@ from posthog.temporal.session_recordings.session_comparer import (
 )
 from posthog.temporal.session_recordings.queries import get_session_metadata
 from posthog.temporal.session_recordings.snapshot_utils import fetch_v1_snapshots, fetch_v2_snapshots
+from posthog.temporal.session_recordings.segmentation import compute_active_milliseconds
 
 
 @dataclasses.dataclass(frozen=True)
@@ -83,8 +84,29 @@ async def compare_sampled_recording_events_activity(inputs: CompareSampledRecord
             recording = await sync_to_async(SessionRecording.get_or_build)(session_id=session_id, team=team)
 
             # Get v1 and v2 snapshots using the shared utility functions
-            v1_snapshots = await asyncio.to_thread(fetch_v1_snapshots, recording)
-            v2_snapshots = await asyncio.to_thread(fetch_v2_snapshots, recording)
+            try:
+                v1_snapshots = await asyncio.to_thread(fetch_v1_snapshots, recording)
+            except Exception as e:
+                await logger.awarn(
+                    "Skipping session due to error when fetching v1 snapshots",
+                    session_id=session_id,
+                    team_id=team_id,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                continue
+
+            try:
+                v2_snapshots = await asyncio.to_thread(fetch_v2_snapshots, recording)
+            except Exception as e:
+                await logger.awarn(
+                    "Skipping session due to error when fetching v2 snapshots",
+                    session_id=session_id,
+                    team_id=team_id,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+                continue
 
             # Convert snapshots to dictionaries for counting duplicates
             v1_events: dict[str, int] = {}
@@ -352,6 +374,81 @@ async def compare_sampled_recording_events_activity(inputs: CompareSampledRecord
                     "v2_total_duplicates": sum(count - 1 for count in v2_events.values() if count > 1),
                     "events_with_different_counts": {k: (v1, v2) for k, (v1, v2) in common_events.items() if v1 != v2},
                 },
+            )
+
+            # Compare snapshot metadata
+            await logger.ainfo(
+                "Snapshot metadata comparison",
+                session_id=session_id,
+                team_id=team_id,
+                v1_snapshot_source=v1_metadata["snapshot_source"],
+                v2_snapshot_source=v2_metadata["snapshot_source"],
+                v1_snapshot_library=v1_metadata["snapshot_library"],
+                v2_snapshot_library=v2_metadata["snapshot_library"],
+                snapshot_source_matches=v1_metadata["snapshot_source"] == v2_metadata["snapshot_source"],
+                snapshot_library_matches=v1_metadata["snapshot_library"] == v2_metadata["snapshot_library"],
+            )
+
+            # Compare active milliseconds
+            v1_computed_active_ms, v2_computed_active_ms = compute_active_milliseconds(v1_snapshots)
+            v1_computed_active_ms_v2, v2_computed_active_ms_v2 = compute_active_milliseconds(v2_snapshots)
+
+            # Calculate percentage differences
+            def safe_percentage_diff(a: int, b: int) -> float:
+                if a == 0 and b == 0:
+                    return 0.0
+                if a == 0:
+                    return 100.0
+                return ((b - a) / a) * 100
+
+            await logger.ainfo(
+                "Active milliseconds comparison",
+                session_id=session_id,
+                team_id=team_id,
+                v1_snapshot_computed_v1_alg=v1_computed_active_ms,
+                v2_snapshot_computed_v1_alg=v2_computed_active_ms,
+                v1_snapshot_computed_v2_alg=v1_computed_active_ms_v2,
+                v2_snapshot_computed_v2_alg=v2_computed_active_ms_v2,
+                # Compare v1 vs v2 algorithms on v1 snapshots
+                v1_snapshots_alg_difference=v1_computed_active_ms_v2 - v1_computed_active_ms,
+                v1_snapshots_alg_difference_percentage=safe_percentage_diff(
+                    v1_computed_active_ms, v1_computed_active_ms_v2
+                ),
+                # Compare v1 vs v2 algorithms on v2 snapshots
+                v2_snapshots_alg_difference=v2_computed_active_ms_v2 - v2_computed_active_ms,
+                v2_snapshots_alg_difference_percentage=safe_percentage_diff(
+                    v2_computed_active_ms, v2_computed_active_ms_v2
+                ),
+                v1_metadata_value=v1_metadata["active_milliseconds"],
+                v2_metadata_value=v2_metadata["active_milliseconds"],
+                snapshot_difference_v1_alg=v2_computed_active_ms - v1_computed_active_ms,
+                snapshot_difference_percentage_v1_alg=safe_percentage_diff(
+                    v1_computed_active_ms, v2_computed_active_ms
+                ),
+                snapshot_difference_v2_alg=v2_computed_active_ms_v2 - v1_computed_active_ms_v2,
+                snapshot_difference_percentage_v2_alg=safe_percentage_diff(
+                    v1_computed_active_ms_v2, v2_computed_active_ms_v2
+                ),
+                metadata_difference=v2_metadata["active_milliseconds"] - v1_metadata["active_milliseconds"],
+                metadata_difference_percentage=safe_percentage_diff(
+                    v1_metadata["active_milliseconds"], v2_metadata["active_milliseconds"]
+                ),
+                v1_computed_vs_metadata_difference_v1_alg=v1_computed_active_ms - v1_metadata["active_milliseconds"],
+                v1_computed_vs_metadata_percentage_v1_alg=safe_percentage_diff(
+                    v1_metadata["active_milliseconds"], v1_computed_active_ms
+                ),
+                v2_computed_vs_metadata_difference_v1_alg=v2_computed_active_ms - v2_metadata["active_milliseconds"],
+                v2_computed_vs_metadata_percentage_v1_alg=safe_percentage_diff(
+                    v2_metadata["active_milliseconds"], v2_computed_active_ms
+                ),
+                v1_computed_vs_metadata_difference_v2_alg=v1_computed_active_ms_v2 - v1_metadata["active_milliseconds"],
+                v1_computed_vs_metadata_percentage_v2_alg=safe_percentage_diff(
+                    v1_metadata["active_milliseconds"], v1_computed_active_ms_v2
+                ),
+                v2_computed_vs_metadata_difference_v2_alg=v2_computed_active_ms_v2 - v2_metadata["active_milliseconds"],
+                v2_computed_vs_metadata_percentage_v2_alg=safe_percentage_diff(
+                    v2_metadata["active_milliseconds"], v2_computed_active_ms_v2
+                ),
             )
 
             # Analyze events per window

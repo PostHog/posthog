@@ -60,3 +60,6 @@ export interface ErrorTrackingSymbolSet {
     storage_ptr: string | null
     failure_reason: string | null
 }
+
+export type SymbolSetStatus = 'valid' | 'invalid'
+export type SymbolSetStatusFilter = SymbolSetStatus | 'all'

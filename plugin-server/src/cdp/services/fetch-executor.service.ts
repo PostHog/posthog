@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { FetchError } from 'node-fetch'
+import { FetchError, RequestInit } from 'node-fetch'
 
 import { PluginsServerConfig } from '../../types'
 import { trackedFetch } from '../../utils/fetch'
@@ -85,12 +85,16 @@ export class FetchExecutorService {
 
         try {
             const start = performance.now()
-            const fetchResponse = await trackedFetch(params.url, {
-                method: params.method,
-                body: params.body,
+            const method = params.method.toUpperCase()
+            const fetchParams: RequestInit = {
+                method,
                 headers: params.headers,
                 timeout: this.serverConfig.CDP_FETCH_TIMEOUT_MS,
-            })
+            }
+            if (!['GET', 'HEAD'].includes(method) && params.body) {
+                fetchParams.body = params.body
+            }
+            const fetchResponse = await trackedFetch(params.url, fetchParams)
 
             responseBody = await fetchResponse.text()
 
