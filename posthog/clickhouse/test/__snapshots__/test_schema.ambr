@@ -27,7 +27,7 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
       
-      , _headers Array(Tuple(String, String))
+      
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
   
@@ -143,7 +143,7 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
       
-      , _headers Array(Tuple(String, String))
+      
       
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
   
@@ -868,7 +868,13 @@
   person_mode,
   _timestamp,
   _offset,
-  arrayFirst(x -> x.1 = 'kafka-consumer-breadcrumb', _headers).2 as _kafka_consumer_breadcrumbs
+  arrayMap(
+      i -> _headers.value[i],
+      arrayFilter(
+          i -> _headers.name[i] = 'kafka-consumer-breadcrumbs',
+          arrayEnumerate(_headers.name)
+      )
+  ) as consumer_breadcrumbs
   FROM posthog_test.kafka_events_json
   
   '''
@@ -1203,7 +1209,7 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
       
-      , _headers Array(Tuple(String, String))
+      
       
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
   
@@ -2696,7 +2702,7 @@
       
   , _timestamp DateTime
   , _offset UInt64
-  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64(), _kafka_consumer_breadcrumbs Nullable(String)
+  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64(), consumer_breadcrumbs Array(String)
       
       , INDEX kafka_timestamp_minmax_sharded_events _timestamp TYPE minmax GRANULARITY 3
       
@@ -3979,7 +3985,7 @@
       
   , _timestamp DateTime
   , _offset UInt64
-  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64(), _kafka_consumer_breadcrumbs Nullable(String)
+  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64(), consumer_breadcrumbs Array(String)
       
       , INDEX kafka_timestamp_minmax_sharded_events _timestamp TYPE minmax GRANULARITY 3
       
