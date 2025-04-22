@@ -1,6 +1,7 @@
 import { IconDatabaseBolt } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useState } from 'react'
@@ -80,7 +81,8 @@ export function ElapsedTime({ showTimings }: { showTimings?: boolean }): JSX.Ele
         useValues(dataNodeLogic)
     const [, setTick] = useState(0)
 
-    const { editingView } = useValues(multitabEditorLogic)
+    const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
+    const { editingView } = useValues(multitabEditorLogic({ key: codeEditorKey }))
     const { dataWarehouseSavedQueryMapById } = useValues(dataWarehouseViewsLogic)
     const savedQuery = editingView ? dataWarehouseSavedQueryMapById[editingView.id] : null
     const isAlreadyMaterialized = !!savedQuery?.last_run_at
