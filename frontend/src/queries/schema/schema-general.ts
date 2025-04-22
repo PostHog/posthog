@@ -2399,6 +2399,7 @@ export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryRespons
 export type DatabaseSerializedFieldType =
     | 'integer'
     | 'float'
+    | 'decimal'
     | 'string'
     | 'datetime'
     | 'date'

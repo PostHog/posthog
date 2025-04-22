@@ -317,7 +317,22 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     parser_classes = [MultiPartParser, FileUploadParser]
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team.id)
+        queryset = queryset.filter(team_id=self.team.id)
+        params = self.request.GET.dict()
+        status = params.get("status")
+        order_by = params.get("order_by")
+
+        if status == "valid":
+            queryset = queryset.filter(storage_ptr__isnull=False)
+        elif status == "invalid":
+            queryset = queryset.filter(storage_ptr__isnull=True)
+
+        if order_by:
+            allowed_fields = ["created_at", "-created_at", "ref", "-ref"]
+            if order_by in allowed_fields:
+                queryset = queryset.order_by(order_by)
+
+        return queryset
 
     def destroy(self, request, *args, **kwargs):
         symbol_set = self.get_object()

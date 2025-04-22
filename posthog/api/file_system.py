@@ -93,7 +93,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = FileSystemSerializer
     filter_backends = [filters.SearchFilter]
     pagination_class = FileSystemsLimitOffsetPagination
-    search_fields = ["path", "ref", "type"]
+    search_fields = ["path"]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.filter(team=self.team)

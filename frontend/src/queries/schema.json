@@ -7460,6 +7460,7 @@
             "enum": [
                 "integer",
                 "float",
+                "decimal",
                 "string",
                 "datetime",
                 "date",
