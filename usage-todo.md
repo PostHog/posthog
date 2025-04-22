@@ -157,27 +157,27 @@ We've decided to standardize on **BillingUsage4** as our canonical implementatio
     - [x] Adapt `transform_to_timeseries_format` for spend data (via `_transform_spend_to_timeseries_format` helper).
 - [x] Register URL in `billing/urls.py`.
 - [ ] Add unit tests for `get_spend_data` (tiers, resets, breakdowns, edge cases).
-- [ ] Update PostHog proxy if needed.
+- [x] Update PostHog proxy if needed.
 
 ## Phase: Implement Separate Spend View
 
-- [ ] Create `billingSpendLogic.ts` based on `billingUsageLogic.ts`:
-  - [ ] Rename logic, paths, keys.
-  - [ ] Rename loader/action to `billingSpendResponse`/`loadBillingSpend`.
-  - [ ] Point loader to new `/api/billing/spend/` endpoint.
-  - [ ] Remove `usage_type` from filters and API params.
-- [ ] Create `BillingSpendView.tsx` based on `BillingUsage4.tsx`:
-  - [ ] Use `billingSpendLogic`.
-  - [ ] Remove "Usage type" filter select.
-  - [ ] Remove usage type banner.
-  - [ ] Adapt graph rendering for currency formatting (Y-axis, tooltips).
-  - [ ] Adapt table rendering for currency formatting (cells, totals).
-- [ ] Add PostHog API endpoint (`ee/api/billing.py`):
-  - [ ] Add `@action` `spend` to `BillingViewset`.
-  - [ ] Implement auth checks.
-  - [ ] Call new `BillingManager.get_spend_data` to proxy to `/api/usage-v2/spend/`.
-- [ ] Add frontend route for `/billing/spend` pointing to `BillingSpendView`.
-- [ ] Add "Spend" tab to billing sub-navigation UI.
+- [x] Create `billingSpendLogic.ts` based on `billingUsageLogic.ts`:
+  - [x] Rename logic, paths, keys.
+  - [x] Rename loader/action to `billingSpendResponse`/`loadBillingSpend`.
+  - [x] Point loader to new `/api/billing/spend/` endpoint.
+  - [x] Remove `usage_type` from filters and API params.
+- [x] Create `BillingSpendView.tsx` based on `BillingUsage4.tsx`:
+  - [x] Use `billingSpendLogic`.
+  - [x] Remove "Usage type" filter select.
+  - [x] Remove usage type banner.
+  - [x] Adapt graph rendering for currency formatting (Y-axis, tooltips).
+  - [x] Adapt table rendering for currency formatting (cells, totals).
+- [x] Add PostHog API endpoint (`ee/api/billing.py`):
+  - [x] Add `@action` `spend` to `BillingViewset`.
+  - [x] Implement auth checks.
+  - [x] Call new `BillingManager.get_spend_data` to proxy to `/api/usage-v2/spend/`.
+- [x] Add frontend route for `/billing/spend` pointing to `BillingSpendView`.
+- [x] Add "Spend" tab to billing sub-navigation UI.
 
 ## Best Practices Implemented
 
