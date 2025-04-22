@@ -17,11 +17,9 @@ from typing import Protocol
 class FunnelProtocol(Protocol):
     context: FunnelQueryContext
 
-    def _query_has_array_breakdown(self) -> bool:
-        ...
+    def _query_has_array_breakdown(self) -> bool: ...
 
-    def _default_breakdown_selector(self) -> str:
-        ...
+    def _default_breakdown_selector(self) -> str: ...
 
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -33,15 +31,25 @@ class FunnelUDFMixin:
         raise Exception("UDF doesn't use this")
 
     def _prop_vals(self: FunnelProtocol):
+        has_array_breakdown = self._query_has_array_breakdown()
         prop_vals = f"[{self._default_breakdown_selector()}]"
         if self.context.breakdown:
-            if self.context.breakdownAttributionType == BreakdownAttributionType.STEP:
+            if self.context.breakdownAttributionType == BreakdownAttributionType.FIRST_TOUCH:
+                if has_array_breakdown:
+                    return "[argMinIf(prop_basic, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_basic)))]"
+                return "argMinIf(prop_basic, timestamp, isNotNull(prop_basic))"
+            elif self.context.breakdownAttributionType == BreakdownAttributionType.LAST_TOUCH:
+                if has_array_breakdown:
+                    return "[argMaxIf(prop_basic, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop_basic)))]"
+                return "argMaxIf(prop_basic, timestamp, isNotNull(prop_basic))"
+            elif self.context.breakdownAttributionType == BreakdownAttributionType.STEP:
                 if self.context.funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
                     prop = f"prop_basic"
                 else:
                     prop = f"prop_{self.context.funnelsFilter.breakdownAttributionValue}"
             else:
-                prop = "prop"
+                # self.context.breakdownAttributionType == BreakdownAttributionType.ALL_EVENTS
+                prop = "prop_basic"
             if self._query_has_array_breakdown():
                 prop_vals = f"groupUniqArrayIf({prop}, {prop} != [])"
             else:
