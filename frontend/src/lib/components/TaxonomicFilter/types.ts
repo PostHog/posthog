@@ -55,6 +55,7 @@ export interface TaxonomicFilterProps {
      */
     useVerticalLayout?: boolean
     initialSearchQuery?: string
+    /** Left and right offsets of definition tooltips in vertical layout. */
     tooltipOffset?: TooltipOffset
 }
 

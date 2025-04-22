@@ -92,6 +92,11 @@ export function InfiniteSelectResults({
 
     const hasMultipleGroups = taxonomicGroupTypes.length > 1
 
+    const useVerticalLayout =
+        useVerticalLayoutProp !== undefined
+            ? useVerticalLayoutProp
+            : taxonomicGroupTypes.length > VERTICAL_LAYOUT_THRESHOLD
+
     const listComponent = RenderComponent ? (
         <RenderComponent
             {...(activeTaxonomicGroup?.componentProps ?? {})}
@@ -105,16 +110,14 @@ export function InfiniteSelectResults({
                     {taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}
                 </div>
             )}
-            <InfiniteList popupAnchorElement={popupAnchorElement} tooltipOffset={tooltipOffset} />
+            <InfiniteList
+                popupAnchorElement={popupAnchorElement}
+                tooltipOffset={useVerticalLayout ? tooltipOffset : {}}
+            />
         </>
     )
 
     const showEmptyState = totalListCount === 0 && taxonomicFilterGroupTypesWithEmptyStates.includes(openTab)
-
-    const useVerticalLayout =
-        useVerticalLayoutProp !== undefined
-            ? useVerticalLayoutProp
-            : taxonomicGroupTypes.length > VERTICAL_LAYOUT_THRESHOLD
 
     return (
         <div className={cn('flex h-full', useVerticalLayout ? 'flex-row' : 'flex-col')}>
