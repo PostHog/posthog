@@ -143,9 +143,9 @@ export class HogWatcherService {
 
                 // Use thresholds for hog kind execution
                 if (hogDurationMs > 0) {
-                    const lowerBound = this.hub.CDP_WATCHER_COST_TIMING_LOWER_MS
-                    const upperBound = this.hub.CDP_WATCHER_COST_TIMING_UPPER_MS
-                    const costTiming = this.hub.CDP_WATCHER_COST_TIMING
+                    const lowerBound = this.hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS
+                    const upperBound = this.hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS
+                    const costTiming = this.hub.CDP_WATCHER_HOG_COST_TIMING
                     const ratio = Math.max(hogDurationMs - lowerBound, 0) / (upperBound - lowerBound)
                     cost += Math.round(costTiming * ratio)
                 }

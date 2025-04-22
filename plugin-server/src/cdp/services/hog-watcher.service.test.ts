@@ -250,15 +250,15 @@ describe('HogWatcher', () => {
                 // calculate expected costs based on the ratio calculation with maximum costs
                 const hogRatio = Math.min(
                     1,
-                    Math.max(executionDuration - hub.CDP_WATCHER_COST_TIMING_LOWER_MS, 0) /
-                        (hub.CDP_WATCHER_COST_TIMING_UPPER_MS - hub.CDP_WATCHER_COST_TIMING_LOWER_MS)
+                    Math.max(executionDuration - hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS, 0) /
+                        (hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS - hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS)
                 )
                 const asyncRatio = Math.min(
                     1,
                     Math.max(executionDuration - hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS, 0) /
                         (hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS - hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS)
                 )
-                const hogCost = Math.round(hub.CDP_WATCHER_COST_TIMING * hogRatio)
+                const hogCost = Math.round(hub.CDP_WATCHER_HOG_COST_TIMING * hogRatio)
                 const asyncCost = Math.round(hub.CDP_WATCHER_ASYNC_COST_TIMING * asyncRatio)
 
                 expect(10000 - hogState.tokens).toBe(hogCost)
@@ -296,15 +296,15 @@ describe('HogWatcher', () => {
                 // Calculate expected costs based on the ratio calculation with maximum costs
                 const hogRatio = Math.min(
                     1,
-                    Math.max(hogExecutionDuration - hub.CDP_WATCHER_COST_TIMING_LOWER_MS, 0) /
-                        (hub.CDP_WATCHER_COST_TIMING_UPPER_MS - hub.CDP_WATCHER_COST_TIMING_LOWER_MS)
+                    Math.max(hogExecutionDuration - hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS, 0) /
+                        (hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS - hub.CDP_WATCHER_HOG_COST_TIMING_LOWER_MS)
                 )
                 const asyncRatio = Math.min(
                     1,
                     Math.max(asyncExecutionDuration - hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS, 0) /
                         (hub.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS - hub.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS)
                 )
-                const expectedHogCost = Math.round(hub.CDP_WATCHER_COST_TIMING * hogRatio)
+                const expectedHogCost = Math.round(hub.CDP_WATCHER_HOG_COST_TIMING * hogRatio)
                 const expectedAsyncCost = Math.round(hub.CDP_WATCHER_ASYNC_COST_TIMING * asyncRatio)
                 const expectedTotalCost = expectedHogCost + expectedAsyncCost
 
