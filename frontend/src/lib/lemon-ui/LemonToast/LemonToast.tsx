@@ -106,12 +106,17 @@ export const lemonToast = {
                 toastId: toastOptions.toastId,
             })
         }
+
+        // Check if this is the browser privacy settings error message
+        const isPrivacySettingsError = typeof message === 'string' && message.includes("browser's privacy level")
+
         toastOptions = ensureToastId(toastOptions)
         toast.error(
             <ToastContent
                 type="error"
                 message={message}
-                button={button || GET_HELP_BUTTON}
+                // Only show the button if it's explicitly provided or if it's not the privacy settings error
+                button={button !== undefined ? button : isPrivacySettingsError ? undefined : GET_HELP_BUTTON}
                 id={toastOptions.toastId}
             />,
             {

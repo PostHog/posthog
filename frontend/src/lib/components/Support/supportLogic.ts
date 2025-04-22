@@ -538,12 +538,45 @@ export const supportLogic = kea<supportLogicType>([
 
             try {
                 const zendeskRequestBody = JSON.stringify(payload, undefined, 4)
+
+                // First attempt with standard fetch (unchanged from original)
                 const response = await fetch('https://posthoghelp.zendesk.com/api/v2/requests.json', {
                     method: 'POST',
                     body: zendeskRequestBody,
                     headers: { 'Content-Type': 'application/json' },
                 })
+
+                // If the fetch request fails, try the Beacon API as a fallback
                 if (!response.ok) {
+                    console.warn('Fetch attempt to submit support ticket failed, trying Beacon API as fallback')
+
+                    // Detect Firefox
+                    const isFirefox = navigator.userAgent.toLowerCase().indexOf('firefox') > -1
+
+                    // Try Beacon API
+                    const beaconSuccess = navigator.sendBeacon(
+                        'https://posthoghelp.zendesk.com/api/v2/requests.json',
+                        zendeskRequestBody
+                    )
+
+                    if (beaconSuccess) {
+                        // Track success
+                        const properties = {
+                            zendesk_ticket_uuid,
+                            kind,
+                            target_area,
+                            message,
+                            submission_method: 'beacon',
+                            browser: isFirefox ? 'firefox' : 'other',
+                        }
+                        posthog.capture('support_ticket', properties)
+                        lemonToast.success(
+                            "Got the message! If we have follow-up information for you, we'll reply via email."
+                        )
+                        return
+                    }
+
+                    // If both fetch and beacon fail, show the original error message
                     const error = new Error(`There was an error creating the support ticket with zendesk.`)
                     const extra: Record<string, any> = { zendeskBody: zendeskRequestBody }
                     Object.entries(payload).forEach(([key, value]) => {
@@ -561,7 +594,9 @@ export const supportLogic = kea<supportLogicType>([
                         ...extra,
                         ...contexts,
                     })
-                    lemonToast.error(`There was an error sending the message.`)
+                    lemonToast.error(
+                        `Oops, the message couldn't be sent. Please change your browser's privacy level to the standard or default level, then try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`
+                    )
                     return
                 }
 
@@ -592,7 +627,12 @@ export const supportLogic = kea<supportLogicType>([
                 lemonToast.success("Got the message! If we have follow-up information for you, we'll reply via email.")
             } catch (e) {
                 posthog.captureException(e)
-                lemonToast.error(`There was an error sending the message.`)
+
+                // More helpful error message
+                // Use the same error message regardless of browser
+                lemonToast.error(
+                    `Oops, the message wasn't sent due to an error. Please try changing your browser's privacy level to the standard or default level and try again. (E.g. In Firefox: Settings > Privacy & Security > Standard)`
+                )
             }
         },
 
