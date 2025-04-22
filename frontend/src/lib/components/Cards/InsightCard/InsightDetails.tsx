@@ -398,7 +398,7 @@ export function VariablesSummary({
             <div>
                 {Object.entries(variables).map(([key, variable]) => (
                     <div key={key}>
-                        {variable.code_name}: <b>{variable.value}</b>
+                        {variable.code_name}: {variable.value ? <b>{variable.value}</b> : <i>null</i>}
                     </div>
                 ))}
             </div>
