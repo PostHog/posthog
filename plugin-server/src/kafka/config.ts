@@ -61,9 +61,10 @@ export const createRdConnectionConfigFromEnvVars = (
     return config
 }
 
-export const getProducerConfigFromEnv = (): GlobalConfig => {
+const getKafkaConfigFromEnv = (kind: 'producer' | 'consumer'): GlobalConfig => {
+    const PREFIX = kind === 'producer' ? 'KAFKA_PRODUCER_' : 'KAFKA_CONSUMER_'
     return Object.entries(process.env)
-        .filter(([key]) => key.startsWith('KAFKA_PRODUCER_'))
+        .filter(([key]) => key.startsWith(PREFIX))
         .reduce((acc, [key, value]) => {
             // If there is an explicit config value then we don't override it
             if (!value || key in defaultConfig) {
@@ -85,11 +86,16 @@ export const getProducerConfigFromEnv = (): GlobalConfig => {
                 parsedValue = false
             }
 
-            const rdkafkaKey = key
-                .replace(/^KAFKA_PRODUCER_/, '')
-                .replace(/_/g, '.')
-                .toLowerCase()
+            const rdkafkaKey = key.replace(PREFIX, '').replace(/_/g, '.').toLowerCase()
             acc[rdkafkaKey] = parsedValue
             return acc
         }, {} as Record<string, any>)
+}
+
+export const getProducerConfigFromEnv = (): GlobalConfig => {
+    return getKafkaConfigFromEnv('producer')
+}
+
+export const getConsumerConfigFromEnv = (): GlobalConfig => {
+    return getKafkaConfigFromEnv('consumer')
 }

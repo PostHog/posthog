@@ -3,7 +3,7 @@ import { exponentialBuckets, Gauge, Histogram } from 'prom-client'
 
 import { logger } from '../utils/logger'
 import { retryIfRetriable } from '../utils/retries'
-import { createAdminClient, ensureTopicExists } from './admin'
+import { ensureTopicExists } from './admin'
 import {
     consumeMessages,
     countPartitionsPerTopic,
@@ -66,7 +66,6 @@ export const startBatchConsumer = async ({
     consumerErrorBackoffMs,
     fetchBatchSize,
     batchingTimeoutMs,
-    topicCreationTimeoutMs,
     eachBatch,
     queuedMinMessages = 100000,
     callEachBatchWhenEmpty = false,
@@ -91,7 +90,6 @@ export const startBatchConsumer = async ({
     consumerErrorBackoffMs: number
     fetchBatchSize: number
     batchingTimeoutMs: number
-    topicCreationTimeoutMs: number
     eachBatch: (messages: Message[], context: { heartbeat: () => void }) => Promise<void>
     queuedMinMessages?: number
     callEachBatchWhenEmpty?: boolean
@@ -218,9 +216,7 @@ export const startBatchConsumer = async ({
     // our testing of it, we end up getting "Unknown topic or partition" errors
     // on consuming, possibly similar to
     // https://github.com/confluentinc/confluent-kafka-dotnet/issues/1366.
-    const adminClient = createAdminClient(connectionConfig)
-    await ensureTopicExists(adminClient, topic, topicCreationTimeoutMs)
-    adminClient.disconnect()
+    await ensureTopicExists(connectionConfig, topic)
 
     // The consumer has an internal pre-fetching queue that sequentially pools
     // each partition, with the consumerMaxWaitMs timeout. We want to read big
