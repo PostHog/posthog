@@ -987,6 +987,7 @@ export type TrendsFilter = {
     aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
     aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
     decimalPlaces?: TrendsFilterLegacy['decimal_places']
+    minDecimalPlaces?: TrendsFilterLegacy['min_decimal_places']
     /** @default false */
     showValuesOnSeries?: TrendsFilterLegacy['show_values_on_series']
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
@@ -1855,9 +1856,11 @@ export interface RevenueAnalyticsGrowthRateQueryResponse extends AnalyticsQueryR
 }
 export type CachedRevenueAnalyticsGrowthRateQueryResponse = CachedQueryResponse<RevenueAnalyticsGrowthRateQueryResponse>
 
+export type RevenueAnalyticsTopCustomersGroupBy = 'month' | 'all'
 export interface RevenueAnalyticsTopCustomersQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsTopCustomersQueryResponse> {
     kind: NodeKind.RevenueAnalyticsTopCustomersQuery
+    groupBy: RevenueAnalyticsTopCustomersGroupBy
 }
 
 export interface RevenueAnalyticsTopCustomersQueryResponse extends AnalyticsQueryResponseBase<unknown> {
@@ -2393,6 +2396,7 @@ export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryRespons
 export type DatabaseSerializedFieldType =
     | 'integer'
     | 'float'
+    | 'decimal'
     | 'string'
     | 'datetime'
     | 'date'
@@ -2904,14 +2908,32 @@ export interface WebActiveHoursHeatMapQuery extends WebAnalyticsQueryBase<WebAct
     kind: NodeKind.WebActiveHoursHeatMapQuery
 }
 
-export interface WebActiveHoursHeatMapQueryResponse extends AnalyticsQueryResponseBase<WebActiveHoursHeatMapResult[]> {
+export interface WebActiveHoursHeatMapQueryResponse
+    extends AnalyticsQueryResponseBase<WebActiveHoursHeatMapStructuredResult> {
     hasMore?: boolean
     limit?: integer
 }
 
-export interface WebActiveHoursHeatMapResult {
+export interface WebActiveHoursHeatMapDayAndHourResult {
     day: integer
     hour: integer
+    total: integer
+}
+
+export interface WebActiveHoursHeatMapDayResult {
+    day: integer
+    total: integer
+}
+
+export interface WebActiveHoursHeatMapHourResult {
+    hour: integer
+    total: integer
+}
+
+export interface WebActiveHoursHeatMapStructuredResult {
+    dayAndHours: WebActiveHoursHeatMapDayAndHourResult[]
+    days: WebActiveHoursHeatMapDayResult[]
+    hours: WebActiveHoursHeatMapHourResult[]
     total: integer
 }
 

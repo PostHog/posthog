@@ -13,6 +13,7 @@ from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
     DateDatabaseField,
+    DecimalDatabaseField,
     DateTimeDatabaseField,
     ExpressionField,
     FieldOrTable,
@@ -287,7 +288,7 @@ class Database(BaseModel):
             self.merge_or_setattr(f_name, f_def)
 
             # No need to add TableGroups to the view table names,
-            # they're already with their chained name
+            # they're already with their chained names
             if isinstance(f_def, TableGroup):
                 continue
 
@@ -985,6 +986,8 @@ def constant_type_to_serialized_field_type(constant_type: ast.ConstantType) -> D
         return DatabaseSerializedFieldType.INTEGER
     if isinstance(constant_type, ast.FloatType):
         return DatabaseSerializedFieldType.FLOAT
+    if isinstance(constant_type, ast.DecimalType):
+        return DatabaseSerializedFieldType.DECIMAL
     return None
 
 
@@ -1042,6 +1045,15 @@ def serialize_fields(
                         name=field_key,
                         hogql_value=hogql_value,
                         type=DatabaseSerializedFieldType.FLOAT,
+                        schema_valid=schema_valid,
+                    )
+                )
+            elif isinstance(field, DecimalDatabaseField):
+                field_output.append(
+                    DatabaseSchemaField(
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.DECIMAL,
                         schema_valid=schema_valid,
                     )
                 )

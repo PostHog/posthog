@@ -259,10 +259,7 @@ export class EventsProcessor {
 
     emitEvent(rawEvent: RawKafkaEvent, breadcrumbs: KafkaConsumerBreadcrumb[]): Promise<void> {
         const headers: MessageHeader[] = []
-        headers.push({
-            key: 'kafka-consumer-breadcrumbs',
-            value: Buffer.from(JSON.stringify(breadcrumbs)),
-        })
+        headers.push({ 'kafka-consumer-breadcrumbs': Buffer.from(JSON.stringify(breadcrumbs)) })
         return this.kafkaProducer
             .produce({
                 topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,

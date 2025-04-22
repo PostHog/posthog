@@ -1,9 +1,11 @@
 import asyncio
 import datetime as dt
-import logging
+import functools
+import signal
 
 import structlog
 from temporalio import workflow
+from temporalio.worker import Worker
 
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
@@ -22,11 +24,7 @@ from posthog.temporal.batch_exports import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
-from posthog.temporal.common.worker import start_worker
-from posthog.temporal.session_recordings import (
-    ACTIVITIES as SESSION_RECORDINGS_ACTIVITIES,
-    WORKFLOWS as SESSION_RECORDINGS_WORKFLOWS,
-)
+from posthog.temporal.common.worker import create_worker
 from posthog.temporal.data_imports.settings import ACTIVITIES as DATA_SYNC_ACTIVITIES, WORKFLOWS as DATA_SYNC_WORKFLOWS
 from posthog.temporal.data_modeling import ACTIVITIES as DATA_MODELING_ACTIVITIES, WORKFLOWS as DATA_MODELING_WORKFLOWS
 from posthog.temporal.delete_persons import (
@@ -34,12 +32,18 @@ from posthog.temporal.delete_persons import (
     WORKFLOWS as DELETE_PERSONS_WORKFLOWS,
 )
 from posthog.temporal.proxy_service import ACTIVITIES as PROXY_SERVICE_ACTIVITIES, WORKFLOWS as PROXY_SERVICE_WORKFLOWS
-from posthog.temporal.tests.utils.workflow import ACTIVITIES as TEST_ACTIVITIES, WORKFLOWS as TEST_WORKFLOWS
-from posthog.temporal.usage_reports import ACTIVITIES as USAGE_REPORTS_ACTIVITIES, WORKFLOWS as USAGE_REPORTS_WORKFLOWS
 from posthog.temporal.quota_limiting import (
     ACTIVITIES as QUOTA_LIMITING_ACTIVITIES,
     WORKFLOWS as QUOTA_LIMITING_WORKFLOWS,
 )
+from posthog.temporal.session_recordings import (
+    ACTIVITIES as SESSION_RECORDINGS_ACTIVITIES,
+    WORKFLOWS as SESSION_RECORDINGS_WORKFLOWS,
+)
+from posthog.temporal.tests.utils.workflow import ACTIVITIES as TEST_ACTIVITIES, WORKFLOWS as TEST_WORKFLOWS
+from posthog.temporal.usage_reports import ACTIVITIES as USAGE_REPORTS_ACTIVITIES, WORKFLOWS as USAGE_REPORTS_WORKFLOWS
+
+logger = structlog.get_logger(__name__)
 
 WORKFLOWS_DICT = {
     SYNC_BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_WORKFLOWS,
@@ -149,27 +153,62 @@ class Command(BaseCommand):
 
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
-        logging.info(f"Starting Temporal Worker with options: {options}")
 
         structlog.reset_defaults()
+
+        logger.info(f"Starting Temporal Worker with options: {options}")
+
         metrics_port = int(options["metrics_port"])
 
-        asyncio.run(
-            start_worker(
-                temporal_host,
-                temporal_port,
-                metrics_port=metrics_port,
-                namespace=namespace,
-                task_queue=task_queue,
-                server_root_ca_cert=server_root_ca_cert,
-                client_cert=client_cert,
-                client_key=client_key,
-                workflows=workflows,  # type: ignore
-                activities=activities,
-                graceful_shutdown_timeout=dt.timedelta(seconds=graceful_shutdown_timeout_seconds)
-                if graceful_shutdown_timeout_seconds is not None
-                else None,
-                max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
-                max_concurrent_activities=max_concurrent_activities,
+        shutdown_task = None
+
+        def shutdown_worker_on_signal(worker: Worker, sig: signal.Signals, loop: asyncio.events.AbstractEventLoop):
+            """Shutdown Temporal worker on receiving signal."""
+            nonlocal shutdown_task
+
+            logger.info("Signal %s received", sig)
+
+            if worker.is_shutdown:
+                logger.info("Temporal worker already shut down")
+                return
+
+            logger.info("Initiating Temporal worker shutdown")
+            shutdown_task = loop.create_task(worker.shutdown())
+            logger.info("Finished Temporal worker shutdown")
+
+        with asyncio.Runner() as runner:
+            worker = runner.run(
+                create_worker(
+                    temporal_host,
+                    temporal_port,
+                    metrics_port=metrics_port,
+                    namespace=namespace,
+                    task_queue=task_queue,
+                    server_root_ca_cert=server_root_ca_cert,
+                    client_cert=client_cert,
+                    client_key=client_key,
+                    workflows=workflows,  # type: ignore
+                    activities=activities,
+                    graceful_shutdown_timeout=dt.timedelta(seconds=graceful_shutdown_timeout_seconds)
+                    if graceful_shutdown_timeout_seconds is not None
+                    else None,
+                    max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
+                    max_concurrent_activities=max_concurrent_activities,
+                )
             )
-        )
+
+            loop = runner.get_loop()
+            for sig in (signal.SIGTERM, signal.SIGINT):
+                loop.add_signal_handler(
+                    sig,
+                    functools.partial(shutdown_worker_on_signal, worker=worker, sig=sig, loop=loop),
+                )
+                loop.add_signal_handler(
+                    sig,
+                    functools.partial(shutdown_worker_on_signal, worker=worker, sig=sig, loop=loop),
+                )
+
+            runner.run(worker.run())
+
+            if shutdown_task:
+                _ = runner.run(asyncio.wait([shutdown_task]))
