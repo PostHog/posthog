@@ -49,8 +49,7 @@ DROP_DISTRIBUTED_EVENTS_TABLE_SQL = f"DROP TABLE IF EXISTS events {ON_CLUSTER_CL
 
 INSERTED_AT_COLUMN = ", inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()"
 INSERTED_AT_NOT_NULLABLE_COLUMN = ", inserted_at DateTime64(6, 'UTC') DEFAULT NOW64()"
-# KAFKA_CONSUMER_BREADCRUMBS_COLUMN = ", _kafka_consumer_breadcrumbs Nullable(String)"
-KAFKA_CONSUMER_BREADCRUMBS_COLUMN = ", _headers Array(Tuple(String, String))"
+KAFKA_CONSUMER_BREADCRUMBS_COLUMN = ", consumer_breadcrumbs Array(String)"
 
 EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
@@ -139,7 +138,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
         table_name=EVENTS_DATA_TABLE(),
         on_cluster_clause=ON_CLUSTER_CLAUSE(),
         engine=EVENTS_DATA_TABLE_ENGINE(),
-        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN,
+        extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
         materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
         indexes=f"""
     , {index_by_kafka_timestamp(EVENTS_DATA_TABLE())}
@@ -226,8 +225,6 @@ FROM {database}.kafka_events_json
         database=settings.CLICKHOUSE_DATABASE,
     )
 )
-
-# CAST(arrayFirst(x -> x.1 = 'kafka-consumer-breadcrumbs', _headers).2 AS Nullable(String)) as _kafka_consumer_breadcrumbs
 
 
 def KAFKA_EVENTS_RECENT_TABLE_JSON_SQL():

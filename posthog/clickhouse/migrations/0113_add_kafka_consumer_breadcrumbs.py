@@ -1,66 +1,47 @@
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions, NodeRole
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.models.event.sql import (
     EVENTS_TABLE_JSON_MV_SQL,
     KAFKA_EVENTS_TABLE_JSON_SQL,
 )
 
 ALTER_EVENTS_TABLE_ADD_BREADCRUMBS_COLUMN = """
-ALTER TABLE {table_name} {on_cluster_clause}
+ALTER TABLE {table_name}
     ADD COLUMN IF NOT EXISTS consumer_breadcrumbs Array(String)
 """
 
-# DROP KAFKA TABLE
-DROP_KAFKA_EVENTS_TABLE_JSON_TEMPLATE = """
-    DROP TABLE IF EXISTS kafka_events_json {on_cluster_clause}
+DROP_KAFKA_EVENTS_TABLE_JSON = """
+    DROP TABLE IF EXISTS kafka_events_json
 """
 
-# DROP MATERIALIZED VIEW
-DROP_EVENTS_TABLE_JSON_MV_TEMPLATE = """
-    DROP TABLE IF EXISTS events_json_mv {on_cluster_clause}
+DROP_EVENTS_TABLE_JSON_MV = """
+    DROP TABLE IF EXISTS events_json_mv
 """
 
 
-def DROP_KAFKA_EVENTS_TABLE_JSON(on_cluster=True):
-    return DROP_KAFKA_EVENTS_TABLE_JSON_TEMPLATE.format(on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster))
+def ADD_BREADCRUMBS_COLUMNS_DISTRIBUTED_EVENTS_TABLE_SQL():
+    return ALTER_EVENTS_TABLE_ADD_BREADCRUMBS_COLUMN.format(table_name="events")
 
 
-def DROP_EVENTS_TABLE_JSON_MV(on_cluster=True):
-    return DROP_EVENTS_TABLE_JSON_MV_TEMPLATE.format(on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster))
+def ADD_BREADCRUMBS_COLUMNS_WRITABLE_EVENTS_TABLE_SQL():
+    return ALTER_EVENTS_TABLE_ADD_BREADCRUMBS_COLUMN.format(table_name="writable_events")
 
 
-def ADD_BREADCRUMBS_COLUMNS_DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=True):
-    return ALTER_EVENTS_TABLE_ADD_BREADCRUMBS_COLUMN.format(
-        table_name="events", on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster)
-    )
-
-
-def ADD_BREADCRUMBS_COLUMNS_WRITABLE_EVENTS_TABLE_SQL(on_cluster=True):
-    return ALTER_EVENTS_TABLE_ADD_BREADCRUMBS_COLUMN.format(
-        table_name="writable_events", on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster)
-    )
-
-
-def ADD_BREADCRUMBS_COLUMNS_SHARDED_EVENTS_TABLE_SQL(on_cluster=True):
-    return ALTER_EVENTS_TABLE_ADD_BREADCRUMBS_COLUMN.format(
-        table_name="sharded_events", on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster)
-    )
+def ADD_BREADCRUMBS_COLUMNS_SHARDED_EVENTS_TABLE_SQL():
+    return ALTER_EVENTS_TABLE_ADD_BREADCRUMBS_COLUMN.format(table_name="sharded_events")
 
 
 operations = [
     # First drop the materialized view
-    run_sql_with_exceptions(DROP_EVENTS_TABLE_JSON_MV()),
+    run_sql_with_exceptions(DROP_EVENTS_TABLE_JSON_MV),
     # then drop the kafka table
-    run_sql_with_exceptions(DROP_KAFKA_EVENTS_TABLE_JSON()),
+    run_sql_with_exceptions(DROP_KAFKA_EVENTS_TABLE_JSON),
     # add missing columns to all tables in correct order
     # first the sharded tables
-    run_sql_with_exceptions(ADD_BREADCRUMBS_COLUMNS_SHARDED_EVENTS_TABLE_SQL()),
+    run_sql_with_exceptions(ADD_BREADCRUMBS_COLUMNS_SHARDED_EVENTS_TABLE_SQL(), sharded=True),
     # second, add missing columns to writable table
     run_sql_with_exceptions(ADD_BREADCRUMBS_COLUMNS_WRITABLE_EVENTS_TABLE_SQL()),
     # third,add missing columns to distributed table
-    run_sql_with_exceptions(
-        ADD_BREADCRUMBS_COLUMNS_DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR
-    ),
+    run_sql_with_exceptions(ADD_BREADCRUMBS_COLUMNS_DISTRIBUTED_EVENTS_TABLE_SQL(), node_role=NodeRole.ALL),
     # recreate the kafka table
     run_sql_with_exceptions(KAFKA_EVENTS_TABLE_JSON_SQL()),
     # recreate the materialized view

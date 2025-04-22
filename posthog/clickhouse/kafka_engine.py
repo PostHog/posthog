@@ -26,7 +26,6 @@ SELECT generateUUIDv4()
 KAFKA_COLUMNS = """
 , _timestamp DateTime
 , _offset UInt64
-, consumer_breadcrumbs Array(String)
 """
 
 # Use this with new tables, old one didn't include partition
