@@ -142,7 +142,7 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
             [
                 (
                     date(2025, 1, 1),
-                    Decimal("318.6442063881"),
+                    Decimal("253.9594324913"),
                     None,
                     None,
                     None,
@@ -150,24 +150,24 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
                 ),
                 (
                     date(2025, 2, 1),
-                    Decimal("1374.3915910745"),
-                    Decimal("318.6442063881"),
+                    Decimal("1095.3900980864"),
+                    Decimal("253.9594324913"),
                     Decimal("3.31324833"),
                     Decimal("3.31324833"),
                     Decimal("3.31324833"),
                 ),
                 (
                     date(2025, 3, 1),
-                    Decimal("846.7558751459"),
-                    Decimal("1374.3915910745"),
+                    Decimal("674.8644324913"),
+                    Decimal("1095.3900980864"),
                     Decimal("-0.383904936"),
                     Decimal("1.464671697"),
                     Decimal("1.464671697"),
                 ),
                 (
                     date(2025, 4, 1),
-                    Decimal("501.7558751459"),
-                    Decimal("846.7558751459"),
+                    Decimal("399.8994324913"),
+                    Decimal("674.8644324913"),
                     Decimal("-0.4074373855"),
                     Decimal("0.8406353362"),
                     Decimal("0.8406353362"),
@@ -185,7 +185,7 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
             [
                 (
                     date(2025, 2, 1),
-                    Decimal("1174.3915910745"),
+                    Decimal("935.9900980864"),
                     None,
                     None,
                     None,
@@ -193,8 +193,8 @@ class TestRevenueAnalyticsGrowthRateQueryRunner(ClickhouseTestMixin, APIBaseTest
                 ),
                 (
                     date(2025, 3, 1),
-                    Decimal("620.9089491736"),
-                    Decimal("1174.3915910745"),
+                    Decimal("494.8644324913"),
+                    Decimal("935.9900980864"),
                     Decimal("-0.47129309"),
                     Decimal("-0.47129309"),
                     Decimal("-0.47129309"),
