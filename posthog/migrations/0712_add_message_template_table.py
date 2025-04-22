@@ -5,7 +5,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0710_add_salesforce_tables"),
+        ("posthog", "0711_externaldatasource_revenue_analytics_enabled"),
     ]
 
     operations = [
