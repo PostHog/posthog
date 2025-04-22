@@ -17,7 +17,7 @@ type TreeNodeDisplayIconWrapperProps = {
     defaultOffset: number
     multiSelectionOffset: number
     checkedItemCount?: number
-    onItemChecked?: (id: string, checked: boolean) => void
+    onItemChecked?: (id: string, checked: boolean, shift: boolean) => void
 }
 
 export const TreeNodeDisplayIconWrapper = ({
@@ -49,8 +49,8 @@ export const TreeNodeDisplayIconWrapper = ({
             >
                 <TreeNodeDisplayCheckbox
                     item={item}
-                    handleCheckedChange={(checked) => {
-                        onItemChecked?.(item.id, checked)
+                    handleCheckedChange={(checked, shift) => {
+                        onItemChecked?.(item.id, checked, shift)
                     }}
                     className={cn('absolute z-2', {
                         // Apply hidden class only when hovering the (conditional)group and there are no checked items
@@ -91,7 +91,7 @@ export const TreeNodeDisplayIconWrapper = ({
 type TreeNodeDisplayCheckboxProps = {
     item: TreeDataItem
     style?: CSSProperties
-    handleCheckedChange?: (checked: boolean) => void
+    handleCheckedChange?: (checked: boolean, shift: boolean) => void
     className?: string
 }
 
@@ -117,12 +117,19 @@ export const TreeNodeDisplayCheckbox = ({
                         hidden: item.disableSelect && item.record?.type === 'folder',
                     })}
                     checked={isChecked ?? false}
-                    onChange={(checked) => {
+                    onChange={(checked, event) => {
                         // Just in case
                         if (item.disableSelect) {
                             return
                         }
-                        handleCheckedChange?.(checked)
+                        let shift = false
+                        if (event.nativeEvent && 'shiftKey' in event.nativeEvent) {
+                            shift = !!(event.nativeEvent as PointerEvent).shiftKey
+                            if (shift) {
+                                event.stopPropagation()
+                            }
+                        }
+                        handleCheckedChange?.(checked, shift)
                     }}
                 />
             </div>

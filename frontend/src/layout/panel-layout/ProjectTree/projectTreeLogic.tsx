@@ -72,7 +72,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
         assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
         setLastNewOperation: (objectType: string | null, folder: string | null) => ({ objectType, folder }),
-        onItemChecked: (id: string, checked: boolean) => ({ id, checked }),
+        onItemChecked: (id: string, checked: boolean, shift: boolean) => ({ id, checked, shift }),
+        setLastCheckedItem: (id: string, checked: boolean, shift: boolean) => ({ id, checked, shift }),
         setCheckedItems: (checkedItems: Record<string, boolean>) => ({ checkedItems }),
         expandProjectFolder: (path: string) => ({ path }),
         moveCheckedItems: (path: string) => ({ path }),
@@ -424,6 +425,12 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 setCheckedItems: (_, { checkedItems }) => checkedItems,
             },
         ],
+        lastCheckedItem: [
+            null as { id: string; checked: boolean; shift: boolean } | null,
+            {
+                setLastCheckedItem: (_, { id, checked, shift }) => ({ id, checked, shift }),
+            },
+        ],
     }),
     selectors({
         savedItems: [
@@ -512,7 +519,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         sortedItems: [
             (s) => [s.viableItems],
             (viableItems): FileSystemEntry[] =>
-                [...viableItems].sort((a, b) => (a.path > b.path ? 1 : a.path < b.path ? -1 : 0)),
+                [...viableItems].sort((a, b) => {
+                    const parentA = a.path.substring(0, a.path.lastIndexOf('/'))
+                    const parentB = b.path.substring(0, b.path.lastIndexOf('/'))
+                    if (parentA === parentB) {
+                        if (a.type === 'folder' && b.type !== 'folder') {
+                            return -1
+                        }
+                        if (b.type === 'folder' && a.type !== 'folder') {
+                            return 1
+                        }
+                    }
+                    return a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' })
+                }),
         ],
         viableItemsById: [
             (s) => [s.viableItems],
@@ -615,11 +634,15 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 // Create arrays for each category
                 const dataItems = treeItemsNew
                     .filter((item: TreeDataItem) => item.record?.type.includes('hog_function/'))
-                    .sort((a: TreeDataItem, b: TreeDataItem) => a.name.localeCompare(b.name))
+                    .sort((a: TreeDataItem, b: TreeDataItem) =>
+                        a.name.localeCompare(b.name, undefined, { sensitivity: 'accent' })
+                    )
 
                 const insightItems = treeItemsNew
                     .filter((item: TreeDataItem) => item.record?.type === 'insight')
-                    .sort((a: TreeDataItem, b: TreeDataItem) => a.name.localeCompare(b.name))
+                    .sort((a: TreeDataItem, b: TreeDataItem) =>
+                        a.name.localeCompare(b.name, undefined, { sensitivity: 'accent' })
+                    )
 
                 // Get other items (not data or insight)
                 const otherItems = treeItemsNew
@@ -627,7 +650,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         (item: TreeDataItem) =>
                             !item.record?.type.includes('hog_function/') && !item.record?.type.includes('insight')
                     )
-                    .sort((a: TreeDataItem, b: TreeDataItem) => a.name.localeCompare(b.name))
+                    .sort((a: TreeDataItem, b: TreeDataItem) =>
+                        a.name.localeCompare(b.name, undefined, { sensitivity: 'accent' })
+                    )
 
                 // Create the final hierarchical structure with explicit names for grouped items
                 const result = [
@@ -641,7 +666,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     // Always use name for sorting (with fallback to id)
                     const nameA = a.name || a.id.charAt(0).toUpperCase() + a.id.slice(1)
                     const nameB = b.name || b.id.charAt(0).toUpperCase() + b.id.slice(1)
-                    return nameA.localeCompare(nameB)
+                    return nameA.localeCompare(nameB, undefined, { sensitivity: 'accent' })
                 })
             },
         ],
@@ -877,30 +902,55 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 ...nonExpandedFolders.map((f) => 'project-folder/' + f),
             ])
         },
-        onItemChecked: ({ id, checked }) => {
-            const sortedItems: FileSystemEntry[] = values.sortedItems
-            const clickedItem: FileSystemEntry | undefined = values.viableItemsById[id]
+        onItemChecked: ({ id, checked, shift }) => {
+            const { sortedItems, viableItemsById, lastCheckedItem, checkedItems: prevChecked } = values
+            const clickedItem = viableItemsById[id]
             if (!clickedItem) {
+                // should never happen
                 return
             }
-            const checkedItems = { ...values.checkedItems }
-            if (clickedItem.type === 'folder') {
-                const itemIndex = sortedItems.findIndex((i) => i.id === clickedItem.id)
-                for (let i = itemIndex; i < sortedItems.length; i++) {
-                    const item = sortedItems[i]
-                    if (item.path !== clickedItem.path && !item.path.startsWith(clickedItem.path + '/')) {
+
+            const checkedItems = { ...prevChecked }
+
+            const itemKey = (item: FileSystemEntry): string =>
+                item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`
+
+            const markItem = (item: FileSystemEntry, value: boolean): void => {
+                checkedItems[itemKey(item)] = value
+            }
+
+            const markFolderContents = (folder: FileSystemEntry, value: boolean): void => {
+                const startIdx = sortedItems.findIndex((i) => i.id === folder.id)
+                for (let i = startIdx + 1; i < sortedItems.length; i++) {
+                    const entry = sortedItems[i]
+                    if (!entry.path.startsWith(folder.path + '/')) {
+                        // left the folder
                         break
                     }
-                    const itemId = item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`
-                    if (checked) {
-                        checkedItems[itemId] = true
-                    } else {
-                        checkedItems[itemId] = false
-                    }
+                    markItem(entry, value)
+                }
+            }
+
+            const applyToItem = (item: FileSystemEntry): void => {
+                markItem(item, !!checked)
+                if (item.type === 'folder') {
+                    markFolderContents(item, !!checked)
+                }
+            }
+
+            if (shift && lastCheckedItem) {
+                const prevIdx = sortedItems.findIndex((it) => itemKey(it) === lastCheckedItem.id)
+                const currIdx = sortedItems.findIndex((it) => it.id === clickedItem.id)
+                const [start, end] = [Math.min(prevIdx, currIdx), Math.max(prevIdx, currIdx)]
+
+                for (let i = start; i <= end; i++) {
+                    applyToItem(sortedItems[i])
                 }
             } else {
-                checkedItems[`project/${clickedItem.id}`] = !!checked
+                applyToItem(clickedItem)
             }
+
+            actions.setLastCheckedItem(id, checked, shift)
             actions.setCheckedItems(checkedItems)
         },
         moveCheckedItems: ({ path }) => {

@@ -195,7 +195,7 @@ export function convertFileSystemEntryToTreeDataItem({
             if (b.record?.type === 'folder' && a.record?.type !== 'folder') {
                 return 1
             }
-            return String(a.name).localeCompare(String(b.name))
+            return String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'accent' })
         })
         for (const node of nodes) {
             if (node.children) {
