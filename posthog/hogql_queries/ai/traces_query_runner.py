@@ -228,8 +228,23 @@ class TracesQueryRunner(QueryRunner):
                           event = '$ai_generation'
                     ), 4
                 ) AS total_cost,
-                arraySort(x -> x.3,
-                          groupArray(tuple(uuid, event, timestamp, properties))
+                IF({return_full_trace},
+                    arraySort(
+                        x -> x.3,
+                        groupArrayIf(
+                            tuple(uuid, event, timestamp, properties),
+                            event != '$ai_trace'
+                        )
+                    ),
+                    arrayFilter(
+                        x -> x.2 IN ('$ai_metric','$ai_feedback'),
+                        arraySort(x -> x.3,
+                            groupArrayIf(
+                                tuple(uuid, event, timestamp, properties),
+                                event != '$ai_trace'
+                            )
+                        )
+                    )
                 ) AS events,
                 argMinIf(properties.$ai_input_state,
                          timestamp, event = '$ai_trace'
