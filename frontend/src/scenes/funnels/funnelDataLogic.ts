@@ -11,7 +11,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { FunnelsFilter, NodeKind } from '~/queries/schema/schema-general'
 import { isFunnelsQuery } from '~/queries/utils'
 import {
     FlattenedFunnelStepByBreakdown,
@@ -464,6 +464,12 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     const [colorTheme, colorToken] = getFunnelsColorToken(dataset)
                     return colorTheme && colorToken ? getColorFromToken(colorTheme, colorToken) : '#000000'
                 }
+            },
+        ],
+        isStepOptional: [
+            (s) => [s.funnelsFilter],
+            (funnelsFilter: FunnelsFilter) => {
+                return (step: number) => (funnelsFilter?.optional || []).includes(step)
             },
         ],
     })),
