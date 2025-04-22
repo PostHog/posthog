@@ -95,8 +95,10 @@ export class PostgresRouter {
                     app_name
                 )
             )
+            logger.info('👍', `Persons read-only Postgresql ready`)
         } else {
             this.pools.set(PostgresUse.PERSONS_READ, this.pools.get(PostgresUse.PERSONS_WRITE)!)
+            logger.info('👍', `Using persons write pool for read-only`)
         }
     }
 
