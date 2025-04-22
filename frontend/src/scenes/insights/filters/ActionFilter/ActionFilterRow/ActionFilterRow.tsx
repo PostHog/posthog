@@ -44,7 +44,7 @@ import {
 } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { FunnelsQuery, MathType, NodeKind } from '~/queries/schema/schema-general'
+import { MathType, NodeKind } from '~/queries/schema/schema-general'
 import { getMathTypeWarning, isInsightVizNode, isStickinessQuery, TRAILING_MATH_TYPES } from '~/queries/utils'
 import {
     ActionFilter,
@@ -185,11 +185,11 @@ export function ActionFilterRow({
 
     const { insightProps } = useValues(insightLogic)
     // const { isTrends, interval, trendsFilter } = useValues(funnelDataLogic(insightProps))
+    const { funnelsFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
     const mountedInsightDataLogic = insightDataLogic.findMounted({ dashboardItemId: typeKey })
     const query = mountedInsightDataLogic?.values?.query
-    const funnelsQuery: FunnelsQuery = query as FunnelsQuery
 
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
     const [isMenuVisible, setIsMenuVisible] = useState(false)
@@ -589,15 +589,13 @@ export function ActionFilterRow({
                                                                 <div className="px-2 py-1">
                                                                     <LemonCheckbox
                                                                         checked={(
-                                                                            funnelsQuery.funnelsFilter?.optional || []
+                                                                            funnelsFilter?.optional || []
                                                                         ).includes(index + 1)}
                                                                         onChange={(checked) => {
                                                                             const optionalSteps =
-                                                                                funnelsQuery.funnelsFilter?.optional ||
-                                                                                []
+                                                                                funnelsFilter?.optional || []
 
                                                                             if (checked) {
-                                                                                // Update the funnelsFilter in the querySource
                                                                                 updateInsightFilter({
                                                                                     //...(funnelsQuery.funnelsFilter || {}),
                                                                                     optional: [
