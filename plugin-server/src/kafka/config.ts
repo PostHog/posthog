@@ -62,6 +62,10 @@ export const createRdConnectionConfigFromEnvVars = (
 }
 
 const getKafkaConfigFromEnv = (kind: 'producer' | 'consumer'): GlobalConfig => {
+    // NOTE: We have learnt that having as much exposed config to the env as possible is really useful
+    // That said we also want to be able to add defaults on the global config object
+    // So what we do is we first find all values from the default config object and then in addition we add the env ones.
+
     const PREFIX = kind === 'producer' ? 'KAFKA_PRODUCER_' : 'KAFKA_CONSUMER_'
     return Object.entries(process.env)
         .filter(([key]) => key.startsWith(PREFIX))

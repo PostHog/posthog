@@ -6,6 +6,7 @@ import {
     Message,
     TopicPartitionOffset,
 } from 'node-rdkafka'
+import { hostname } from 'os'
 
 import { defaultConfig } from '../config/config'
 import { logger } from '../utils/logger'
@@ -45,7 +46,6 @@ export class KafkaConsumer {
     private autoOffsetStore: boolean
     private fetchBatchSize: number
     private maxHealthHeartbeatIntervalMs: number
-
     private consumerLoop: Promise<void> | undefined
 
     constructor(private config: KafkaConsumerConfig) {
@@ -62,15 +62,14 @@ export class KafkaConsumer {
         this.maxHealthHeartbeatIntervalMs =
             defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
 
+        // TODO: broker list and other values should be set from env vars right?
+        // Do we want a sensible default and if so should we derive it from the real config object?
+
         this.consumerConfig = {
-            // NOTE: These values can ble overridden with env vars rather than by hard coded config values
-            // This makes it much easier to tune kafka without needless code changes
-            'enable.auto.offset.store': false, // NOTE: This is always false - we handle it using a custom function
-            'enable.auto.commit': autoCommit,
-            'partition.assignment.strategy': 'cooperative-sticky',
-            rebalance_cb: true,
-            offset_commit_cb: true,
-            'enable.partition.eof': true,
+            'client.id': hostname(),
+            'security.protocol': 'plaintext',
+            'metadata.broker.list': 'kafka:9092', // Overridden with KAFKA_CONSUMER_METADATA_BROKER_LIST
+            log_level: 4, // WARN as the default
             'group.id': groupId,
             'session.timeout.ms': 30_000,
             'max.poll.interval.ms': 300_000,
@@ -84,6 +83,13 @@ export class KafkaConsumer {
             ...getConsumerConfigFromEnv(),
             // Finally any specifically given consumer config overrides
             ...additionalConfig,
+            // Below is config that we explicitly DO NOT want to be overrideable by env vars - i.e. things that would require code changes to change
+            'enable.auto.offset.store': false, // NOTE: This is always false - we handle it using a custom function
+            'enable.auto.commit': autoCommit,
+            'partition.assignment.strategy': 'cooperative-sticky',
+            'enable.partition.eof': true,
+            rebalance_cb: true,
+            offset_commit_cb: true,
         }
 
         this.rdKafkaConsumer = this.createConsumer()
@@ -120,7 +126,7 @@ export class KafkaConsumer {
         })
 
         consumer.on('connection.failure', (error: LibrdKafkaError, metrics: ClientMetrics) => {
-            logger.error('📝', 'librdkafka connection failure', { error, metrics })
+            logger.error('📝', 'librdkafka connection failure', { error, metrics, config: this.consumerConfig })
         })
 
         consumer.on('offset.commit', (error: LibrdKafkaError, topicPartitionOffsets: TopicPartitionOffset[]) => {
@@ -150,7 +156,7 @@ export class KafkaConsumer {
         })
         this.heartbeat() // Setup the heartbeat so we are healthy since connection is established
 
-        await ensureTopicExists(this.config, this.config.topic)
+        await ensureTopicExists(this.consumerConfig, this.config.topic)
 
         // The consumer has an internal pre-fetching queue that sequentially pools
         // each partition, with the consumerMaxWaitMs timeout. We want to read big

@@ -27,23 +27,19 @@ export const histogramCyclotronJobsCreated = new Histogram({
 
 export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpProcessedEventsConsumer'
-    protected topic = KAFKA_EVENTS_JSON
-    protected groupId = 'cdp-processed-events-consumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
     protected kafkaConsumer: KafkaConsumer
 
     private cyclotronManager?: CyclotronManager
 
-    constructor(hub: Hub) {
+    constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-processed-events-consumer') {
         super(hub)
-
-        console.log(this.topic, this.groupId) // DOes this work?
 
         // connectionConfig: createRdConnectionConfigFromEnvVars(this.hub, 'consumer'),
 
         this.kafkaConsumer = new KafkaConsumer({
-            groupId: this.groupId,
-            topic: this.topic,
+            groupId,
+            topic,
             autoCommit: true,
             autoOffsetStore: false,
         })

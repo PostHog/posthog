@@ -1,3 +1,4 @@
+import { pickBy } from 'lodash'
 import { AdminClient, CODES, GlobalConfig, LibrdKafkaError } from 'node-rdkafka'
 
 import { isDevEnv } from '../utils/env-utils'
@@ -14,7 +15,21 @@ export const ensureTopicExists = async (connectionConfig: GlobalConfig, topic: s
     // on consuming, possibly similar to
     // https://github.com/confluentinc/confluent-kafka-dotnet/issues/1366.
 
-    const client = AdminClient.create(connectionConfig)
+    const client = AdminClient.create(
+        pickBy(
+            {
+                'client.id': connectionConfig['client.id'],
+                'metadata.broker.list': connectionConfig['metadata.broker.list'],
+                'security.protocol': connectionConfig['security.protocol'],
+                'sasl.mechanisms': connectionConfig['sasl.mechanisms'],
+                'sasl.username': connectionConfig['sasl.username'],
+                'sasl.password': connectionConfig['sasl.password'],
+                'enable.ssl.certificate.verification': connectionConfig['enable.ssl.certificate.verification'],
+                'client.rack': connectionConfig['client.rack'],
+            },
+            (value) => value !== undefined
+        )
+    )
     const timeout = isDevEnv() ? 30_000 : 5_000
     await new Promise<void>((resolve, reject) =>
         client.createTopic({ topic, num_partitions: -1, replication_factor: -1 }, timeout, (error: LibrdKafkaError) => {
