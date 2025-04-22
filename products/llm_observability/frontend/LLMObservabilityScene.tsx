@@ -20,7 +20,6 @@ import { isEventsQuery } from '~/queries/utils'
 
 import { LLM_OBSERVABILITY_DATA_COLLECTION_NODE_ID, llmObservabilityLogic } from './llmObservabilityLogic'
 import { LLMObservabilityPlaygroundScene } from './LLMObservabilityPlaygroundScene'
-import { LLMObservabilityPlaygroundScene } from './LLMObservabilityPlaygroundScene'
 import { LLMObservabilityReloadAction } from './LLMObservabilityReloadAction'
 import { LLMObservabilityTraces } from './LLMObservabilityTracesScene'
 import { LLMObservabilityUsers } from './LLMObservabilityUsers'
@@ -205,6 +204,7 @@ export function LLMObservabilityScene(): JSX.Element {
             )}
             <LemonTabs
                 activeKey={activeTab}
+                data-attr="llm-observability-tabs"
                 tabs={[
                     {
                         key: 'dashboard',

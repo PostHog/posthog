@@ -14,7 +14,7 @@ export const scene: SceneExport = {
 
 export function LLMObservabilityPlaygroundScene(): JSX.Element {
     return (
-        <BindLogic logic={llmObservabilityPlaygroundLogic} props={{}}>
+        <BindLogic logic={llmObservabilityPlaygroundLogic} props={{ key: 'llm-observability-playground' }}>
             <div>
                 <PlaygroundContent />
             </div>

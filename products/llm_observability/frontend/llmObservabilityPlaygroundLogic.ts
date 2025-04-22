@@ -59,6 +59,7 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
         clearConversation: true,
         submitPrompt: true,
         addAssistantMessage: (message: string) => ({ message }),
+        addUserMessage: (message: string) => ({ message }),
     }),
 
     reducers({
@@ -71,8 +72,8 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
             [] as Message[],
             {
                 clearConversation: () => [],
-                submitPrompt: (state) => {
-                    return state
+                addUserMessage: (state, { message }) => {
+                    return [...state, { role: 'user', content: message }]
                 },
                 addAssistantMessage: (state, { message }) => {
                     return [...state, { role: 'assistant', content: message }]
@@ -132,12 +133,12 @@ export const llmObservabilityPlaygroundLogic = kea<llmObservabilityPlaygroundLog
                 return
             }
 
-            // Call the API to generate a response
+            // First add the user message to the messages array
+            actions.addUserMessage(values.prompt)
+
+            // Then call the API to generate a response
             try {
                 await asyncActions.generateResponse()
-
-                // Update messages with the user's prompt and the response
-                actions.setPrompt('')
             } catch (error) {
                 console.error('Error in submitPrompt:', error)
             }
