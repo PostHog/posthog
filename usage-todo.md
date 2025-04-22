@@ -90,13 +90,7 @@ This document outlines the step-by-step implementation plan for the Usage Data A
 
 ### Step 11: Frontend Implementation ✅
 
-After exploring multiple approaches to visualizing the billing usage data:
-
-- [x] BillingUsage.tsx: Basic implementation using the LineGraph component
-- [x] BillingUsage4.tsx: Custom implementation with Chart.js and a custom table
-- [x] BillingUsage5.tsx: Alternative implementation with Kea logic for series toggling
-
-We've decided to standardize on **BillingUsage4** as our canonical implementation.
+After exploring multiple approaches, we've decided to standardize on the implementation originally in `BillingUsage4.tsx` as our canonical implementation. This component has been renamed to `BillingUsage.tsx`, and the other experimental versions (`BillingUsage.tsx` (original), `BillingUsage2.tsx`, `BillingUsage3.tsx`, `BillingUsage5.tsx`) have been removed.
 
 ### Step 12: Implement Default Filter Improvements ✅
 - [x] Update billingUsageLogic to include default filters for:
@@ -104,11 +98,11 @@ We've decided to standardize on **BillingUsage4** as our canonical implementatio
   - [x] breakdowns set to ['team']
 - [x] Ensure auto-loading of data with default filters on component mount
 
-### Step 13: Complete BillingUsage4 Implementation
-- [ ] Review and optimize BillingUsage4 implementation
+### Step 13: Complete BillingUsage Implementation
+- [ ] Review and optimize BillingUsage implementation (formerly BillingUsage4)
 - [ ] Ensure all needed features are properly implemented
 - [ ] Clean up unnecessary code and optimize performance
-- [ ] Add comprehensive tests for the BillingUsage4 component
+- [ ] Add comprehensive tests for the BillingUsage component
 - [ ] Update documentation to reflect the chosen implementation
 - [x] Allow unselecting event types in the filter dropdown (show all types when none selected)
 

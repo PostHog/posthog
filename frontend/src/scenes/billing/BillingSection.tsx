@@ -11,10 +11,6 @@ import { billingLogic } from './billingLogic'
 import { BillingOverview } from './BillingOverview'
 import { BillingSpendView } from './BillingSpendView'
 import { BillingUsage } from './BillingUsage'
-import { BillingUsage2 } from './BillingUsage2'
-import { BillingUsage3 } from './BillingUsage3'
-import { BillingUsage4 } from './BillingUsage4'
-import { BillingUsage5 } from './BillingUsage5'
 
 export const scene: SceneExport = {
     component: BillingSection,
@@ -27,14 +23,6 @@ export function BillingSection(): JSX.Element {
 
     const section = location.pathname.includes('spend')
         ? 'spend'
-        : location.pathname.includes('usage5')
-        ? 'usage5'
-        : location.pathname.includes('usage4')
-        ? 'usage4'
-        : location.pathname.includes('usage3')
-        ? 'usage3'
-        : location.pathname.includes('usage2')
-        ? 'usage2'
         : location.pathname.includes('usage')
         ? 'usage'
         : 'overview'
@@ -53,21 +41,13 @@ export function BillingSection(): JSX.Element {
                 tabs={[
                     { key: 'overview', label: 'Overview' },
                     { key: 'spend', label: 'Spend' },
-                    { key: 'usage', label: 'Usage (LineGraph Insight)' },
-                    { key: 'usage2', label: 'Usage (DataViz)' },
-                    { key: 'usage3', label: 'Usage (LineGraph DataViz)' },
-                    { key: 'usage4', label: 'Usage (Custom)' },
-                    { key: 'usage5', label: 'Usage (Insight)' },
+                    { key: 'usage', label: 'Usage' },
                 ]}
             />
 
             {section === 'overview' && <BillingOverview />}
-            {section === 'spend' && <BillingSpendView />}
             {section === 'usage' && <BillingUsage />}
-            {section === 'usage2' && <BillingUsage2 />}
-            {section === 'usage3' && <BillingUsage3 />}
-            {section === 'usage4' && <BillingUsage4 />}
-            {section === 'usage5' && <BillingUsage5 />}
+            {section === 'spend' && <BillingSpendView />}
         </div>
     )
 }

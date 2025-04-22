@@ -1,4 +1,4 @@
-import './BillingUsage4.scss' // Keep existing styles for now
+import './BillingUsage.scss' // Keep existing styles for now
 
 import {
     LemonButton,

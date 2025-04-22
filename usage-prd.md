@@ -287,11 +287,11 @@ This format:
 
 ## Frontend UI Implementation
 
-After exploring several implementation approaches, we have decided to use a custom ChartJS-based approach as implemented in `BillingUsage4.tsx` as our primary frontend implementation going forward.
+After exploring several implementation approaches, we have decided to use a custom ChartJS-based approach as implemented in `BillingUsage.tsx` (originally `BillingUsage4.tsx`) as our primary frontend implementation going forward. The other experimental versions (`BillingUsage`, `BillingUsage2`, `BillingUsage3`, `BillingUsage5`) have been removed.
 
-### Selected Implementation: BillingUsage4
+### Selected Implementation: BillingUsage (formerly BillingUsage4)
 
-The `BillingUsage4` component provides the best balance of simplicity, performance, and maintainability. It offers:
+The `BillingUsage` component provides the best balance of simplicity, performance, and maintainability. It offers:
 
 1. **Direct Chart.js integration**: Uses Chart.js without dependencies on insight systems
 2. **Clean data flow**: Direct connection to billingUsageLogic
@@ -314,7 +314,7 @@ The implementation consists of these core components:
    - Auto-loads data on mount
    - Manages filters, date ranges, and data fetching
 
-2. **BillingLineGraph**: Chart.js-based visualization component
+2. **BillingLineGraph**: Chart.js-based visualization component (within `BillingUsage.tsx`)
    - Renders time-series data
    - Supports series toggling
    - Provides interactive tooltips
@@ -347,13 +347,13 @@ The implementation consists of these core components:
 
 When modifying or extending the billing usage visualization:
 
-1. **Continue with BillingUsage4.tsx approach**:
+1. **Continue with BillingUsage.tsx approach**:
    - Refer to this component as the canonical implementation
    - Extend this component rather than other variations
    - Maintain the direct Chart.js approach
 
 2. **CSS and Styling**:
-   - Follow the established pattern with a separate SCSS file
+   - Follow the established pattern with a separate SCSS file (`BillingUsage.scss`)
    - Use CSS variables for colors
    - Leverage Tailwind classes where appropriate
    - Avoid inline styles
