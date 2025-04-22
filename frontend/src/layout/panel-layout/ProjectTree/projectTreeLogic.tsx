@@ -948,10 +948,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             if (shift && lastCheckedItem) {
                 const prevIdx = shownItems.findIndex((it) => itemKey(it) === lastCheckedItem.id)
                 const currIdx = shownItems.findIndex((it) => it.id === clickedItem.id)
-                const [start, end] = [Math.min(prevIdx, currIdx), Math.max(prevIdx, currIdx)]
-
-                for (let i = start; i <= end; i++) {
-                    applyToItem(shownItems[i])
+                if (prevIdx !== -1 && currIdx === -1) {
+                    const [start, end] = [Math.min(prevIdx, currIdx), Math.max(prevIdx, currIdx)]
+                    for (let i = start; i <= end; i++) {
+                        applyToItem(shownItems[i])
+                    }
+                } else if (currIdx !== -1) {
+                    applyToItem(shownItems[currIdx])
                 }
             } else {
                 applyToItem(clickedItem)
