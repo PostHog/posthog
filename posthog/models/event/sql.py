@@ -212,8 +212,13 @@ group4_created_at,
 person_mode,
 _timestamp,
 _offset,
-_headers.name as header_names,
-_headers.value as header_values
+arrayMap(
+    i -> _headers.value[i],
+    arrayFilter(
+        i -> _headers.name[i] = 'kafka-consumer-breadcrumbs',
+        arrayEnumerate(_headers.name)
+    )
+) as consumer_breadcrumbs
 FROM {database}.kafka_events_json
 """.format(
         target_table=WRITABLE_EVENTS_DATA_TABLE(),
