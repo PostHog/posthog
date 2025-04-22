@@ -169,6 +169,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         )
         try:
             quoted_placeholders = {k: f"'{v}'" for k, v in placeholder_context.values.items()}
+            # chdb doesn't support parameterized queries
             chdb_query = f"DESCRIBE TABLE (SELECT * FROM {s3_table_func} LIMIT 1)" % quoted_placeholders
 
             chdb_result = chdb.query(chdb_query, output_format="CSV")
@@ -241,6 +242,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
         )
         try:
             quoted_placeholders = {k: f"'{v}'" for k, v in placeholder_context.values.items()}
+            # chdb doesn't support parameterized queries
             chdb_query = f"SELECT count() FROM {s3_table_func}" % quoted_placeholders
 
             chdb_result = chdb.query(chdb_query, output_format="CSV")
