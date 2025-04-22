@@ -155,16 +155,6 @@ export class SessionRecordingIngester {
     private sharedClusterProducerWrapper: KafkaProducerWrapper | undefined = undefined
     private isDebugLoggingEnabled: ValueMatcher<number>
 
-    private sessionRecordingKafkaConfig = (): PluginsServerConfig => {
-        // TRICKY: We re-use the kafka helpers which assume KAFKA_HOSTS hence we overwrite it if set
-        return {
-            ...this.config,
-            KAFKA_HOSTS: this.config.SESSION_RECORDING_KAFKA_HOSTS || this.config.KAFKA_HOSTS,
-            KAFKA_SECURITY_PROTOCOL:
-                this.config.SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL || this.config.KAFKA_SECURITY_PROTOCOL,
-        }
-    }
-
     constructor(
         private config: PluginsServerConfig,
         private postgres: PostgresRouter,
@@ -493,7 +483,7 @@ export class SessionRecordingIngester {
         // eachBatchWithContext, then commits offsets for the batch.
         // the batch consumer reads from the session replay kafka cluster
         const replayClusterConnectionConfig = createRdConnectionConfigFromEnvVars(
-            // TODO: Replace this with the new ENV vars for producer specific config when ready.
+            // TODO: Replace this with the new ENV vars fwor producer specific config when ready.
             this.sessionRecordingKafkaConfig(),
             'consumer'
         )
