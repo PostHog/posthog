@@ -1,7 +1,7 @@
 import { LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { router } from 'node_modules/kea-router/lib'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
