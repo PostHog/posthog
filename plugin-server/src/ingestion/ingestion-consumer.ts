@@ -215,9 +215,11 @@ export class IngestionConsumer {
         const existingBreadcrumbs: KafkaConsumerBreadcrumb[] = []
         if (message.headers) {
             for (const header of message.headers) {
-                if (header.key === 'kafka-consumer-breadcrumbs') {
+                if ('kafka-consumer-breadcrumbs' in header) {
                     try {
-                        const parsedValue = parseJSON(header.value.toString())
+                        const headerValue = header['kafka-consumer-breadcrumbs']
+                        const valueString = headerValue instanceof Buffer ? headerValue.toString() : headerValue
+                        const parsedValue = parseJSON(valueString)
                         if (Array.isArray(parsedValue)) {
                             const validatedBreadcrumbs = z.array(KafkaConsumerBreadcrumbSchema).safeParse(parsedValue)
                             if (validatedBreadcrumbs.success) {
@@ -654,8 +656,7 @@ export class IngestionConsumer {
                 const breadcrumb = this.createBreadcrumb(message)
                 const allBreadcrumbs = [...existingBreadcrumbs, breadcrumb]
                 headers.push({
-                    key: 'kafka-consumer-breadcrumbs',
-                    value: Buffer.from(JSON.stringify(allBreadcrumbs)),
+                    'kafka-consumer-breadcrumbs': Buffer.from(JSON.stringify(allBreadcrumbs)),
                 })
                 return this.kafkaOverflowProducer!.produce({
                     topic: this.overflowTopic!,

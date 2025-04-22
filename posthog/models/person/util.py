@@ -19,6 +19,7 @@ from posthog.kafka_client.topics import (
     KAFKA_PERSON_OVERRIDES,
 )
 from posthog.models.person import Person, PersonDistinctId
+from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.models.person.sql import (
     BULK_INSERT_PERSON_DISTINCT_ID2,
     INSERT_PERSON_BULK_SQL,
@@ -218,7 +219,7 @@ def create_person_override(
 
 
 def get_persons_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> QuerySet:
-    return Person.objects.filter(
+    return Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
         team_id=team_id,
         persondistinctid__team_id=team_id,
         persondistinctid__distinct_id__in=distinct_ids,
@@ -226,7 +227,7 @@ def get_persons_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> QueryS
 
 
 def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet:
-    return Person.objects.filter(team_id=team.pk, uuid__in=uuids)
+    return Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team.pk, uuid__in=uuids)
 
 
 def delete_person(person: Person, sync: bool = False) -> None:
@@ -257,7 +258,8 @@ def _delete_person(
 def _get_distinct_ids_with_version(person: Person) -> dict[str, int]:
     return {
         distinct_id: int(version or 0)
-        for distinct_id, version in PersonDistinctId.objects.filter(person=person, team_id=person.team_id)
+        for distinct_id, version in PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+        .filter(person=person, team_id=person.team_id)
         .order_by("id")
         .values_list("distinct_id", "version")
     }
