@@ -6,6 +6,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonBadge,
+    LemonCheckbox,
     LemonDivider,
     LemonMenu,
     LemonSelect,
@@ -28,8 +29,10 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getEventNamesForAction } from 'lib/utils'
 import { useState } from 'react'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 import {
     apiValueToMathType,
@@ -41,7 +44,7 @@ import {
 } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { MathType, NodeKind } from '~/queries/schema/schema-general'
+import { FunnelsQuery, MathType, NodeKind } from '~/queries/schema/schema-general'
 import { getMathTypeWarning, isInsightVizNode, isStickinessQuery, TRAILING_MATH_TYPES } from '~/queries/utils'
 import {
     ActionFilter,
@@ -180,8 +183,13 @@ export function ActionFilterRow({
     const { mathDefinitions } = useValues(mathsLogic)
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
 
+    const { insightProps } = useValues(insightLogic)
+    // const { isTrends, interval, trendsFilter } = useValues(funnelDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+
     const mountedInsightDataLogic = insightDataLogic.findMounted({ dashboardItemId: typeKey })
     const query = mountedInsightDataLogic?.values?.query
+    const funnelsQuery: FunnelsQuery = query as FunnelsQuery
 
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
     const [isMenuVisible, setIsMenuVisible] = useState(false)
@@ -571,6 +579,44 @@ export function ActionFilterRow({
                                                                     trendsDisplayCategory={trendsDisplayCategory}
                                                                     query={query || {}}
                                                                 />
+                                                                <LemonDivider />
+                                                            </>
+                                                        ),
+                                                    },
+                                                    {
+                                                        label: () => (
+                                                            <>
+                                                                <div className="px-2 py-1">
+                                                                    <LemonCheckbox
+                                                                        checked={(
+                                                                            funnelsQuery.funnelsFilter?.optional || []
+                                                                        ).includes(index + 1)}
+                                                                        onChange={(checked) => {
+                                                                            const optionalSteps =
+                                                                                funnelsQuery.funnelsFilter?.optional ||
+                                                                                []
+
+                                                                            if (checked) {
+                                                                                // Update the funnelsFilter in the querySource
+                                                                                updateInsightFilter({
+                                                                                    //...(funnelsQuery.funnelsFilter || {}),
+                                                                                    optional: [
+                                                                                        ...optionalSteps,
+                                                                                        index + 1,
+                                                                                    ],
+                                                                                })
+                                                                            } else {
+                                                                                updateInsightFilter({
+                                                                                    // ...(funnelsQuery.funnelsFilter || {}),
+                                                                                    optional: optionalSteps.filter(
+                                                                                        (i) => i !== index + 1
+                                                                                    ),
+                                                                                })
+                                                                            }
+                                                                        }}
+                                                                        label="Optional step"
+                                                                    />
+                                                                </div>
                                                                 <LemonDivider />
                                                             </>
                                                         ),
