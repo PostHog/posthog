@@ -74,6 +74,9 @@ def get_session_metadata(team_id: int, session_id: str, table_name: str) -> dict
             "console_error_count": 0,
             "first_url": None,
             "all_urls": [],
+            "snapshot_source": None,
+            "snapshot_library": None,
+            "active_milliseconds": 0,
         }
 
     row = result[0]
@@ -87,4 +90,7 @@ def get_session_metadata(team_id: int, session_id: str, table_name: str) -> dict
         "event_count": row[14],  # event_count index
         "first_url": row[5],  # first_url index
         "all_urls": row[6],  # all_urls index
+        "snapshot_source": row[15],  # snapshot_source index
+        "snapshot_library": row[16],  # snapshot_library index
+        "active_milliseconds": row[10],  # active_milliseconds index
     }
