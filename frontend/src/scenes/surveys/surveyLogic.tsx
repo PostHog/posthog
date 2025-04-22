@@ -54,9 +54,9 @@ import {
     validateColor,
 } from './utils'
 
-type SurveyBaseStatTuple = [string, number, number, string | null, string | null]
-type SurveyBaseStatsResult = SurveyBaseStatTuple[] | null
-type DismissedAndSentCountResult = number | null
+export type SurveyBaseStatTuple = [string, number, number, string | null, string | null]
+export type SurveyBaseStatsResult = SurveyBaseStatTuple[] | null
+export type DismissedAndSentCountResult = number | null
 
 const DEFAULT_OPERATORS: Record<SurveyQuestionType, { label: string; value: PropertyOperator }> = {
     [SurveyQuestionType.Open]: {
@@ -354,6 +354,11 @@ export const surveyLogic = kea<surveyLogicType>([
                 const startDate = getSurveyStartDateForQuery(survey)
                 const endDate = getSurveyEndDateForQuery(survey)
 
+                // if we have answer filters, we need to apply them to the query for the 'survey sent' event only
+                const answerFilterCondition = values.answerFilterHogQLExpression
+                    ? values.answerFilterHogQLExpression.slice(4)
+                    : '1=1' // Use '1=1' for SQL TRUE
+
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
@@ -365,14 +370,13 @@ export const surveyLogic = kea<surveyLogicType>([
                             if(count() > 0, max(timestamp), null) as last_seen
                         FROM events
                         WHERE team_id = ${teamLogic.values.currentTeamId}
-                            AND event IN ('${SurveyEventName.SHOWN}', '${SurveyEventName.DISMISSED}', '${
-                        SurveyEventName.SENT
-                    }')
+                            AND event IN ('${SurveyEventName.SHOWN}', '${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
                             AND properties.$survey_id = '${props.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
-                            ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
                             AND {filters} -- Apply property filters here
+                            -- Apply answer filters only to 'survey sent' events
+                            AND (event != '${SurveyEventName.SENT}' OR (${answerFilterCondition}))
                         GROUP BY event
                     `,
                     filters: {
@@ -394,6 +398,11 @@ export const surveyLogic = kea<surveyLogicType>([
                 const startDate = getSurveyStartDateForQuery(survey)
                 const endDate = getSurveyEndDateForQuery(survey)
 
+                // if we have answer filters, we need to apply them to the query for the 'survey sent' event only
+                const answerFilterCondition = values.answerFilterHogQLExpression.startsWith('AND ')
+                    ? values.answerFilterHogQLExpression.substring(4)
+                    : '1=1' // Use '1=1' for SQL TRUE
+
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: `
@@ -406,15 +415,14 @@ export const surveyLogic = kea<surveyLogicType>([
                               AND properties.$survey_id = '${props.id}'
                               AND timestamp >= '${startDate}'
                               AND timestamp <= '${endDate}'
-                              ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
-                              AND {filters} -- Apply property filters here
+                              AND {filters} -- Apply property filters here to reduce initial events
                             GROUP BY person_id
-                            HAVING sum(if(event = '${SurveyEventName.DISMISSED}', 1, 0)) > 0
-                               AND sum(if(event = '${SurveyEventName.SENT}', 1, 0)) > 0
+                            HAVING sum(if(event = '${SurveyEventName.DISMISSED}', 1, 0)) > 0 -- Has at least one dismissed event (matching property filters)
+                              AND sum(if(event = '${SurveyEventName.SENT}' AND (${answerFilterCondition}), 1, 0)) > 0 -- Has at least one sent event matching BOTH property and answer filters
                         ) AS PersonsWithBothEvents
                     `,
                     filters: {
-                        properties: values.propertyFilters,
+                        properties: values.propertyFilters, // Property filters applied in WHERE
                     },
                 }
                 const response = await api.query(query)
@@ -450,7 +458,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND properties.$survey_id = '${props.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
-                            ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
+                            ${values.answerFilterHogQLExpression}
                             AND {filters}
                         GROUP BY survey_response
                     `,
@@ -505,7 +513,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND properties.$survey_id = '${survey.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
-                            ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
+                            ${values.answerFilterHogQLExpression}
                             AND {filters}
                         GROUP BY survey_response, survey_iteration
                     `,
@@ -589,7 +597,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND properties.$survey_id = '${props.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
-                            ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
+                            ${values.answerFilterHogQLExpression}
                             AND survey_response != null
                             AND {filters}
                         GROUP BY survey_response
@@ -639,7 +647,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND properties.$survey_id == '${survey.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
-                            ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
+                            ${values.answerFilterHogQLExpression}
                             AND {filters}
                         GROUP BY choice
                         ORDER BY count() DESC
@@ -708,7 +716,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND ${responseCondition}
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
-                            ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
+                            ${values.answerFilterHogQLExpression}
                             AND {filters}
                         LIMIT 20
                     `,
@@ -1259,12 +1267,18 @@ export const surveyLogic = kea<surveyLogicType>([
             () => [(_, props: SurveyLogicProps) => props.id],
             (id): ProjectTreeRef => ({ type: 'survey', ref: String(id) }),
         ],
+        answerFilterHogQLExpression: [
+            (s) => [s.survey, s.answerFilters],
+            (survey: Survey, answerFilters: EventPropertyFilter[]): string => {
+                return createAnswerFilterHogQLExpression(answerFilters, survey)
+            },
+        ],
         dataTableQuery: [
-            (s) => [s.survey, s.propertyFilters, s.answerFilters],
+            (s) => [s.survey, s.propertyFilters, s.answerFilterHogQLExpression],
             (
                 survey: Survey,
                 propertyFilters: AnyPropertyFilter[],
-                answerFilters: EventPropertyFilter[]
+                answerFilterHogQLExpression: string
             ): DataTableNode | null => {
                 if (survey.id === 'new') {
                     return null
@@ -1272,11 +1286,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 const surveyWithResults = survey
 
                 const where = [`event == 'survey sent'`]
-                const answerFilter = createAnswerFilterHogQLExpression(answerFilters, survey)
 
-                if (answerFilter !== '') {
+                if (answerFilterHogQLExpression !== '') {
                     // skip the 'AND ' prefix
-                    where.push(answerFilter.slice(4))
+                    where.push(answerFilterHogQLExpression.slice(4))
                 }
 
                 return {

@@ -37,7 +37,7 @@ function StatCard({ title, value, description, isLoading }: StatCardProps): JSX.
 function UsersCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRates }): JSX.Element {
     const uniqueUsersShown = stats['survey shown'].unique_persons
     const uniqueUsersSent = stats['survey sent'].unique_persons
-
+    const { answerFilterHogQLExpression } = useValues(surveyLogic)
     return (
         <div className="flex flex-wrap gap-4 mb-4">
             <StatCard
@@ -48,7 +48,9 @@ function UsersCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRates }
             <StatCard
                 title="Responses"
                 value={humanFriendlyNumber(uniqueUsersSent)}
-                description={`Sent by unique ${pluralize(uniqueUsersSent, 'user', 'users', false)}`}
+                description={`Sent by unique ${pluralize(uniqueUsersSent, 'user', 'users', false)}${
+                    answerFilterHogQLExpression ? ` with the applied answer filters` : ''
+                }`}
             />
             <StatCard
                 title="Conversion rate by unique users"
@@ -64,6 +66,7 @@ function UsersCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRates }
 function ResponsesCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRates }): JSX.Element {
     const impressions = stats['survey shown'].total_count
     const sent = stats['survey sent'].total_count
+    const { answerFilterHogQLExpression } = useValues(surveyLogic)
 
     return (
         <div className="flex flex-wrap gap-4 mb-4">
@@ -72,7 +75,13 @@ function ResponsesCount({ stats, rates }: { stats: SurveyStats; rates: SurveyRat
                 value={humanFriendlyNumber(impressions)}
                 description="How many times the survey was shown"
             />
-            <StatCard title="Responses" value={humanFriendlyNumber(sent)} description="Sent by all users" />
+            <StatCard
+                title="Responses"
+                value={humanFriendlyNumber(sent)}
+                description={`Sent by all users${
+                    answerFilterHogQLExpression ? ` with the applied answer filters` : ''
+                }`}
+            />
             <StatCard
                 title="Conversion rate by impressions"
                 value={`${humanFriendlyNumber(rates.response_rate)}%`}
