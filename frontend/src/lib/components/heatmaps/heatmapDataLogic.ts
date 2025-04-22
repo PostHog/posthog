@@ -27,6 +27,23 @@ export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'blue', label: 'Blue (monocolor)' },
 ]
 
+/**
+ * If we're sending a URL as a regex value and it contains a question mark
+ * then we'll get slightly confusing results based on what the question mark
+ * appears to match.
+ *
+ * This function tries to ensure that the URL is always sent with a `\\?` instead of a `?`
+ * so that we don't get confusing results.
+ */
+function ensureQueryParamIsWildcarded(href: string): any {
+    const questionMarkCount = (href.match(/\?/g) || []).length
+    if (questionMarkCount === 1) {
+        const [url, queryParams] = href.split('?')
+        return `${url}\\?${queryParams}`
+    }
+    return href
+}
+
 export const heatmapDataLogic = kea<heatmapDataLogicType>([
     path(['lib', 'components', 'heatmap', 'heatmapDataLogic']),
     actions({
@@ -123,7 +140,9 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             date_from,
                             date_to,
                             url_exact: isLikelyRegex(values.href) ? undefined : values.href,
-                            url_pattern: isLikelyRegex(values.href) ? values.href : undefined,
+                            url_pattern: isLikelyRegex(values.href)
+                                ? ensureQueryParamIsWildcarded(values.href)
+                                : undefined,
                             viewport_width_min: values.viewportRange.min,
                             viewport_width_max: values.viewportRange.max,
                             aggregation,
