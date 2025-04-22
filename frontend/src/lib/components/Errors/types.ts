@@ -1,6 +1,7 @@
 export interface ErrorTrackingException {
     stacktrace?: ErrorTrackingRawStackTrace | ErrorTrackingResolvedStackTrace
     module: string
+    id: string
     type: string
     value: string
     mechanism?: {
@@ -9,6 +10,8 @@ export interface ErrorTrackingException {
         type: 'generic'
     }
 }
+
+export type ErrorTrackingRuntime = 'web' | 'python' | 'node' | 'unknown'
 
 interface ErrorTrackingRawStackTrace {
     type: 'raw'
@@ -57,3 +60,6 @@ export interface ErrorTrackingSymbolSet {
     storage_ptr: string | null
     failure_reason: string | null
 }
+
+export type SymbolSetStatus = 'valid' | 'invalid'
+export type SymbolSetStatusFilter = SymbolSetStatus | 'all'

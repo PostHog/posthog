@@ -2,7 +2,7 @@ import DOMPurify from 'dompurify'
 import { SURVEY_RESPONSE_PROPERTY } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
-import { EventPropertyFilter, Survey, SurveyAppearance } from '~/types'
+import { EventPropertyFilter, Survey, SurveyAppearance, SurveyDisplayConditions } from '~/types'
 
 const sanitizeConfig = { ADD_ATTR: ['target'] }
 
@@ -77,6 +77,20 @@ export const getMultipleChoiceResponseFieldCondition = (questionIndex: number, q
         JSONExtractArrayRaw(properties, '${ids.idBasedKey}'),
         JSONExtractArrayRaw(properties, '${ids.indexBasedKey}')
     )`
+}
+
+export function sanitizeSurveyDisplayConditions(
+    displayConditions: SurveyDisplayConditions | null
+): SurveyDisplayConditions | null {
+    if (!displayConditions) {
+        return null
+    }
+
+    return {
+        ...displayConditions,
+        url: displayConditions.url.trim(),
+        selector: displayConditions.selector?.trim(),
+    }
 }
 
 export function sanitizeSurveyAppearance(appearance: SurveyAppearance | null): SurveyAppearance | null {
@@ -276,4 +290,8 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
     }
 
     return hasValidFilter ? `AND ${filterExpression}` : ''
+}
+
+export function isSurveyRunning(survey: Survey): boolean {
+    return !!(survey.start_date && !survey.end_date)
 }

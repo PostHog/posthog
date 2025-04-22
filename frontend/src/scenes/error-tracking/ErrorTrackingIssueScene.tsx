@@ -1,23 +1,23 @@
 import './ErrorTracking.scss'
 
-import { LemonTabs, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { AssigneeSelect } from './AssigneeSelect'
-import { ErrorTrackingFilters } from './ErrorTrackingFilters'
+import { AssigneeIconDisplay, AssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
+import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
+import { IssueCard } from './components/IssueCard'
+import { DateRangeFilter, FilterGroup, InternalAccountsFilter } from './ErrorTrackingFilters'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingSetupPrompt } from './ErrorTrackingSetupPrompt'
 import { GenericSelect } from './issue/GenericSelect'
 import { IssueStatus, StatusIndicator } from './issue/Indicator'
 import { Metadata } from './issue/Metadata'
 import { EventsTab } from './issue/tabs/EventsTab'
-import { DetailsWidget } from './issue/widgets/DetailsWidget'
-import { StacktraceWidget } from './issue/widgets/StacktraceWidget'
 
 export const scene: SceneExport = {
     component: ErrorTrackingIssueScene,
@@ -37,83 +37,61 @@ export const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
 }
 
 export function ErrorTrackingIssueScene(): JSX.Element {
-    const { issue } = useValues(errorTrackingIssueSceneLogic)
-    const { updateIssue, initIssue, assignIssue } = useActions(errorTrackingIssueSceneLogic)
-    const [activeTab, setActiveTab] = useState('stacktrace')
+    const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { loadIssue, updateStatus, updateAssignee } = useActions(errorTrackingIssueSceneLogic)
 
     useEffect(() => {
-        initIssue()
-    }, [initIssue])
+        loadIssue()
+    }, [loadIssue])
 
     return (
         <ErrorTrackingSetupPrompt>
-            <>
-                <PageHeader
-                    buttons={
-                        <div className="flex gap-x-2">
-                            {issue && issue.status == 'active' && (
-                                <AssigneeSelect
-                                    assignee={issue.assignee}
-                                    onChange={assignIssue}
-                                    type="secondary"
-                                    showName
-                                />
-                            )}
-                            {issue && (
-                                <GenericSelect
-                                    size="small"
-                                    current={issue.status}
-                                    values={['active', 'resolved', 'suppressed']}
-                                    placeholder="Mark as"
-                                    renderValue={(value) => (
-                                        <StatusIndicator
-                                            status={value as IssueStatus}
-                                            size="small"
-                                            withTooltip={true}
-                                        />
-                                    )}
-                                    onChange={(value) => updateIssue({ status: value })}
-                                />
-                            )}
-                        </div>
-                    }
-                />
-                {issue ? (
-                    <div className="ErrorTrackingIssue">
-                        <Metadata />
-                        <LemonTabs
-                            activeKey={activeTab}
-                            onChange={(key) => setActiveTab(key)}
-                            tabs={[
-                                {
-                                    key: 'stacktrace',
-                                    label: 'Overview',
-                                    content: (
-                                        <div className="space-y-2">
-                                            <DetailsWidget />
-                                            <StacktraceWidget />
-                                        </div>
-                                    ),
-                                },
-                                {
-                                    key: 'events',
-                                    label: 'Events',
-                                    content: (
-                                        <div className="space-y-2">
-                                            <ErrorTrackingFilters />
-                                            <div className="border-1 overflow-hidden border-accent-primary border-primary rounded bg-surface-primary relative">
-                                                <EventsTab />
-                                            </div>
-                                        </div>
-                                    ),
-                                },
-                            ]}
-                        />
+            <PageHeader
+                buttons={
+                    <div className="flex gap-x-2">
+                        {!issueLoading && issue?.status == 'active' && (
+                            <AssigneeSelect assignee={issue?.assignee} onChange={updateAssignee}>
+                                {(displayAssignee) => {
+                                    return (
+                                        <LemonButton
+                                            type="secondary"
+                                            icon={<AssigneeIconDisplay assignee={displayAssignee} />}
+                                        >
+                                            <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Unassigned" />
+                                        </LemonButton>
+                                    )
+                                }}
+                            </AssigneeSelect>
+                        )}
+                        {!issueLoading && (
+                            <GenericSelect
+                                size="small"
+                                current={issue?.status}
+                                values={['active', 'resolved', 'suppressed']}
+                                placeholder="Mark as"
+                                renderValue={(value) => (
+                                    <StatusIndicator status={value as IssueStatus} size="small" withTooltip={true} />
+                                )}
+                                onChange={updateStatus}
+                            />
+                        )}
                     </div>
-                ) : (
-                    <Spinner />
-                )}
-            </>
+                }
+            />
+            <div className="ErrorTrackingIssue space-y-2">
+                <IssueCard />
+                <div className="flex items-center gap-2 p-0 bg-transparent">
+                    <div className="h-full flex items-center justify-center w-full gap-2">
+                        <DateRangeFilter />
+                        <FilterGroup />
+                        <InternalAccountsFilter />
+                    </div>
+                </div>
+                <Metadata />
+                <LemonCard className="p-0 overflow-hidden" hoverEffect={false}>
+                    <EventsTab />
+                </LemonCard>
+            </div>
         </ErrorTrackingSetupPrompt>
     )
 }

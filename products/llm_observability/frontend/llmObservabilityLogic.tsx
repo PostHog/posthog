@@ -47,7 +47,7 @@ export interface QueryTile {
 export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
     path(['products', 'llm_observability', 'frontend', 'llmObservabilityLogic']),
 
-    connect({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] }),
+    connect(() => ({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] })),
 
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -697,7 +697,7 @@ export const llmObservabilityLogic = kea<llmObservabilityLogicType>([
                     }
                     const mountedInsightDataLogic = insightDataLogic.findMounted(insightProps)
                     if (mountedInsightDataLogic) {
-                        mountedInsightDataLogic.actions.loadData(true)
+                        mountedInsightDataLogic.actions.loadData('force_blocking')
                     }
                     actions.setRefreshStatus(`tile-${index}`, false)
                 })

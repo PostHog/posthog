@@ -1,7 +1,6 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { playerConfig, Replayer, ReplayPlugin } from '@posthog/rrweb'
 import { EventType, eventWithTime, IncrementalSource } from '@posthog/rrweb-types'
-import { captureException } from '@sentry/react'
 import {
     actions,
     afterMount,
@@ -23,12 +22,13 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { clamp, downloadFile, objectsEqual } from 'lib/utils'
+import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { wrapConsole } from 'lib/utils/wrapConsole'
 import posthog from 'posthog-js'
 import { RefObject } from 'react'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
+import { ReplayIframeData } from 'scenes/heatmaps/heatmapsBrowserLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import {
     sessionRecordingDataLogic,
@@ -100,8 +100,62 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLo
     setPinned?: (pinned: boolean) => void
 }
 
+const ReplayIframeDatakeyPrefix = 'ph_replay_fixed_heatmap_'
+
+// weights should add up to 1
+const smoothingWeights = [
+    0.07,
+    0.08,
+    0.1,
+    0.12,
+    0.26, // center point
+    0.12,
+    0.1,
+    0.08,
+    0.07,
+]
+
 const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
     !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2)
+
+function removeFromLocalStorageWithPrefix(prefix: string): void {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i)
+        if (key?.startsWith(prefix)) {
+            localStorage.removeItem(key)
+        }
+    }
+}
+
+export function removeReplayIframeDataFromLocalStorage(): void {
+    removeFromLocalStorageWithPrefix(ReplayIframeDatakeyPrefix)
+}
+
+/**
+ * returns the relative second in the recording
+ * e.g. if the player starts at 1000ms and the snapshot is at 2000ms or 1500ms, the relative second is 1
+ */
+function toRelativeSecondInRecording(timestamp: number, playerStartTime: number): number {
+    return Math.trunc((timestamp - playerStartTime) / 1000)
+}
+
+const INCREMENTAL_SNAPSHOT_EVENT_TYPE = 3
+const ACTIVE_SOURCES = [
+    IncrementalSource.MouseMove,
+    IncrementalSource.MouseInteraction,
+    IncrementalSource.Scroll,
+    IncrementalSource.ViewportResize,
+    IncrementalSource.Input,
+    IncrementalSource.TouchMove,
+    IncrementalSource.MediaInteraction,
+    IncrementalSource.Drag,
+]
+function isUserActivity(snapshot: eventWithTime): boolean {
+    return (
+        snapshot.type === INCREMENTAL_SNAPSHOT_EVENT_TYPE &&
+        ACTIVE_SOURCES.indexOf(snapshot.data?.source as IncrementalSource) !== -1
+    )
+}
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
@@ -111,6 +165,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         values: [
             sessionRecordingDataLogic(props),
             [
+                'urls',
                 'snapshotsLoaded',
                 'snapshotsLoading',
                 'isRealtimePolling',
@@ -124,7 +179,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'trackedWindow',
             ],
             playerSettingsLogic,
-            ['speed', 'skipInactivitySetting', 'showMouseTail'],
+            ['speed', 'skipInactivitySetting'],
             userLogic,
             ['user', 'hasAvailableFeature'],
             preflightLogic,
@@ -187,6 +242,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         deleteRecording: true,
         openExplorer: true,
         closeExplorer: true,
+        openHeatmap: true,
         setExplorerProps: (props: SessionRecordingPlayerExplorerProps | null) => ({ props }),
         setIsFullScreen: (isFullScreen: boolean) => ({ isFullScreen }),
         skipPlayerForward: (rrWebPlayerTime: number, skip: number) => ({ rrWebPlayerTime, skip }),
@@ -461,6 +517,86 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlayerLogicProps => props],
         playlistLogic: [() => [(_, props) => props], (props) => props.playlistLogic],
 
+        hasSnapshots: [
+            (s) => [s.sessionPlayerData],
+            (sessionPlayerData: SessionPlayerData) => {
+                return Object.keys(sessionPlayerData.snapshotsByWindowId).length > 0
+            },
+        ],
+
+        activityPerSecond: [
+            (s) => [s.sessionPlayerData, s.hasSnapshots],
+            (
+                sessionPlayerData: SessionPlayerData,
+                hasSnapshots: boolean
+            ): { smoothedPoints: Record<number, { y: number }>; maxY: number; durationSeconds: number } => {
+                const start = sessionPlayerData.start
+                if (start === null || !hasSnapshots) {
+                    return { smoothedPoints: {}, maxY: 0, durationSeconds: (sessionPlayerData?.durationMs ?? 0) / 1000 }
+                }
+
+                // First add a 0 for every second in the recording
+                const rawActivity: Record<number, { y: number }> = {}
+                Array.from({ length: Math.ceil(sessionPlayerData.durationMs / 1000 + 1) }, (_, i) => i).forEach(
+                    (second) => {
+                        rawActivity[second] = { y: 0 }
+                    }
+                )
+
+                Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([_, snapshots]) => {
+                    snapshots.forEach((snapshot) => {
+                        const timestamp = toRelativeSecondInRecording(snapshot.timestamp, start.valueOf())
+
+                        if (!rawActivity[timestamp]) {
+                            rawActivity[timestamp] = { y: 0 }
+                        }
+
+                        if (isUserActivity(snapshot)) {
+                            rawActivity[timestamp].y += 5000
+                        } else if (
+                            snapshot.type === EventType.IncrementalSnapshot &&
+                            'source' in snapshot.data &&
+                            snapshot.data.source === IncrementalSource.Mutation
+                        ) {
+                            rawActivity[timestamp].y +=
+                                (snapshot.data.adds?.length || 0) +
+                                (snapshot.data.removes?.length || 0) +
+                                (snapshot.data.attributes?.length || 0) +
+                                (snapshot.data.texts?.length || 0)
+                        }
+                    })
+                })
+
+                // Apply smoothing
+                const sortedSeconds = Object.keys(rawActivity)
+                    .map(Number)
+                    .sort((a, b) => a - b)
+
+                const smoothedActivity: typeof rawActivity = {}
+
+                let maxY = 0
+                sortedSeconds.forEach((second) => {
+                    let smoothedY = 0
+                    for (let i = -4; i <= 4; i++) {
+                        const neighborSecond = second + i
+                        if (rawActivity[neighborSecond]) {
+                            smoothedY += rawActivity[neighborSecond].y * smoothingWeights[i + 4]
+                        }
+                    }
+                    smoothedActivity[second] = {
+                        y: smoothedY,
+                    }
+                    maxY = Math.max(maxY, smoothedY)
+                })
+
+                return {
+                    smoothedPoints: smoothedActivity,
+                    maxY,
+                    durationSeconds: (sessionPlayerData?.durationMs ?? 0) / 1000,
+                }
+            },
+        ],
+
         roughAnimationFPS: [(s) => [s.playerSpeed], (playerSpeed) => playerSpeed * (1000 / 60)],
         currentPlayerState: [
             (s) => [
@@ -592,6 +728,54 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return visualSnapshots.sort((a, b) => a.timestamp - b.timestamp)
             },
         ],
+
+        currentURL: [
+            (s) => [s.urls, s.sessionPlayerMetaData, s.currentTimestamp],
+            (urls, sessionPlayerMetaData, currentTimestamp): string | undefined => {
+                if (!urls.length || !currentTimestamp) {
+                    return sessionPlayerMetaData?.start_url ?? undefined
+                }
+
+                // Go through the events in reverse to find the latest pageview
+                for (let i = urls.length - 1; i >= 0; i--) {
+                    const urlTimestamp = urls[i]
+                    if (i === 0 || urlTimestamp.timestamp < currentTimestamp) {
+                        return urlTimestamp.url
+                    }
+                }
+            },
+        ],
+        resolution: [
+            (s) => [s.sessionPlayerData, s.currentTimestamp, s.currentSegment],
+            (sessionPlayerData, currentTimestamp, currentSegment): { width: number; height: number } | null => {
+                // Find snapshot to pull resolution from
+                if (!currentTimestamp) {
+                    return null
+                }
+                const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment?.windowId ?? ''] ?? []
+
+                const currIndex = findLastIndex(
+                    snapshots,
+                    (s: eventWithTime) => s.timestamp < currentTimestamp && (s.data as any).width
+                )
+
+                if (currIndex === -1) {
+                    return null
+                }
+                const snapshot = snapshots[currIndex]
+                return {
+                    width: snapshot.data?.['width'],
+                    height: snapshot.data?.['height'],
+                }
+            },
+            {
+                resultEqualityCheck: (prev, next) => {
+                    // Only update if the resolution values have changed (not the object reference)
+                    // stops PlayerMeta from re-rendering on every player position
+                    return objectsEqual(prev, next)
+                },
+            },
+        ],
     }),
     listeners(({ props, values, actions, cache }) => ({
         playerErrorSeen: ({ error }) => {
@@ -600,9 +784,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
             const extra = { fingerprint, playbackSessionId: values.sessionRecordingId }
-            captureException(error, {
-                extra,
-                tags: { feature: 'replayer error swallowed' },
+            posthog.captureException(error, {
+                ...extra,
+                feature: 'replayer error swallowed',
             })
             if (posthog.config.debug) {
                 posthog.capture('replayer error swallowed', extra)
@@ -662,7 +846,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 ...COMMON_REPLAYER_CONFIG,
                 // these two settings are attempts to improve performance of running two Replayers at once
                 // the main player and a preview player
-                mouseTail: values.showMouseTail && props.mode !== SessionRecordingPlayerMode.Preview,
+                mouseTail: props.mode !== SessionRecordingPlayerMode.Preview,
                 useVirtualDom: false,
                 plugins,
                 onError: (error) => {
@@ -779,7 +963,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadRecordingMetaSuccess: () => {
             // As the connected data logic may be preloaded we call a shared function here and on mount
             actions.syncSnapshotsWithPlayer()
-            actions.loadSimilarRecordings()
             if (props.autoPlay) {
                 // Autoplay assumes we are playing immediately so lets go ahead and load more data
                 actions.setPlay()
@@ -1124,6 +1307,27 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 height: parseFloat(iframe.height),
             })
         },
+        openHeatmap: () => {
+            actions.setPause()
+            const iframe = values.rootFrame?.querySelector('iframe')
+            const iframeHtml = iframe?.contentWindow?.document?.documentElement?.innerHTML
+            const resolution = values.resolution
+            if (!iframeHtml || !resolution) {
+                return
+            }
+
+            removeFromLocalStorageWithPrefix(ReplayIframeDatakeyPrefix)
+            const key = ReplayIframeDatakeyPrefix + uuid()
+            const data: ReplayIframeData = {
+                html: iframeHtml,
+                width: resolution.width,
+                height: resolution.height,
+                startDateTime: values.sessionPlayerMetaData?.start_time,
+                url: values.currentURL,
+            }
+            localStorage.setItem(key, JSON.stringify(data))
+            router.actions.push(urls.heatmaps(`iframeStorage=${key}`))
+        },
 
         setIsFullScreen: async ({ isFullScreen }) => {
             if (isFullScreen) {
@@ -1180,7 +1384,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (!values.sessionRecordingId) {
                 return
             }
-            actions.loadSimilarRecordings()
         },
     })),
 

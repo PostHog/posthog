@@ -45,10 +45,10 @@ export enum SidePanelActivityTab {
 
 export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelActivityLogic']),
-    connect({
+    connect(() => ({
         values: [sidePanelContextLogic, ['sceneSidePanelContext'], projectLogic, ['currentProjectId']],
         actions: [sidePanelStateLogic, ['openSidePanel']],
-    }),
+    })),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
         incrementErrorCount: true,

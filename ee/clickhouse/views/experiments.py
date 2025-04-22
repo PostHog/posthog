@@ -141,9 +141,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
         return value
 
     def validate_existing_feature_flag_for_experiment(self, feature_flag: FeatureFlag):
-        if feature_flag.experiment_set.exists():
-            raise ValidationError("Feature flag is already associated with an experiment.")
-
         variants = feature_flag.filters.get("multivariate", {}).get("variants", [])
 
         if len(variants) and len(variants) > 1:
@@ -168,6 +165,16 @@ class ExperimentSerializer(serializers.ModelSerializer):
                 raise ValidationError("Invalid exposure criteria")
 
         return exposure_criteria
+
+    def validate(self, data):
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
+
+        # Only validate if both dates are present
+        if start_date and end_date and start_date >= end_date:
+            raise ValidationError("End date must be after start date")
+
+        return data
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Experiment:
         is_draft = "start_date" not in validated_data or validated_data["start_date"] is None

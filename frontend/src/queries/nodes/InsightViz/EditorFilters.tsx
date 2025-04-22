@@ -76,7 +76,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
         isStepsFunnel ||
-        isTrendsFunnel
+        isTrendsFunnel ||
+        isRetention
     const hasPathsAdvanced = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isStepsFunnel || isTrendsFunnel
     const hasPathsHogQL = isPaths && pathsFilter?.includeEventTypes?.includes(PathType.HogQL)
@@ -99,7 +100,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                           },
                           {
                               key: 'retention-options',
-                              label: 'Retention calculation options',
+                              label: 'Calculation options',
                               component: RetentionOptions,
                           },
                       ]

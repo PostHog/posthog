@@ -1,4 +1,9 @@
-import { AssistantFunnelsQuery, AssistantRetentionQuery, AssistantTrendsQuery } from './schema-assistant-queries'
+import {
+    AssistantFunnelsQuery,
+    AssistantHogQLQuery,
+    AssistantRetentionQuery,
+    AssistantTrendsQuery,
+} from './schema-assistant-queries'
 
 export enum AssistantMessageType {
     Human = 'human',
@@ -35,6 +40,11 @@ export interface AssistantToolCall {
     id: string
     name: string
     args: Record<string, unknown>
+    /**
+     * `type` needed to conform to the OpenAI shape, which is expected by LangChain
+     * @default "tool_call"
+     */
+    type: 'tool_call'
 }
 
 export interface AssistantMessage extends BaseAssistantMessage {
@@ -55,7 +65,7 @@ export interface VisualizationMessage extends BaseAssistantMessage {
     /** @default '' */
     query: string
     plan?: string
-    answer?: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery
+    answer: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
     initiator?: string
 }
 
@@ -70,6 +80,7 @@ export type RootAssistantMessage =
     | AssistantMessage
     | HumanMessage
     | FailureMessage
+    | (AssistantToolCallMessage & Required<Pick<AssistantToolCallMessage, 'ui_payload'>>)
 
 export enum AssistantEventType {
     Status = 'status',
@@ -88,6 +99,13 @@ export interface AssistantGenerationStatusEvent {
 
 export interface AssistantToolCallMessage extends BaseAssistantMessage {
     type: AssistantMessageType.ToolCall
+    /**
+     * Payload passed through to the frontend - specifically for calls of contextual tool.
+     * Tool call messages without a ui_payload are not passed through to the frontend.
+     */
+    ui_payload?: Record<string, any>
     content: string
     tool_call_id: string
 }
+
+export type AssistantContextualTool = 'search_session_recordings' | 'generate_hogql_query'

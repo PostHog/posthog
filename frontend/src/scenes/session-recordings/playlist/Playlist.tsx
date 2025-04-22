@@ -1,20 +1,14 @@
 import './Playlist.scss'
 
-import { IconX } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils'
-import posthog from 'posthog-js'
 import { ReactNode, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { AiFilter } from 'scenes/session-recordings/components/AiFilter/AiFilter'
 
 import { SessionRecordingType } from '~/types'
-
-import { playlistLogic } from './playlistLogic'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
@@ -89,9 +83,6 @@ export function Playlist({
         750: 'medium',
     })
 
-    const { isExpanded } = useValues(playlistLogic)
-    const { setIsExpanded } = useActions(playlistLogic)
-
     const onChangeActiveItem = (item: SessionRecordingType): void => {
         setControlledActiveItemId(item.id)
         onSelect?.(item)
@@ -142,23 +133,6 @@ export function Playlist({
 
     return (
         <>
-            <div
-                className={clsx(`w-full mb-8`, {
-                    hidden: !isExpanded,
-                })}
-            >
-                <div className="flex justify-end">
-                    <LemonButton
-                        icon={<IconX />}
-                        onClick={() => {
-                            setIsExpanded(false)
-                            posthog.capture('ai_filter_close')
-                        }}
-                    />
-                </div>
-                <AiFilter isExpanded={isExpanded} />
-            </div>
-
             <div
                 className={clsx('flex flex-col w-full gap-2 h-full', {
                     'xl:flex-row': true,

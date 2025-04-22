@@ -3,8 +3,6 @@ import { delay } from 'lib/utils'
 import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { OnlineExportContext, QueryExportContext } from '~/types'
-
 import {
     DashboardFilter,
     DataNode,
@@ -15,14 +13,17 @@ import {
     PersonsNode,
     QueryStatus,
     RefreshType,
-} from './schema'
+} from '~/queries/schema/schema-general'
+import { OnlineExportContext, QueryExportContext } from '~/types'
+
 import {
     isAsyncResponse,
     isDataTableNode,
     isDataVisualizationNode,
     isHogQLQuery,
-    isInsightVizNode,
+    isInsightQueryNode,
     isPersonsNode,
+    shouldQueryBeAsync,
 } from './utils'
 
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
@@ -35,20 +36,15 @@ export function queryExportContext<N extends DataNode>(
     methodOptions?: ApiMethodOptions,
     refresh?: boolean
 ): OnlineExportContext | QueryExportContext {
-    if (isInsightVizNode(query) || isDataTableNode(query) || isDataVisualizationNode(query)) {
+    if (isDataTableNode(query) || isDataVisualizationNode(query)) {
         return queryExportContext(query.source, methodOptions, refresh)
+    } else if (isInsightQueryNode(query)) {
+        return { source: query }
     } else if (isPersonsNode(query)) {
         return { path: getPersonsEndpoint(query) }
     }
     return { source: query }
 }
-
-const SYNC_ONLY_QUERY_KINDS = [
-    'HogQuery',
-    'HogQLMetadata',
-    'HogQLAutocomplete',
-    'DatabaseSchemaQuery',
-] satisfies NodeKind[keyof NodeKind][]
 
 export async function pollForResults(
     queryId: string,
@@ -95,17 +91,21 @@ async function executeQuery<N extends DataNode>(
      */
     pollOnly = false
 ): Promise<NonNullable<N['response']>> {
-    const isAsyncQuery = methodOptions?.async !== false && !SYNC_ONLY_QUERY_KINDS.includes(queryNode.kind)
-
     const useOptimizedPolling = posthog.isFeatureEnabled('query-optimized-polling')
     const currentTeamId = teamLogic.findMounted()?.values.currentTeamId
 
     if (!pollOnly) {
-        const refreshParam: RefreshType | undefined = isAsyncQuery
-            ? refresh === true
-                ? 'force_async'
-                : 'async'
-            : refresh
+        // Determine the refresh type based on the query node type and refresh parameter
+        let refreshParam: RefreshType
+
+        // Handle insight-related queries - they should always be async
+        if (shouldQueryBeAsync(queryNode)) {
+            // For insight queries, use async variants but preserve explicit force requests
+            refreshParam = refresh || 'async'
+        } else {
+            // For other queries, use blocking unless explicitly set to a different RefreshType
+            refreshParam = refresh || 'blocking'
+        }
 
         if (useOptimizedPolling) {
             return new Promise((resolve, reject) => {
@@ -171,6 +171,10 @@ async function executeQuery<N extends DataNode>(
             variablesOverride
         )
 
+        if (response.detail) {
+            throw new Error(response.detail)
+        }
+
         if (!isAsyncResponse(response)) {
             // Executed query synchronously or from cache
             return response
@@ -178,7 +182,7 @@ async function executeQuery<N extends DataNode>(
 
         queryId = response.query_status.id
     } else {
-        if (!isAsyncQuery) {
+        if (refresh !== 'async' && refresh !== 'force_async') {
             throw new Error('pollOnly is only supported for async queries')
         }
         if (!queryId) {
@@ -261,6 +265,7 @@ export async function performQuery<N extends DataNode>(
             query: queryNode,
             queryId,
             duration: performance.now() - startTime,
+            is_cached: response?.is_cached,
             ...logParams,
         })
         return response

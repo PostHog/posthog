@@ -6,6 +6,7 @@ import { LoadedScene, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Error404 as Error404Component } from '~/layout/Error404'
+import { ErrorAccessDenied as ErrorAccessDeniedComponent } from '~/layout/ErrorAccessDenied'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { productConfiguration, productRedirects, productRoutes } from '~/products'
@@ -30,6 +31,11 @@ export const preloadedScenes: Record<string, LoadedScene> = {
         component: Error404Component,
         sceneParams: emptySceneParams,
     },
+    [Scene.ErrorAccessDenied]: {
+        id: Scene.ErrorAccessDenied,
+        component: ErrorAccessDeniedComponent,
+        sceneParams: emptySceneParams,
+    },
     [Scene.ErrorNetwork]: {
         id: Scene.ErrorNetwork,
         component: ErrorNetworkComponent,
@@ -46,6 +52,9 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Error404]: {
         name: 'Not found',
         projectBased: true,
+    },
+    [Scene.ErrorAccessDenied]: {
+        name: 'Access denied',
     },
     [Scene.ErrorNetwork]: {
         name: 'Network error',
@@ -103,6 +112,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Page reports',
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics',
+    },
+    [Scene.RevenueAnalytics]: {
+        projectBased: true,
+        name: 'Revenue analytics',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/revenue-analytics',
     },
     [Scene.Cohort]: {
         projectBased: true,
@@ -193,6 +208,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Action',
         defaultDocsPath: '/docs/data/actions',
     },
+    [Scene.Groups]: {
+        projectBased: true,
+        name: 'Groups',
+        defaultDocsPath: '/docs/product-analytics/group-analytics',
+    },
     [Scene.Group]: {
         projectBased: true,
         name: 'People & groups',
@@ -251,11 +271,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.FEATURE_FLAG,
         defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
     },
-    [Scene.FeatureManagement]: {
-        projectBased: true,
-        name: 'Features',
-        defaultDocsPath: '/docs/feature-flags',
-    },
     [Scene.Surveys]: {
         projectBased: true,
         name: 'Surveys',
@@ -273,29 +288,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'New survey',
         defaultDocsPath: '/docs/surveys/creating-surveys',
     },
-    [Scene.DataWarehouse]: {
-        projectBased: true,
-        name: 'Data warehouse',
-        defaultDocsPath: '/docs/data-warehouse',
-    },
     [Scene.SQLEditor]: {
         projectBased: true,
         name: 'SQL editor',
-        defaultDocsPath: '/docs/data-warehouse/setup',
+        defaultDocsPath: '/docs/cdp/sources',
         layout: 'app-raw-no-header',
-    },
-    [Scene.DataWarehouseExternal]: {
-        projectBased: true,
-        name: 'Data warehouse',
-        defaultDocsPath: '/docs/data-warehouse/setup',
-    },
-    [Scene.DataWarehouseRedirect]: {
-        name: 'Data warehouse redirect',
-    },
-    [Scene.DataWarehouseTable]: {
-        projectBased: true,
-        name: 'Data warehouse table',
-        defaultDocsPath: '/docs/data-warehouse',
+        hideProjectNotice: true,
     },
     [Scene.SavedInsights]: {
         projectBased: true,
@@ -318,13 +316,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.Products]: {
         projectBased: true,
-        hideProjectNotice: true,
-        layout: 'app-raw',
+        name: 'Products',
+        layout: 'plain',
     },
     [Scene.Onboarding]: {
         projectBased: true,
-        hideBillingNotice: true,
-        hideProjectNotice: true,
+        name: 'Onboarding',
+        layout: 'plain',
     },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
@@ -457,6 +455,23 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Wizard',
         layout: 'plain',
     },
+    [Scene.StartupProgram]: {
+        name: 'PostHog for Startups',
+        organizationBased: true,
+        layout: 'app-container',
+    },
+    [Scene.MessagingBroadcasts]: {
+        projectBased: true,
+        name: 'Messaging Broadcasts',
+    },
+    [Scene.MessagingCampaigns]: {
+        projectBased: true,
+        name: 'Messaging Campaigns',
+    },
+    [Scene.MessagingLibrary]: {
+        projectBased: true,
+        name: 'Message Library',
+    },
     ...productConfiguration,
 }
 
@@ -557,7 +572,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
-    [urls.revenue()]: [Scene.DataManagement, 'revenue'],
+    [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
+    [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.actions()]: [Scene.DataManagement, 'actions'],
     [urls.eventDefinitions()]: [Scene.DataManagement, 'eventDefinitions'],
     [urls.eventDefinition(':id')]: [Scene.EventDefinition, 'eventDefinition'],
@@ -582,7 +598,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.personByUUID('*', false)]: [Scene.Person, 'personByUUID'],
     [urls.persons()]: [Scene.PersonsManagement, 'persons'],
     [urls.pipelineNodeNew(':stage')]: [Scene.PipelineNodeNew, 'pipelineNodeNew'],
-    [urls.pipelineNodeNew(':stage', ':id')]: [Scene.PipelineNodeNew, 'pipelineNodeNewWithId'],
+    [urls.pipelineNodeNew(':stage', { id: ':id' })]: [Scene.PipelineNodeNew, 'pipelineNodeNewWithId'],
     [urls.pipeline(':tab')]: [Scene.Pipeline, 'pipeline'],
     [urls.pipelineNode(':stage', ':id', ':nodeTab')]: [Scene.PipelineNode, 'pipelineNode'],
     [urls.pipelineNode(':stage', ':id')]: [Scene.PipelineNode, 'pipelineNodeWithId'],
@@ -603,15 +619,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.surveys()]: [Scene.Surveys, 'surveys'],
     [urls.survey(':id')]: [Scene.Survey, 'survey'],
     [urls.surveyTemplates()]: [Scene.SurveyTemplates, 'surveyTemplates'],
-    [urls.dataWarehouse()]: [Scene.DataWarehouse, 'dataWarehouse'],
-    [urls.dataWarehouseView(':id')]: [Scene.DataWarehouse, 'dataWarehouseView'],
-    [urls.dataWarehouseTable()]: [Scene.DataWarehouseTable, 'dataWarehouseTable'],
-    [urls.dataWarehouseRedirect(':kind')]: [Scene.DataWarehouseRedirect, 'dataWarehouseRedirect'],
     [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
-    [urls.featureManagement()]: [Scene.FeatureManagement, 'featureManagement'],
-    [urls.featureManagement(':id')]: [Scene.FeatureManagement, 'featureManagementWithId'],
     [urls.annotations()]: [Scene.DataManagement, 'annotations'],
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
@@ -660,5 +670,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
+    [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
+    [urls.startups(true)]: [Scene.StartupProgram, 'startupProgramYC'],
     ...productRoutes,
 }

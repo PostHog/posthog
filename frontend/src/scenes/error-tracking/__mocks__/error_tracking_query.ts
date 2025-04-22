@@ -114,13 +114,13 @@ const errorTrackingQueryResponse: ErrorTrackingQueryResponse = {
     ].map(({ occurrences, sessions, users, ...props }) => ({
         ...props,
         last_seen: '2024-07-07T00:00:00.000000-00:00',
+        library: 'web',
         aggregations: {
             occurrences: occurrences,
             sessions: sessions,
             users: users,
             volumeDay: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            volumeMonth: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            customVolume: [1, 2, 3, 4, 5, 6, 2, 3, 1],
+            volumeRange: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         },
     })),
 }

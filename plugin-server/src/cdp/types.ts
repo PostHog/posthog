@@ -70,7 +70,7 @@ export type HogFunctionInvocationGlobals = {
         uuid: string
         event: string
         distinct_id: string
-        properties: Record<string, any>
+        properties: Record<string, unknown>
         elements_chain: string
         timestamp: string
 
@@ -211,13 +211,15 @@ export type HogFunctionInvocation = {
     globals: HogFunctionInvocationGlobalsWithInputs
     teamId: Team['id']
     hogFunction: HogFunctionType
-    priority: number
-    queue: 'hog' | 'fetch' | 'plugins'
-    queueParameters?: HogFunctionInvocationQueueParameters
     // The current vmstate (set if the invocation is paused)
     vmState?: VMState
     timings: HogFunctionTiming[]
-    functionToExecute?: [string, any[]]
+    // Params specific to the queueing system
+    queue: 'hog' | 'fetch' | 'plugins'
+    queueParameters?: HogFunctionInvocationQueueParameters
+    queuePriority: number
+    queueScheduledAt?: DateTime
+    queueMetadata?: Record<string, any>
 }
 
 export type HogFunctionAsyncFunctionRequest = {
@@ -287,6 +289,8 @@ export type HogFunctionTypeType =
     | 'alert'
     | 'broadcast'
 
+export type HogFunctionKind = 'messaging_campaign' | null
+
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, HogFunctionInputType> | null
@@ -296,6 +300,7 @@ export interface HogFunctionMappingType {
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
+    kind?: HogFunctionKind
     team_id: number
     name: string
     enabled: boolean

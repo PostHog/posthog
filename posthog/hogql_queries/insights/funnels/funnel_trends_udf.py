@@ -48,15 +48,11 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelTrends):
                 """
         return ""
 
-    def udf_event_array_filter(self):
-        return self._udf_event_array_filter(1, 4, 5)
-
     # This is the function that calls the UDF
     # This is used by both the query itself and the actors query
     def _inner_aggregation_query(self):
-        # If they're asking for a "to_step" just truncate the funnel
         funnelsFilter = self.context.funnelsFilter
-        max_steps = self.context.max_steps if funnelsFilter.funnelToStep is None else funnelsFilter.funnelToStep + 1
+        max_steps = self.context.max_steps
         self.context.max_steps_override = max_steps
 
         if self.context.funnelsFilter.funnelOrderType == "strict":
@@ -92,7 +88,8 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelTrends):
 
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 
-        from_step = funnelsFilter.funnelFromStep or 0
+        from_step = (funnelsFilter.funnelFromStep or 0) + 1
+        to_step = max_steps if funnelsFilter.funnelToStep is None else funnelsFilter.funnelToStep + 1
 
         inner_select = cast(
             ast.SelectQuery,
@@ -108,12 +105,13 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelTrends):
                 ))) as events_array,
                 arrayJoin({fn}(
                     {from_step},
+                    {to_step},
                     {max_steps},
                     {self.conversion_window_limit()},
                     '{breakdown_attribution_string}',
                     '{self.context.funnelsFilter.funnelOrderType}',
                     {self._prop_vals()},
-                    {self.udf_event_array_filter()}
+                    events_array
                 )) as af_tuple,
                 toTimeZone(toDateTime(_toUInt64(af_tuple.1)), '{self.context.team.timezone}') as entrance_period_start,
                 af_tuple.2 as success_bool,

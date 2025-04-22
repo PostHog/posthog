@@ -22,6 +22,7 @@ from posthog.models.ai.pg_embeddings import INSERT_BULK_PG_EMBEDDINGS_SQL
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import ClickHouseClient, get_client
 from posthog.temporal.common.utils import get_scheduled_start_time
+from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 
@@ -44,8 +45,8 @@ async def get_actions_qs(start_dt: datetime, offset: int | None = None, batch_si
         # Only actions updated before the start date
         updated_at__lte=start_dt,
     ) & (
-        # Never summarized actions
-        Q(last_summarized_at__isnull=True)
+        # Never summarized actions but not deleted
+        Q(last_summarized_at__isnull=True, deleted=False)
         # Actions updated after last summarization workflow
         | Q(updated_at__gte=F("last_summarized_at"))
         # The line below preserves the execution order of the workflow. Temporal workflows must be deterministic,
@@ -123,7 +124,7 @@ async def batch_summarize_actions(inputs: BatchSummarizeActionsInputs):
             # so we can retry them later. It's not practical to cancel the other 95 requests if
             # one fails, but we can retry summarization later.
             if not isinstance(maybe_summary, OpenAIAPIError):
-                posthoganalytics.capture_exception(maybe_summary, properties={"action_id": action.id, "tag": "max_ai"})
+                capture_exception(maybe_summary, additional_properties={"action_id": action.id, "tag": "max_ai"})
             logger.exception("Error summarizing actions", error=maybe_summary, action_id=action.id)
             continue
         action.last_summarized_at = workflow_start_dt
@@ -179,6 +180,7 @@ async def sync_action_vectors(
     actions_with_embeddings: list[tuple[dict[str, Any], list[float]]],
     insert_batch_size: int,
     workflow_start_dt: datetime,
+    embedding_version: int | None = None,
 ):
     """
     Syncs action vectors to ClickHouse and updates the last synced timestamp.
@@ -208,8 +210,21 @@ async def sync_action_vectors(
 
         await client.execute_query(INSERT_BULK_PG_EMBEDDINGS_SQL, *rows)
 
-        bulk_update = [Action(id=action["id"], embedding_last_synced_at=workflow_start_dt) for action, _ in batch]
-        await Action.objects.abulk_update(bulk_update, ["embedding_last_synced_at"])
+        bulk_update = []
+        for action, _ in batch:
+            action_model = Action(id=action["id"], embedding_last_synced_at=workflow_start_dt)
+            if embedding_version is not None:
+                action_model.embedding_version = embedding_version
+            bulk_update.append(action_model)
+
+        await Action.objects.abulk_update(
+            bulk_update,
+            (
+                ["embedding_last_synced_at", "embedding_version"]
+                if embedding_version is not None
+                else ["embedding_last_synced_at"]
+            ),
+        )
 
 
 @dataclass
@@ -218,6 +233,7 @@ class BatchEmbedAndSyncActionsInputs:
     insert_batch_size: int
     embeddings_batch_size: int
     max_parallel_requests: int
+    embedding_version: int | None = None
 
 
 @dataclass
@@ -237,6 +253,24 @@ async def batch_embed_and_sync_actions(inputs: BatchEmbedAndSyncActionsInputs) -
         Outputs for the activity: whether there are more actions to sync.
     """
     workflow_start_dt = datetime.fromisoformat(inputs.start_dt)
+
+    query = (
+        # Include only updated actions.
+        Q(last_summarized_at__gt=F("embedding_last_synced_at"))
+        # Or actions that haven't never been synced but have summaries.
+        | (Q(embedding_last_synced_at__isnull=True) & Q(last_summarized_at__isnull=False))
+    )
+
+    # Backward compatibility: Temporal workflows must be deterministic, so we won't
+    # look for embedding versions if the version is not set in the inputs.
+    if inputs.embedding_version is not None:
+        query |= (
+            # Or actions that don't have an embedding version.
+            Q(embedding_version__isnull=True)
+            # Or actions with an old embedding version.
+            | Q(embedding_version__lt=inputs.embedding_version)
+        )
+
     actions_to_sync_qs = (
         Action.objects.filter(
             Q(
@@ -245,12 +279,7 @@ async def batch_embed_and_sync_actions(inputs: BatchEmbedAndSyncActionsInputs) -
                 # And they must have a summary to prevent infinite loops.
                 summary__isnull=False,
             )
-            & (
-                # Include only updated actions.
-                Q(last_summarized_at__gt=F("embedding_last_synced_at"))
-                # Or actions that haven't never been synced but have summaries.
-                | (Q(embedding_last_synced_at__isnull=True) & Q(last_summarized_at__isnull=False))
-            )
+            & query
         )
         .order_by("updated_at", "id")
         .values("team_id", "id", "summary", "name", "description", "deleted")
@@ -285,7 +314,9 @@ async def batch_embed_and_sync_actions(inputs: BatchEmbedAndSyncActionsInputs) -
     )
 
     async with get_client() as client:
-        await sync_action_vectors(client, embedded_actions, inputs.insert_batch_size, workflow_start_dt)
+        await sync_action_vectors(
+            client, embedded_actions, inputs.insert_batch_size, workflow_start_dt, inputs.embedding_version
+        )
 
     # Returning True as we can't tell that there are no more actions to sync without doing one additional run.
     return BatchEmbedAndSyncActionsOutputs(has_more=True)
@@ -305,6 +336,8 @@ class SyncVectorsInputs:
     """How many rows to insert in a single query to ClickHouse."""
     delay_between_batches: int = 60
     """How many seconds to wait between batches."""
+    embedding_version: int | None = None
+    """The version of the embedding model to use. Update in the schedule."""
 
 
 @temporalio.workflow.defn(name="ai-sync-vectors")
@@ -343,11 +376,11 @@ class SyncVectorsWorkflow(PostHogWorkflow):
 
             # Maximum allowed parallel request count to LLMs is 128 (32 * 4).
             if len(tasks) == inputs.max_parallel_requests:
-                await self._process_summaries_batch(tasks, inputs.delay_between_batches)
+                await self._process_summaries_batch(tasks, inputs.delay_between_batches, throttle_enabled=True)
                 tasks = []
 
         if tasks:
-            await self._process_summaries_batch(tasks, inputs.delay_between_batches)
+            await self._process_summaries_batch(tasks, inputs.delay_between_batches, throttle_enabled=False)
 
         while True:
             res = await temporalio.workflow.execute_activity(
@@ -357,6 +390,7 @@ class SyncVectorsWorkflow(PostHogWorkflow):
                     insert_batch_size=inputs.insert_batch_size,
                     embeddings_batch_size=inputs.embed_batch_size,
                     max_parallel_requests=inputs.max_parallel_requests,
+                    embedding_version=inputs.embedding_version,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(initial_interval=timedelta(seconds=30), maximum_attempts=3),
@@ -364,14 +398,16 @@ class SyncVectorsWorkflow(PostHogWorkflow):
             if not res.has_more:
                 break
 
-    async def _process_summaries_batch(self, tasks: list[Coroutine[Any, Any, Any]], delay_between_batches: int):
+    async def _process_summaries_batch(
+        self, tasks: list[Coroutine[Any, Any, Any]], delay_between_batches: int, throttle_enabled: bool | None = None
+    ):
         start = temporalio.workflow.time()
         res = await asyncio.gather(*tasks, return_exceptions=True)
         end = temporalio.workflow.time()
         execution_time = end - start
 
         # Throttle the rate of requests to LLMs.
-        if delay_between_batches > execution_time:
+        if throttle_enabled and delay_between_batches > execution_time:
             delay = delay_between_batches - execution_time
             logger.info("Throttling requests to LLMs", delay=delay)
             await asyncio.sleep(delay)

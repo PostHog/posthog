@@ -110,7 +110,7 @@ describe('postgres parity', () => {
         const postgresPersons = await hub.db.fetchPersons(Database.Postgres)
         expect(postgresPersons).toEqual([
             {
-                id: expect.any(Number),
+                id: expect.any(String),
                 created_at: expect.any(DateTime),
                 properties: {
                     userProp: 'propValue',

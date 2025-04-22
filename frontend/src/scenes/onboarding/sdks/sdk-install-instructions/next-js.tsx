@@ -1,4 +1,4 @@
-import { LemonBanner, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { LemonDivider, LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -6,8 +6,10 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import SetupWizardBanner from './components/SetupWizardBanner'
 import { JSInstallSnippet } from './js-web'
 import { nextJsInstructionsLogic, type NextJSRouter } from './nextJsInstructionsLogic'
 
@@ -163,24 +165,21 @@ function SuspendedPostHogPageView() {
     )
 }
 
-export function SDKInstallNextJSInstructions(): JSX.Element {
+export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: boolean }): JSX.Element {
     const { nextJsRouter } = useValues(nextJsInstructionsLogic)
     const { setNextJsRouter } = useActions(nextJsInstructionsLogic)
-    const showSetupWizard = useFeatureFlag('AI_SETUP_WIZARD')
+    const { isCloudOrDev } = useValues(preflightLogic)
+    const showSetupWizard = useFeatureFlag('AI_SETUP_WIZARD') && !hideWizard && isCloudOrDev
+
     return (
         <>
             {showSetupWizard && (
-                <LemonBanner type="info" hideIcon={true}>
-                    <div className="flex flex-col p-2">
-                        <h3 className="flex items-center gap-2 pb-1">
-                            <LemonTag type="completion">ALPHA</LemonTag> AI setup wizard
-                        </h3>
-                        <p className="font-normal pb-2">
-                            Try using the AI setup wizard to automatically install PostHog with a single command.
-                        </p>
-                        <CodeSnippet language={Language.Bash}>npx @posthog/wizard</CodeSnippet>
-                    </div>
-                </LemonBanner>
+                <>
+                    <h2>Automated Installation</h2>
+                    <SetupWizardBanner integrationName="Next.js" />
+                    <LemonDivider label="OR" />
+                    <h2>Manual Installation</h2>
+                </>
             )}
             <h3>Install posthog-js using your package manager</h3>
             <JSInstallSnippet />

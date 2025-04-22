@@ -51,6 +51,7 @@ impl RawJSFrame {
                 Ok(self.handle_resolution_error(JsResolveErr::NoSourcemapUploaded(chunk_id)))
             }
             Err(Error::UnhandledError(e)) => Err(e),
+            Err(Error::EventError(_)) => unreachable!(),
         }
     }
 
@@ -213,7 +214,8 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
         // TODO - extremely rough
         let was_minified = match err {
             JsResolveErr::NoSourceUrl | JsResolveErr::NoUrlOrChunkId => false, // This frame's `source` didn't exist
-            JsResolveErr::NoSourcemap(_) => false,                             // A total guess
+            // A total guess - intuition is people tend not to write lines longer than about 300 chars
+            JsResolveErr::NoSourcemap(_) => location.column > 300,
             _ => true,
         };
 

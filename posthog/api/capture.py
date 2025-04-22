@@ -7,7 +7,7 @@ import sentry_sdk
 import structlog
 import time
 from collections.abc import Iterator
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from dateutil import parser
 from django.conf import settings
 from django.http import JsonResponse
@@ -34,6 +34,7 @@ from posthog.kafka_client.topics import (
     KAFKA_SESSION_RECORDING_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
+    KAFKA_EXCEPTIONS_INGESTION,
 )
 from posthog.logging.timing import timed
 from posthog.metrics import KLUDGES_COUNTER, LABEL_RESOURCE_TYPE
@@ -169,9 +170,9 @@ def get_tokens_to_drop() -> set[str]:
 
     if TOKEN_DISTINCT_ID_PAIRS_TO_DROP is None:
         TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set()
-        if settings.DROPPED_KEYS:
-            # DROPPED_KEYS is a semicolon separated list of <team_id:distinct_id> pairs
-            TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set(settings.DROPPED_KEYS.split(";"))
+        if settings.DROP_EVENTS_BY_TOKEN_DISTINCT_ID:
+            # DROP_EVENTS_BY_TOKEN_DISTINCT_ID is a comma separated list of <team_id:distinct_id> pairs where the distinct_id is optional
+            TOKEN_DISTINCT_ID_PAIRS_TO_DROP = set(settings.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(","))
 
     return TOKEN_DISTINCT_ID_PAIRS_TO_DROP
 
@@ -216,6 +217,8 @@ def _kafka_topic(event_name: str, historical: bool = False, overflowing: bool = 
             if overflowing:
                 return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
             return KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS
+        case "$exception":
+            return KAFKA_EXCEPTIONS_INGESTION
         case _:
             # If the token is in the TOKENS_HISTORICAL_DATA list, we push to the
             # historical data topic.
@@ -259,7 +262,7 @@ def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
         timestamp_number = int(timestamp)
         KLUDGES_COUNTER.labels(kludge="sent_at_seconds_timestamp").inc()
 
-    return datetime.fromtimestamp(timestamp_number, timezone.utc)
+    return datetime.fromtimestamp(timestamp_number, UTC)
 
 
 def _get_retry_count(request) -> int | None:
@@ -352,12 +355,13 @@ def drop_performance_events(events: list[Any]) -> list[Any]:
 class EventsOverQuotaResult:
     events: list[Any]
     events_were_limited: bool
+    exceptions_were_limited: bool
     recordings_were_limited: bool
 
 
 def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResult:
     if not settings.EE_AVAILABLE:
-        return EventsOverQuotaResult(events, False, False)
+        return EventsOverQuotaResult(events, False, False, False)
 
     from ee.billing.quota_limiting import QuotaResource, list_limited_team_attributes
 
@@ -365,11 +369,15 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
     limited_tokens_events = list_limited_team_attributes(
         QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )
+    limited_tokens_exceptions = list_limited_team_attributes(
+        QuotaResource.EXCEPTIONS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+    )
     limited_tokens_recordings = list_limited_team_attributes(
         QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
     )
 
     recordings_were_limited = False
+    exceptions_were_limited = False
     events_were_limited = False
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
@@ -378,6 +386,14 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
                 EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="recordings", token=token).inc()
                 if settings.QUOTA_LIMITING_ENABLED:
                     recordings_were_limited = True
+                    continue
+
+        elif event.get("event") == "$exception":
+            EVENTS_RECEIVED_COUNTER.labels(resource_type="exceptions").inc()
+            if token in limited_tokens_exceptions:
+                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="exceptions", token=token).inc()
+                if settings.QUOTA_LIMITING_ENABLED:
+                    exceptions_were_limited = True
                     continue
 
         else:
@@ -391,7 +407,10 @@ def drop_events_over_quota(token: str, events: list[Any]) -> EventsOverQuotaResu
         results.append(event)
 
     return EventsOverQuotaResult(
-        results, events_were_limited=events_were_limited, recordings_were_limited=recordings_were_limited
+        results,
+        events_were_limited=events_were_limited,
+        exceptions_were_limited=exceptions_were_limited,
+        recordings_were_limited=recordings_were_limited,
     )
 
 

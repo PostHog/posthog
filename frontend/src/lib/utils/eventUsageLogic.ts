@@ -6,7 +6,6 @@ import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/u
 import type { Dayjs } from 'lib/dayjs'
 import { now } from 'lib/dayjs'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
-import { PROPERTY_KEYS } from 'lib/taxonomy'
 import { objectClean } from 'lib/utils'
 import posthog from 'posthog-js'
 import { Holdout } from 'scenes/experiments/holdoutsLogic'
@@ -41,6 +40,7 @@ import {
     isInsightVizNode,
     isNodeWithSource,
 } from '~/queries/utils'
+import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import {
     AccessLevel,
     CohortType,
@@ -233,6 +233,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         // timing
         reportTimeToSeeData: (payload: TimeToSeeDataPayload) => ({ payload }),
+        reportGroupTypeDetailDashboardCreated: () => ({}),
         reportGroupPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
             totalProperties: number,
@@ -268,6 +269,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             success,
             error,
         }),
+        reportDataTableColumnsUpdated: (context_type: string) => ({ context_type }),
         // insight filters
         reportFunnelStepReordered: true,
         reportInsightFilterRemoved: (index: number) => ({ index }),
@@ -405,6 +407,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentStartDateChange: (experiment: Experiment, newStartDate: string) => ({
             experiment,
             newStartDate,
+        }),
+        reportExperimentEndDateChange: (experiment: Experiment, newEndDate: string) => ({
+            experiment,
+            newEndDate,
         }),
         reportExperimentCompleted: (
             experiment: Experiment,
@@ -554,6 +560,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCommandBarActionResultExecuted: (resultDisplay) => ({ resultDisplay }),
         reportBillingCTAShown: true,
         reportSDKSelected: (sdk: SDK) => ({ sdk }),
+        reportAccountOwnerClicked: ({ name, email }: { name: string; email: string }) => ({ name, email }),
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -602,6 +609,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportTimeToSeeData: async ({ payload }) => {
             posthog.capture('time to see data', payload)
+        },
+        reportGroupTypeDetailDashboardCreated: async () => {
+            posthog.capture('group type detail dashboard created')
         },
         reportGroupPropertyUpdated: async ({ action, totalProperties, oldPropertyType, newPropertyType }) => {
             posthog.capture(`group property ${action}`, {
@@ -716,6 +726,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportFunnelStepReordered: async () => {
             posthog.capture('funnel step reordered')
+        },
+        reportDataTableColumnsUpdated: async ({ context_type }) => {
+            posthog.capture('data table columns updated', { context_type })
         },
         reportPersonPropertyUpdated: async ({ action, totalProperties, oldPropertyType, newPropertyType }) => {
             posthog.capture(`person property ${action}`, {
@@ -976,6 +989,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ...getEventPropertiesForExperiment(experiment),
                 old_start_date: experiment.start_date,
                 new_start_date: newStartDate,
+            })
+        },
+        reportExperimentEndDateChange: ({ experiment, newEndDate }) => {
+            posthog.capture('experiment end date changed', {
+                ...getEventPropertiesForExperiment(experiment),
+                old_end_date: experiment.end_date,
+                new_end_date: newEndDate,
             })
         },
         reportExperimentCompleted: ({ experiment, endDate, duration, significant }) => {
@@ -1339,6 +1359,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportCommandBarActionResultExecuted: ({ resultDisplay }) => {
             posthog.capture('command bar search result executed', { resultDisplay })
+        },
+        reportAccountOwnerClicked: ({ name, email }) => {
+            posthog.capture('account owner clicked', { name, email })
         },
     })),
 ])

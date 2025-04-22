@@ -29,7 +29,6 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { getPropertyKey } from 'lib/taxonomy'
 import { formatDate } from 'lib/utils'
 import { useState } from 'react'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
@@ -38,6 +37,7 @@ import { SurveyRepeatSchedule } from 'scenes/surveys/SurveyRepeatSchedule'
 import { SurveyResponsesCollection } from 'scenes/surveys/SurveyResponsesCollection'
 import { SurveyWidgetCustomization } from 'scenes/surveys/SurveyWidgetCustomization'
 
+import { getPropertyKey } from '~/taxonomy/helpers'
 import {
     ActionType,
     LinkSurveyQuestion,
@@ -649,6 +649,7 @@ export default function SurveyEdit(): JSX.Element {
                                           <LemonField name="appearance" label="">
                                               {({ value, onChange }) => (
                                                   <Customization
+                                                      type={survey.type}
                                                       appearance={value || defaultSurveyAppearance}
                                                       hasBranchingLogic={hasBranchingLogic}
                                                       deleteBranchingLogic={deleteBranchingLogic}

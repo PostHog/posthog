@@ -3,16 +3,7 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { ExportOptions } from '~/exporter/types'
 import { productUrls } from '~/products'
-import {
-    ActionType,
-    ActivityTab,
-    AnnotationType,
-    PipelineNodeTab,
-    PipelineStage,
-    PipelineTab,
-    ProductKey,
-    SDKKey,
-} from '~/types'
+import { ActivityTab, AnnotationType, PipelineNodeTab, PipelineStage, PipelineTab, ProductKey, SDKKey } from '~/types'
 
 import { BillingSectionId } from './billing/types'
 import { OnboardingStepKey } from './onboarding/onboardingLogic'
@@ -36,13 +27,6 @@ export const urls = {
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
     currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
-    createAction: (): string => `/data-management/actions/new`,
-    duplicateAction: (action: ActionType | null): string => {
-        const queryParams = action ? `?copy=${encodeURIComponent(JSON.stringify(action))}` : ''
-        return `/data-management/actions/new/${queryParams}`
-    },
-    action: (id: string | number): string => `/data-management/actions/${id}`,
-    actions: (): string => '/data-management/actions',
     eventDefinitions: (): string => '/data-management/events',
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
     eventDefinitionEdit: (id: string | number): string => `/data-management/events/${id}/edit`,
@@ -55,10 +39,22 @@ export const urls = {
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
-    revenue: (): string => '/data-management/revenue',
+    revenueSettings: (): string => '/data-management/revenue',
 
-    pipelineNodeNew: (stage: PipelineStage | ':stage', id?: string | number): string => {
-        return `/pipeline/new/${stage}${id ? `/${id}` : ''}`
+    pipelineNodeNew: (
+        stage: PipelineStage | ':stage',
+        { id, kind }: { id?: string | number; kind?: string } = {}
+    ): string => {
+        let base = `/pipeline/new/${stage}`
+        if (id) {
+            base += `/${id}`
+        }
+
+        if (kind) {
+            return `${base}?kind=${kind}`
+        }
+
+        return base
     },
     pipeline: (tab?: PipelineTab | ':tab'): string => `/pipeline/${tab ? tab : PipelineTab.Overview}`,
     /** @param id 'new' for new, uuid for batch exports and numbers for plugins */
@@ -72,7 +68,6 @@ export const urls = {
         }`,
     cohort: (id: string | number): string => `/cohorts/${id}`,
     cohorts: (): string => '/cohorts',
-    featureManagement: (id?: string | number): string => `/features${id ? `/${id}` : ''}`,
     errorTracking: (): string => '/error_tracking',
     errorTrackingConfiguration: (): string => '/error_tracking/configuration',
     /** @param id A UUID or 'new'. ':id' for routing. */
@@ -84,13 +79,21 @@ export const urls = {
     survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
     customCss: (): string => '/themes/custom-css',
-    dataWarehouse: (query?: string | Record<string, any>): string =>
-        combineUrl(`/data-warehouse`, {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {})
-            .url,
-    sqlEditor: (): string => `/sql`,
-    dataWarehouseView: (id: string): string => combineUrl(`/data-warehouse/view/${id}`).url,
-    dataWarehouseTable: (): string => `/data-warehouse/new`,
-    dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
+    sqlEditor: (query?: string, view_id?: string, insightShortId?: string): string => {
+        if (query) {
+            return `/sql?open_query=${encodeURIComponent(query)}`
+        }
+
+        if (view_id) {
+            return `/sql?open_view=${view_id}`
+        }
+
+        if (insightShortId) {
+            return `/sql?open_insight=${insightShortId}`
+        }
+
+        return '/sql'
+    },
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     organizationCreateFirst: (): string => '/create-organization',
@@ -161,4 +164,16 @@ export const urls = {
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
     wizard: (): string => `/wizard`,
+    messagingBroadcasts: (): string => '/messaging/broadcasts',
+    messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
+    messagingBroadcast: (id: string): string => `/messaging/broadcasts/${id}`,
+    messagingCampaigns: (): string => '/messaging/campaigns',
+    messagingCampaignNew: (): string => '/messaging/campaigns/new',
+    messagingCampaign: (id: string): string => `/messaging/campaigns/${id}`,
+    messagingLibrary: (): string => '/messaging/library',
+    messagingLibraryTemplate: (id: string): string => `/messaging/library/template/${id}`,
+    messagingLibraryTemplateNew: (): string => '/messaging/library/template/new',
+    messagingLibraryMessage: (id: string): string => `/messaging/library/message/${id}`,
+    messagingLibraryMessageNew: (): string => '/messaging/library/message/new',
+    startups: (ycProgram?: boolean): string => `/startups${ycProgram ? '/yc' : ''}`,
 }

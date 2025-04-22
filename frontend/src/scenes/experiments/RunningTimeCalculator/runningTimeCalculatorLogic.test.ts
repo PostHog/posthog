@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
-import { ExperimentMetric, ExperimentMetricType } from '~/queries/schema/schema-general'
+import { ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ExperimentMetricMathType, FeatureFlagBasicType } from '~/types'
 
@@ -24,11 +24,14 @@ describe('runningTimeCalculatorLogic', () => {
             experimentLogic.actions.setExperiment({
                 metrics: [
                     {
+                        kind: NodeKind.ExperimentMetric,
                         metric_type: ExperimentMetricType.MEAN,
-                        metric_config: {
+                        source: {
+                            kind: NodeKind.EventsNode,
+                            event: 'experiment created',
                             math: ExperimentMetricMathType.TotalCount,
                         },
-                    } as ExperimentMetric,
+                    },
                 ],
                 feature_flag: {
                     filters: {
@@ -75,11 +78,14 @@ describe('runningTimeCalculatorLogic', () => {
             experimentLogic.actions.setExperiment({
                 metrics: [
                     {
+                        kind: NodeKind.ExperimentMetric,
                         metric_type: ExperimentMetricType.MEAN,
-                        metric_config: {
+                        source: {
+                            kind: NodeKind.EventsNode,
+                            event: 'experiment created',
                             math: ExperimentMetricMathType.Sum,
                         },
-                    } as ExperimentMetric,
+                    },
                 ],
                 feature_flag: {
                     filters: {

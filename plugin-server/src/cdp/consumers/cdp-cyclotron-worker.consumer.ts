@@ -1,6 +1,7 @@
 import { CyclotronJob, CyclotronWorker } from '@posthog/cyclotron'
 import { Counter, Gauge } from 'prom-client'
 
+import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
 import { cyclotronJobToInvocation, invocationToCyclotronJobUpdate } from '../utils'
@@ -27,6 +28,13 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     private runningWorker: Promise<void> | undefined
     protected queue: 'hog' | 'fetch' | 'plugin' = 'hog'
     protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal_destination']
+
+    constructor(hub: Hub) {
+        super(hub)
+        if (!hub.CYCLOTRON_DATABASE_URL) {
+            throw new Error('Cyclotron database URL not set! This is required for the CDP services to work.')
+        }
+    }
 
     public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
         return await this.runManyWithHeartbeat(invocations, (item) => this.hogExecutor.execute(item))
@@ -76,6 +84,11 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
                     const updates = invocationToCyclotronJobUpdate(item.invocation)
 
+                    if (this.queue === 'fetch') {
+                        // When updating fetch jobs, we don't want to include the vm state
+                        updates.vmState = undefined
+                    }
+
                     this.cyclotronWorker?.updateJob(id, 'available', updates)
                 }
                 return this.cyclotronWorker?.releaseJob(id)
@@ -104,19 +117,11 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             hogFunctionIds.push(job.functionId)
         }
 
-        if (this.hub.CDP_HOG_FUNCTION_LAZY_LOADING_ENABLED && hogFunctionIds.length > 0) {
-            const hogFunctions = await this.hogFunctionManagerLazy.getHogFunctions(hogFunctionIds)
-            if (Object.keys(hogFunctions).length !== hogFunctionIds.length) {
-                logger.warn('Lazy loaded different number of functions', {
-                    lazy: Object.keys(hogFunctions).length,
-                    eager: hogFunctionIds.length,
-                })
-            }
-        }
+        const hogFunctions = await this.hogFunctionManager.getHogFunctions(hogFunctionIds)
 
         for (const job of jobs) {
             // NOTE: This is all a bit messy and might be better to refactor into a helper
-            const hogFunction = this.hogFunctionManager.getHogFunction(job.functionId!)
+            const hogFunction = hogFunctions[job.functionId!]
 
             if (!hogFunction) {
                 // Here we need to mark the job as failed
@@ -144,13 +149,13 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         this.cyclotronWorker = new CyclotronWorker({
             pool: {
                 dbUrl: this.hub.CYCLOTRON_DATABASE_URL,
-                shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
             },
             queueName: this.queue,
-            includeVmState: true,
+            includeVmState: this.queue === 'fetch' ? false : true,
             batchMaxSize: this.hub.CDP_CYCLOTRON_BATCH_SIZE,
             pollDelayMs: this.hub.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
+            shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
         })
         await this.cyclotronWorker.connect((jobs) => this.handleJobBatch(jobs))
     }
@@ -163,18 +168,5 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
 
     public isHealthy() {
         return this.cyclotronWorker?.isHealthy() ?? false
-    }
-}
-
-// Mostly used for testing the fetch executor
-export class CdpCyclotronWorkerFetch extends CdpCyclotronWorker {
-    protected name = 'CdpCyclotronWorkerFetch'
-    protected queue = 'fetch' as const
-
-    public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
-        // NOTE: this service will never do fetching (unless we decide we want to do it in node at some point, its only used for e2e testing)
-        return (await this.runManyWithHeartbeat(invocations, (item) => this.fetchExecutor.execute(item))).filter(
-            Boolean
-        ) as HogFunctionInvocationResult[]
     }
 }

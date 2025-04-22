@@ -26,6 +26,7 @@ import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import type { PostHog, SupportedWebVitalsMetrics } from 'posthog-js'
 import { Layout } from 'react-grid-layout'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
+import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import { Holdout } from 'scenes/experiments/holdoutsLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
@@ -43,9 +44,9 @@ import type {
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
-    InsightVizNode,
     Node,
     NodeKind,
+    QuerySchema,
     QueryStatus,
     RecordingOrder,
     RecordingsQuery,
@@ -202,6 +203,7 @@ export enum ProductKey {
     TEAMS = 'teams',
     WEB_ANALYTICS = 'web_analytics',
     ERROR_TRACKING = 'error_tracking',
+    REVENUE_ANALYTICS = 'revenue_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -211,6 +213,18 @@ export enum LicensePlan {
     Enterprise = 'enterprise',
     Dev = 'dev',
     Cloud = 'cloud',
+}
+
+export enum BillingPlan {
+    Free = 'free',
+    Paid = 'paid',
+    Teams = 'teams',
+    Enterprise = 'enterprise',
+}
+
+export enum StartupProgramLabel {
+    YC = 'YC',
+    Startup = 'Startup',
 }
 
 export enum Realm {
@@ -240,7 +254,7 @@ export interface ColumnConfig {
 }
 
 export type WithAccessControl = {
-    user_access_level: 'none' | 'member' | 'admin' | 'viewer' | 'editor'
+    user_access_level: AccessControlLevel
 }
 
 export enum AccessControlResourceType {
@@ -565,6 +579,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_url_trigger_config?: SessionReplayUrlTriggerConfig[]
     session_recording_url_blocklist_config?: SessionReplayUrlTriggerConfig[]
     session_recording_event_trigger_config?: string[]
+    session_recording_trigger_match_type_config?: 'all' | 'any' | null
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -576,6 +591,7 @@ export interface TeamType extends TeamBasicType {
     data_attributes: string[]
     person_display_name_properties: string[]
     has_group_types: boolean
+    group_types: GroupType[]
     primary_dashboard: number // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
     live_events_token: string
@@ -736,9 +752,9 @@ export enum SavedInsightsTabs {
 }
 
 export enum ReplayTabs {
-    Templates = 'templates',
     Home = 'home',
     Playlists = 'playlists',
+    Templates = 'templates',
     Settings = 'settings',
 }
 
@@ -798,6 +814,7 @@ export enum PropertyFilterType {
     Meta = 'meta',
     /** Event properties */
     Event = 'event',
+    EventMetadata = 'event_metadata',
     /** Person properties */
     Person = 'person',
     Element = 'element',
@@ -825,6 +842,11 @@ interface BasePropertyFilter {
 export interface EventPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Event
     /** @default 'exact' */
+    operator: PropertyOperator
+}
+
+export interface EventMetadataPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.EventMetadata
     operator: PropertyOperator
 }
 
@@ -895,6 +917,7 @@ export type AnyPropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
     | ElementPropertyFilter
+    | EventMetadataPropertyFilter
     | SessionPropertyFilter
     | CohortPropertyFilter
     | RecordingPropertyFilter
@@ -1396,7 +1419,6 @@ export enum PersonsTabType {
     RELATED = 'related',
     HISTORY = 'history',
     FEATURE_FLAGS = 'featureFlags',
-    DASHBOARD = 'dashboard',
 }
 
 export enum LayoutView {
@@ -1815,6 +1837,12 @@ export interface BillingType {
         target: 'paid' | 'teams' | 'enterprise'
         expires_at: string
     }
+    billing_plan: BillingPlan | null
+    startup_program_label?: StartupProgramLabel | null
+    account_owner?: {
+        email?: string
+        name?: string
+    }
 }
 
 export interface BillingPlanType {
@@ -1881,6 +1909,7 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     text?: TextModel
     deleted?: boolean
     is_cached?: boolean
+    order?: number
 }
 
 export interface DashboardTileBasicType {
@@ -1966,6 +1995,8 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     tiles: DashboardTile<T>[]
     filters: DashboardFilter
     variables?: Record<string, HogQLVariable>
+    breakdown_colors?: BreakdownColorConfig[]
+    data_color_theme_id?: number | null
 }
 
 export enum TemplateAvailabilityContext {
@@ -2239,6 +2270,7 @@ export type BreakdownType =
     | 'cohort'
     | 'person'
     | 'event'
+    | 'event_metadata'
     | 'group'
     | 'session'
     | 'hogql'
@@ -2391,6 +2423,7 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
     decimal_places?: number
+    min_decimal_places?: number
     show_values_on_series?: boolean
     show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
@@ -2799,7 +2832,7 @@ export interface HistogramGraphDatum {
 }
 
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionLogic
-export interface InsightLogicProps<T = InsightVizNode> {
+export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     /** currently persisted insight */
     dashboardItemId?: InsightShortId | 'new' | `new-${string}` | null
     /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
@@ -2811,8 +2844,8 @@ export interface InsightLogicProps<T = InsightVizNode> {
     loadPriority?: number
     onData?: (data: Record<string, unknown> | null | undefined) => void
     /** query when used as ad-hoc insight */
-    query?: T
-    setQuery?: (node: T) => void
+    query?: Q
+    setQuery?: (node: Q) => void
 
     /** Used to group DataNodes into a collection for group operations like refreshAll **/
     dataNodeCollectionId?: string
@@ -2841,6 +2874,58 @@ export enum SurveyPartialResponses {
     No = 'false',
 }
 
+export interface SurveyDisplayConditions {
+    url: string
+    selector?: string
+    seenSurveyWaitPeriodInDays?: number
+    urlMatchType?: SurveyMatchType
+    deviceTypes?: string[]
+    deviceTypesMatchType?: SurveyMatchType
+    actions: {
+        values: {
+            id: number
+            name: string
+        }[]
+    } | null
+    events: {
+        repeatedActivation?: boolean
+        values: {
+            name: string
+        }[]
+    } | null
+}
+
+export interface SurveyStats {
+    stats: {
+        'survey shown': {
+            total_count: number
+            total_count_only_seen: number
+            unique_persons: number
+            unique_persons_only_seen: number
+            first_seen: string | null
+            last_seen: string | null
+        }
+        'survey dismissed': {
+            total_count: number
+            unique_persons: number
+            first_seen: string | null
+            last_seen: string | null
+        }
+        'survey sent': {
+            total_count: number
+            unique_persons: number
+            first_seen: string | null
+            last_seen: string | null
+        }
+    }
+    rates: {
+        response_rate: number
+        dismissal_rate: number
+        unique_users_response_rate: number
+        unique_users_dismissal_rate: number
+    }
+}
+
 export interface Survey {
     /** UUID */
     id: string
@@ -2852,26 +2937,7 @@ export interface Survey {
     linked_flag: FeatureFlagBasicType | null
     targeting_flag: FeatureFlagBasicType | null
     targeting_flag_filters?: FeatureFlagFilters
-    conditions: {
-        url: string
-        selector: string
-        seenSurveyWaitPeriodInDays?: number
-        urlMatchType?: SurveyMatchType
-        deviceTypes?: string[]
-        deviceTypesMatchType?: SurveyMatchType
-        actions: {
-            values: {
-                id: number
-                name: string
-            }[]
-        } | null
-        events: {
-            repeatedActivation?: boolean
-            values: {
-                name: string
-            }[]
-        } | null
-    } | null
+    conditions: SurveyDisplayConditions | null
     appearance: SurveyAppearance | null
     questions: (BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion)[]
     created_at: string
@@ -2905,10 +2971,23 @@ export enum SurveyMatchType {
 
 export enum SurveyType {
     Popover = 'popover',
-    Widget = 'widget',
+    Widget = 'widget', // feedback button survey
     FullScreen = 'full_screen',
     Email = 'email',
     API = 'api',
+}
+
+export enum SurveyPosition {
+    Left = 'left',
+    Center = 'center',
+    Right = 'right',
+    NextToTrigger = 'next_to_trigger',
+}
+
+export enum SurveyWidgetType {
+    Button = 'button',
+    Tab = 'tab',
+    Selector = 'selector',
 }
 
 export type SurveyQuestionDescriptionContentType = 'html' | 'text'
@@ -2930,12 +3009,12 @@ export interface SurveyAppearance {
     thankYouMessageDescriptionContentType?: SurveyQuestionDescriptionContentType
     thankYouMessageCloseButtonText?: string
     autoDisappear?: boolean
-    position?: string
+    position?: SurveyPosition
     zIndex?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
     // widget only
-    widgetType?: 'button' | 'tab' | 'selector'
+    widgetType?: SurveyWidgetType
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string
@@ -3341,6 +3420,7 @@ export interface EventDefinition {
     verified_by?: string
     is_action?: boolean
     hidden?: boolean
+    default_columns?: string[]
 }
 
 // TODO duplicated from plugin server. Follow-up to de-duplicate
@@ -3356,6 +3436,7 @@ export enum PropertyType {
 
 export enum PropertyDefinitionType {
     Event = 'event',
+    EventMetadata = 'event_metadata',
     Person = 'person',
     Group = 'group',
     Session = 'session',
@@ -3407,6 +3488,8 @@ export interface GroupType {
     group_type_index: GroupTypeIndex
     name_singular?: string | null
     name_plural?: string | null
+    detail_dashboard?: number | null
+    default_columns?: string[]
 }
 
 export type GroupTypeProperties = Record<number, Array<PersonProperty>>
@@ -3433,6 +3516,10 @@ export interface Experiment {
     saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
     saved_metrics: any[]
     parameters: {
+        exposure_estimate_config?: {
+            event: string
+            properties: AnyPropertyFilter[]
+        } | null
         minimum_detectable_effect?: number
         recommended_running_time?: number
         recommended_sample_size?: number
@@ -3540,10 +3627,10 @@ export interface AppContext {
     persisted_feature_flags?: string[]
     anonymous: boolean
     frontend_apps?: Record<number, FrontendAppConfig>
+    resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
-    year_in_hog_url?: string
     /** Support flow aid: a staff-only list of users who may be impersonated to access this resource. */
     suggested_users_with_access?: UserBasicType[]
     livestream_host?: string
@@ -3852,6 +3939,8 @@ export type IntegrationKind =
     | 'linkedin-ads'
     | 'snapchat'
     | 'intercom'
+    | 'email'
+    | 'linear'
 
 export interface IntegrationType {
     id: number
@@ -3870,6 +3959,11 @@ export interface SlackChannelType {
     is_private: boolean
     is_ext_shared: boolean
     is_member: boolean
+    is_private_without_access?: boolean
+}
+export interface LinearTeamType {
+    id: string
+    name: string
 }
 
 export interface SharingConfigurationType {
@@ -4000,12 +4094,20 @@ export type APIScopeObject =
     | 'user'
     | 'webhook'
 
+export enum AccessControlLevel {
+    None = 'none',
+    Member = 'member',
+    Admin = 'admin',
+    Viewer = 'viewer',
+    Editor = 'editor',
+}
+
 export interface AccessControlTypeBase {
     created_by: UserBasicType | null
     created_at: string
     updated_at: string
     resource: APIScopeObject
-    access_level: string | null // TODO: Change to enum
+    access_level: AccessControlLevel | null
     organization_member?: OrganizationMemberType['id'] | null
     role?: RoleType['id'] | null
 }
@@ -4014,6 +4116,10 @@ export interface AccessControlTypeProject extends AccessControlTypeBase {}
 
 export interface AccessControlTypeMember extends AccessControlTypeBase {
     organization_member: OrganizationMemberType['id']
+}
+
+export interface AccessControlTypeOrganizationAdmins extends AccessControlTypeBase {
+    organization_admin_members: OrganizationMemberType['id'][]
 }
 
 export interface AccessControlTypeRole extends AccessControlTypeBase {
@@ -4028,9 +4134,9 @@ export type AccessControlUpdateType = Pick<AccessControlType, 'access_level' | '
 
 export type AccessControlResponseType = {
     access_controls: AccessControlType[]
-    available_access_levels: string[] // TODO: Change to enum
-    user_access_level: string
-    default_access_level: string
+    available_access_levels: AccessControlLevel[]
+    user_access_level: AccessControlLevel
+    default_access_level: AccessControlLevel
     user_can_edit_access_levels: boolean
 }
 
@@ -4268,6 +4374,19 @@ export interface ExternalDataSource {
     sync_frequency: DataWarehouseSyncInterval
     job_inputs: Record<string, any>
 }
+
+export interface DataModelingJob {
+    id: string
+    saved_query_id: string
+    status: 'Running' | 'Completed' | 'Failed'
+    rows_materialized: number
+    error: string | null
+    created_at: string
+    last_run_at: string
+    workflow_id: string
+    workflow_run_id: string
+}
+
 export interface SimpleExternalDataSourceSchema {
     id: string
     name: string
@@ -4767,7 +4886,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.EXPERIMENTS
     | ProductKey.SURVEYS
     | ProductKey.DATA_WAREHOUSE
-    | ProductKey.WEB_ANALYTICS,
+    | ProductKey.WEB_ANALYTICS
+    | ProductKey.ERROR_TRACKING,
     OnboardingProduct
 >
 
@@ -4869,9 +4989,12 @@ export type HogFunctionTypeType =
     | 'alert'
     | 'broadcast'
 
+export type HogFunctionKind = 'messaging_campaign' | null
+
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
+    kind?: HogFunctionKind
     icon_url?: string
     name: string
     description: string
@@ -4913,7 +5036,17 @@ export type HogFunctionSubTemplateType = Pick<HogFunctionType, 'filters' | 'inpu
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'type' | 'name' | 'description' | 'hog' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
+    | 'id'
+    | 'type'
+    | 'kind'
+    | 'name'
+    | 'description'
+    | 'hog'
+    | 'inputs_schema'
+    | 'filters'
+    | 'icon_url'
+    | 'masking'
+    | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
     free: boolean
@@ -4978,7 +5111,7 @@ export type HogFunctionInvocationGlobals = {
 }
 
 export type HogFunctionTestInvocationResult = {
-    status: 'success' | 'error'
+    status: 'success' | 'error' | 'skipped'
     logs: LogEntry[]
     result: any
     errors?: string[]
@@ -5109,5 +5242,20 @@ export interface ProductManifest {
     redirects?: Record<string, string | ((params: Params, searchParams: Params, hashParams: Params) => string)>
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
-    treeItems?: FileSystemImport[]
+    treeItemsNew?: FileSystemImport[]
+    treeItemsExplore?: FileSystemImport[]
+}
+
+export interface ProjectTreeRef {
+    /**
+     * Type of file system object.
+     * Use "/" as a separator to add an internal type, e.g. "hog/site_destination".
+     * Search with "hog/" to match all internal types.
+     */
+    type: string
+    /**
+     * The ref of the file system object.
+     * Usually the "id" or "short_id" of the database object.
+     */
+    ref: string
 }

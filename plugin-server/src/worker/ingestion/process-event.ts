@@ -1,5 +1,6 @@
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+import { MessageHeader } from 'node-rdkafka'
 import { Counter, Summary } from 'prom-client'
 
 import { KafkaProducerWrapper } from '../../kafka/producer'
@@ -8,6 +9,7 @@ import {
     GroupTypeIndex,
     Hub,
     ISOTimestamp,
+    KafkaConsumerBreadcrumb,
     Person,
     PersonMode,
     PreIngestionEvent,
@@ -70,7 +72,7 @@ export class EventsProcessor {
         teamId: number,
         timestamp: DateTime,
         eventUuid: string,
-        processPerson: boolean = false
+        processPerson: boolean
     ): Promise<PreIngestionEvent> {
         const singleSaveTimer = new Date()
         const timeout = timeoutGuard(
@@ -255,12 +257,15 @@ export class EventsProcessor {
         return rawEvent
     }
 
-    emitEvent(rawEvent: RawKafkaEvent): Promise<void> {
+    emitEvent(rawEvent: RawKafkaEvent, breadcrumbs: KafkaConsumerBreadcrumb[]): Promise<void> {
+        const headers: MessageHeader[] = []
+        headers.push({ 'kafka-consumer-breadcrumbs': Buffer.from(JSON.stringify(breadcrumbs)) })
         return this.kafkaProducer
             .produce({
                 topic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
                 key: rawEvent.uuid,
                 value: Buffer.from(JSON.stringify(rawEvent)),
+                headers: headers,
             })
             .catch(async (error) => {
                 // Some messages end up significantly larger than the original

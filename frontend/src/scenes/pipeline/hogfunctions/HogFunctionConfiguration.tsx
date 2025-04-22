@@ -24,20 +24,21 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { useEffect, useState } from 'react'
+import { useRef } from 'react'
 import { urls } from 'scenes/urls'
 
 import { AvailableFeature } from '~/types'
 
 import { DestinationTag } from '../destinations/DestinationTag'
 import { HogFunctionFilters } from './filters/HogFunctionFilters'
-import { hogFunctionConfigurationLogic } from './hogFunctionConfigurationLogic'
+import { hogFunctionConfigurationLogic, mightDropEvents } from './hogFunctionConfigurationLogic'
 import { HogFunctionIconEditable } from './HogFunctionIcon'
 import { HogFunctionInputs } from './HogFunctionInputs'
 import { HogFunctionStatusIndicator } from './HogFunctionStatusIndicator'
-import { HogFunctionTest } from './HogFunctionTest'
+import { HogFunctionTest, HogFunctionTestPlaceholder } from './HogFunctionTest'
 import { HogFunctionMappings } from './mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from './metrics/HogFunctionEventEstimates'
-
 export interface HogFunctionConfigurationProps {
     templateId?: string | null
     id?: string | null
@@ -52,6 +53,7 @@ export interface HogFunctionConfigurationProps {
         showStatus?: boolean
         showEnabled?: boolean
         showTesting?: boolean
+        hideTestingConfiguration?: boolean
         canEditSource?: boolean
         showPersonsCount?: boolean
     }
@@ -86,7 +88,32 @@ export function HogFunctionConfiguration({
         type,
         usesGroups,
         hasGroupsAddon,
+        broadcastLoading,
     } = useValues(logic)
+
+    // State for debounced mightDropEvents check
+    const [mightDrop, setMightDrop] = useState(false)
+    const [debouncedCode, setDebouncedCode] = useState('')
+
+    // Debounce the code check
+    useEffect(() => {
+        if (type !== 'transformation' || !configuration?.hog) {
+            setMightDrop(false)
+            return
+        }
+
+        const hogCode = configuration.hog || ''
+
+        const timeoutId = setTimeout(() => {
+            if (debouncedCode !== hogCode) {
+                setDebouncedCode(hogCode)
+                setMightDrop(mightDropEvents(hogCode))
+            }
+        }, 500)
+
+        return () => clearTimeout(timeoutId)
+    }, [configuration?.hog, type, debouncedCode])
+
     const {
         submitConfiguration,
         resetForm,
@@ -96,8 +123,11 @@ export function HogFunctionConfiguration({
         duplicateFromTemplate,
         setConfigurationValue,
         deleteHogFunction,
+        sendBroadcast,
     } = useActions(logic)
     const canEditTransformationHogCode = useFeatureFlag('HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED')
+    const sourceCodeRef = useRef<HTMLDivElement>(null)
+    const showTransformationFilters = useFeatureFlag('HOG_TRANSFORMATIONS_WITH_FILTERS')
 
     if (loading && !loaded) {
         return <SpinnerOverlay />
@@ -177,15 +207,24 @@ export function HogFunctionConfiguration({
     const showOverview = !(displayOptions.hideOverview ?? false)
     const showFilters =
         displayOptions.showFilters ??
-        ['destination', 'internal_destination', 'site_destination', 'broadcast'].includes(type)
-    const showExpectedVolume = displayOptions.showExpectedVolume ?? ['destination', 'site_destination'].includes(type)
+        (['destination', 'internal_destination', 'site_destination', 'broadcast', 'email'].includes(type) ||
+            (type === 'transformation' && showTransformationFilters))
+    const showExpectedVolume =
+        displayOptions.showExpectedVolume ??
+        (['destination', 'site_destination'].includes(type) || (type === 'transformation' && showTransformationFilters))
     const showStatus =
         displayOptions.showStatus ?? ['destination', 'internal_destination', 'email', 'transformation'].includes(type)
     const showEnabled =
         displayOptions.showEnabled ??
-        ['destination', 'internal_destination', 'email', 'site_destination', 'site_app', 'transformation'].includes(
-            type
-        )
+        [
+            'destination',
+            'internal_destination',
+            'email',
+            'site_destination',
+            'site_app',
+            'transformation',
+            'broadcast',
+        ].includes(type)
     const canEditSource =
         displayOptions.canEditSource ??
         // Never allow editing for legacy plugins
@@ -372,6 +411,15 @@ export function HogFunctionConfiguration({
                         )}
 
                         <div className="deprecated-space-y-4 flex-2 min-w-100">
+                            {type === 'transformation' && mightDrop && (
+                                <div>
+                                    <LemonBanner type="warning">
+                                        <b>Warning:</b> This transformation will drop events. If this is not intended,
+                                        please adjust your transformation code to return events instead of dropping
+                                        them.
+                                    </LemonBanner>
+                                </div>
+                            )}
                             <div
                                 className={clsx(
                                     'p-3 deprecated-space-y-2 bg-surface-primary',
@@ -425,6 +473,7 @@ export function HogFunctionConfiguration({
 
                             {canEditSource && (
                                 <div
+                                    ref={sourceCodeRef}
                                     className={clsx(
                                         'border rounded p-3 deprecated-space-y-2',
                                         showSource ? 'bg-surface-primary' : 'bg-surface-secondary'
@@ -439,7 +488,15 @@ export function HogFunctionConfiguration({
                                         {!showSource ? (
                                             <LemonButton
                                                 type="secondary"
-                                                onClick={() => setShowSource(true)}
+                                                onClick={() => {
+                                                    setShowSource(true)
+                                                    setTimeout(() => {
+                                                        sourceCodeRef.current?.scrollIntoView({
+                                                            behavior: 'smooth',
+                                                            block: 'start',
+                                                        })
+                                                    }, 100)
+                                                }}
                                                 disabledReason={
                                                     !hasAddon
                                                         ? 'Editing the source code requires the Data Pipelines addon'
@@ -471,6 +528,13 @@ export function HogFunctionConfiguration({
                                                             for more info
                                                         </span>
                                                     ) : null}
+                                                    {type === 'transformation' && mightDrop && (
+                                                        <LemonBanner type="warning" className="mt-2">
+                                                            <b>Warning:</b> Returning null or undefined will drop the
+                                                            event. If this is unintentional, return the event object
+                                                            instead.
+                                                        </LemonBanner>
+                                                    )}
                                                     <CodeEditorResizeable
                                                         language={type.startsWith('site_') ? 'typescript' : 'hog'}
                                                         value={value ?? ''}
@@ -496,7 +560,43 @@ export function HogFunctionConfiguration({
                                     ) : null}
                                 </div>
                             )}
-                            {showTesting ? <HogFunctionTest /> : null}
+                            {showTesting ? (
+                                <HogFunctionTest configurable={!displayOptions.hideTestingConfiguration} />
+                            ) : null}
+                            {type === 'broadcast' ? (
+                                <HogFunctionTestPlaceholder
+                                    title="Send broadcast"
+                                    description={
+                                        id && id !== 'new' ? (
+                                            <div className="mt-2 space-y-2">
+                                                <LemonButton
+                                                    type="primary"
+                                                    onClick={sendBroadcast}
+                                                    loading={personsCountLoading || broadcastLoading}
+                                                >
+                                                    Send to {personsCount} emails
+                                                </LemonButton>
+                                                <div>
+                                                    <strong>Please note:</strong> Clicking the button above will
+                                                    synchronously send to all the e-mails. While this is fine for
+                                                    testing with small lists, please don't use this for production use
+                                                    cases yet.
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="mt-2 space-y-2">
+                                                <LemonButton
+                                                    type="primary"
+                                                    disabledReason="Must save to send broadcast"
+                                                >
+                                                    Send to {personsCount} emails
+                                                </LemonButton>
+                                                <div>Save your configuration to send a broadcast</div>
+                                            </div>
+                                        )
+                                    }
+                                />
+                            ) : null}
                             <div className="flex justify-end gap-2">{saveButtons}</div>
                         </div>
                     </div>

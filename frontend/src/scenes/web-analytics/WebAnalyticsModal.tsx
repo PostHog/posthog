@@ -6,17 +6,21 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { addProductIntentForCrossSell, ProductIntentContext } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
-import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
-import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 
 import { ProductKey } from '~/types'
 
+import { webAnalyticsLogic } from './webAnalyticsLogic'
+import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
+import { WebPropertyFilters } from './WebPropertyFilters'
+
 export const WebAnalyticsModal = (): JSX.Element | null => {
     const {
-        modal,
         dateFilter: { dateFrom, dateTo },
     } = useValues(webAnalyticsLogic)
-    const { closeModal, setDates } = useActions(webAnalyticsLogic)
+    const { modal } = useValues(webAnalyticsModalLogic)
+
+    const { setDates } = useActions(webAnalyticsLogic)
+    const { closeModal } = useActions(webAnalyticsModalLogic)
 
     if (!modal) {
         return null

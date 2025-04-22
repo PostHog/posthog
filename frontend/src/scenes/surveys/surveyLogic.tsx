@@ -13,6 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { CompareFilter, DataTableNode, HogQLQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
@@ -22,6 +23,7 @@ import {
     FeatureFlagFilters,
     IntervalType,
     MultipleSurveyQuestion,
+    ProjectTreeRef,
     PropertyFilterType,
     PropertyOperator,
     RatingSurveyQuestion,
@@ -31,6 +33,7 @@ import {
     SurveyQuestionBranchingType,
     SurveyQuestionType,
     SurveySchedule,
+    SurveyStats,
 } from '~/types'
 
 import { defaultSurveyAppearance, defaultSurveyFieldValues, NEW_SURVEY, NewSurvey } from './constants'
@@ -41,8 +44,10 @@ import {
     calculateNpsScore,
     createAnswerFilterHogQLExpression,
     getResponseFieldWithId,
+    isSurveyRunning,
     sanitizeHTML,
     sanitizeSurveyAppearance,
+    sanitizeSurveyDisplayConditions,
     validateColor,
 } from './utils'
 
@@ -87,12 +92,6 @@ export interface SurveyLogicProps {
 export interface SurveyMetricsQueries {
     surveysShown: DataTableNode
     surveysDismissed: DataTableNode
-}
-
-export interface SurveyUserStats {
-    seen: number
-    dismissed: number
-    sent: number
 }
 
 export interface SurveyRatingResults {
@@ -147,38 +146,6 @@ export interface SurveyDateRange {
     date_to: string | null
 }
 
-// Helper function to generate the HogQL condition for checking survey responses in both formats
-const getResponseFieldCondition = (questionIndex: number, questionId?: string): string => {
-    const ids = getResponseFieldWithId(questionIndex, questionId)
-
-    if (!ids.idBasedKey) {
-        return `JSONExtractString(properties, '${ids.indexBasedKey}')`
-    }
-
-    // For ClickHouse, we need to use coalesce to check both fields
-    // This will return the first non-null value, prioritizing the ID-based format if available
-    return `coalesce(
-        nullIf(JSONExtractString(properties, '${ids.idBasedKey}'), ''),
-        nullIf(JSONExtractString(properties, '${ids.indexBasedKey}'), '')
-    )`
-}
-
-// Helper function to generate the HogQL condition for checking multiple choice survey responses in both formats
-const getMultipleChoiceResponseFieldCondition = (questionIndex: number, questionId?: string): string => {
-    const ids = getResponseFieldWithId(questionIndex, questionId)
-
-    if (!ids.idBasedKey) {
-        return `JSONExtractArrayRaw(properties, '${ids.indexBasedKey}')`
-    }
-
-    // For multiple choice, we need to check if either field has a value and use that one
-    return `if(
-        JSONHas(properties, '${ids.idBasedKey}') AND length(JSONExtractArrayRaw(properties, '${ids.idBasedKey}')) > 0,
-        JSONExtractArrayRaw(properties, '${ids.idBasedKey}'),
-        JSONExtractArrayRaw(properties, '${ids.indexBasedKey}')
-    )`
-}
-
 function duplicateExistingSurvey(survey: Survey | NewSurvey): Partial<Survey> {
     return {
         ...survey,
@@ -200,14 +167,14 @@ const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
 
 function getSurveyStartDateForQuery(survey: Survey): string {
     return survey.start_date
-        ? dayjs(survey.start_date).startOf('day').format(DATE_FORMAT)
-        : dayjs(survey.created_at).startOf('day').format(DATE_FORMAT)
+        ? dayjs(survey.start_date).utc().startOf('day').format(DATE_FORMAT)
+        : dayjs(survey.created_at).utc().startOf('day').format(DATE_FORMAT)
 }
 
 function getSurveyEndDateForQuery(survey: Survey): string {
     return survey.end_date
-        ? dayjs(survey.end_date).endOf('day').format(DATE_FORMAT)
-        : dayjs().endOf('day').format(DATE_FORMAT)
+        ? dayjs(survey.end_date).utc().endOf('day').format(DATE_FORMAT)
+        : dayjs().utc().endOf('day').format(DATE_FORMAT)
 }
 
 export const surveyLogic = kea<surveyLogicType>([
@@ -263,7 +230,7 @@ export const surveyLogic = kea<surveyLogicType>([
         deleteBranchingLogic: true,
         archiveSurvey: true,
         setWritingHTMLDescription: (writingHTML: boolean) => ({ writingHTML }),
-        setSurveyTemplateValues: (template: any) => ({ template }),
+        setSurveyTemplateValues: (template: Partial<NewSurvey>) => ({ template }),
         setSelectedPageIndex: (idx: number | null) => ({ idx }),
         setSelectedSection: (section: SurveyEditSection | null) => ({ section }),
         resetTargeting: true,
@@ -277,7 +244,8 @@ export const surveyLogic = kea<surveyLogicType>([
         }),
         setDateRange: (dateRange: SurveyDateRange) => ({ dateRange }),
         setInterval: (interval: IntervalType) => ({ interval }),
-        setCompareFilter: (compareFilter: CompareFilter | null) => ({ compareFilter }),
+        setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
+        setFilterSurveyStatsByDistinctId: (filterByDistinctId: boolean) => ({ filterByDistinctId }),
     }),
     loaders(({ props, actions, values }) => ({
         responseSummary: {
@@ -333,7 +301,9 @@ export const surveyLogic = kea<surveyLogicType>([
                 return await api.surveys.create(sanitizeQuestions(surveyPayload))
             },
             updateSurvey: async (surveyPayload: Partial<Survey>) => {
-                return await api.surveys.update(props.id, sanitizeQuestions(surveyPayload))
+                const response = await api.surveys.update(props.id, sanitizeQuestions(surveyPayload))
+                refreshTreeItem('survey', props.id)
+                return response
             },
             launchSurvey: async () => {
                 const startDate = dayjs()
@@ -367,56 +337,20 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         },
         surveyUserStats: {
-            loadSurveyUserStats: async (): Promise<SurveyUserStats> => {
+            loadSurveyUserStats: async (): Promise<SurveyStats | null> => {
+                if (props.id === NEW_SURVEY.id || values.survey.start_date === null) {
+                    return null
+                }
                 const survey: Survey = values.survey as Survey
                 const startDate = getSurveyStartDateForQuery(survey)
                 const endDate = getSurveyEndDateForQuery(survey)
+                const stats = await api.surveys.getSurveyStats({
+                    surveyId: props.id,
+                    dateFrom: startDate,
+                    dateTo: endDate,
+                })
 
-                const answerFilter = createAnswerFilterHogQLExpression(values.answerFilters, survey)
-
-                const query: HogQLQuery = {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
-                        -- QUERYING SURVEY USER STATS
-                        SELECT
-                            (SELECT COUNT(DISTINCT person_id)
-                                FROM events
-                                WHERE event = 'survey shown'
-                                    AND properties.$survey_id = '${props.id}'
-                                    AND timestamp >= '${startDate}'
-                                    AND timestamp <= '${endDate}'
-                                    ${answerFilter !== '' ? answerFilter : ''}
-                                    AND {filters}),
-                                    (SELECT COUNT(DISTINCT person_id)
-                                    FROM events
-                                    WHERE event = 'survey dismissed'
-                                    AND properties.$survey_id = '${props.id}'
-                                    AND timestamp >= '${startDate}'
-                                    AND timestamp <= '${endDate}'
-                                    ${answerFilter !== '' ? answerFilter : ''}
-                                    AND {filters}),
-                                    (SELECT COUNT(DISTINCT person_id)
-                                    FROM events
-                                    WHERE event = 'survey sent'
-                                    AND properties.$survey_id = '${props.id}'
-                                    AND timestamp >= '${startDate}'
-                                    AND timestamp <= '${endDate}'
-                                    ${answerFilter !== '' ? answerFilter : ''}
-                                    AND {filters})
-                    `,
-                    filters: {
-                        properties: values.propertyFilters,
-                    },
-                }
-
-                const responseJSON = await api.query(query)
-                const { results } = responseJSON
-                if (results && results[0]) {
-                    const [totalSeen, dismissed, sent] = results[0]
-                    const onlySeen = totalSeen - dismissed - sent
-                    return { seen: onlySeen < 0 ? 0 : onlySeen, dismissed, sent }
-                }
-                return { seen: 0, dismissed: 0, sent: 0 }
+                return stats
             },
         },
         surveyRatingResults: {
@@ -439,7 +373,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     query: `
                         -- QUERYING NPS RESPONSES
                         SELECT
-                            ${getResponseFieldCondition(questionIndex, question?.id)} AS survey_response,
+                            getSurveyResponse(${questionIndex}, '${question?.id}') AS survey_response,
                             COUNT(survey_response)
                         FROM events
                         WHERE event = 'survey sent'
@@ -494,7 +428,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         -- QUERYING NPS RECURRING RESPONSES
                         SELECT
                             JSONExtractString(properties, '$survey_iteration') AS survey_iteration,
-                            ${getResponseFieldCondition(questionIndex, question?.id)} AS survey_response,
+                            getSurveyResponse(${questionIndex}, '${question?.id}') AS survey_response,
                             COUNT(survey_response)
                         FROM events
                         WHERE event = 'survey sent'
@@ -578,7 +512,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     query: `
                         -- QUERYING SINGLE CHOICE RESPONSES
                         SELECT
-                            ${getResponseFieldCondition(questionIndex, question?.id)} AS survey_response,
+                            getSurveyResponse(${questionIndex}, '${question?.id}') AS survey_response,
                             COUNT(survey_response)
                         FROM events
                         WHERE event = 'survey sent'
@@ -586,6 +520,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
                             ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
+                            AND survey_response != null
                             AND {filters}
                         GROUP BY survey_response
                     `,
@@ -626,7 +561,9 @@ export const surveyLogic = kea<surveyLogicType>([
                         -- QUERYING MULTIPLE CHOICE RESPONSES
                         SELECT
                             count(),
-                            arrayJoin(${getMultipleChoiceResponseFieldCondition(questionIndex, question?.id)}) AS choice
+                            arrayJoin(
+                                getSurveyResponse(${questionIndex}, '${question?.id}', true)
+                            ) AS choice
                         FROM events
                         WHERE event == 'survey sent'
                             AND properties.$survey_id == '${survey.id}'
@@ -861,6 +798,13 @@ export const surveyLogic = kea<surveyLogicType>([
         }
     }),
     reducers({
+        filterSurveyStatsByDistinctId: [
+            true,
+            { persist: true },
+            {
+                setFilterSurveyStatsByDistinctId: (_, { filterByDistinctId }) => filterByDistinctId,
+            },
+        ],
         isEditingSurvey: [
             false,
             {
@@ -1119,7 +1063,7 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         compareFilter: [
-            null as CompareFilter | null,
+            { compare: true } as CompareFilter,
             {
                 setCompareFilter: (_, { compareFilter }) => compareFilter,
             },
@@ -1156,7 +1100,7 @@ export const surveyLogic = kea<surveyLogicType>([
         isSurveyRunning: [
             (s) => [s.survey],
             (survey: Survey): boolean => {
-                return !!(survey.start_date && !survey.end_date)
+                return isSurveyRunning(survey)
             },
         ],
         surveyUsesLimit: [
@@ -1218,6 +1162,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 { key: [Scene.Survey, survey?.id || 'new'], name: survey.name },
             ],
         ],
+        projectTreeRef: [
+            () => [(_, props: SurveyLogicProps) => props.id],
+            (id): ProjectTreeRef => ({ type: 'survey', ref: String(id) }),
+        ],
         dataTableQuery: [
             (s) => [s.survey, s.propertyFilters, s.answerFilters],
             (
@@ -1246,22 +1194,10 @@ export const surveyLogic = kea<surveyLogicType>([
                             '*',
                             ...survey.questions.map((q, i) => {
                                 if (q.type === SurveyQuestionType.MultipleChoice) {
-                                    const ids = getResponseFieldWithId(i, q.id)
-                                    if (!ids.idBasedKey) {
-                                        // If we only have index-based key, just use that
-                                        return `coalesce(arrayStringConcat(JSONExtractArrayRaw(properties, '${ids.indexBasedKey}'), ', ')) -- ${q.question}`
-                                    }
-                                    // Handle both formats for multiple choice questions
-                                    return `coalesce(
-                                        if(
-                                            JSONHas(properties, '${ids.idBasedKey}') AND length(JSONExtractArrayRaw(properties, '${ids.idBasedKey}')) > 0,
-                                            arrayStringConcat(JSONExtractArrayRaw(properties, '${ids.idBasedKey}'), ', '),
-                                            arrayStringConcat(JSONExtractArrayRaw(properties, '${ids.indexBasedKey}'), ', ')
-                                        )
-                                    ) -- ${q.question}`
+                                    return `arrayStringConcat(getSurveyResponse(${i}, '${q.id}', true), ', ') -- ${q.question}`
                                 }
                                 // Use the new condition that checks both formats
-                                return `coalesce(${getResponseFieldCondition(i, q.id)}) -- ${q.question}`
+                                return `getSurveyResponse(${i}, '${q.id}') -- ${q.question}`
                             }),
                             'timestamp',
                             'person',
@@ -1619,11 +1555,17 @@ export const surveyLogic = kea<surveyLogicType>([
                     appearance: sanitizedAppearance && {
                         backgroundColor: validateColor(sanitizedAppearance.backgroundColor, 'background color'),
                         borderColor: validateColor(sanitizedAppearance.borderColor, 'border color'),
-                        ratingButtonActiveColor: validateColor(
-                            sanitizedAppearance.ratingButtonActiveColor,
-                            'rating button active color'
-                        ),
-                        ratingButtonColor: validateColor(sanitizedAppearance.ratingButtonColor, 'rating button color'),
+                        // Only validate rating button colors if there's a rating question
+                        ...(questions.some((q) => q.type === SurveyQuestionType.Rating) && {
+                            ratingButtonActiveColor: validateColor(
+                                sanitizedAppearance.ratingButtonActiveColor,
+                                'rating button active color'
+                            ),
+                            ratingButtonColor: validateColor(
+                                sanitizedAppearance.ratingButtonColor,
+                                'rating button color'
+                            ),
+                        }),
                         submitButtonColor: validateColor(sanitizedAppearance.submitButtonColor, 'button color'),
                         submitButtonTextColor: validateColor(
                             sanitizedAppearance.submitButtonTextColor,
@@ -1649,6 +1591,7 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 const payload = {
                     ...surveyPayload,
+                    conditions: sanitizeSurveyDisplayConditions(surveyPayload.conditions),
                     appearance: sanitizeSurveyAppearance(surveyPayload.appearance),
                 }
 

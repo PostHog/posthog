@@ -1,20 +1,23 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, defaults, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EXPERIMENT_DEFAULT_DURATION } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { DEFAULT_MDE, experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { performQuery } from '~/queries/query'
 import {
     ExperimentMetric,
     ExperimentMetricType,
     FunnelsQuery,
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
     NodeKind,
     TrendsQuery,
     TrendsQueryResponse,
 } from '~/queries/schema/schema-general'
 import {
+    AnyPropertyFilter,
     BaseMathType,
     CountPerActorMathType,
     Experiment,
@@ -35,19 +38,44 @@ export enum ConversionRateInputType {
 }
 
 const getKindField = (metric: ExperimentMetric): NodeKind => {
-    return metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig
-        ? NodeKind.EventsNode
-        : metric.metric_config.kind === NodeKind.ExperimentActionMetricConfig
-        ? NodeKind.ActionsNode
-        : NodeKind.DataWarehouseNode
+    if (isExperimentFunnelMetric(metric)) {
+        return NodeKind.EventsNode
+    }
+
+    if (isExperimentMeanMetric(metric)) {
+        const { kind } = metric.source
+        // For most sources, we can return the kind directly
+        if ([NodeKind.EventsNode, NodeKind.ActionsNode, NodeKind.ExperimentDataWarehouseNode].includes(kind)) {
+            return kind
+        }
+    }
+
+    return NodeKind.EventsNode
 }
 
-const getEventField = (metric: ExperimentMetric): string | number => {
-    return metric.metric_config.kind === NodeKind.ExperimentEventMetricConfig
-        ? metric.metric_config.event
-        : metric.metric_config.kind === NodeKind.ExperimentActionMetricConfig
-        ? metric.metric_config.action
-        : metric.metric_config.table_name
+const getEventField = (metric: ExperimentMetric): string | number | null | undefined => {
+    if (isExperimentMeanMetric(metric)) {
+        const { source } = metric
+        return source.kind === NodeKind.ExperimentDataWarehouseNode
+            ? source.table_name
+            : source.kind === NodeKind.EventsNode
+            ? source.event
+            : source.kind === NodeKind.ActionsNode
+            ? source.id
+            : null
+    }
+
+    if (isExperimentFunnelMetric(metric)) {
+        /**
+         * For multivariate funnels, we select the last step
+         * Although we know that the last step is always an EventsNode, TS infers that the last step might be undefined
+         * so we use the non-null assertion operator (!) to tell TS that we know the last step is always an EventsNode
+         */
+        const step = metric.series.at(-1)!
+        return step.kind === NodeKind.EventsNode ? step.event : step.kind === NodeKind.ActionsNode ? step.id : null
+    }
+
+    return null
 }
 
 const getTotalCountQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQuery => {
@@ -88,8 +116,10 @@ const getSumQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQu
                 kind: getKindField(metric),
                 event: getEventField(metric),
                 math: PropertyMathType.Sum,
-                math_property: metric.metric_config.math_property,
                 math_property_type: TaxonomicFilterGroupType.NumericalEventProperties,
+                ...(metric.metric_type === ExperimentMetricType.MEAN && {
+                    math_property: metric.source.math_property,
+                }),
             },
         ],
         trendsFilter: {},
@@ -102,13 +132,18 @@ const getSumQuery = (metric: ExperimentMetric, experiment: Experiment): TrendsQu
     } as TrendsQuery
 }
 
-const getFunnelQuery = (metric: ExperimentMetric, experiment: Experiment): FunnelsQuery => {
+const getFunnelQuery = (
+    metric: ExperimentMetric,
+    eventConfig: EventConfig | null,
+    experiment: Experiment
+): FunnelsQuery => {
     return {
         kind: NodeKind.FunnelsQuery,
         series: [
             {
                 kind: NodeKind.EventsNode,
-                event: '$feature_flag_called',
+                event: eventConfig?.event ?? '$pageview',
+                properties: eventConfig?.properties ?? [],
             },
             {
                 kind: getKindField(metric),
@@ -132,6 +167,11 @@ export interface RunningTimeCalculatorLogicProps {
     experimentId?: Experiment['id']
 }
 
+export interface EventConfig {
+    event: string
+    properties: AnyPropertyFilter[]
+}
+
 export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     path(['scenes', 'experiments', 'RunningTimeCalculator', 'runningTimeCalculatorLogic']),
     connect(({ experimentId }: RunningTimeCalculatorLogicProps) => ({
@@ -148,6 +188,13 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         }) => ({ value }),
         setConversionRateInputType: (value: string) => ({ value }),
         setManualConversionRate: (value: number) => ({ value }),
+        setExposureEstimateConfig: (value: EventConfig) => ({ value }),
+    }),
+    defaults({
+        exposureEstimateConfig: {
+            event: '$pageview',
+            properties: [],
+        },
     }),
     reducers({
         metricIndex: [
@@ -158,16 +205,17 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
         ],
         eventOrAction: ['click' as string, { setEventOrAction: (_, { value }) => value }],
         minimumDetectableEffect: [
-            5 as number,
+            DEFAULT_MDE as number,
             {
                 setMinimumDetectableEffect: (_, { value }) => value,
             },
         ],
         conversionRateInputType: [
-            ConversionRateInputType.MANUAL as string,
+            ConversionRateInputType.AUTOMATIC as string,
             { setConversionRateInputType: (_, { value }) => value },
         ],
         manualConversionRate: [2 as number, { setManualConversionRate: (_, { value }) => value }],
+        exposureEstimateConfig: [null as EventConfig | null, { setExposureEstimateConfig: (_, { value }) => value }],
     }),
     loaders(({ values }) => ({
         metricResult: {
@@ -184,32 +232,41 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                 const query =
                     metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.TotalCount
+                    metric.source.math === ExperimentMetricMathType.TotalCount
                         ? getTotalCountQuery(metric, values.experiment)
                         : metric.metric_type === ExperimentMetricType.MEAN &&
-                          metric.metric_config.math === ExperimentMetricMathType.Sum
+                          metric.source.math === ExperimentMetricMathType.Sum
                         ? getSumQuery(metric, values.experiment)
-                        : getFunnelQuery(metric, values.experiment)
+                        : getFunnelQuery(metric, values.exposureEstimateConfig, values.experiment)
 
-                const result = (await performQuery(query, undefined, true)) as Partial<TrendsQueryResponse>
+                const result = (await performQuery(query, undefined, 'force_blocking')) as Partial<TrendsQueryResponse>
 
-                return {
-                    uniqueUsers: result?.results?.[0]?.count ?? null,
-                    ...(metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.TotalCount
-                        ? { averageEventsPerUser: result?.results?.[1]?.count ?? null }
-                        : {}),
-                    ...(metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.Sum
-                        ? { averagePropertyValuePerUser: result?.results?.[1]?.count ?? null }
-                        : {}),
-                    ...(metric.metric_type === ExperimentMetricType.FUNNEL
-                        ? {
-                              automaticConversionRateDecimal:
-                                  result?.results?.[1]?.count / result?.results?.[0]?.count || null,
-                          }
-                        : {}),
+                if (isExperimentMeanMetric(metric)) {
+                    return {
+                        uniqueUsers: result?.results?.[0]?.count ?? null,
+                        ...(metric.source.math === ExperimentMetricMathType.TotalCount
+                            ? { averageEventsPerUser: result?.results?.[1]?.count ?? null }
+                            : {}),
+                        ...(metric.source.math === ExperimentMetricMathType.Sum
+                            ? { averagePropertyValuePerUser: result?.results?.[1]?.count ?? null }
+                            : {}),
+                    }
                 }
+
+                if (isExperimentFunnelMetric(metric)) {
+                    const firstStepCount = result?.results?.[0]?.count
+                    const automaticConversionRateDecimal =
+                        firstStepCount && firstStepCount > 0
+                            ? (result?.results?.at(-1)?.count || 0) / firstStepCount
+                            : null
+
+                    return {
+                        uniqueUsers: result?.results?.[0]?.count ?? null,
+                        automaticConversionRateDecimal: automaticConversionRateDecimal,
+                    }
+                }
+
+                return {}
             },
             // For testing purposes, we want to be able set the metric result directly
             setMetricResult: ({ value }) => value,
@@ -217,6 +274,9 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
     })),
     listeners(({ actions }) => ({
         setMetricIndex: () => {
+            actions.loadMetricResult()
+        },
+        setExposureEstimateConfig: () => {
             actions.loadMetricResult()
         },
     })),
@@ -252,12 +312,12 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                 if (
                     metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.TotalCount
+                    metric.source.math === ExperimentMetricMathType.TotalCount
                 ) {
                     return VARIANCE_SCALING_FACTOR_TOTAL_COUNT * averageEventsPerUser
                 } else if (
                     metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.Sum
+                    metric.source.math === ExperimentMetricMathType.Sum
                 ) {
                     return VARIANCE_SCALING_FACTOR_SUM * averagePropertyValuePerUser ** 2
                 }
@@ -303,13 +363,13 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                 if (
                     metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.TotalCount
+                    metric.source.math === ExperimentMetricMathType.TotalCount
                 ) {
                     /*
                         Count Per User Metric:
                         - "mean" is the average number of events per user (e.g., clicks per user).
                         - MDE is applied as a percentage of this mean to compute `d`.
-        
+
                         Formula:
                         d = MDE * averageEventsPerUser
                     */
@@ -317,9 +377,9 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                     /*
                         Sample size formula:
-        
+
                         N = (16 * variance) / d^2
-        
+
                         Where:
                         - `16` comes from statistical power analysis:
                             - Based on a 95% confidence level (Z_alpha/2 = 1.96) and 80% power (Z_beta = 0.84),
@@ -330,13 +390,13 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                     sampleSizeFormula = (16 * variance) / d ** 2
                 } else if (
                     metric.metric_type === ExperimentMetricType.MEAN &&
-                    metric.metric_config.math === ExperimentMetricMathType.Sum
+                    metric.source.math === ExperimentMetricMathType.Sum
                 ) {
                     /*
                         Continuous property metric:
                         - "mean" is the average value of the measured property per user (e.g., revenue per user).
                         - MDE is applied as a percentage of this mean to compute `d`.
-        
+
                         Formula:
                         d = MDE * averagePropertyValuePerUser
                     */
@@ -344,9 +404,9 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                     /*
                         Sample Size Formula for Continuous metrics:
-        
+
                         N = (16 * variance) / d^2
-        
+
                         Where:
                         - `variance` is the estimated variance of the continuous property.
                         - The formula is identical to the Count metric case.
@@ -364,7 +424,7 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                         - Here, "mean" does not exist in the same way as for count/continuous metrics.
                         - Instead, we use `p`, the baseline conversion rate (historical probability of success).
                         - MDE is applied as an absolute percentage change to `p`.
-        
+
                         Formula:
                         d = MDE * conversionRate
                     */
@@ -372,9 +432,9 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
 
                     /*
                         Sample size formula:
-        
+
                         N = (16 * p * (1 - p)) / d^2
-        
+
                         Where:
                         - `p` is the historical conversion rate (baseline success probability).
                         - `d` is the absolute MDE (e.g., detecting a 5% increase means `d = 0.05`).
@@ -394,7 +454,6 @@ export const runningTimeCalculatorLogic = kea<runningTimeCalculatorLogicType>([
                 return sampleSizeFormula * numberOfVariants
             },
         ],
-
         recommendedRunningTime: [
             (s) => [s.recommendedSampleSize, s.uniqueUsers],
             (recommendedSampleSize: number, uniqueUsers: number): number => {

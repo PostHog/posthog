@@ -2,11 +2,11 @@
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
-import { RolesAndResourceAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAndResourceAccessControls'
+import { RolesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 
 import { PermissionsGrid } from './PermissionsGrid'
 
 export function RoleBasedAccess(): JSX.Element {
     const newAccessControl = useFeatureFlag('ROLE_BASED_ACCESS_CONTROL')
-    return newAccessControl ? <RolesAndResourceAccessControls noAccessControls /> : <PermissionsGrid />
+    return newAccessControl ? <RolesAccessControls /> : <PermissionsGrid />
 }

@@ -73,10 +73,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
         updateActorsQuery: (query: Partial<InsightActorsQuery>) => ({ query }),
         loadActorsQueryOptions: (query: InsightActorsQuery) => ({ query }),
     }),
-    connect({
+    connect(() => ({
         values: [groupsModel, ['groupTypes', 'aggregationLabel']],
         actions: [eventUsageLogic, ['reportPersonsModalViewed']],
-    }),
+    })),
 
     loaders(({ values, actions, props }) => ({
         actorsResponse: [
@@ -175,7 +175,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         kind: NodeKind.InsightActorsQueryOptions,
                         source: query,
                     }
-                    const response = await performQuery(optionsQuery, { async: false })
+                    const response = await performQuery(optionsQuery, {}, 'blocking')
 
                     return Object.fromEntries(
                         Object.entries(response).filter(([key, _]) =>

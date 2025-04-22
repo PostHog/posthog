@@ -12,7 +12,7 @@
         "build": "pnpm clean && pnpm build:parcel && pnpm build:cli",
         "build:parcel": "parcel build",
         "build:compile": "tsc -p tsconfig.build.json",
-        "build:cli": "cp ./src/cli.js ./dist/cli.js",
+        "build:cli": "mkdir -p ./dist && cp ./src/cli.js ./dist/cli.js",
         "compile:stl": "cd ../../.. && python3 -m common.hogvm.stl.compile",
         "check": "tsc -p tsconfig.build.json --noEmit",
         "prettier": "prettier --write src",

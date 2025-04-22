@@ -64,22 +64,32 @@ class TestErrorTracking(APIBaseTest):
 
         # no fingerprint
         response = self.client.get(
-            f"/api/projects/{self.team.id}/error_tracking/issue/{deleted_issue_id}",
+            f"/api/environments/{self.team.id}/error_tracking/issue/{deleted_issue_id}",
         )
         assert response.status_code == 404
 
         # with fingerprint hint
         response = self.client.get(
-            f"/api/projects/{self.team.id}/error_tracking/issue/{deleted_issue_id}?fingerprint={merged_fingerprint}",
+            f"/api/environments/{self.team.id}/error_tracking/issue/{deleted_issue_id}?fingerprint={merged_fingerprint}",
         )
         assert response.status_code == 308
         assert response.json() == {"issue_id": str(merged_issue.id)}
+
+    def test_issue_fingerprint_does_not_redirect_when_not_merged(self):
+        issue = self.create_issue(fingerprints=["fingerprint"])
+
+        # with fingerprint hint
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/error_tracking/issue/{issue.id}?fingerprint=fingerprint",
+        )
+        assert response.status_code == 200
+        assert response.json().get("id") == str(issue.id)
 
     @freeze_time("2025-01-01")
     def test_issue_fetch(self):
         issue = self.create_issue(["fingerprint"])
 
-        response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issue/{issue.id}")
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/issue/{issue.id}")
 
         assert response.status_code == 200
         assert response.json() == {
@@ -96,7 +106,7 @@ class TestErrorTracking(APIBaseTest):
         issue = self.create_issue(["fingerprint"])
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/error_tracking/issue/{issue.id}", data={"status": "resolved"}
+            f"/api/environments/{self.team.id}/error_tracking/issue/{issue.id}", data={"status": "resolved"}
         )
         issue.refresh_from_db()
 
@@ -146,7 +156,7 @@ class TestErrorTracking(APIBaseTest):
         assert ErrorTrackingIssue.objects.count() == 2
 
         repsonse = self.client.post(
-            f"/api/projects/{self.team.id}/error_tracking/issue/{issue_one.id}/merge", data={"ids": [issue_two.id]}
+            f"/api/environments/{self.team.id}/error_tracking/issue/{issue_one.id}/merge", data={"ids": [issue_two.id]}
         )
 
         assert repsonse.status_code == 200
@@ -167,29 +177,11 @@ class TestErrorTracking(APIBaseTest):
                 # TODO - we could have the api validate these contents before uploading, if we wanted
                 data = {"source_map": image, "minified": image}
                 response = self.client.patch(
-                    f"/api/projects/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
+                    f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
                     data,
                     format="multipart",
                 )
                 self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-
-    # def test_rejects_too_large_file_type(self) -> None:
-    #     symbol_set = ErrorTrackingSymbolSet.objects.create(
-    #         ref="https://app-static-prod.posthog.com/static/chunk-BPTF6YBO.js", team=self.team, storage_ptr=None
-    #     )
-    #     fifty_megabytes_plus_a_little = b"1" * (1024 * 1024 * 1024 + 1)
-    #     fake_big_file = SimpleUploadedFile(
-    #         name="large_source.js.map",
-    #         content=fifty_megabytes_plus_a_little,
-    #         content_type="text/plain",
-    #     )
-    #     response = self.client.put(
-    #         f"/api/projects/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
-    #         {"source_map": fake_big_file},
-    #         format="multipart",
-    #     )
-    #     self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
-    #     self.assertEqual(response.json()["detail"], "Source maps must be less than 50MB")
 
     def test_rejects_upload_when_object_storage_is_unavailable(self) -> None:
         symbol_set = ErrorTrackingSymbolSet.objects.create(
@@ -199,7 +191,7 @@ class TestErrorTracking(APIBaseTest):
             fake_big_file = SimpleUploadedFile(name="large_source.js.map", content=b"", content_type="text/plain")
             data = {"source_map": fake_big_file, "minified": fake_big_file}
             response = self.client.put(
-                f"/api/projects/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
+                f"/api/environments/{self.team.id}/error_tracking/symbol_sets/{symbol_set.id}",
                 data,
                 format="multipart",
             )
@@ -222,7 +214,7 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(ErrorTrackingSymbolSet.objects.count(), 3)
 
         # it only fetches symbol sets for the specified team
-        response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/symbol_sets")
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/symbol_sets")
         self.assertEqual(len(response.json()["results"]), 2)
 
     def test_fetching_stack_frames(self):
@@ -242,16 +234,20 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(ErrorTrackingStackFrame.objects.count(), 3)
 
         # it only fetches stack traces for the specified team
-        response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/stack_frames")
+        response = self.client.post(f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get")
         self.assertEqual(len(response.json()["results"]), 2)
 
         # fetching can be filtered by raw_ids
-        response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/stack_frames?raw_ids=raw_id")
+        data = {"raw_ids": ["raw_id"]}
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get", data=data
+        )
         self.assertEqual(len(response.json()["results"]), 1)
 
         # fetching can be filtered by symbol set
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/error_tracking/stack_frames?symbol_set={symbol_set.id}"
+        data = {"symbol_set": symbol_set.id}
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get", data=data
         )
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["symbol_set_ref"], symbol_set.ref)
@@ -261,7 +257,7 @@ class TestErrorTracking(APIBaseTest):
 
         self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 0)
         self.client.patch(
-            f"/api/projects/{self.team.id}/error_tracking/issue/{issue.id}/assign",
+            f"/api/environments/{self.team.id}/error_tracking/issue/{issue.id}/assign",
             data={"assignee": {"id": self.user.id, "type": "user"}},
         )
         # assigns the issue
@@ -297,7 +293,7 @@ class TestErrorTracking(APIBaseTest):
         )
 
         self.client.patch(
-            f"/api/projects/{self.team.id}/error_tracking/issue/{issue.id}/assign",
+            f"/api/environments/{self.team.id}/error_tracking/issue/{issue.id}/assign",
             data={"assignee": None},
         )
         # deletes the assignment
@@ -305,7 +301,7 @@ class TestErrorTracking(APIBaseTest):
 
         other_team = self.create_team_with_organization(organization=self.organization)
         response = self.client.patch(
-            f"/api/projects/{other_team.id}/error_tracking/issue/{issue.id}/assign",
+            f"/api/environments/{other_team.id}/error_tracking/issue/{issue.id}/assign",
             data={"assignee": None},
         )
         # cannot assign issues from other teams
@@ -319,7 +315,7 @@ class TestErrorTracking(APIBaseTest):
         self.assertEqual(issue_two.status, ErrorTrackingIssue.Status.ACTIVE)
 
         self.client.post(
-            f"/api/projects/{self.team.id}/error_tracking/issue/bulk",
+            f"/api/environments/{self.team.id}/error_tracking/issue/bulk",
             data={"ids": [issue_one.id, issue_two.id], "action": "set_status", "status": "resolved"},
         )
 
@@ -338,7 +334,7 @@ class TestErrorTracking(APIBaseTest):
         user_group.members.set([self.user])
 
         self.client.post(
-            f"/api/projects/{self.team.id}/error_tracking/issue/bulk",
+            f"/api/environments/{self.team.id}/error_tracking/issue/bulk",
             data={
                 "ids": [issue_one.id, issue_two.id],
                 "action": "assign",
@@ -360,7 +356,7 @@ class TestErrorTracking(APIBaseTest):
     def _get_error_tracking_issue_activity(
         self, error_tracking_issue_id: int, expected_status: int = status.HTTP_200_OK
     ) -> dict:
-        url = f"/api/projects/{self.team.id}/error_tracking/issue/{error_tracking_issue_id}/activity"
+        url = f"/api/environments/{self.team.id}/error_tracking/issue/{error_tracking_issue_id}/activity"
         activity = self.client.get(url)
         self.assertEqual(activity.status_code, expected_status)
         return activity.json()

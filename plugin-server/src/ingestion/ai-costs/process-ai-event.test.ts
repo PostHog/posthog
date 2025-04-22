@@ -28,16 +28,16 @@ describe('processAiEvent()', () => {
     describe('event matching', () => {
         it('matches $ai_generation events', () => {
             const result = processAiEvent(event)
-            expect(result.properties!.$ai_total_cost_usd).toBeDefined()
-            expect(result.properties!.$ai_input_cost_usd).toBeDefined()
-            expect(result.properties!.$ai_output_cost_usd).toBeDefined()
+            expect(result.properties!.$ai_total_cost_usd).toBeTruthy()
+            expect(result.properties!.$ai_input_cost_usd).toBeTruthy()
+            expect(result.properties!.$ai_output_cost_usd).toBeTruthy()
         })
 
         it('matches $ai_embedding events', () => {
             event.event = '$ai_embedding'
             const result = processAiEvent(event)
-            expect(result.properties!.$ai_total_cost_usd).toBeDefined()
-            expect(result.properties!.$ai_input_cost_usd).toBeDefined()
+            expect(result.properties!.$ai_total_cost_usd).toBeTruthy()
+            expect(result.properties!.$ai_input_cost_usd).toBeTruthy()
             expect(result.properties!.$ai_output_cost_usd).toBeDefined()
         })
 
@@ -203,21 +203,21 @@ describe('processAiEvent()', () => {
             event.properties!.$ai_model = 'testing_model'
             event.properties!.$ai_input_tokens = 100
             event.properties!.$ai_output_tokens = 50
-            event.properties!.$ai_cache_read_input_tokens = 30
+            event.properties!.$ai_cache_read_input_tokens = 1000
             event.properties!.$ai_cache_creation_input_tokens = 20
 
             const result = processAiEvent(event)
 
             // For testing_model: prompt_token = 0.1, completion_token = 0.1
             // Write cost: 20 * 0.1 * 1.25 = 2.5
-            // Read cost: 30 * 0.1 * 0.1 = 0.3
-            // Uncached cost: (100 - 30) * 0.1 = 7
-            // Input cost: 2.5 + 0.3 + 7 = 9.8
+            // Read cost: 1000 * 0.1 * 0.1 = 10
+            // Uncached cost: 100 * 0.1 = 10
+            // Input cost: 2.5 + 10 + 10 = 22.5
             // Output cost: 50 * 0.1 = 5
-            // Total cost: 9.8 + 5 = 14.8
-            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(9.8, 2)
+            // Total cost: 22.5 + 5 = 27.5
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(22.5, 2)
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(5, 2)
-            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(14.8, 2)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(27.5, 2)
         })
 
         it('handles zero cache tokens correctly', () => {

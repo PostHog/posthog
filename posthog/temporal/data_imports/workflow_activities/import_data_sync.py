@@ -129,8 +129,6 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
         if schema.is_incremental:
             logger.debug(f"Incremental last value being used is: {processed_incremental_last_value}")
 
-        shutdown_monitor.raise_if_is_worker_shutdown()
-
         source: DltSource | SourceResponse
 
         if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
@@ -194,6 +192,7 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             ExternalDataSource.Type.MYSQL,
             ExternalDataSource.Type.MSSQL,
         ]:
+            from posthog.temporal.data_imports.pipelines.mssql.mssql import mssql_source
             from posthog.temporal.data_imports.pipelines.mysql.mysql import mysql_source
             from posthog.temporal.data_imports.pipelines.postgres.postgres import (
                 postgres_source,
@@ -281,7 +280,33 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                             if schema.is_incremental
                             else None,
                         )
+                    elif (
+                        ExternalDataSource.Type(model.pipeline.source_type) == ExternalDataSource.Type.MSSQL
+                        and str(inputs.team_id) not in settings.OLD_MSSQL_SOURCE_TEAM_IDS
+                    ):
+                        source = mssql_source(
+                            host=tunnel.local_bind_host,
+                            port=int(tunnel.local_bind_port),
+                            user=user,
+                            password=password,
+                            database=database,
+                            schema=pg_schema,
+                            table_names=endpoints,
+                            is_incremental=schema.is_incremental,
+                            logger=logger,
+                            incremental_field=schema.sync_type_config.get("incremental_field")
+                            if schema.is_incremental
+                            else None,
+                            incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                            if schema.is_incremental
+                            else None,
+                            db_incremental_field_last_value=processed_incremental_last_value
+                            if schema.is_incremental
+                            else None,
+                        )
                     else:
+                        # Old MS SQL Server source
+                        # TODO: remove once all teams have been moved to new source
                         source = sql_source_for_type(
                             source_type=ExternalDataSource.Type(model.pipeline.source_type),
                             host=tunnel.local_bind_host,
@@ -356,7 +381,31 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
                     else None,
                     db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
                 )
+            elif (
+                ExternalDataSource.Type(model.pipeline.source_type) == ExternalDataSource.Type.MSSQL
+                and str(inputs.team_id) not in settings.OLD_MSSQL_SOURCE_TEAM_IDS
+            ):
+                source = mssql_source(
+                    host=host,
+                    port=port,
+                    user=user,
+                    password=password,
+                    database=database,
+                    schema=pg_schema,
+                    table_names=endpoints,
+                    is_incremental=schema.is_incremental,
+                    logger=logger,
+                    incremental_field=schema.sync_type_config.get("incremental_field")
+                    if schema.is_incremental
+                    else None,
+                    incremental_field_type=schema.sync_type_config.get("incremental_field_type")
+                    if schema.is_incremental
+                    else None,
+                    db_incremental_field_last_value=processed_incremental_last_value if schema.is_incremental else None,
+                )
             else:
+                # Old MS SQL Server source
+                # TODO: remove once all teams have been moved to new source
                 source = sql_source_for_type(
                     source_type=ExternalDataSource.Type(model.pipeline.source_type),
                     host=host,

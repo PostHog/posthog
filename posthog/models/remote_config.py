@@ -107,7 +107,7 @@ class RemoteConfig(UUIDModel):
         from posthog.models.feature_flag import FeatureFlag
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
-        from posthog.api.survey import get_surveys_response
+        from posthog.api.survey import get_surveys_response, get_surveys_opt_in
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -193,6 +193,7 @@ class RemoteConfig(UUIDModel):
                 "urlTriggers": team.session_recording_url_trigger_config,
                 "urlBlocklist": team.session_recording_url_blocklist_config,
                 "eventTriggers": team.session_recording_event_trigger_config,
+                "triggerMatchType": team.session_recording_trigger_match_type_config,
                 "scriptConfig": rrweb_script_config,
                 # NOTE: This is cached but stripped out at the api level depending on the caller
                 "domains": team.recording_domains or [],
@@ -229,12 +230,18 @@ class RemoteConfig(UUIDModel):
 
         config["heatmaps"] = True if team.heatmaps_opt_in else False
 
-        if team.surveys_opt_in:
-            surveys_response = get_surveys_response(team)
-            config["surveys"] = surveys_response["surveys"]
+        surveys_opt_in = get_surveys_opt_in(team)
 
-            if surveys_response["survey_config"]:
-                config["survey_config"] = surveys_response["survey_config"]
+        if surveys_opt_in:
+            surveys_response = get_surveys_response(team)
+            surveys = surveys_response["surveys"]
+            if len(surveys) > 0:
+                config["surveys"] = surveys_response["surveys"]
+
+                if surveys_response["survey_config"]:
+                    config["survey_config"] = surveys_response["survey_config"]
+            else:
+                config["surveys"] = False
         else:
             config["surveys"] = False
 
