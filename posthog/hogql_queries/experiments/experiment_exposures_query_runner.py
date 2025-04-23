@@ -185,7 +185,6 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             experiment_id=str(self.experiment.id),
             experiment_name=self.experiment.name,
             experiment_feature_flag_key=self.feature_flag.key,
-            experiment_is_data_warehouse_query=self.is_data_warehouse_query,
         )
 
         response = execute_hogql_query(
