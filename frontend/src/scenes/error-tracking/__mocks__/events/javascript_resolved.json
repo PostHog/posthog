@@ -266,7 +266,6 @@
         "current_usage.surveys": 0,
         "$lib": "web",
         "$exception_capture_enabled_server_side": false,
-        "$ip": "192.168.97.1",
         "projected_usage.session_replay": null,
         "$os_version": "10.15.7",
         "percentage_usage.surveys": 0,

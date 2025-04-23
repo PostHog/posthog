@@ -21,14 +21,14 @@ export function StacktraceGenericDisplay({
 }: StacktraceBaseDisplayProps): JSX.Element {
     const { runtime, exceptionList, fingerprintRecords } = attributes
     const renderExceptionHeader = useCallback(
-        ({ type, value, part }: ExceptionHeaderProps): React.ReactNode => {
+        ({ type, value, loading, part }: ExceptionHeaderProps): JSX.Element => {
             return (
                 <StacktraceGenericExceptionHeader
                     type={type}
                     value={value}
                     part={part}
                     runtime={runtime}
-                    loading={false}
+                    loading={loading}
                     truncate={truncateMessage}
                 />
             )
@@ -40,8 +40,8 @@ export function StacktraceGenericDisplay({
     return (
         <div className={className}>
             {match([loading, exceptionWithStacktrace])
-                .with([true, P.any], () => renderLoading())
-                .with([false, false], () => renderEmpty())
+                .with([true, P.any], () => renderLoading(renderExceptionHeader))
+                .with([false, false], () => renderEmpty(renderExceptionHeader))
                 .otherwise(() => (
                     <ChainedStackTraces
                         showAllFrames={showAllFrames}

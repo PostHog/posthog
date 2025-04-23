@@ -14,7 +14,7 @@ const meta: Meta = {
 
 export default meta
 
-export function DefaultToogle(): JSX.Element {
+export function DefaultToggle(): JSX.Element {
     const [checked, setChecked] = useState(true)
     return (
         <ToggleButtonPrimitive tooltip="Toggle tooltip" checked={checked} onCheckedChange={setChecked}>

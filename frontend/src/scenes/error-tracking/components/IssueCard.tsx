@@ -15,8 +15,8 @@ import { Collapsible } from './Collapsible'
 import { ContextDisplay } from './ContextDisplay'
 import { ExceptionAttributesIconList } from './ExceptionAttributes/ExceptionAttributesIconList'
 import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from './Stacktrace/StacktraceBase'
-import { StacktraceGenericDisplay, StacktraceGenericExceptionHeader } from './Stacktrace/StacktraceGenericDisplay'
-import { StacktraceTextDisplay, StacktraceTextExceptionHeader } from './Stacktrace/StacktraceTextDisplay'
+import { StacktraceGenericDisplay } from './Stacktrace/StacktraceGenericDisplay'
+import { StacktraceTextDisplay } from './Stacktrace/StacktraceTextDisplay'
 import { ToggleButtonPrimitive } from './ToggleButton/ToggleButton'
 
 export function IssueCard(): JSX.Element {
@@ -177,51 +177,25 @@ function StacktraceIssueDisplay({
     issue: ErrorTrackingRelationalIssue | null
     issueLoading: boolean
 } & Omit<StacktraceBaseDisplayProps, 'renderLoading' | 'renderEmpty'>): JSX.Element {
-    return showAsText ? (
-        <StacktraceTextDisplay
+    const Component = showAsText ? StacktraceTextDisplay : StacktraceGenericDisplay
+    return (
+        <Component
             {...stacktraceDisplayProps}
-            renderLoading={() => (
-                <StacktraceTextExceptionHeader
-                    type={issue?.name ?? undefined}
-                    value={issue?.description ?? undefined}
-                    truncate={true}
-                    loading={issueLoading}
-                />
-            )}
-            renderEmpty={() => {
+            renderLoading={(renderHeader) =>
+                renderHeader({
+                    type: issue?.name ?? undefined,
+                    value: issue?.description ?? undefined,
+                    loading: issueLoading,
+                })
+            }
+            renderEmpty={(renderHeader) => {
                 return (
                     <div>
-                        <StacktraceTextExceptionHeader
-                            type={issue?.name ?? undefined}
-                            value={issue?.name ?? undefined}
-                            truncate={true}
-                            loading={false}
-                        />
-                        <StacktraceEmptyDisplay />
-                    </div>
-                )
-            }}
-        />
-    ) : (
-        <StacktraceGenericDisplay
-            {...stacktraceDisplayProps}
-            renderLoading={() => (
-                <StacktraceGenericExceptionHeader
-                    type={issue?.name ?? undefined}
-                    value={issue?.description ?? undefined}
-                    truncate={true}
-                    loading={issueLoading}
-                />
-            )}
-            renderEmpty={() => {
-                return (
-                    <div>
-                        <StacktraceGenericExceptionHeader
-                            type={issue?.name ?? undefined}
-                            value={issue?.name ?? undefined}
-                            truncate={true}
-                            loading={false}
-                        />
+                        {renderHeader({
+                            type: issue?.name ?? undefined,
+                            value: issue?.description ?? undefined,
+                            loading: false,
+                        })}
                         <StacktraceEmptyDisplay />
                     </div>
                 )

@@ -309,7 +309,7 @@
             },
             {
                 "type": "ConnectionError",
-                "value": "Error 61 connecting to localhost:6379. Connection refused.",
+                "value": "Error 61 connecting to localhost:XX. Connection refused.",
                 "mechanism": {
                     "handled": true,
                     "type": "generic"
@@ -555,7 +555,6 @@
         "$exception_fingerprint": "32cebb0039aac597a3277326999b915c4dabc1ae2cd1e14946cadba23c07ea390265efc2f964e66d316adac2018d7b78a0aeee1346aa3559f8a0859970d84ba3",
         "$exception_proposed_fingerprint": "32cebb0039aac597a3277326999b915c4dabc1ae2cd1e14946cadba23c07ea390265efc2f964e66d316adac2018d7b78a0aeee1346aa3559f8a0859970d84ba3",
         "$exception_issue_id": "35f642e4-a491-46e9-a0e8-778b3c3e5b88",
-        "$ip": "192.168.97.1",
         "$os": "Mac OS X",
         "$os_version": "15.3.1",
         "$process_person_profile": false,
@@ -566,13 +565,13 @@
         "$exception_type": "ConnectionError",
         "$geoip_disable": true,
         "$python_runtime": "CPython",
-        "$exception_personURL": "http://localhost:8010/project/phc_ngf62dtzXeNsSZNWJ8eB5Je1l7FQoSybCZHEOggcXv7/person/a7a336a0-32a4-4510-80f9-794b3796c63c",
+        "$exception_personURL": "http://localhost:8010/project/phc_ngf62dtzXeNsSZNWJ8eB5Je1l7FQoSybCZHEOggcXv7/person/a7a336a0-32a4",
         "$lib": "posthog-python",
         "$exception_types": ["ConnectionRefusedError", "ConnectionError"],
         "$exception_values": [
             "Connection closed by server.",
             "[Errno 61] Connection refused",
-            "Error 61 connecting to localhost:6379. Connection refused."
+            "Error 61 connecting to localhost:XXX. Connection refused."
         ],
         "$exception_sources": [
             "celery/beat.py",
@@ -624,9 +623,9 @@
             "sync"
         ]
     },
-    "timestamp": "2025-03-25T08:33:40.500000Z",
+    "timestamp": "2021-03-25T08:33:40.500000Z",
     "team_id": 1,
     "distinct_id": "a7a336a0-32a4-4510-80f9-794b3796c63c",
     "elements_chain": "",
-    "created_at": "2025-03-25T08:35:49.358000Z"
+    "created_at": "2021-03-25T08:35:49.358000Z"
 }

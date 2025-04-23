@@ -11,12 +11,9 @@ export interface ToggleButtonPrimitiveProps {
 }
 
 const button = cva({
-    base: '',
     variants: {
         checked: {
             true: 'bg-fill-highlight-100',
-            // true: 'text-accent font-bold',
-            false: '',
         },
     },
 })

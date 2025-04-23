@@ -1,10 +1,11 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
+import { ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
 import { ErrorTrackingException, ErrorTrackingStackFrame } from 'lib/components/Errors/types'
 import { hasStacktrace } from 'lib/components/Errors/utils'
 import { cn } from 'lib/utils/css-classes'
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 import { match, P } from 'ts-pattern'
 
 import { StacktraceBaseDisplayProps, StacktraceBaseExceptionHeaderProps } from './StacktraceBase'
@@ -14,15 +15,30 @@ export function StacktraceTextDisplay({
     attributes,
     renderLoading,
     renderEmpty,
+    truncateMessage,
     loading,
 }: StacktraceBaseDisplayProps): JSX.Element {
     const { exceptionList } = attributes
     const exceptionWithStacktrace = hasStacktrace(exceptionList)
+    const renderExceptionHeader = useCallback(
+        ({ type, value, loading, part }: ExceptionHeaderProps): JSX.Element => {
+            return (
+                <StacktraceTextExceptionHeader
+                    type={type}
+                    value={value}
+                    part={part}
+                    loading={loading}
+                    truncate={truncateMessage}
+                />
+            )
+        },
+        [truncateMessage]
+    )
     return (
         <div className={className}>
             {match([loading, exceptionWithStacktrace])
-                .with([true, P.any], () => renderLoading())
-                .with([false, false], () => renderEmpty())
+                .with([true, P.any], () => renderLoading(renderExceptionHeader))
+                .with([false, false], () => renderEmpty(renderExceptionHeader))
                 .with([false, true], () =>
                     exceptionList.map((exception) => <ExceptionTextDisplay key={exception.id} exception={exception} />)
                 )

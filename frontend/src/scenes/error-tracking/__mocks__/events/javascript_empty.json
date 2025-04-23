@@ -94,7 +94,6 @@
         "$feature/web-analytics-data-warehouse-revenue-settings": true,
         "$feature/billing-skip-forecasting": true,
         "$feature/ai-session-permissions": true,
-        "$ip": "192.168.97.1",
         "$feature/session-replay-doctor": true,
         "$session_entry_host": "localhost:8010",
         "$feature/hedgehog-mode": true,

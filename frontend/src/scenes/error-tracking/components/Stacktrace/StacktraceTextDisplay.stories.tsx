@@ -4,9 +4,8 @@ import { sceneLogic } from 'scenes/sceneLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { StacktraceEmptyDisplay } from './StacktraceBase'
-import { StacktraceTextDisplay, StacktraceTextExceptionHeader } from './StacktraceTextDisplay'
-import { defaultBaseProps } from './utils.test'
+import { defaultBaseProps, StacktraceWrapperAllEvents } from './__stories_utils'
+import { StacktraceTextDisplay } from './StacktraceTextDisplay'
 
 const meta: Meta = {
     title: 'ErrorTracking/StacktraceTextDisplay',
@@ -35,74 +34,27 @@ export default meta
 
 // Text stacktrace
 export function TextDisplayFullLoading(): JSX.Element {
-    const props = defaultBaseProps('python_resolved', {
-        loading: true,
-        renderLoading: getTextLoadingRenderer({ loading: true }),
-        renderEmpty: getTextEmptyRenderer(),
-    })
+    const props = defaultBaseProps(
+        'python_resolved',
+        {
+            loading: true,
+        },
+        true
+    )
     return <StacktraceTextDisplay {...props} />
 }
 
 export function TextDisplayPropertiesLoading(): JSX.Element {
-    const props = defaultBaseProps('javascript_resolved', {
-        loading: true,
-        renderLoading: getTextLoadingRenderer({ loading: false }),
-        renderEmpty: getTextEmptyRenderer(),
-    })
+    const props = defaultBaseProps(
+        'javascript_resolved',
+        {
+            loading: true,
+        },
+        false
+    )
     return <StacktraceTextDisplay {...props} />
 }
 
 export function TextDisplayWithStacktrace(): JSX.Element {
-    const props = defaultBaseProps('node_unresolved', {
-        loading: false,
-        renderLoading: getTextLoadingRenderer({ loading: false }),
-        renderEmpty: getTextEmptyRenderer(),
-    })
-    return <StacktraceTextDisplay {...props} />
-}
-
-type LoadingProps = {
-    loading: boolean
-    truncate: boolean
-}
-
-const issue = {
-    id: '123',
-    name: 'Issue Title',
-    description: 'Issue Description',
-    status: 'active',
-    assignee: null,
-    first_seen: '2022-01-05',
-}
-
-// Renderer
-function getTextLoadingRenderer({ loading = false, truncate = false }: Partial<LoadingProps> = {}): () => JSX.Element {
-    function renderLoading(): JSX.Element {
-        return (
-            <StacktraceTextExceptionHeader
-                type={issue.name}
-                value={issue.description}
-                loading={loading}
-                truncate={truncate}
-            />
-        )
-    }
-    return renderLoading
-}
-
-function getTextEmptyRenderer(): () => JSX.Element {
-    function renderEmpty(): JSX.Element {
-        return (
-            <div>
-                <StacktraceTextExceptionHeader
-                    type={issue.name}
-                    value={issue.description}
-                    loading={false}
-                    truncate={true}
-                />
-                <StacktraceEmptyDisplay />
-            </div>
-        )
-    }
-    return renderEmpty
+    return <StacktraceWrapperAllEvents>{(props) => <StacktraceTextDisplay {...props} />}</StacktraceWrapperAllEvents>
 }

@@ -18,7 +18,9 @@ function collectFrameRawIdsFromEvent(event: EventType): ErrorTrackingStackFrame[
     return exceptionList.flatMap(collectFrameRawIdsFromException)
 }
 
-const frames = Object.values(TEST_EVENTS).flatMap((event) => collectFrameRawIdsFromEvent(event as unknown as EventType))
+const frames = Object.values(TEST_EVENTS)
+    .flatMap((event) => collectFrameRawIdsFromEvent(event as unknown as EventType))
+    .flat()
 
 function generateFrameContext(frame: ErrorTrackingStackFrame): ErrorTrackingStackFrameRecord {
     return {

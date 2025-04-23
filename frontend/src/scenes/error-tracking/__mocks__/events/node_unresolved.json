@@ -64,7 +64,6 @@
         ],
         "$exception_issue_id": "8e440548-6e54-477a-a313-c00456632f88",
         "$geoip_disable": true,
-        "$ip": "2a06:98c0:3600::103",
         "$lib_version": "4.7.0",
         "$lib": "posthog-node",
         "$process_person_profile": false,
@@ -74,7 +73,7 @@
         "$exception_functions": ["?", "load_server_data", "load"]
     },
     "timestamp": "2025-04-21T22:02:14.527000Z",
-    "team_id": 89529,
+    "team_id": 1,
     "distinct_id": "01965a5f-907f-7c93-81d5-22ef024a0eb3",
     "elements_chain": "",
     "created_at": "2025-04-21T22:02:15.122000Z"

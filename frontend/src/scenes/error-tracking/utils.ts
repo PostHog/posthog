@@ -68,7 +68,7 @@ export const mergeIssues = (
 export type ExceptionAttributes = {
     ingestionErrors?: string[]
     exceptionList: ErrorTrackingException[]
-    fingerprintRecords?: FingerprintRecordPart[]
+    fingerprintRecords: FingerprintRecordPart[]
     runtime: ErrorTrackingRuntime
     type?: string
     value?: string
@@ -141,7 +141,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         url,
         sentryUrl,
         exceptionList: exceptionList || [],
-        fingerprintRecords: fingerprintRecords,
+        fingerprintRecords: fingerprintRecords || [],
         handled,
         level,
         ingestionErrors,
