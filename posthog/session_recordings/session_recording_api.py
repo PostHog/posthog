@@ -411,7 +411,11 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 context=self.get_serializer_context(),
             )
 
-            logger.info(f"list_recordings_response_successful", user_distinct_id=user_distinct_id)
+            logger.info(
+                "list_recordings_response_successful",
+                user_distinct_id=user_distinct_id,
+                headers=response.headers,
+            )
             return response
         except CHQueryErrorTooManySimultaneousQueries:
             raise Throttled(detail="Too many simultaneous queries. Try again later.")
