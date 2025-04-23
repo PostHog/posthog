@@ -7,10 +7,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::metric_consts::{
+    ASSIGNMENT_RULES_DISABLED, ASSIGNMENT_RULES_FOUND, ASSIGNMENT_RULES_PROCESSING_TIME,
+    ASSIGNMENT_RULES_TRIED, AUTO_ASSIGNMENTS,
+};
+
 use crate::{
     app_context::AppContext, error::UnhandledError, issue_resolution::Issue, types::OutputErrProps,
 };
-use crate::metric_consts::{ASSIGNMENT_RULES_DISABLED, ASSIGNMENT_RULES_FOUND, ASSIGNMENT_RULES_PROCESSING_TIME, ASSIGNMENT_RULES_TRIED, AUTO_ASSIGNMENTS};
 
 #[derive(Debug, Clone)]
 pub struct Assignment {
@@ -87,7 +91,7 @@ impl AssignmentRule {
         )
         .execute(conn)
         .await?;
-        
+
         metrics::counter!(ASSIGNMENT_RULES_DISABLED).increment(1);
         Ok(())
     }
@@ -148,7 +152,7 @@ pub async fn assign_issue(
             Ok(true) => {
                 timing.label("outcome", "match").fin();
                 metrics::counter!(AUTO_ASSIGNMENTS).increment(1);
-                return Ok(rule.apply(&context.pool, issue.id).await?)
+                return Ok(rule.apply(&context.pool, issue.id).await?);
             }
             Err(err) => {
                 rule.disable(
@@ -157,7 +161,7 @@ pub async fn assign_issue(
                     issue_json.clone(),
                     props_json.clone(),
                 )
-                    .await?
+                .await?
             }
         }
     }
@@ -185,7 +189,7 @@ pub fn try_rule(rule_bytecode: &Value, issue: &Value, props: &Value) -> Result<b
         .expect("Can construct a json object from a hashmap of String:JsonValue");
     let context = ExecutionContext::with_defaults(rule_bytecode).with_globals(globals);
     let mut vm = context.to_vm()?;
-    
+
     metrics::counter!(ASSIGNMENT_RULES_TRIED).increment(1);
 
     let mut i = 0;
