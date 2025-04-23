@@ -529,7 +529,7 @@ class ServerTimingsGathered:
 
     def to_header_string(self, hogql_timings: list[QueryTiming] | None = None) -> str:
         timings = self.generate_timings(hogql_timings).items()
-        result = []
+        result: list[str] = []
         current_length = 0
 
         for key, duration in timings:
