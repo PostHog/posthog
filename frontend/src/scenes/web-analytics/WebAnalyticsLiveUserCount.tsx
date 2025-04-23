@@ -24,19 +24,26 @@ const TooltipContent = (): JSX.Element | null => {
         return null
     }
 
-    const updatedAgoString =
-        liveUserUpdatedSecondsAgo === 0
-            ? ' (updated just now)'
-            : liveUserUpdatedSecondsAgo == null
-            ? ''
-            : ` (updated ${liveUserUpdatedSecondsAgo} seconds ago)`
-
     const usersOnlineString = `${humanFriendlyNumber(liveUserCount)} ${
         liveUserCount === 1 ? 'user has' : 'users have'
     } been seen recently`
     const inTeamString = currentTeam ? ` in ${currentTeam.name}` : ''
-    const tooltip = `${usersOnlineString}${inTeamString}${updatedAgoString}`
-    return <>{tooltip}</>
+    const updatedString =
+        liveUserUpdatedSecondsAgo === 0
+            ? 'updated just now'
+            : liveUserUpdatedSecondsAgo == null
+            ? ''
+            : `updated ${liveUserUpdatedSecondsAgo} seconds ago`
+
+    return (
+        <div>
+            <div>
+                {usersOnlineString}
+                {inTeamString}
+            </div>
+            {updatedString && <div>({updatedString})</div>}
+        </div>
+    )
 }
 
 export const WebAnalyticsLiveUserCount = (): JSX.Element | null => {
