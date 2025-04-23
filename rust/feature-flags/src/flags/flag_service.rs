@@ -227,7 +227,7 @@ mod tests {
                         groups: vec![FlagPropertyGroup {
                             properties: Some(vec![PropertyFilter {
                                 key: "country".to_string(),
-                                value: json!("US"),
+                                value: Some(json!("US")),
                                 operator: Some(OperatorType::Exact),
                                 prop_type: "person".to_string(),
                                 group_type_index: None,
@@ -274,7 +274,7 @@ mod tests {
                         groups: vec![FlagPropertyGroup {
                             properties: Some(vec![PropertyFilter {
                                 key: "is_premium".to_string(),
-                                value: json!(true),
+                                value: Some(json!(true)),
                                 operator: Some(OperatorType::Exact),
                                 prop_type: "person".to_string(),
                                 group_type_index: None,
