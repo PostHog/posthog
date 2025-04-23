@@ -12374,9 +12374,6 @@
                     "type": "array"
                 },
                 {
-                    "$ref": "#/definitions/ErrorTrackingIssueAssignee"
-                },
-                {
                     "type": "null"
                 }
             ]
