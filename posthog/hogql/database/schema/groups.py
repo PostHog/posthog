@@ -1,8 +1,10 @@
+from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
 
 from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
+    BooleanDatabaseField,
     LazyTable,
     IntegerDatabaseField,
     StringDatabaseField,
@@ -22,16 +24,20 @@ GROUPS_TABLE_FIELDS: dict[str, FieldOrTable] = {
     "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
     "updated_at": DateTimeDatabaseField(name="_timestamp", nullable=False),
     "properties": StringJSONDatabaseField(name="group_properties", nullable=False),
+    "is_deleted": BooleanDatabaseField(name="is_deleted", nullable=False),
 }
 
 
 def select_from_groups_table(requested_fields: dict[str, list[str | int]]):
-    return argmax_select(
+    select_query = argmax_select(
         table_name="raw_groups",
         select_fields=requested_fields,
         group_fields=["index", "key"],
         argmax_field="updated_at",
+        deleted_field="is_deleted",
     )
+
+    return select_query
 
 
 def join_with_group_n_table(group_index: int):
@@ -40,8 +46,6 @@ def join_with_group_n_table(group_index: int):
         context: HogQLContext,
         node: SelectQuery,
     ):
-        from posthog.hogql import ast
-
         if not join_to_add.fields_accessed:
             raise ResolutionError("No fields requested from person_distinct_ids")
 
