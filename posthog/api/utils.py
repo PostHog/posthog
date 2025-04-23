@@ -529,4 +529,4 @@ class ServerTimingsGathered:
     def to_header_string(self, hogql_timings: list[QueryTiming] | None = None):
         return ", ".join(
             f"{key};dur={round(duration, ndigits=2)}" for key, duration in self.generate_timings(hogql_timings).items()
-        )
+        )[:10000]  # limit to 10k characters (alb limit is 16k per header line, or 32k for all repsonse headers)
