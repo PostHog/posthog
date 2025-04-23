@@ -9,11 +9,11 @@ interface GridLinesProps {
 export function GridLines({ tickValues, valueToX, height }: GridLinesProps): JSX.Element {
     return (
         <>
-            {tickValues.map((value, index) => {
+            {tickValues.map((value) => {
                 const x = valueToX(value)
                 return (
                     <line
-                        key={index}
+                        key={value}
                         x1={x}
                         y1={0}
                         x2={x}
