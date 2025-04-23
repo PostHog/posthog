@@ -197,22 +197,18 @@ class TracesQueryRunner(QueryRunner):
     def _get_event_query(self) -> ast.SelectQuery:
         query = parse_select(
             """
-            WITH time_window AS (
-                SELECT min(timestamp) as min_timestamp
-                FROM (
-                    SELECT timestamp
-                    FROM events
-                    WHERE event IN (
-                        '$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback', '$ai_trace'
-                    )
-                    AND properties.$ai_trace_id IS NOT NULL
-                    AND {common_conditions}
-                    ORDER BY timestamp DESC
-                    LIMIT {pagination_limit}
-                )
+            WITH relevant_trace_ids AS (
+                SELECT $ai_trace_id as trace_id
+                FROM events
+                WHERE event IN ('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback', '$ai_trace')
+                  AND $ai_trace_id IS NOT NULL
+                  AND {common_conditions}
+                ORDER BY timestamp DESC
+                LIMIT 1 BY $ai_trace_id
+                LIMIT {pagination_limit}
             )
             SELECT
-                properties.$ai_trace_id AS id,
+                $ai_trace_id AS id,
                 min(timestamp) AS first_timestamp,
                 tuple(
                     argMin(person.id, timestamp),
@@ -223,7 +219,7 @@ class TracesQueryRunner(QueryRunner):
                 round(
                     sumIf(toFloat(properties.$ai_latency),
                           properties.$ai_parent_id IS NULL
-                          OR properties.$ai_parent_id = properties.$ai_trace_id
+                        OR properties.$ai_parent_id = properties.$ai_trace_id
                     ), 2
                 ) AS total_latency,
                 sumIf(toFloat(properties.$ai_input_tokens),
@@ -281,10 +277,9 @@ class TracesQueryRunner(QueryRunner):
             WHERE event IN (
                 '$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback', '$ai_trace'
             )
-              AND properties.$ai_trace_id IS NOT NULL
+              AND $ai_trace_id IN (SELECT trace_id FROM relevant_trace_ids)
               AND {common_conditions}
-              AND timestamp >= (SELECT min_timestamp FROM time_window)
-            GROUP BY properties.$ai_trace_id
+            GROUP BY $ai_trace_id
             ORDER BY first_timestamp DESC
             """,
         )
