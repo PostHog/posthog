@@ -69,7 +69,7 @@ def init_clickhouse_users() -> Mapping[ClickHouseUser, tuple[str, str]]:
     return user_dict
 
 
-def get_clickhouse_user(user: ClickHouseUser) -> tuple[str, str]:
+def get_clickhouse_creds(user: ClickHouseUser) -> tuple[str, str]:
     global __user_dict
     if not __user_dict:
         __user_dict = init_clickhouse_users()
@@ -184,7 +184,7 @@ def get_pool(
 
     Note that the same pool should be returned every call.
     """
-    (user, password) = __user_dict[ch_user] if ch_user in __user_dict else __user_dict[ClickHouseUser.DEFAULT]
+    (user, password) = get_clickhouse_creds(ch_user)
 
     if team_id is not None and str(team_id) in settings.CLICKHOUSE_PER_TEAM_SETTINGS:
         user_settings = settings.CLICKHOUSE_PER_TEAM_SETTINGS[str(team_id)]
