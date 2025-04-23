@@ -134,4 +134,4 @@ we're trying to identify what to work on
     logger.info("survey_summary_response", result=result)
 
     content: str = result.choices[0].message.content or ""
-    return {"content": content, "timings": timer.get_all_timings()}
+    return {"content": content, "timings_header": timer.to_header_string()}
