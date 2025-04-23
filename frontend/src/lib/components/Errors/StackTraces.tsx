@@ -1,6 +1,7 @@
 import './StackTraces.scss'
 
-import { LemonBadge, LemonCollapse, Tooltip } from '@posthog/lemon-ui'
+import { IconBox } from '@posthog/icons'
+import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -28,7 +29,7 @@ export type ExceptionHeaderProps = {
 function ExceptionHeader({ type, value, part }: ExceptionHeaderProps): JSX.Element {
     return (
         <div className="flex flex-col gap-0.5 mb-2">
-            <h3 className="StackTrace__type mb-0" title={type}>
+            <h3 className="StackTrace__type mb-0 flex items-center" title={type}>
                 {type}
                 {part && <FingerprintRecordPartDisplay className="ml-1" part={part} />}
             </h3>
@@ -158,11 +159,11 @@ function Trace({
                                 ) : null}
                             </div>
                         </div>
-                        <div className="flex gap-x-1 items-center">
+                        <div className="flex gap-x-1 items-center justify-end">
                             {part && <FingerprintRecordPartDisplay part={part} />}
-                            {in_app && (
-                                <Tooltip title="Non-library frame">
-                                    <LemonBadge size="small" status="warning" />
+                            {!in_app && (
+                                <Tooltip title="Vendor frame">
+                                    <IconBox className="mr-0.5" color="gray" fontSize={15} />
                                 </Tooltip>
                             )}
                             {!resolved && (
