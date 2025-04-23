@@ -576,7 +576,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return dashboard
                         ? {
                               ...state,
-                              // don't update filters if we're previewing
+                              // don't update filters if we're previewing or initial load with variables
                               ...(payload?.action === 'preview' || payload?.action === 'initial_load_with_variables'
                                   ? {}
                                   : dashboard.variables ?? {}),
@@ -605,7 +605,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     dashboard
                         ? {
                               ...state,
-                              // don't update filters if we're previewing
+                              // don't update filters if we're previewing or initial load with variables
                               ...(payload?.action === 'preview' || payload?.action === 'initial_load_with_variables'
                                   ? {}
                                   : dashboard.variables ?? {}),
