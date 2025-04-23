@@ -87,7 +87,7 @@ export function FeaturePreviews({ focusedFeatureFlagKey }: { focusedFeatureFlagK
             {rawEarlyAccessFeaturesLoading ? (
                 <SpinnerOverlay />
             ) : earlyAccessFeatures.length === 0 ? (
-                <i className="text-center">
+                <i className="text-center mt-2">
                     No feature previews currently available.
                     <br />
                     Check back later!
