@@ -1829,6 +1829,15 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
  */
 export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
+    revenueSources: RevenueSources
+}
+
+export interface RevenueSources {
+    // These represent the IDs we're interested in from the data warehouse sources
+    dataWarehouseSources: string[]
+
+    // This is a list of strings that represent the event names we're interested in
+    events: string[]
 }
 
 export interface RevenueAnalyticsOverviewQuery
