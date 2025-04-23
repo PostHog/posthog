@@ -12,6 +12,7 @@ pub struct EnteredTimestamp {
     pub excluded: bool,
     pub timings: Vec<f64>,
     pub uuids: Vec<Uuid>,
+    pub optional_steps: Vec<i8>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -34,7 +35,13 @@ pub struct Args {
 }
 
 #[derive(Serialize)]
-pub struct Result(pub i8, pub PropVal, pub Vec<f64>, pub Vec<Vec<Uuid>>);
+pub struct Result(
+    pub i8,
+    pub PropVal,
+    pub Vec<f64>,
+    pub Vec<Vec<Uuid>>,
+    pub Vec<i8>,
+);
 
 struct Vars {
     // The furthest step we've made it to, 1 indexed
@@ -55,6 +62,7 @@ const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     excluded: false,
     timings: vec![],
     uuids: vec![],
+    optional_steps: vec![],
 };
 
 pub fn process_line(line: &str) -> Value {
@@ -121,6 +129,7 @@ impl AggregateFunnelRow {
                 excluded: false,
                 timings: vec![],
                 uuids: vec![],
+                optional_steps: vec![],
             };
 
             if events_with_same_timestamp.len() == 1 {
@@ -177,7 +186,7 @@ impl AggregateFunnelRow {
 
         if final_value.excluded {
             self.results
-                .push(Result(-1, prop_val.clone(), vec![], vec![]));
+                .push(Result(-1, prop_val.clone(), vec![], vec![], vec![]));
             return;
         }
 
@@ -191,8 +200,6 @@ impl AggregateFunnelRow {
             //if event_uuids[i].len() >= MAX_REPLAY_EVENTS && !event_uuids[i].contains(&final_value.uuids[i]) {
             // Always put the actual event uuids first, we use it to extract timestamps
             // This might create duplicates, but that's fine (we can remove it in clickhouse)
-
-            // TODO: Here, this errors with an index out of bound with the optional steps - figure it out
             vars.event_uuids[i].insert(0, final_value.uuids[i].clone());
         }
 
@@ -205,6 +212,7 @@ impl AggregateFunnelRow {
                 .map(|w| w[1] - w[0])
                 .collect(),
             vars.event_uuids,
+            final_value.optional_steps.clone(),
         ))
     }
 
@@ -274,23 +282,21 @@ impl AggregateFunnelRow {
                         processing_multiple_events && previous_step.uuids.contains(&event.uuid);
 
                     if !is_unmatched_step_attribution && !already_used_event {
-                        /*
-                        t.extend(
-                            std::iter::repeat(event.timestamp)
-                                .take(step - previous_step_index - 1),
-                        );
-                        */
                         let mut t = previous_step.timings.clone();
                         let mut u = previous_step.uuids.clone();
+                        let mut optional_steps = previous_step.optional_steps.clone();
                         if !args.optional_steps.contains(&(step as i8)) {
                             t.push(event.timestamp);
                             u.push(event.uuid);
+                        } else {
+                            optional_steps.push(step as i8);
                         }
                         let new_entered_timestamp = EnteredTimestamp {
                             timestamp: previous_step.timestamp,
                             excluded: previous_step.excluded,
                             timings: t,
                             uuids: u,
+                            optional_steps: optional_steps,
                         };
 
                         if !previous_step.excluded {

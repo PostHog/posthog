@@ -20,6 +20,7 @@ const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     excluded: false,
     timings: vec![],
     uuids: vec![],
+    optional_steps: vec![],
 };
 
 impl AggregateFunnelRowUnordered {
@@ -85,6 +86,7 @@ impl AggregateFunnelRowUnordered {
                 .iter()
                 .map(|uuid| vec![*uuid])
                 .collect(),
+            vec![], // Unordered funnels don't have optional steps because they're all optional
         ));
     }
 
@@ -202,6 +204,7 @@ impl AggregateFunnelRowUnordered {
                     excluded: false,
                     timings,
                     uuids,
+                    optional_steps: vec![],
                 },
             );
         }

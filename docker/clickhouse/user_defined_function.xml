@@ -2,7 +2,7 @@
     <function>
         <type>executable_pool</type>
         <name>aggregate_funnel</name>
-        <return_type>Array(Tuple(Int8, Nullable(String), Array(Float64), Array(Array(UUID))))</return_type>
+        <return_type>Array(Tuple(Int8, Nullable(String), Array(Float64), Array(Array(UUID)), Array(Int8)))</return_type>
         <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
@@ -40,7 +40,7 @@
     <function>
         <type>executable_pool</type>
         <name>aggregate_funnel_cohort</name>
-        <return_type>Array(Tuple(Int8, UInt64, Array(Float64), Array(Array(UUID))))</return_type>
+        <return_type>Array(Tuple(Int8, UInt64, Array(Float64), Array(Array(UUID)), Array(Int8)))</return_type>
         <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
@@ -78,7 +78,7 @@
     <function>
         <type>executable_pool</type>
         <name>aggregate_funnel_array</name>
-        <return_type>Array(Tuple(Int8, Array(String), Array(Float64), Array(Array(UUID))))</return_type>
+        <return_type>Array(Tuple(Int8, Array(String), Array(Float64), Array(Array(UUID)), Array(Int8)))</return_type>
         <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
