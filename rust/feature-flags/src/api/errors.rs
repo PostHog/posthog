@@ -247,12 +247,15 @@ impl From<CustomDatabaseError> for FlagError {
 
 impl From<sqlx::Error> for FlagError {
     fn from(e: sqlx::Error) -> Self {
-        // TODO: Be more precise with error handling here
-        tracing::error!("sqlx error: {}", e);
-        println!("sqlx error: {}", e);
         match e {
-            sqlx::Error::RowNotFound => FlagError::RowNotFound,
-            _ => FlagError::DatabaseError(e.to_string()),
+            sqlx::Error::RowNotFound => {
+                tracing::error!("Row not found in database query");
+                FlagError::RowNotFound
+            }
+            _ => {
+                tracing::error!("Database error occurred: {}", e);
+                FlagError::DatabaseError(e.to_string())
+            }
         }
     }
 }

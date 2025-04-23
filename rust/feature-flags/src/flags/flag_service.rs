@@ -53,7 +53,8 @@ impl FlagService {
                         }
                         (Ok(token), false)
                     }
-                    Err(_) => {
+                    Err(e) => {
+                        tracing::error!("Token validation failed for token '{}': {:?}", token, e);
                         inc(
                             TOKEN_VALIDATION_ERRORS_COUNTER,
                             &[("reason".to_string(), "token_not_found".to_string())],
