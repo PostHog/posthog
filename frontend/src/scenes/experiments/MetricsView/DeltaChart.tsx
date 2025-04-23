@@ -35,6 +35,7 @@ type TooltipState = {
     emptyStateTooltipVisible: boolean
     setEmptyStateTooltipVisible: (visible: boolean) => void
     tooltipPosition: { x: number; y: number }
+    setTooltipPosition: (position: { x: number; y: number }) => void
 }
 
 // Context containing all necessary data for child components
@@ -396,13 +397,30 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
     } else if (resultsLoading) {
         return <ChartLoadingState height={chartHeight} />
     }
+    const { setEmptyStateTooltipVisible, setTooltipPosition } = useDeltaChartContext().tooltip
+
+    const handleErrorHover = (e: React.MouseEvent) => {
+        const rect = e.currentTarget.getBoundingClientRect()
+        setTooltipPosition({ x: rect.left + rect.width / 2, y: rect.top - 10 })
+        setEmptyStateTooltipVisible(true)
+    }
+
+    const handleErrorLeave = () => {
+        setEmptyStateTooltipVisible(false)
+    }
+
     return (
-        <ChartEmptyState
-            height={chartHeight}
-            experimentStarted={!!experiment.start_date}
-            hasMinimumExposure={hasMinimumExposureForResults}
-            error={error}
-        />
+        <div className="relative w-full max-w-screen">
+            <ChartEmptyState
+                height={chartHeight}
+                experimentStarted={!!experiment.start_date}
+                hasMinimumExposure={hasMinimumExposureForResults}
+                error={error}
+                onErrorHover={handleErrorHover}
+                onErrorLeave={handleErrorLeave}
+            />
+            <ChartTooltips />
+        </div>
     )
 }
 
@@ -462,8 +480,8 @@ export function DeltaChart({
 
     // Tooltip state
     const [tooltipData, setTooltipData] = useState<{ x: number; y: number; variant: string } | null>(null)
-    const [emptyStateTooltipVisible, setEmptyStateTooltipVisible] = useState(true)
-    const [tooltipPosition] = useState({ x: 0, y: 0 })
+    const [emptyStateTooltipVisible, setEmptyStateTooltipVisible] = useState(false)
+    const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
 
     // Value to X coordinate function
     const valueToX = (value: number): number => {
@@ -533,6 +551,7 @@ export function DeltaChart({
             emptyStateTooltipVisible,
             setEmptyStateTooltipVisible,
             tooltipPosition,
+            setTooltipPosition,
         },
     }
 

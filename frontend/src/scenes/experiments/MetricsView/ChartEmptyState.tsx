@@ -8,6 +8,8 @@ interface ChartEmptyStateProps {
     experimentStarted: boolean
     hasMinimumExposure: boolean
     error?: any
+    onErrorHover?: (e: React.MouseEvent) => void
+    onErrorLeave?: () => void
 }
 
 export function ChartEmptyState({
@@ -15,6 +17,8 @@ export function ChartEmptyState({
     experimentStarted,
     hasMinimumExposure,
     error,
+    onErrorHover,
+    onErrorLeave,
 }: ChartEmptyStateProps): JSX.Element {
     return (
         // eslint-disable-next-line react/forbid-dom-props
@@ -38,7 +42,13 @@ export function ChartEmptyState({
             ) : (
                 <div className="flex items-center justify-center text-secondary cursor-default text-[12px] font-normal">
                     {error?.hasDiagnostics ? (
-                        <LemonTag size="small" type="highlight" className="mr-2">
+                        <LemonTag
+                            size="small"
+                            type="highlight"
+                            className="mr-2 cursor-pointer"
+                            onMouseEnter={onErrorHover}
+                            onMouseLeave={onErrorLeave}
+                        >
                             <IconActivity className="mr-1" fontSize="1em" />
                             <span className="font-semibold">
                                 {(() => {
@@ -52,7 +62,13 @@ export function ChartEmptyState({
                             /<span className="font-semibold">{error.metricType === 'trend' ? '3' : '2'}</span>
                         </LemonTag>
                     ) : (
-                        <LemonTag size="small" type="danger" className="mr-1">
+                        <LemonTag
+                            size="small"
+                            type="danger"
+                            className="mr-1 cursor-pointer"
+                            onMouseEnter={onErrorHover}
+                            onMouseLeave={onErrorLeave}
+                        >
                             Error
                         </LemonTag>
                     )}
