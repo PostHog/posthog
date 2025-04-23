@@ -38,7 +38,7 @@ export function ChartModal({
             width={1200}
             title={`Metric results: ${metric.name || 'Untitled metric'}`}
             footer={
-                <LemonButton form="secondary-metric-modal-form" type="secondary" onClick={onClose}>
+                <LemonButton type="secondary" onClick={onClose}>
                     Close
                 </LemonButton>
             }
