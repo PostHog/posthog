@@ -30,6 +30,7 @@ import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-k
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { Celery } from './celery'
 import { DB } from './db'
+import { LRUTokenRestrictionCache } from './token-restriction-cache'
 import { PostgresRouter } from './postgres'
 import { createRedisPool } from './redis'
 
@@ -136,11 +137,18 @@ export async function createHub(
 
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
 
+    const tokenRestrictionCache = new LRUTokenRestrictionCache({
+        hitCacheSize: 1000,
+        missCacheSize: 1000,
+        ttlMs: 1000 * 60 * 60 * 24,
+    })
+
     const hub: Omit<Hub, 'legacyOneventCompareService'> = {
         ...serverConfig,
         instanceId,
         capabilities,
         db,
+        tokenRestrictionCache,
         postgres,
         redisPool,
         clickhouse,

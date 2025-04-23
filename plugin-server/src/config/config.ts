@@ -256,6 +256,7 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         PERSON_CACHE_ENABLED_FOR_UPDATES: true,
         PERSON_CACHE_ENABLED_FOR_CHECKS: true,
+        USE_DYNAMIC_TOKEN_RESTRICTION_CONFIG: false,
     }
 }
 

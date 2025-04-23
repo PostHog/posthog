@@ -22,6 +22,7 @@ import {
 } from '../types'
 import { normalizeEvent } from '../utils/event'
 import { parseJSON } from '../utils/json-parse'
+import { TokenRestrictionManager, RestrictionType } from '../utils/token-restriction-manager'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
@@ -91,8 +92,8 @@ export class IngestionConsumer {
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
-
     private personStore: MeasuringPersonsStore
+    private tokenRestrictionManager: TokenRestrictionManager
 
     constructor(
         private hub: Hub,
@@ -119,6 +120,7 @@ export class IngestionConsumer {
         this.tokenDistinctIdsToForceOverflow = hub.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
         )
+        this.tokenRestrictionManager = new TokenRestrictionManager(hub, {dropEventTokens: this.tokenDistinctIdsToDrop, skipPersonsTokens: this.tokenDistinctIdsToSkipPersons, forceOverflowTokens: this.tokenDistinctIdsToForceOverflow})
         this.testingTopic = overrides.INGESTION_CONSUMER_TESTING_TOPIC ?? hub.INGESTION_CONSUMER_TESTING_TOPIC
 
         this.name = `ingestion-consumer-${this.topic}`
@@ -246,6 +248,8 @@ export class IngestionConsumer {
         return existingBreadcrumbs
     }
 
+    // loop over all messages and parse them (need to check if they should be dropped, skipped)
+    // then we group them into distinct_id tokens
     public async handleKafkaBatch(messages: Message[]) {
         const parsedMessages = await this.runInstrumented('parseKafkaMessages', () => this.parseKafkaBatch(messages))
 
@@ -333,10 +337,12 @@ export class IngestionConsumer {
                 logger.warn('🪣', `Local overflow detection triggered on key ${eventKey}`)
             }
 
+
             // NOTE: If we are forcing to overflow we typically want to keep the partition key
             // If the event is marked for skipping persons however locality doesn't matter so we would rather have the higher throughput
             // of random partitioning.
-            const preserveLocality = shouldForceOverflow && !this.shouldSkipPerson(token, distinctId) ? true : undefined
+            const preserveLocality =
+                shouldForceOverflow && !this.shouldSkipPerson(token, distinctId) ? true : undefined
 
             void this.scheduleWork(
                 this.emitToOverflow(
@@ -492,7 +498,7 @@ export class IngestionConsumer {
         return new EventPipelineRunner(this.hub, event, this.hogTransformer, breadcrumbs, personsStoreForDistinctId)
     }
 
-    private parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
+    private async parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
         const batches: IncomingEventsByDistinctId = {}
 
         for (const message of messages) {
@@ -509,6 +515,10 @@ export class IngestionConsumer {
                 }
             })
 
+            if (token) {
+                await this.tokenRestrictionManager.primeRestrictionsCache(token)
+            }
+
             if (this.shouldDropEvent(token, distinctId)) {
                 this.logDroppedEvent(token, distinctId)
                 continue
@@ -521,7 +531,10 @@ export class IngestionConsumer {
                 ...combinedEvent,
             })
 
-            // In case the headers were not set we check the parsed message now
+            // In case the headers were not set we prime cache again, and check the parsed message now
+            if (event.token) {
+                await this.tokenRestrictionManager.primeRestrictionsCache(event.token)
+            }
             if (this.shouldDropEvent(combinedEvent.token, combinedEvent.distinct_id)) {
                 this.logDroppedEvent(combinedEvent.token, combinedEvent.distinct_id)
                 continue
@@ -551,7 +564,7 @@ export class IngestionConsumer {
             batches[eventKey].events.push({ message, event })
         }
 
-        return Promise.resolve(batches)
+        return batches
     }
 
     private logDroppedEvent(token?: string, distinctId?: string) {
@@ -568,24 +581,24 @@ export class IngestionConsumer {
     }
 
     private shouldDropEvent(token?: string, distinctId?: string) {
-        return (
-            (token && this.tokenDistinctIdsToDrop.includes(token)) ||
-            (token && distinctId && this.tokenDistinctIdsToDrop.includes(`${token}:${distinctId}`))
-        )
+        if (!token) {
+            return false
+        }
+        return this.tokenRestrictionManager.shouldDropEvent(token, distinctId)
     }
 
     private shouldSkipPerson(token?: string, distinctId?: string) {
-        return (
-            (token && this.tokenDistinctIdsToSkipPersons.includes(token)) ||
-            (token && distinctId && this.tokenDistinctIdsToSkipPersons.includes(`${token}:${distinctId}`))
-        )
+        if (!token) {
+            return false
+        }
+        return this.tokenRestrictionManager.shouldSkipPerson(token, distinctId)
     }
 
     private shouldForceOverflow(token?: string, distinctId?: string) {
-        return (
-            (token && this.tokenDistinctIdsToForceOverflow.includes(token)) ||
-            (token && distinctId && this.tokenDistinctIdsToForceOverflow.includes(`${token}:${distinctId}`))
-        )
+        if (!token) {
+            return false
+        }
+        return this.tokenRestrictionManager.shouldForceOverflow(token, distinctId)
     }
 
     private overflowEnabled() {

@@ -37,6 +37,7 @@ import { RustyHook } from './worker/rusty-hook'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { PluginInstance } from './worker/vm/lazy'
+import { TokenRestrictionCache } from './utils/db/token-restriction-cache'
 
 export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
@@ -336,9 +337,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PROPERTY_DEFS_WRITE_DISABLED: boolean
 
     CDP_HOG_WATCHER_SAMPLE_RATE: number
-
     // for enablement/sampling of expensive person JSONB sizes; value in [0,1]
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
+    USE_DYNAMIC_TOKEN_RESTRICTION_CONFIG: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -383,6 +384,7 @@ export interface Hub extends PluginsServerConfig {
 
     legacyOneventCompareService: LegacyOneventCompareService
     cookielessManager: CookielessManager
+    tokenRestrictionCache: TokenRestrictionCache
 }
 
 export interface PluginServerCapabilities {
