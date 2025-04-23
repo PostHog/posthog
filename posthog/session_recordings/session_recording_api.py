@@ -400,6 +400,10 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         return recording
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        logger.error(
+            "list_recordings_response_started",
+        )
+
         user_distinct_id = cast(User, request.user).distinct_id
 
         try:
