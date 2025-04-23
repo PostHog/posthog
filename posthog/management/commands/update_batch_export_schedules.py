@@ -1,5 +1,4 @@
 import logging
-import time
 
 import structlog
 from django.conf import settings
@@ -50,7 +49,7 @@ class Command(BaseCommand):
                 query_set = query_set.filter(destination__type=options["destination_type"])
 
             if options["team_id"]:
-                query_set = query_set.filter(team_id=int(options["team_id"]))
+                query_set = query_set.filter(team_id=options["team_id"])
 
             batch_exports = list(query_set)
         else:
@@ -68,8 +67,5 @@ class Command(BaseCommand):
 
         for batch_export in batch_exports:
             self._update_batch_export_schedule(batch_export)
-            if not settings.TEST:
-                # add a small delay to avoid flooding Temporal with requests
-                time.sleep(0.5)
 
         logger.info("Done!")
