@@ -4,10 +4,11 @@
 
 import { CyclotronJob, CyclotronManager, CyclotronWorker } from '@posthog/cyclotron'
 import { chunk } from 'lodash'
+import { Message } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import { BatchConsumer, startBatchConsumer } from '../../kafka/batch-consumer'
-import { createRdConnectionConfigFromEnvVars } from '../../kafka/config'
+import { KafkaConsumer } from '../../kafka/batch-consumer-v2'
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
 import { HogFunctionInvocation, HogFunctionInvocationJobQueue, HogFunctionInvocationResult } from '../types'
@@ -41,8 +42,8 @@ export class CyclotronJobQueue {
     private implementation: 'cyclotron' | 'kafka' = 'cyclotron'
     private cyclotronWorker?: CyclotronWorker
     private cyclotronManager?: CyclotronManager
-    private kafkaConsumer?: BatchConsumer
-    private heartbeat?: () => void
+    private kafkaConsumer?: KafkaConsumer
+    private kafkaProducer?: KafkaProducerWrapper
 
     constructor(
         private hub: Hub,
@@ -59,6 +60,8 @@ export class CyclotronJobQueue {
     public async startAsProducer() {
         if (this.implementation === 'cyclotron') {
             await this.startCyclotronManager()
+        } else {
+            await this.startKafkaProducer()
         }
     }
 
@@ -68,6 +71,9 @@ export class CyclotronJobQueue {
         }
         if (this.implementation === 'cyclotron') {
             await this.startCyclotronWorker()
+        } else {
+            await this.startKafkaProducer()
+            await this.startKafkaConsumer()
         }
     }
 
@@ -226,9 +232,8 @@ export class CyclotronJobQueue {
             invocations.push(invocation)
         }
 
-        await this.consumeBatch!(invocations)
+        await Promise.all([this.consumeBatch!(invocations), ...failReleases])
 
-        await Promise.all(failReleases)
         counterJobsProcessed.inc({ queue: this.queue }, jobs.length)
     }
 
@@ -263,43 +268,93 @@ export class CyclotronJobQueue {
     // KAFKA
 
     private async startKafkaConsumer() {
-        this.kafkaConsumer = await startBatchConsumer({
-            topic: 'topic',
-            groupId: 'group',
-            connectionConfig: createRdConnectionConfigFromEnvVars(this.hub, 'consumer'),
-            autoCommit: true,
-            sessionTimeout: this.hub.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS,
-            maxPollIntervalMs: this.hub.KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS,
-            // the largest size of a message that can be fetched by the consumer.
-            // the largest size our MSK cluster allows is 20MB
-            // we only use 9 or 10MB but there's no reason to limit this 🤷️
-            consumerMaxBytes: this.hub.KAFKA_CONSUMPTION_MAX_BYTES,
-            consumerMaxBytesPerPartition: this.hub.KAFKA_CONSUMPTION_MAX_BYTES_PER_PARTITION,
-            // our messages are very big, so we don't want to buffer too many
-            // queuedMinMessages: this.hub.KAFKA_QUEUE_SIZE,
-            consumerMaxWaitMs: this.hub.KAFKA_CONSUMPTION_MAX_WAIT_MS,
-            consumerErrorBackoffMs: this.hub.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
-            fetchBatchSize: this.hub.INGESTION_BATCH_SIZE,
-            batchingTimeoutMs: this.hub.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
-            topicCreationTimeoutMs: this.hub.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
-            topicMetadataRefreshInterval: this.hub.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
-            eachBatch: async (messages, { heartbeat }) => {
-                this.heartbeat = heartbeat
+        const groupId = `cdp-${this.queue}-consumer`
+        const topic = `cdp-${this.queue}`
 
-                // histogramKafkaBatchSize.observe(messages.length)
-                // histogramKafkaBatchSizeKb.observe(messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024)
+        // TODO: All of this
+        this.kafkaConsumer = new KafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true })
 
-                await this.consumeKafkaBatch(messages)
-            },
-            callEachBatchWhenEmpty: true,
+        await this.kafkaConsumer.connect(async (messages) => {
+            await this.consumeKafkaBatch(messages)
         })
+    }
 
-        /// TODO: Improve this with signals to the node process
-        // this.kafkaConsumer.consumer.on('disconnected', async (err) => {
-        //     // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
-        //     // we need to listen to disconnect and make sure we're stopped
-        //     logger.info('🔁', `${this.name} batch consumer disconnected, cleaning up`, { err })
-        //     await this.stop()
+    private async startKafkaProducer() {
+        // TODO: All of this
+
+        this.kafkaProducer = await KafkaProducerWrapper.create(this.config)
+    }
+
+    private async createKafkaJobs(invocations: HogFunctionInvocation[]) {
+        // For the cyclotron ones we simply create the jobs
+        // const cyclotronJobs = invocations.map((item) => {
+        //     return {
+        //         teamId: item.globals.project.id,
+        //         functionId: item.hogFunction.id,
+        //         queueName: isLegacyPluginHogFunction(item.hogFunction) ? 'plugin' : 'hog',
+        //         priority: item.queuePriority,
+        //         vmState: serializeHogFunctionInvocation(item),
+        //     }
         // })
+        // try {
+        //     histogramCyclotronJobsCreated.observe(cyclotronJobs.length)
+        //     // Cyclotron batches inserts into one big INSERT which can lead to contention writing WAL information hence we chunk into batches
+        //     const chunkedCyclotronJobs = chunk(cyclotronJobs, this.hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
+        //     if (this.hub.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
+        //         // NOTE: It's not super clear the perf tradeoffs of doing this in parallel hence the config option
+        //         await Promise.all(chunkedCyclotronJobs.map((jobs) => cyclotronManager.bulkCreateJobs(jobs)))
+        //     } else {
+        //         for (const jobs of chunkedCyclotronJobs) {
+        //             await cyclotronManager.bulkCreateJobs(jobs)
+        //         }
+        //     }
+        // } catch (e) {
+        //     logger.error('⚠️', 'Error creating cyclotron jobs', e)
+        //     logger.warn('⚠️', 'Failed jobs', { jobs: cyclotronJobs })
+        //     throw e
+        // }
+    }
+
+    private async consumeKafkaBatch(messages: Message[]) {
+        cyclotronBatchUtilizationGauge
+            .labels({ queue: this.queue })
+            .set(messages.length / this.hub.CDP_CYCLOTRON_BATCH_SIZE)
+
+        const invocations: HogFunctionInvocation[] = []
+        const hogFunctionIds: string[] = []
+
+        // Parse all the messages into invocations
+        for (const message of messages) {
+            if (!message.value) {
+                throw new Error('Bad message: ' + JSON.stringify(message))
+            }
+
+            hogFunctionIds.push(job.functionId)
+        }
+
+        const hogFunctions = await this.hogFunctionManager.getHogFunctions(hogFunctionIds)
+
+        for (const job of jobs) {
+            // NOTE: This is all a bit messy and might be better to refactor into a helper
+            const hogFunction = hogFunctions[job.functionId!]
+
+            if (!hogFunction) {
+                // Here we need to mark the job as failed
+
+                logger.error('⚠️', 'Error finding hog function', {
+                    id: job.functionId,
+                })
+                worker.updateJob(job.id, 'failed')
+                failReleases.push(worker.releaseJob(job.id))
+                continue
+            }
+
+            const invocation = cyclotronJobToInvocation(job, hogFunction)
+            invocations.push(invocation)
+        }
+
+        await Promise.all([this.consumeBatch!(invocations), ...failReleases])
+
+        counterJobsProcessed.inc({ queue: this.queue }, jobs.length)
     }
 }
