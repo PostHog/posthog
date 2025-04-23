@@ -26,7 +26,6 @@ import {
     startAsyncWebhooksHandlerConsumer,
 } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
-import { DefaultBatchConsumerFactory } from './main/ingestion-queues/session-recording-v2/batch-consumer-factory'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
 import { setupCommonRoutes } from './router'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
@@ -192,16 +191,9 @@ export class PluginServer {
             if (capabilities.sessionRecordingBlobIngestionV2) {
                 serviceLoaders.push(async () => {
                     const postgres = hub?.postgres ?? new PostgresRouter(this.config)
-                    const batchConsumerFactory = new DefaultBatchConsumerFactory(this.config)
                     const producer = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(this.config))
 
-                    const ingester = new SessionRecordingIngesterV2(
-                        this.config,
-                        false,
-                        postgres,
-                        batchConsumerFactory,
-                        producer
-                    )
+                    const ingester = new SessionRecordingIngesterV2(this.config, false, postgres, producer)
                     await ingester.start()
                     return ingester.service
                 })
@@ -210,16 +202,9 @@ export class PluginServer {
             if (capabilities.sessionRecordingBlobIngestionV2Overflow) {
                 serviceLoaders.push(async () => {
                     const postgres = hub?.postgres ?? new PostgresRouter(this.config)
-                    const batchConsumerFactory = new DefaultBatchConsumerFactory(this.config)
                     const producer = hub?.kafkaProducer ?? (await KafkaProducerWrapper.create(this.config))
 
-                    const ingester = new SessionRecordingIngesterV2(
-                        this.config,
-                        true,
-                        postgres,
-                        batchConsumerFactory,
-                        producer
-                    )
+                    const ingester = new SessionRecordingIngesterV2(this.config, true, postgres, producer)
                     await ingester.start()
                     return ingester.service
                 })
