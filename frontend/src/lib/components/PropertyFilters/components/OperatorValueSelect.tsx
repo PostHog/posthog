@@ -37,7 +37,7 @@ export interface OperatorValueSelectProps {
     defaultOpen?: boolean
     addRelativeDateTimeOptions?: boolean
     groupTypeIndex?: GroupTypeIndex
-    size: LemonButtonProps['size']
+    size?: LemonButtonProps['size']
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
