@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useEffect } from 'react'
-import { AssigneeSelect } from 'scenes/error-tracking/AssigneeSelect'
 
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
@@ -11,7 +10,7 @@ import { errorTrackingAutoAssignmentLogic } from './errorTrackingAutoAssignmentL
 
 export function ErrorTrackingAutoAssignment(): JSX.Element {
     const { assignmentRules, hasNewRule } = useValues(errorTrackingAutoAssignmentLogic)
-    const { loadRules, addRule, updateRule, createRule } = useActions(errorTrackingAutoAssignmentLogic)
+    const { loadRules, addRule, updateRule } = useActions(errorTrackingAutoAssignmentLogic)
 
     useEffect(() => {
         loadRules()
@@ -23,14 +22,10 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
                 <LemonCard key={rule.id} hoverEffect={false} className="flex flex-col p-0">
                     <div className="flex gap-2 items-center px-2 py-3">
                         <div>Assign to</div>
-                        <AssigneeSelect
-                            showName
-                            type="secondary"
-                            size="small"
-                            unassignedLabel="Choose"
+                        {/* <AssigneeSelect -- TODO @david
                             assignee={rule.assignee}
                             onChange={(assignee) => updateRule({ ...rule, assignee })}
-                        />
+                        /> */}
                         <div>when</div>
                         <LemonSelect
                             size="small"
@@ -60,7 +55,7 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
             ))}
 
             <div>
-                <LemonButton type="secondary" size="small" onClick={hasNewRule ? createRule : addRule}>
+                <LemonButton type="secondary" size="small" onClick={addRule}>
                     {`${hasNewRule ? 'Save' : 'Add'} rule`}
                 </LemonButton>
             </div>

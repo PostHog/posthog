@@ -2,10 +2,7 @@ import { LemonButtonProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
-import {
-    PropertyDatePickerValue,
-    PropertyFilterDatePicker,
-} from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
+import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -17,7 +14,6 @@ import {
     PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS,
     propertyDefinitionsModel,
 } from '~/models/propertyDefinitionsModel'
-import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
 import { GroupTypeIndex, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
 export interface PropertyValueProps {
@@ -26,7 +22,7 @@ export interface PropertyValueProps {
     endpoint?: string // Endpoint to fetch options from
     placeholder?: string
     onSet: CallableFunction
-    value?: string | number | bigint | Array<string | number | bigint> | ErrorTrackingIssueAssignee | null
+    value?: string | number | bigint | Array<string | number | bigint> | null // | ErrorTrackingIssueAssignee TODO - @david
     operator: PropertyOperator
     autoFocus?: boolean
     eventNames?: string[]
@@ -118,12 +114,7 @@ export function PropertyValue({
     if (isDateTimeProperty) {
         if (!addRelativeDateTimeOptions || operator === PropertyOperator.IsDateExact) {
             return (
-                <PropertyFilterDatePicker
-                    autoFocus={autoFocus}
-                    operator={operator}
-                    value={value as PropertyDatePickerValue}
-                    setValue={setValue}
-                />
+                <PropertyFilterDatePicker autoFocus={autoFocus} operator={operator} value={value} setValue={setValue} />
             )
         }
 
