@@ -175,6 +175,5 @@ export const urls = {
     messagingLibraryTemplateNew: (): string => '/messaging/library/template/new',
     messagingLibraryMessage: (id: string): string => `/messaging/library/message/${id}`,
     messagingLibraryMessageNew: (): string => '/messaging/library/message/new',
-    insightAlertDestination: (id: string): string => `/insights/alerts/destinations/${id}`,
     startups: (ycProgram?: boolean): string => `/startups${ycProgram ? '/yc' : ''}`,
 }

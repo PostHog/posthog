@@ -178,7 +178,6 @@ SUB_TEMPLATE_COMMON: dict[SubTemplateId, HogFunctionSubTemplate] = {
     "insight-alert-firing": HogFunctionSubTemplate(
         id="insight-alert-firing",
         name="Insight alert firing",
-        type="internal_destination",
         filters={"events": [{"id": "$insight_alert_firing", "type": "events"}]},
     ),
 }

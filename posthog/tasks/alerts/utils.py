@@ -2,7 +2,7 @@ from dateutil.relativedelta import relativedelta, MO
 from django.utils import timezone
 import pytz
 
-from datetime import datetime, UTC
+from datetime import datetime
 import structlog
 
 from posthog.email import EmailMessage
@@ -116,74 +116,52 @@ def next_check_time(alert: AlertConfiguration) -> datetime:
             raise ValueError(f"Invalid alert calculation interval: {alert.calculation_interval}")
 
 
-def trigger_alert_hog_functions(alert: AlertConfiguration, event_name: str, properties: dict) -> None:
+def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> None:
     """Trigger all HogFunctions linked to the alert as notification destinations by producing an internal event."""
-    invocation_globals = {
-        "alert": {
-            "id": str(alert.id),
-            "name": alert.name,
-            "insight_id": str(alert.insight_id),
-            "insight_short_id": alert.insight.short_id,
+
+    logger.info(
+        "Triggering internal event for alert destinations/hog functions",
+        alert_id=alert.id,
+        properties=properties,
+    )
+
+    try:
+        props = {
+            "alert_id": str(alert.id),
+            "alert_name": alert.name,
+            "insight_name": alert.insight.name,
+            "insight_id": alert.insight.short_id,
             "state": alert.state,
             "last_checked_at": alert.last_checked_at.isoformat() if alert.last_checked_at else None,
-        },
-        "event": {
-            "event": event_name,
-            "properties": {
-                "$alert_id": str(alert.id),
-                "$alert_name": alert.name,
-                **properties,
-            },
-            "timestamp": datetime.now(UTC).isoformat(),
-        },
-        "team_id": alert.team_id,
-    }
+            **properties,
+        }
 
-    for hog_function in alert.notification_destinations.filter(enabled=True):
-        logger.info(
-            "Triggering HogFunction for alert notification via internal event",
-            alert_id=alert.id,
-            hog_function_id=hog_function.id,
-            hog_function_name=hog_function.name,
-            event_name=event_name,
+        produce_internal_event(
+            team_id=alert.team_id,
+            event=InternalEventEvent(
+                event="$insight_alert_firing",
+                distinct_id="team_{alert.team_id}",
+                properties=props,
+            ),
         )
-        try:
-            internal_event_properties = {
-                "hog_function_id": str(hog_function.id),
-                "globals": invocation_globals,
-                "mock_async_functions": False,  # Ensure this is false for production
-            }
 
-            internal_event = InternalEventEvent(
-                event="$trigger_hog_function",
-                properties=internal_event_properties,
-            )
-
-            produce_internal_event(
-                team_id=alert.team_id,
-                event=internal_event,
-            )
-
-        except Exception as e:
-            capture_exception(
-                e,
-                tags={
-                    "alert_id": str(alert.id),
-                    "hog_function_id": str(hog_function.id),
-                    "feature": "alert-hog-function-trigger",
-                },
-            )
-            logger.error(
-                "Failed to produce internal event for HogFunction trigger",
-                alert_id=alert.id,
-                hog_function_id=hog_function.id,
-                error=str(e),
-                exc_info=True,
-            )
+    except Exception as e:
+        capture_exception(
+            e,
+            additional_properties={
+                "alert_id": str(alert.id),
+                "feature": "alerts",
+            },
+        )
+        logger.error(
+            "Failed to produce internal event for alert destinations/hog functions",
+            alert_id=alert.id,
+            error=str(e),
+            exc_info=True,
+        )
 
 
 def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str]) -> None:
-    # first send email if configured
     email_targets = alert.subscribed_users.all().values_list("email", flat=True)
     if email_targets:
         subject = f"PostHog alert {alert.name} is firing"
@@ -209,7 +187,7 @@ def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[st
         logger.info(f"Send notifications about {len(breaches)} anomalies", alert_id=alert.id)
         message.send()
 
-    trigger_alert_hog_functions(alert=alert, event_name="$alert_fired", properties={"$alert_breaches": breaches})
+    trigger_alert_hog_functions(alert=alert, properties={"breaches": breaches})
 
 
 def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> None:
@@ -237,10 +215,3 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> Non
     #     message.add_recipient(email=target)
 
     # message.send()
-
-    # # Trigger Hog Function destinations
-    # trigger_alert_hog_functions(
-    #     alert=alert,
-    #     event_name="$alert_check_error",
-    #     properties={"$alert_error": str(error.get("message", "Unknown error"))},
-    # )

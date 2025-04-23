@@ -79,13 +79,6 @@ class AlertConfiguration(CreatedMetaFields, UUIDModel):
         related_name="alert_configurations",
     )
 
-    notification_destinations = models.ManyToManyField(
-        "posthog.HogFunction",
-        related_name="alert_configurations_notifications",
-        blank=True,
-        help_text="Hog functions to trigger when the alert is fired",
-    )
-
     # insight specific config for the alert
     config = models.JSONField(default=dict, null=True, blank=True)
 

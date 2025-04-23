@@ -7,8 +7,6 @@ export function hogFunctionNewUrl(type: HogFunctionTypeType, template?: string):
         ? urls.messagingBroadcastNew()
         : type === 'internal_destination' && template?.includes('error-tracking')
         ? urls.errorTrackingAlert(template)
-        : type === 'internal_destination' && template?.includes('insight-alert-firing')
-        ? urls.insightAlertDestination(template)
         : urls.pipelineNodeNew(hogFunctionTypeToPipelineStage(type), { id: template ? `hog-${template}` : undefined })
 }
 
@@ -24,8 +22,6 @@ export function hogFunctionUrl(
         return id ? urls.messagingCampaign(id) : urls.messagingCampaigns()
     } else if (type === 'internal_destination' && template?.includes('error-tracking')) {
         return id ? urls.errorTrackingAlert(id) : urls.errorTrackingConfiguration()
-    } else if (type === 'internal_destination' && template?.includes('insight-alert-firing')) {
-        return id ? urls.insightAlertDestination(id) : urls.insights()
     }
     return id
         ? urls.pipelineNode(

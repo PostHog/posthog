@@ -14,6 +14,7 @@ export type SubTemplateId =
     | 'activity-log'
     | 'error-tracking-issue-created'
     | 'error-tracking-issue-reopened'
+    | 'insight-alert-firing'
 
 export type HogFunctionSubTemplate = {
     id: SubTemplateId
@@ -98,5 +99,17 @@ export const SUB_TEMPLATE_COMMON: Record<SubTemplateId, HogFunctionSubTemplate> 
         type: 'internal_destination',
         free: true,
         filters: { events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] },
+    },
+    'insight-alert-firing': {
+        id: 'insight-alert-firing',
+        name: 'Insight Alert Firing',
+        filters: {
+            events: [
+                {
+                    id: '$insight_alert_firing',
+                    type: 'events',
+                },
+            ],
+        },
     },
 }

@@ -303,10 +303,6 @@ if (res.status != 200 or res.body.ok == false) {
                         },
                         {"type": "section", "text": {"type": "plain_text", "text": "Alert triggered"}},
                         {
-                            "type": "section",
-                            "text": {"type": "mrkdwn", "text": "```{event.properties.alert_description}```"},
-                        },
-                        {
                             "type": "context",
                             "elements": [
                                 {"type": "mrkdwn", "text": "Project: <{project.url}|{project.name}>"},
@@ -325,11 +321,9 @@ if (res.status != 200 or res.body.ok == false) {
                             ],
                         },
                     ],
-                    "hidden": True,
                 },
                 "text": {
                     "default": "Alert triggered: {event.properties.insight_name}",
-                    "hidden": True,
                 },
             },
         ),

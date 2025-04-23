@@ -358,12 +358,7 @@ export function EditAlertModal({
                                 </div>
                                 <div className="deprecated-space-y-5">
                                     <div className="flex flex-col">
-                                        <AlertDestinationSelector
-                                            selectedDestinationIds={alertForm.notification_destinations ?? []}
-                                            setSelectedDestinationIds={(value) => {
-                                                setAlertFormValue('notification_destinations', value)
-                                            }}
-                                        />
+                                        <AlertDestinationSelector alertId={alertId} />
                                     </div>
                                 </div>
                             </div>
@@ -394,7 +389,7 @@ export function EditAlertModal({
                                                                 />
                                                             </LemonField>
                                                             <Tooltip
-                                                                title={`Checks the insight value for the on going period (current week/month) that hasn't yet completed. Use this if you want to be alerted right away when the insight value rises/increases above threshold`}
+                                                                title={`Checks the insight value for the ongoing period (current week/month) that hasn't yet completed. Use this if you want to be alerted right away when the insight value rises/increases above threshold`}
                                                                 placement="right"
                                                                 delayMs={0}
                                                             >
