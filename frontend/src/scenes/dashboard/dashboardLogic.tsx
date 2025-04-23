@@ -223,6 +223,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             refresh?: RefreshType
             action:
                 | 'initial_load'
+                | 'initial_load_with_variables'
                 | 'update'
                 | 'refresh'
                 | 'load_missing'
@@ -571,14 +572,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 },
                 resetVariables: (_, { variables }) => ({ ...variables }),
-                loadDashboardSuccess: (state, { dashboard, payload }) =>
-                    dashboard
+                loadDashboardSuccess: (state, { dashboard, payload }) => {
+                    return dashboard
                         ? {
                               ...state,
                               // don't update filters if we're previewing
-                              ...(payload?.action === 'preview' ? {} : dashboard.variables ?? {}),
+                              ...(payload?.action === 'preview' || payload?.action === 'initial_load_with_variables'
+                                  ? {}
+                                  : dashboard.variables ?? {}),
                           }
-                        : state,
+                        : state
+                },
             },
         ],
         urlVariables: [
@@ -602,7 +606,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         ? {
                               ...state,
                               // don't update filters if we're previewing
-                              ...(payload?.action === 'preview' ? {} : dashboard.variables ?? {}),
+                              ...(payload?.action === 'preview' || payload?.action === 'initial_load_with_variables'
+                                  ? {}
+                                  : dashboard.variables ?? {}),
                           }
                         : state,
             },
@@ -1713,7 +1719,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (QUERY_VARIABLES_KEY in router.values.searchParams) {
                 actions.loadDashboard({
                     refresh: 'lazy_async',
-                    action: 'initial_load',
+                    action: 'initial_load_with_variables',
                 })
             }
 
@@ -1773,7 +1779,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             return [
                 currentLocation.pathname,
-                { ...encodeURLVariables(newUrlVariables), ...newSearchParams },
+                { ...newSearchParams, ...encodeURLVariables(newUrlVariables) },
                 currentLocation.hashParams,
             ]
         },
