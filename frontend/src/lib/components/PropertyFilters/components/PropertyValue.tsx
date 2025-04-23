@@ -11,7 +11,6 @@ import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 import { useEffect } from 'react'
-import { AssigneeSelect } from 'scenes/error-tracking/AssigneeSelect'
 
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
@@ -66,8 +65,9 @@ export function PropertyValue({
     const isDurationProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Duration
 
-    const isAssigneeProperty =
-        propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
+    // TODO - @david
+    // const isAssigneeProperty =
+    //     propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
 
     const load = (newInput: string | undefined): void => {
         loadPropertyValues({
@@ -96,19 +96,20 @@ export function PropertyValue({
         }
     }
 
-    if (isAssigneeProperty) {
-        return (
-            <AssigneeSelect
-                showName
-                type="secondary"
-                fullWidth
-                allowRemoval={false}
-                size={size}
-                assignee={value as ErrorTrackingIssueAssignee}
-                onChange={setValue}
-            />
-        )
-    }
+    // TODO - @david
+    // if (isAssigneeProperty) {
+    //     return (
+    //         <AssigneeSelect
+    //             showName
+    //             type="secondary"
+    //             fullWidth
+    //             allowRemoval={false}
+    //             size={size}
+    //             assignee={value as ErrorTrackingIssueAssignee}
+    //             onChange={setValue}
+    //         />
+    //     )
+    // }
 
     if (isDurationProperty) {
         return <DurationPicker autoFocus={autoFocus} value={value as number} onChange={setValue} />
