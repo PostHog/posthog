@@ -41,7 +41,9 @@ class HogQLGeneratorTool(MaxTool):
                 + "\n".join(f"- {field.name} ({field.type})" for field in table.fields.values())
                 for table_name, table in serialized_database.items()
                 # Only the most important core tables, plus all warehouse tables
-                if table_name in ["events", "groups", "persons"] or table_name in database.get_warehouse_tables()
+                if table_name in ["events", "groups", "persons"]
+                or table_name in database.get_warehouse_tables()
+                or table_name in database.get_views()
             )
         )
 
@@ -96,4 +98,6 @@ class HogQLGeneratorTool(MaxTool):
                 # The "no viable alternative" ANTLR error is horribly unhelpful, both for humans and LLMs
                 err_msg = f'This is not valid parsable SQL! The last 5 characters where we tripped up were "{result.query[-5:]}".'
             raise PydanticOutputParserException(llm_output=result.query, validation_message=err_msg)
+        except Exception as e:
+            raise PydanticOutputParserException(llm_output=result.query, validation_message=str(e))
         return result.query

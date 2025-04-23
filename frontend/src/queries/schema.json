@@ -369,7 +369,7 @@
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQuery"
                 },
                 {
-                    "$ref": "#/definitions/RevenueAnalyticsChurnRateQuery"
+                    "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
                 },
                 {
                     "$ref": "#/definitions/WebOverviewQuery"
@@ -418,6 +418,9 @@
                 },
                 {
                     "$ref": "#/definitions/VectorSearchQuery"
+                },
+                {
+                    "$ref": "#/definitions/WebActiveHoursHeatMapQuery"
                 }
             ]
         },
@@ -3677,69 +3680,6 @@
             ],
             "type": "object"
         },
-        "CachedRevenueAnalyticsChurnRateQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "cache_key": {
-                    "type": "string"
-                },
-                "cache_target_age": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "calculation_trigger": {
-                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
-                    "type": "string"
-                },
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "is_cached": {
-                    "type": "boolean"
-                },
-                "last_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "next_allowed_client_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "results": {},
-                "timezone": {
-                    "type": "string"
-                },
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": [
-                "cache_key",
-                "is_cached",
-                "last_refresh",
-                "next_allowed_client_refresh",
-                "results",
-                "timezone"
-            ],
-            "type": "object"
-        },
         "CachedRevenueAnalyticsGrowthRateQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -3753,6 +3693,12 @@
                 "calculation_trigger": {
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
+                },
+                "columns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -3850,6 +3796,75 @@
                     },
                     "type": "array"
                 },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedRevenueAnalyticsTopCustomersQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "columns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {},
                 "timezone": {
                     "type": "string"
                 },
@@ -4562,6 +4577,77 @@
                 },
                 "results": {
                     "$ref": "#/definitions/VectorSearchResponse"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedWebActiveHoursHeatMapQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/WebActiveHoursHeatMapStructuredResult"
                 },
                 "timezone": {
                     "type": "string"
@@ -6202,6 +6288,45 @@
                         {
                             "additionalProperties": false,
                             "properties": {
+                                "error": {
+                                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                                    "type": "string"
+                                },
+                                "hasMore": {
+                                    "type": "boolean"
+                                },
+                                "hogql": {
+                                    "description": "Generated HogQL query.",
+                                    "type": "string"
+                                },
+                                "limit": {
+                                    "$ref": "#/definitions/integer"
+                                },
+                                "modifiers": {
+                                    "$ref": "#/definitions/HogQLQueryModifiers",
+                                    "description": "Modifiers used when performing the query"
+                                },
+                                "query_status": {
+                                    "$ref": "#/definitions/QueryStatus",
+                                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "results": {
+                                    "$ref": "#/definitions/WebActiveHoursHeatMapStructuredResult"
+                                },
+                                "timings": {
+                                    "description": "Measured timings for different parts of the query generation process",
+                                    "items": {
+                                        "$ref": "#/definitions/QueryTiming"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["results"],
+                            "type": "object"
+                        },
+                        {
+                            "additionalProperties": false,
+                            "properties": {
                                 "columns": {
                                     "items": {},
                                     "type": "array"
@@ -6286,6 +6411,12 @@
                         {
                             "additionalProperties": false,
                             "properties": {
+                                "columns": {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
@@ -6317,6 +6448,12 @@
                         {
                             "additionalProperties": false,
                             "properties": {
+                                "columns": {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
@@ -6792,6 +6929,9 @@
                             "$ref": "#/definitions/WebVitalsPathBreakdownQuery"
                         },
                         {
+                            "$ref": "#/definitions/WebActiveHoursHeatMapQuery"
+                        },
+                        {
                             "$ref": "#/definitions/SessionAttributionExplorerQuery"
                         },
                         {
@@ -6801,7 +6941,7 @@
                             "$ref": "#/definitions/RevenueAnalyticsGrowthRateQuery"
                         },
                         {
-                            "$ref": "#/definitions/RevenueAnalyticsChurnRateQuery"
+                            "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
                         },
                         {
                             "$ref": "#/definitions/RevenueExampleEventsQuery"
@@ -7320,6 +7460,7 @@
             "enum": [
                 "integer",
                 "float",
+                "decimal",
                 "string",
                 "datetime",
                 "date",
@@ -7331,7 +7472,8 @@
                 "field_traverser",
                 "expression",
                 "view",
-                "materialized_view"
+                "materialized_view",
+                "unknown"
             ],
             "type": "string"
         },
@@ -7544,6 +7686,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "library": {
+                    "type": ["string", "null"]
+                },
                 "name": {
                     "type": ["string", "null"]
                 },
@@ -7552,7 +7697,17 @@
                     "type": "string"
                 }
             },
-            "required": ["aggregations", "assignee", "description", "first_seen", "id", "last_seen", "name", "status"],
+            "required": [
+                "aggregations",
+                "assignee",
+                "description",
+                "first_seen",
+                "id",
+                "last_seen",
+                "library",
+                "name",
+                "status"
+            ],
             "type": "object"
         },
         "ErrorTrackingIssueAggregations": {
@@ -11707,9 +11862,10 @@
                 "WebVitalsQuery",
                 "WebVitalsPathBreakdownQuery",
                 "WebPageURLSearchQuery",
+                "WebActiveHoursHeatMapQuery",
                 "RevenueAnalyticsOverviewQuery",
                 "RevenueAnalyticsGrowthRateQuery",
-                "RevenueAnalyticsChurnRateQuery",
+                "RevenueAnalyticsTopCustomersQuery",
                 "ExperimentMetric",
                 "ExperimentQuery",
                 "ExperimentExposureQuery",
@@ -13483,6 +13639,45 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {
+                            "$ref": "#/definitions/WebActiveHoursHeatMapStructuredResult"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -13515,6 +13710,12 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "columns": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -13546,6 +13747,12 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "columns": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -14076,6 +14283,45 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "results": {
+                            "$ref": "#/definitions/WebActiveHoursHeatMapStructuredResult"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "columns": {
                             "items": {},
                             "type": "array"
@@ -14160,6 +14406,12 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "columns": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -14191,6 +14443,12 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "columns": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -15138,13 +15396,16 @@
                     "$ref": "#/definitions/WebPageURLSearchQuery"
                 },
                 {
+                    "$ref": "#/definitions/WebActiveHoursHeatMapQuery"
+                },
+                {
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQuery"
                 },
                 {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQuery"
                 },
                 {
-                    "$ref": "#/definitions/RevenueAnalyticsChurnRateQuery"
+                    "$ref": "#/definitions/RevenueAnalyticsTopCustomersQuery"
                 },
                 {
                     "$ref": "#/definitions/DataVisualizationNode"
@@ -15843,26 +16104,6 @@
             "required": ["count"],
             "type": "object"
         },
-        "RevenueAnalyticsBaseQuery<RevenueAnalyticsChurnRateQueryResponse>": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "kind": {
-                    "$ref": "#/definitions/NodeKind"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "response": {
-                    "$ref": "#/definitions/RevenueAnalyticsChurnRateQueryResponse"
-                }
-            },
-            "required": ["kind"],
-            "type": "object"
-        },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsGrowthRateQueryResponse>": {
             "additionalProperties": false,
             "properties": {
@@ -15878,9 +16119,12 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQueryResponse"
+                },
+                "revenueSources": {
+                    "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind"],
+            "required": ["kind", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse>": {
@@ -15898,61 +16142,35 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQueryResponse"
+                },
+                "revenueSources": {
+                    "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind"],
+            "required": ["kind", "revenueSources"],
             "type": "object"
         },
-        "RevenueAnalyticsChurnRateQuery": {
+        "RevenueAnalyticsBaseQuery<RevenueAnalyticsTopCustomersQueryResponse>": {
             "additionalProperties": false,
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
                 "kind": {
-                    "const": "RevenueAnalyticsChurnRateQuery",
-                    "type": "string"
+                    "$ref": "#/definitions/NodeKind"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
                 "response": {
-                    "$ref": "#/definitions/RevenueAnalyticsChurnRateQueryResponse"
+                    "$ref": "#/definitions/RevenueAnalyticsTopCustomersQueryResponse"
+                },
+                "revenueSources": {
+                    "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind"],
-            "type": "object"
-        },
-        "RevenueAnalyticsChurnRateQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "results": {},
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["results"],
+            "required": ["kind", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsGrowthRateQuery": {
@@ -15971,14 +16189,23 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQueryResponse"
+                },
+                "revenueSources": {
+                    "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind"],
+            "required": ["kind", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsGrowthRateQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "columns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -16017,11 +16244,11 @@
                     "type": "number"
                 }
             },
-            "required": ["key"],
+            "required": ["key", "value"],
             "type": "object"
         },
         "RevenueAnalyticsOverviewItemKey": {
-            "enum": ["MRR", "ARR", "Customer Count", "New customers", "Churned customers"],
+            "enum": ["revenue", "paying_customer_count", "avg_revenue_per_customer"],
             "type": "string"
         },
         "RevenueAnalyticsOverviewQuery": {
@@ -16040,9 +16267,12 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQueryResponse"
+                },
+                "revenueSources": {
+                    "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind"],
+            "required": ["kind", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsOverviewQueryResponse": {
@@ -16070,6 +16300,74 @@
                     },
                     "type": "array"
                 },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "RevenueAnalyticsTopCustomersGroupBy": {
+            "enum": ["month", "all"],
+            "type": "string"
+        },
+        "RevenueAnalyticsTopCustomersQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "groupBy": {
+                    "$ref": "#/definitions/RevenueAnalyticsTopCustomersGroupBy"
+                },
+                "kind": {
+                    "const": "RevenueAnalyticsTopCustomersQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "response": {
+                    "$ref": "#/definitions/RevenueAnalyticsTopCustomersQueryResponse"
+                },
+                "revenueSources": {
+                    "$ref": "#/definitions/RevenueSources"
+                }
+            },
+            "required": ["groupBy", "kind", "revenueSources"],
+            "type": "object"
+        },
+        "RevenueAnalyticsTopCustomersQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {},
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
                     "items": {
@@ -16235,6 +16533,25 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "RevenueSources": {
+            "additionalProperties": false,
+            "properties": {
+                "dataWarehouseSources": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "events": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["dataWarehouseSources", "events"],
             "type": "object"
         },
         "RevenueTrackingConfig": {
@@ -17483,6 +17800,9 @@
                     },
                     "type": "array"
                 },
+                "minDecimalPlaces": {
+                    "type": "number"
+                },
                 "resultCustomizationBy": {
                     "$ref": "#/definitions/ResultCustomizationBy",
                     "default": "value",
@@ -17585,6 +17905,9 @@
                         ]
                     },
                     "type": "object"
+                },
+                "min_decimal_places": {
+                    "type": "number"
                 },
                 "show_alert_threshold_lines": {
                     "type": "boolean"
@@ -17913,6 +18236,180 @@
                     "type": "object"
                 }
             },
+            "type": "object"
+        },
+        "WebActiveHoursHeatMapDayAndHourResult": {
+            "additionalProperties": false,
+            "properties": {
+                "day": {
+                    "$ref": "#/definitions/integer"
+                },
+                "hour": {
+                    "$ref": "#/definitions/integer"
+                },
+                "total": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["day", "hour", "total"],
+            "type": "object"
+        },
+        "WebActiveHoursHeatMapDayResult": {
+            "additionalProperties": false,
+            "properties": {
+                "day": {
+                    "$ref": "#/definitions/integer"
+                },
+                "total": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["day", "total"],
+            "type": "object"
+        },
+        "WebActiveHoursHeatMapHourResult": {
+            "additionalProperties": false,
+            "properties": {
+                "hour": {
+                    "$ref": "#/definitions/integer"
+                },
+                "total": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["hour", "total"],
+            "type": "object"
+        },
+        "WebActiveHoursHeatMapQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "doPathCleaning": {
+                    "type": "boolean"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeRevenue": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "WebActiveHoursHeatMapQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "orderBy": {
+                    "$ref": "#/definitions/WebAnalyticsOrderBy"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/WebActiveHoursHeatMapQueryResponse"
+                },
+                "sampling": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "forceSamplingRate": {
+                            "$ref": "#/definitions/SamplingRate"
+                        }
+                    },
+                    "type": "object"
+                },
+                "useSessionsTable": {
+                    "deprecated": "ignored, always treated as enabled *",
+                    "type": "boolean"
+                }
+            },
+            "required": ["kind", "properties"],
+            "type": "object"
+        },
+        "WebActiveHoursHeatMapQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "results": {
+                    "$ref": "#/definitions/WebActiveHoursHeatMapStructuredResult"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "WebActiveHoursHeatMapStructuredResult": {
+            "additionalProperties": false,
+            "properties": {
+                "dayAndHours": {
+                    "items": {
+                        "$ref": "#/definitions/WebActiveHoursHeatMapDayAndHourResult"
+                    },
+                    "type": "array"
+                },
+                "days": {
+                    "items": {
+                        "$ref": "#/definitions/WebActiveHoursHeatMapDayResult"
+                    },
+                    "type": "array"
+                },
+                "hours": {
+                    "items": {
+                        "$ref": "#/definitions/WebActiveHoursHeatMapHourResult"
+                    },
+                    "type": "array"
+                },
+                "total": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["dayAndHours", "days", "hours", "total"],
             "type": "object"
         },
         "WebAnalyticsConversionGoal": {

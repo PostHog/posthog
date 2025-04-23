@@ -111,6 +111,9 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     if (!values.href || !values.href.trim().length) {
                         return null
                     }
+                    if (!values.heatmapFilters.enabled) {
+                        return null
+                    }
                     await breakpoint(150)
 
                     const { date_from, date_to, filter_test_accounts } = values.commonFilters

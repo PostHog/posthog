@@ -63,6 +63,7 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
+import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 export interface WebTileLayout {
@@ -82,6 +83,7 @@ export enum TileId {
     SOURCES = 'SOURCES',
     DEVICES = 'DEVICES',
     GEOGRAPHY = 'GEOGRAPHY',
+    ACTIVE_HOURS = 'ACTIVE_HOURS',
     RETENTION = 'RETENTION',
     REPLAY = 'REPLAY',
     ERROR_TRACKING = 'ERROR_TRACKING',
@@ -95,6 +97,7 @@ export enum TileId {
     PAGE_REPORTS_DEVICE_INFORMATION_SECTION = 'PR_DEVICE_INFORMATION_SECTION',
     PAGE_REPORTS_TRAFFIC_SECTION = 'PR_TRAFFIC_SECTION',
     PAGE_REPORTS_GEOGRAPHY_SECTION = 'PR_GEOGRAPHY_SECTION',
+    PAGE_REPORTS_TOP_EVENTS_SECTION = 'PR_TOP_EVENTS_SECTION',
     PAGE_REPORTS_COMBINED_METRICS_CHART = 'PR_COMBINED_METRICS_CHART',
     PAGE_REPORTS_ENTRY_PATHS = 'PR_ENTRY_PATHS',
     PAGE_REPORTS_EXIT_PATHS = 'PR_EXIT_PATHS',
@@ -109,6 +112,7 @@ export enum TileId {
     PAGE_REPORTS_CITIES = 'PR_CITIES',
     PAGE_REPORTS_TIMEZONES = 'PR_TIMEZONES',
     PAGE_REPORTS_LANGUAGES = 'PR_LANGUAGES',
+    PAGE_REPORTS_TOP_EVENTS = 'PR_TOP_EVENTS',
 }
 
 export enum ProductTab {
@@ -129,12 +133,13 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.SOURCES]: 4,
     [TileId.DEVICES]: 5,
     [TileId.GEOGRAPHY]: 6,
-    [TileId.RETENTION]: 7,
-    [TileId.REPLAY]: 8,
-    [TileId.ERROR_TRACKING]: 9,
-    [TileId.GOALS]: 10,
-    [TileId.WEB_VITALS]: 11,
-    [TileId.WEB_VITALS_PATH_BREAKDOWN]: 12,
+    [TileId.ACTIVE_HOURS]: 7,
+    [TileId.RETENTION]: 8,
+    [TileId.REPLAY]: 9,
+    [TileId.ERROR_TRACKING]: 10,
+    [TileId.GOALS]: 11,
+    [TileId.WEB_VITALS]: 12,
+    [TileId.WEB_VITALS_PATH_BREAKDOWN]: 13,
 
     // Page Report Sections
     [TileId.PAGE_REPORTS_COMBINED_METRICS_CHART_SECTION]: 1,
@@ -142,6 +147,7 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_DEVICE_INFORMATION_SECTION]: 3,
     [TileId.PAGE_REPORTS_TRAFFIC_SECTION]: 4,
     [TileId.PAGE_REPORTS_GEOGRAPHY_SECTION]: 5,
+    [TileId.PAGE_REPORTS_TOP_EVENTS_SECTION]: 6,
 
     // Page Report Tiles
     [TileId.PAGE_REPORTS_COMBINED_METRICS_CHART]: 1,
@@ -158,6 +164,7 @@ const loadPriorityMap: Record<TileId, number> = {
     [TileId.PAGE_REPORTS_CITIES]: 12,
     [TileId.PAGE_REPORTS_TIMEZONES]: 13,
     [TileId.PAGE_REPORTS_LANGUAGES]: 14,
+    [TileId.PAGE_REPORTS_TOP_EVENTS]: 15,
 }
 
 export interface BaseTile {
@@ -220,17 +227,6 @@ export interface SectionTile extends BaseTile {
 
 export type WebAnalyticsTile = QueryTile | TabsTile | ReplayTile | ErrorTrackingTile | SectionTile
 
-export interface WebAnalyticsModalQuery {
-    tileId: TileId
-    tabId?: string
-    title?: string | JSX.Element
-    query: QuerySchema
-    insightProps: InsightLogicProps
-    showIntervalSelect?: boolean
-    control?: JSX.Element
-    canOpenInsight?: boolean
-}
-
 export enum GraphsTab {
     UNIQUE_USERS = 'UNIQUE_USERS',
     PAGE_VIEWS = 'PAGE_VIEWS',
@@ -274,7 +270,12 @@ export enum GeographyTab {
     REGIONS = 'REGIONS',
     CITIES = 'CITIES',
     TIMEZONES = 'TIMEZONES',
+    HEATMAP = 'HEATMAP',
     LANGUAGES = 'LANGUAGES',
+}
+
+export enum ActiveHoursTab {
+    NORMAL = 'NORMAL',
 }
 
 export enum ConversionGoalWarning {
@@ -368,11 +369,6 @@ const INITIAL_DATE_FROM = '-7d' as string | null
 const INITIAL_DATE_TO = null as string | null
 const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DATE_TO)
 
-const getDashboardItemId = (section: TileId, tab: string | undefined, isModal?: boolean): `new-${string}` => {
-    // pretend to be a new-AdHoc to get the correct behaviour elsewhere
-    return `new-AdHoc.web-analytics.${section}.${tab || 'default'}.${isModal ? 'modal' : 'default'}`
-}
-
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 const persistConfig = { persist: true, prefix: `${teamId}__` }
 export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
@@ -403,6 +399,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 deviceTab?: string
                 pathTab?: string
                 geographyTab?: string
+                activeHoursTab?: string
             }
         ) => ({ type, key, value, tabChange }),
         setGraphsTab: (tab: string) => ({ tab }),
@@ -410,6 +407,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setDeviceTab: (tab: string) => ({ tab }),
         setPathTab: (tab: string) => ({ tab }),
         setGeographyTab: (tab: string) => ({ tab }),
+        setActiveHoursTab: (tab: string) => ({ tab }),
         setDomainFilter: (domain: string | null) => ({ domain }),
         setDeviceTypeFilter: (deviceType: DeviceType | null) => ({ deviceType }),
         clearTablesOrderBy: () => true,
@@ -428,8 +426,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
-        openModal: (tileId: TileId, tabId?: string) => ({ tileId, tabId }),
-        closeModal: () => true,
         openAsNewInsight: (tileId: TileId, tabId?: string) => ({ tileId, tabId }),
         setConversionGoalWarning: (warning: ConversionGoalWarning | null) => ({ warning }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
@@ -595,21 +591,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.geographyTab || oldTab,
             },
         ],
+        _activeHoursTab: [
+            null as string | null,
+            persistConfig,
+            {
+                setActiveHoursTab: (_, { tab }) => tab,
+            },
+        ],
         _isPathCleaningEnabled: [
             true as boolean,
             persistConfig,
             {
                 setIsPathCleaningEnabled: (_, { isPathCleaningEnabled }) => isPathCleaningEnabled,
-            },
-        ],
-        _modalTileAndTab: [
-            null as { tileId: TileId; tabId?: string } | null,
-            {
-                openModal: (_, { tileId, tabId }) => ({
-                    tileId,
-                    tabId,
-                }),
-                closeModal: () => null,
             },
         ],
         tablesOrderBy: [
@@ -756,6 +749,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         deviceTab: [(s) => [s._deviceTab], (deviceTab: string | null) => deviceTab || DeviceTab.DEVICE_TYPE],
         pathTab: [(s) => [s._pathTab], (pathTab: string | null) => pathTab || PathTab.PATH],
         geographyTab: [(s) => [s._geographyTab], (geographyTab: string | null) => geographyTab || GeographyTab.MAP],
+        activeHoursTab: [
+            (s) => [s._activeHoursTab],
+            (activeHoursTab: string | null) => activeHoursTab || ActiveHoursTab.NORMAL,
+        ],
         isPathCleaningEnabled: [
             (s) => [s._isPathCleaningEnabled, s.hasAvailableFeature],
             (isPathCleaningEnabled: boolean, hasAvailableFeature) => {
@@ -831,14 +828,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.deviceTab,
                 s.pathTab,
                 s.geographyTab,
+                s.activeHoursTab,
                 () => values.shouldShowGeographyTile,
             ],
-            (graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeographyTile) => ({
+            (graphsTab, sourceTab, deviceTab, pathTab, geographyTab, activeHoursTab, shouldShowGeographyTile) => ({
                 graphsTab,
                 sourceTab,
                 deviceTab,
                 pathTab,
                 geographyTab,
+                activeHoursTab,
                 shouldShowGeographyTile,
             }),
         ],
@@ -894,7 +893,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ],
             (
                 productTab,
-                { graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeographyTile },
+                { graphsTab, sourceTab, deviceTab, pathTab, geographyTab, shouldShowGeographyTile, activeHoursTab },
                 { isPathCleaningEnabled, filterTestAccounts, shouldStripQueryParams },
                 {
                     webAnalyticsFilters,
@@ -1829,6 +1828,31 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
+                    featureFlags[FEATURE_FLAGS.ACTIVE_HOURS_HEATMAP]
+                        ? {
+                              kind: 'tabs',
+                              tileId: TileId.ACTIVE_HOURS,
+                              layout: {
+                                  colSpanClassName: 'md:col-span-full',
+                              },
+                              activeTabId: activeHoursTab,
+                              setTabId: actions.setActiveHoursTab,
+                              tabs: [
+                                  {
+                                      id: ActiveHoursTab.NORMAL,
+                                      title: 'Active hours',
+                                      linkText: 'Active hours',
+                                      canOpenModal: true,
+                                      query: {
+                                          kind: NodeKind.WebActiveHoursHeatMapQuery,
+                                          properties: webAnalyticsFilters,
+                                          dateRange,
+                                      },
+                                      insightProps: createInsightProps(TileId.ACTIVE_HOURS, ActiveHoursTab.NORMAL),
+                                  },
+                              ],
+                          }
+                        : null,
                     // Hiding if conversionGoal is set already because values aren't representative
                     !conversionGoal
                         ? {
@@ -1933,73 +1957,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 return allTiles.filter(isNotNil)
             },
         ],
-        modal: [
-            (s) => [s.tiles, s._modalTileAndTab],
-            (tiles, modalTileAndTab): WebAnalyticsModalQuery | null => {
-                if (!modalTileAndTab) {
-                    return null
-                }
-                const { tileId, tabId } = modalTileAndTab
-                const tile: WebAnalyticsTile | undefined = tiles.find((tile) => tile.tileId === tileId)
-                if (!tile) {
-                    return null
-                }
 
-                const extendQuery = (query: QuerySchema): QuerySchema => {
-                    if (
-                        query.kind === NodeKind.DataTableNode &&
-                        (query.source.kind === NodeKind.WebStatsTableQuery ||
-                            query.source.kind === NodeKind.WebExternalClicksTableQuery ||
-                            query.source.kind === NodeKind.WebGoalsQuery)
-                    ) {
-                        return {
-                            ...query,
-                            source: {
-                                ...query.source,
-                                limit: 50,
-                            },
-                        }
-                    }
-                    return query
-                }
-
-                if (tile.kind === 'tabs') {
-                    const tab = tile.tabs.find((tab) => tab.id === tabId)
-                    if (!tab) {
-                        return null
-                    }
-                    return {
-                        tileId,
-                        tabId,
-                        title: tab.title,
-                        showIntervalSelect: tab.showIntervalSelect,
-                        control: tab.control,
-                        insightProps: {
-                            dashboardItemId: getDashboardItemId(tileId, tabId, true),
-                            loadPriority: 0,
-                            doNotLoad: false,
-                            dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-                        },
-                        query: extendQuery(tab.query),
-                        canOpenInsight: tab.canOpenInsight,
-                    }
-                } else if (tile.kind === 'query') {
-                    return {
-                        tileId,
-                        title: tile.title,
-                        showIntervalSelect: tile.showIntervalSelect,
-                        control: tile.control,
-                        insightProps: {
-                            dashboardItemId: getDashboardItemId(tileId, undefined, true),
-                            loadPriority: 0,
-                            dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-                        },
-                        query: extendQuery(tile.query),
-                    }
-                }
-                return null
-            },
-        ],
         hasCountryFilter: [
             (s) => [s.webAnalyticsFilters],
             (webAnalyticsFilters: WebAnalyticsPropertyFilters) => {
@@ -2113,40 +2071,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 embedded: false,
             }),
         ],
-        getNewInsightUrl: [
-            (s) => [s.tiles],
-            (tiles) => {
-                return function getNewInsightUrl(tileId: TileId, tabId?: string): string | undefined {
-                    const formatQueryForNewInsight = (query: QuerySchema): QuerySchema => {
-                        if (query.kind === NodeKind.InsightVizNode) {
-                            return {
-                                ...query,
-                                embedded: undefined,
-                                hidePersonsModal: undefined,
-                            }
-                        }
-                        return query
-                    }
-
-                    const tile: WebAnalyticsTile | undefined = tiles.find((tile) => tile.tileId === tileId)
-                    if (!tile) {
-                        return undefined
-                    }
-
-                    if (tile.kind === 'tabs') {
-                        const tab = tile.tabs.find((tab) => tab.id === tabId)
-                        if (!tab) {
-                            return undefined
-                        }
-                        return urls.insightNew({ query: formatQueryForNewInsight(tab.query) })
-                    } else if (tile.kind === 'query') {
-                        return urls.insightNew({ query: formatQueryForNewInsight(tile.query) })
-                    } else if (tile.kind === 'replay') {
-                        return urls.replay()
-                    }
-                }
-            },
-        ],
+        getNewInsightUrl: [(s) => [s.tiles], (tiles: WebAnalyticsTile[]) => getNewInsightUrlFactory(tiles)],
         authorizedDomains: [
             (s) => [s.authorizedUrls],
             (authorizedUrls) => {
@@ -2394,6 +2319,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             setGraphsTab: stateToUrl,
             setPathTab: stateToUrl,
             setGeographyTab: stateToUrl,
+            setActiveHoursTab: stateToUrl,
             setCompareFilter: stateToUrl,
             setProductTab: stateToUrl,
             setWebVitalsPercentile: stateToUrl,
@@ -2419,6 +2345,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 graphs_tab,
                 path_tab,
                 geography_tab,
+                active_hours_tab,
                 path_cleaning,
                 filter_test_accounts,
                 compare_filter,
@@ -2477,6 +2404,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
             if (geography_tab && geography_tab !== values._geographyTab) {
                 actions.setGeographyTab(geography_tab)
+            }
+            if (active_hours_tab && active_hours_tab !== values._activeHoursTab) {
+                actions.setActiveHoursTab(active_hours_tab)
             }
             if (path_cleaning && path_cleaning !== values.isPathCleaningEnabled) {
                 actions.setIsPathCleaningEnabled([true, 'true', 1, '1'].includes(path_cleaning))
