@@ -55,6 +55,8 @@ export interface LemonButtonPropsBase
     loading?: boolean
     /** Tooltip to display on hover. */
     tooltip?: TooltipProps['title']
+    /** Documentation link to show in the tooltip. */
+    tooltipDocLink?: string
     tooltipPlacement?: TooltipProps['placement']
     /** Whether the row should take up the parent's full width. */
     fullWidth?: boolean
@@ -75,6 +77,7 @@ export interface LemonButtonPropsBase
 
 export type SideAction = Pick<
     LemonButtonProps,
+    | 'id'
     | 'onClick'
     | 'to'
     | 'loading'
@@ -139,6 +142,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 onClick,
                 truncate = false,
                 buttonWrapper,
+                tooltipDocLink,
                 ...buttonProps
             },
             ref
@@ -245,9 +249,9 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 workingButton = buttonWrapper(workingButton)
             }
 
-            if (tooltipContent) {
+            if (tooltipContent || tooltipDocLink) {
                 workingButton = (
-                    <Tooltip title={tooltipContent} placement={tooltipPlacement}>
+                    <Tooltip title={tooltipContent} placement={tooltipPlacement} docLink={tooltipDocLink}>
                         {workingButton}
                     </Tooltip>
                 )

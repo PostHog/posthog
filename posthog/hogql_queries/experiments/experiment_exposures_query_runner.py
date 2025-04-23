@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 
 from rest_framework.exceptions import ValidationError
 
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
@@ -178,7 +179,16 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         return exposure_query
 
     def calculate(self) -> ExperimentExposureQueryResponse:
+        # Adding experiment specific tags to the tag collection
+        # This will be available as labels in Prometheus
+        tag_queries(
+            experiment_id=str(self.experiment.id),
+            experiment_name=self.experiment.name,
+            experiment_feature_flag_key=self.feature_flag.key,
+        )
+
         response = execute_hogql_query(
+            query_type="ExperimentExposuresQuery",
             query=self._get_exposure_query(),
             team=self.team,
             timings=self.timings,

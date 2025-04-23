@@ -1,6 +1,7 @@
 import json
 from zoneinfo import ZoneInfo
 from posthog.constants import ExperimentNoResultsErrorKeys
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
@@ -25,6 +26,7 @@ from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
     are_results_significant_v2 as are_results_significant_v2_funnel,
     calculate_credible_intervals_v2 as calculate_credible_intervals_v2_funnel,
 )
+
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.experiment import Experiment
@@ -575,7 +577,17 @@ class ExperimentQueryRunner(QueryRunner):
     def _evaluate_experiment_query(
         self,
     ) -> list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]:
+        # Adding experiment specific tags to the tag collection
+        # This will be available as labels in Prometheus
+        tag_queries(
+            experiment_id=str(self.experiment.id),
+            experiment_name=self.experiment.name,
+            experiment_feature_flag_key=self.feature_flag.key,
+            experiment_is_data_warehouse_query=self.is_data_warehouse_query,
+        )
+
         response = execute_hogql_query(
+            query_type="ExperimentQuery",
             query=self._get_experiment_query(),
             team=self.team,
             timings=self.timings,
