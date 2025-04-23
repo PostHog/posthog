@@ -17,27 +17,21 @@ class TitleGeneratorNode(AssistantNode):
             return None
 
         conversation = self._get_conversation(config["configurable"]["thread_id"])
-        if not conversation:
+        if not conversation or conversation.title:
             return None
 
-        title = (
-            self._model.invoke(
-                ChatPromptTemplate.from_messages(
-                    [("system", TITLE_GENERATION_PROMPT), ("user", human_message.content)]
-                ),
-                config,
-            )
+        runnable = (
+            ChatPromptTemplate.from_messages([("system", TITLE_GENERATION_PROMPT), ("user", human_message.content)])
+            | self._model
             | StrOutputParser()
         )
+
+        title = runnable.invoke({}, config=config)
 
         conversation.title = title
         conversation.save()
 
         return None
-
-    def should_run(self, state: AssistantState) -> bool:
-        human_messages_count = sum(1 for message in state.messages if isinstance(message, HumanMessage))
-        return human_messages_count == 1
 
     @property
     def _model(self):

@@ -402,12 +402,14 @@ class AssistantGraph(BaseAssistantGraph):
         )
         return self
 
-    def add_title_generator(self):
+    def add_title_generator(self, end_node: AssistantNodeName = AssistantNodeName.END):
         builder = self._graph
+        self._has_start_node = True
+
         title_generator = TitleGeneratorNode(self._team)
         builder.add_node(AssistantNodeName.TITLE_GENERATOR, title_generator)
         builder.add_edge(AssistantNodeName.START, AssistantNodeName.TITLE_GENERATOR)
-        builder.add_edge(AssistantNodeName.TITLE_GENERATOR, AssistantNodeName.END)
+        builder.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
         return self
 
     def compile_full_graph(self):
