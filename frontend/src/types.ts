@@ -3460,7 +3460,6 @@ export enum PropertyType {
     Duration = 'Duration',
     Selector = 'Selector',
     Cohort = 'Cohort',
-    Assignee = 'Assignee',
 }
 
 export enum PropertyDefinitionType {
