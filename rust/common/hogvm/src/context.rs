@@ -93,7 +93,7 @@ impl<'a> ExecutionContext<'a> {
         let Some(native_fn) = self.native_fns.get(name) else {
             return Err(VmError::UnknownFunction(name.to_string()));
         };
-        let result = native_fn(&vm, args);
+        let result = native_fn(vm, args);
         match result {
             Ok(HogValue::Ref(ptr)) => vm.push_stack(ptr),
             Ok(HogValue::Lit(lit)) => match lit {
