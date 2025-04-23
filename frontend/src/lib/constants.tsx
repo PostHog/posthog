@@ -333,7 +333,7 @@ export const SESSION_REPLAY_MINIMUM_DURATION_OPTIONS: LemonSelectOptions<number 
         value: 15000,
     },
     {
-        label: '30 (not recommended)',
+        label: '30',
         value: 30000,
     },
 ]
