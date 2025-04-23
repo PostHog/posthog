@@ -554,7 +554,7 @@ export class DB {
         distinctIds?: { distinctId: string; version?: number }[],
         tx?: TransactionClient
     ): Promise<InternalPerson> {
-        distinctIds = distinctIds || []
+        distinctIds ||= []
 
         for (const distinctId of distinctIds) {
             distinctId.version ||= 0
@@ -566,8 +566,10 @@ export class DB {
         const { rows } = await runInstrumentedFunction({
             timeoutMessage: 'DB timeout in db.ts createPerson at updatePerson',
             timeout: 60000, // this shouldn't fail the operation, just log a warning
-            func: async () =>
-                this.postgres.query<RawPerson>(
+            func: async () => {
+                const localDistinctIds = distinctIds || []
+
+                const result = this.postgres.query<RawPerson>(
                     tx ?? PostgresUse.COMMON_WRITE,
                     `WITH inserted_person AS (
                         INSERT INTO posthog_person (
@@ -577,14 +579,14 @@ export class DB {
                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                         RETURNING *
                     )` +
-                        distinctIds
+                        localDistinctIds
                             .map(
                                 // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
                                 // `addDistinctIdPooled`
                                 (_, index) => `, distinct_id_${index} AS (
                             INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
                             VALUES (
-                                $${11 + index + distinctIds!.length - 1},
+                                $${11 + index + localDistinctIds!.length - 1},
                                 (SELECT id FROM inserted_person),
                                 $5,
                                 $${10 + index})
@@ -608,17 +610,20 @@ export class DB {
                         // we would do a round trip for each INSERT. We shouldn't actually depend on the
                         // `id` column of distinct_ids, so this is just a simple way to keeps tests exactly
                         // the same and prove behavior is the same as before.
-                        ...distinctIds
+                        ...localDistinctIds
                             .slice()
                             .reverse()
                             .map(({ version }) => version),
-                        ...distinctIds
+                        ...localDistinctIds
                             .slice()
                             .reverse()
                             .map(({ distinctId }) => distinctId),
                     ],
                     'insertPerson'
-                ),
+                )
+
+                return result
+            },
             statsKey: 'db-tx-createPerson-insertPerson-rw',
             teamId: teamId,
             logExecutionTime: false,
