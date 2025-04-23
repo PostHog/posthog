@@ -5,7 +5,7 @@ use moka::sync::{Cache, CacheBuilder};
 
 use crate::{
     app_context::AppContext, assignment_rules::AssignmentRule, config::Config,
-    error::UnhandledError, metric_consts::ANCILLIARY_CACHE, pipeline::IncomingEvent,
+    error::UnhandledError, metric_consts::ANCILLARY_CACHE, pipeline::IncomingEvent,
     sanitize_string, WithIndices,
 };
 
@@ -46,12 +46,12 @@ impl TeamManager {
         match self.token_cache.get(api_token) {
             // We cache "no team" results too, so we don't have to query the database again
             Some(maybe_team) => {
-                metrics::counter!(ANCILLIARY_CACHE, "type" => "team", "outcome" => "hit")
+                metrics::counter!(ANCILLARY_CACHE, "type" => "team", "outcome" => "hit")
                     .increment(1);
                 Ok(maybe_team)
             }
             None => {
-                metrics::counter!(ANCILLIARY_CACHE, "type" => "team", "outcome" => "miss")
+                metrics::counter!(ANCILLARY_CACHE, "type" => "team", "outcome" => "miss")
                     .increment(1);
                 let team = Team::load_by_token(e, api_token).await?;
                 self.token_cache.insert(api_token.to_string(), team.clone());
@@ -69,11 +69,11 @@ impl TeamManager {
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
         if let Some(rules) = self.assignment_rules.get(&team_id) {
-            metrics::counter!(ANCILLIARY_CACHE, "type" => "assignment_rules", "outcome" => "hit")
+            metrics::counter!(ANCILLARY_CACHE, "type" => "assignment_rules", "outcome" => "hit")
                 .increment(1);
             return Ok(rules.clone());
         }
-        metrics::counter!(ANCILLIARY_CACHE, "type" => "assignment_rules", "outcome" => "miss")
+        metrics::counter!(ANCILLARY_CACHE, "type" => "assignment_rules", "outcome" => "miss")
             .increment(1);
         // If we have no rules for the team, we just put an empty vector in the cache
         let rules = AssignmentRule::load_for_team(e, team_id).await?;
