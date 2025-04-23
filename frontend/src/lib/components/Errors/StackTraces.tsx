@@ -73,37 +73,46 @@ export function ChainedStackTraces({
     return (
         <div className="flex flex-col gap-y-2">
             {exceptionList.map(({ stacktrace, value, type, id }, index) => {
-                if (stacktrace && stacktrace.type === 'resolved') {
-                    const { frames } = stacktrace
-                    const hasInAppFrames = stacktraceHasInAppFrames(stacktrace)
-                    const part = getters.getExceptionPart(id)
-                    const traceHeaderProps = { id, type, value, part }
-                    return (
-                        <div
-                            key={id ?? index}
-                            className={clsx('StackTrace flex flex-col', embedded && 'StackTrace--embedded')}
-                        >
-                            {match(renderExceptionHeader)
-                                .with(P.nullish, () => <ExceptionHeader {...traceHeaderProps} />)
-                                .with(P.any, () => renderExceptionHeader!(traceHeaderProps))
-                                .exhaustive()}
-                            {match([showAllFrames, !hasInAppFrames])
-                                .with([false, true], () => null)
-                                .otherwise(() => (
-                                    <Trace
-                                        frames={frames || []}
-                                        showAllFrames={showAllFrames}
-                                        embedded={embedded}
-                                        getters={getters}
-                                        onFrameContextClick={onFrameContextClick}
-                                    />
-                                ))}
-                        </div>
-                    )
-                }
+                const displayTrace = shouldDisplayTrace(stacktrace, showAllFrames)
+                const part = getters.getExceptionPart(id)
+                const traceHeaderProps = { id, type, value, part }
+                return (
+                    <div
+                        key={id ?? index}
+                        className={clsx('StackTrace flex flex-col', embedded && 'StackTrace--embedded')}
+                    >
+                        {match(renderExceptionHeader)
+                            .with(P.nullish, () => <ExceptionHeader {...traceHeaderProps} />)
+                            .with(P.any, () => renderExceptionHeader!(traceHeaderProps))
+                            .exhaustive()}
+                        {displayTrace && (
+                            <Trace
+                                frames={stacktrace?.frames || []}
+                                showAllFrames={showAllFrames}
+                                embedded={embedded}
+                                getters={getters}
+                                onFrameContextClick={onFrameContextClick}
+                            />
+                        )}
+                    </div>
+                )
             })}
         </div>
     )
+}
+
+function shouldDisplayTrace(stacktrace: ErrorTrackingException['stacktrace'], showAllFrames: boolean): boolean {
+    if (!stacktrace) {
+        return false
+    }
+    if (stacktrace.type != 'resolved') {
+        return false
+    }
+    if (showAllFrames) {
+        return true
+    }
+    const hasInAppFrames = stacktraceHasInAppFrames(stacktrace)
+    return hasInAppFrames
 }
 
 function Trace({
