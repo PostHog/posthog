@@ -115,7 +115,7 @@ python manage.py run_autoreload_celery --type=worker &
 python manage.py runserver 8080 &
 
 if [ "$START_CYPRESS" -eq 1 ] 2>/dev/null; then
-  pnpm cypress open --config-file cypress.e2e.config.ts
+  pnpm --filter=@posthog/cypress cypress open --config-file cypress.e2e.config.ts
 elif [ "$START_PLAYWRIGHT" -eq 1 ] 2>/dev/null; then
   pnpm --filter=@posthog/playwright exec playwright test --ui
 fi

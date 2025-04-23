@@ -1,6 +1,8 @@
 {
     "name": "@posthog/cypress",
-    "scripts": {},
+    "scripts": {
+        "cypress": "cypress"
+    },
     "dependencies": {
         "@babel/runtime": "^7.24.0",
         "@cypress/webpack-preprocessor": "^6.0.2",
