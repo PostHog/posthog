@@ -72,7 +72,7 @@ class TracesQueryRunner(QueryRunner):
 
     def calculate(self):
         with self.timings.measure("traces_query_hogql_execute"):
-            # Calculate pagination limit including offset
+            # Calculate max number of events needed with current offset and limit
             limit_value = self.query.limit if self.query.limit else 100
             offset_value = self.query.offset if self.query.offset else 0
             pagination_limit = limit_value + offset_value
@@ -195,7 +195,6 @@ class TracesQueryRunner(QueryRunner):
         )
 
     def _get_event_query(self) -> ast.SelectQuery:
-        # single-pass over events, conditional aggregates instead of two joins
         query = parse_select(
             """
             WITH time_window AS (
