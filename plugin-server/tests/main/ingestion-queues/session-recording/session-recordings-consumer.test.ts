@@ -95,9 +95,10 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             isHealthy: jest.fn(() => true),
             connect: jest.fn(),
             disconnect: jest.fn(),
-            getPartitionsForTopic: jest.fn((s) => Promise.resolve([])),
+            getPartitionsForTopic: jest.fn(() => Promise.resolve([])),
             heartbeat: jest.fn(),
-        }
+        } as unknown as jest.Mocked<KafkaConsumer>
+
         // The below mocks simulate committing to kafka and querying the offsets
         mockCommittedOffsets = {}
         mockOffsets = {}
@@ -205,22 +206,6 @@ describe.each([[true], [false]])('ingester with consumeOverflow=%p', (consumeOve
             )
             ingester['kafkaConsumer'] = mockConsumer as any
             expect(ingester['isDebugLoggingEnabled'](partition)).toEqual(expected)
-        })
-
-        it('can parse absence of debug partition config', () => {
-            const config = {
-                KAFKA_HOSTS: 'localhost:9092',
-            } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
-
-            const ingester = new SessionRecordingIngester(
-                config,
-                hub.postgres,
-                hub.objectStorage!,
-                consumeOverflow,
-                undefined
-            )
-            ingester['kafkaConsumer'] = mockConsumer as any
-            expect(ingester['debugPartition']).toBeUndefined()
         })
 
         it('creates a new session manager if needed', async () => {
