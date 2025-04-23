@@ -8,36 +8,43 @@ pub struct TokenDropper {
 }
 
 impl TokenDropper {
-    // Takes "token:id_1,token:id2,token" where token without id means drop all events
+    // Takes "token1:id1,token:id2,token" where token without id means drop all events
     pub fn new(config: &str) -> Self {
         let mut to_drop = HashMap::new();
 
-        for part in config.split(',') {
-            let mut parts = part.trim().split(':');
-            let Some(token) = parts.next() else {
-                warn!("Invalid format in part {}", part);
+        for entry in config.split(',') {
+            if entry.trim().is_empty() {
+                continue;
+            }
+            let mut parts = entry.split(':');
+
+            // fetch token if present and nonempty; if no token, we reject this entry
+            let Some(token) = parts.find(|s| !s.trim().is_empty()) else {
+                warn!("Invalid format in part {}", entry);
                 continue;
             };
 
-            match parts.next() {
-                Some(id) => {
-                    let entry = to_drop
-                        .entry(token.to_string())
-                        .or_insert_with(|| Some(Vec::new()));
-                    if let Some(ids) = entry {
-                        ids.push(id.to_string());
-                    }
+            // fetch distinct_id if present and nonempty
+            if let Some(id) = parts.find(|s| !s.trim().is_empty()) {
+                let entry = to_drop
+                    .entry(token.to_string())
+                    .or_insert_with(|| Some(Vec::new()));
+                if let Some(ids) = entry {
+                    ids.push(id.to_string());
                 }
-                None => {
-                    // No distinct_id means drop all events for this token
-                    to_drop.insert(token.to_string(), None);
-                }
+            } else {
+                // No distinct_id means drop all events for this token
+                to_drop.insert(token.to_string(), None);
             }
         }
+
         Self { to_drop }
     }
 
     pub fn should_drop(&self, token: &str, distinct_id: &str) -> bool {
+        if token.is_empty() {
+            return false;
+        }
         match self.to_drop.get(token) {
             Some(None) => true, // Drop all events for this token
             Some(Some(ids)) => ids.iter().any(|id| id == distinct_id),

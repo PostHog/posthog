@@ -72,6 +72,13 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     conn_timer.fin();
 
     // First query: Get person data from the distinct_id (person_id and person_properties)
+    // TRICKY: sometimes we don't have a person_id ingested by the time we get a `/flags` request for a given
+    // distinct_id. There's two cases for that:
+    // 1. there's a race condition between person ingestion and flag evaluation.  In that case, only the first flag request
+    // be missing a person id, and all subsequent requests will have a person id.  That means the first flag evaluation could be wrong, but all subsequent ones will be correct.  Not a huge problem.
+    // 2. the distinct_id is associated with an anonymous or cookieless user.  In that case, it's fine to not return a person ID and to never return person properties.  This is handled by just
+    // returning an empty HashMap for person properties whenever I actually need them, and then obviously any condition that depends on person properties will return false.
+    // That's fine though, we shouldn't error out just because we can't find a person ID.
     let person_query = r#"
         SELECT DISTINCT ON (ppd.distinct_id)
             p.id as person_id,
@@ -95,6 +102,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 
     let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
     if let Some(person_id) = person_id {
+        // NB: this is where we actually set our person ID in the flag evaluation state.
         flag_evaluation_state.set_person_id(person_id);
         // If we have static cohort IDs to check and a valid person_id, do the cohort query
         if !static_cohort_ids.is_empty() {
@@ -155,7 +163,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     }
     person_processing_timer.fin();
 
-    // Only fetch group data if we have group types to look up
+    // Only fetch group property data if we have group types to look up
     if !group_type_indexes.is_empty() {
         let group_query = r#"
             SELECT 
