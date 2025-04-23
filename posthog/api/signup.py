@@ -41,7 +41,7 @@ logger = structlog.get_logger(__name__)
 
 def verify_email_or_login(request: Request, user: User) -> None:
     if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
-        next_url = request.query_params.get("next_url")
+        next_url = request.query_params.get("next")
 
         if is_relative_url(next_url):
             EmailVerifier.create_token_and_send_email_verification(user, next_url)
@@ -174,7 +174,7 @@ class SignupSerializer(serializers.Serializer):
 
     def to_representation(self, instance) -> dict:
         request = self.context.get("request")
-        next_url = request and request.query_params.get("next_url")
+        next_url = request and request.query_params.get("next")
 
         if next_url and not is_relative_url(next_url):
             next_url = None

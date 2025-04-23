@@ -92,7 +92,7 @@ export const signupLogic = kea<signupLogicType>([
                 try {
                     const nextUrl = router.values.searchParams['next']
 
-                    const res = await api.create(`api/signup${nextUrl ? `?next_url=${nextUrl}` : ''}`, {
+                    const res = await api.create(`api/signup${nextUrl ? `?next=${nextUrl}` : ''}`, {
                         ...values.signupPanel1,
                         ...payload,
                         first_name: payload.name.split(' ')[0],

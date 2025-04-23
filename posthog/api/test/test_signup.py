@@ -938,6 +938,30 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(User.objects.count(), user_count)
         self.assertEqual(Organization.objects.count(), org_count)
 
+    def test_api_sign_up_with_next_param(self):
+        response = self.client.post(
+            "/api/signup/?next=/next_path",
+            {
+                "first_name": "John",
+                "email": "hedgehog@posthog.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Hedgehogs United, LLC",
+                "role_at_organization": "product",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = cast(User, User.objects.order_by("-pk")[0])
+        response_data = response.json()
+
+        if not user.is_email_verified:
+            self.assertEqual(
+                response_data["redirect_url"],
+                f"/verify_email/{user.uuid}?next=/next_path",
+            )
+        else:
+            self.assertEqual(response_data["redirect_url"], "/next_path")
+
 
 class TestInviteSignupAPI(APIBaseTest):
     """
