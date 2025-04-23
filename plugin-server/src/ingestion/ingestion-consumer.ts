@@ -3,7 +3,7 @@ import { Counter } from 'prom-client'
 import { z } from 'zod'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { KafkaConsumer } from '../kafka/batch-consumer'
+import { KafkaConsumer } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
 import {

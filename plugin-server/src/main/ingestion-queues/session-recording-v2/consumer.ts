@@ -13,7 +13,7 @@ import { KafkaProducerWrapper } from '~/src/kafka/producer'
 import { PostgresRouter } from '~/src/utils/db/postgres'
 
 import { buildIntegerMatcher } from '../../../config/config'
-import { BatchConsumer } from '../../../kafka/batch-consumer'
+import { BatchConsumer } from '../../../kafka/consumer'
 import { PluginServerService, PluginsServerConfig, ValueMatcher } from '../../../types'
 import { logger as logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'

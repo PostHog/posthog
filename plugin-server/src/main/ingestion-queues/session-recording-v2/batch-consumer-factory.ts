@@ -1,5 +1,5 @@
-import { BatchConsumer, startBatchConsumer } from '../../../kafka/batch-consumer'
 import { createRdConnectionConfigFromEnvVars } from '../../../kafka/config'
+import { BatchConsumer, startBatchConsumer } from '../../../kafka/consumer'
 import { PluginsServerConfig } from '../../../types'
 import { addSentryBreadcrumbsEventListeners } from '../kafka-metrics'
 import { KAFKA_CONSUMER_SESSION_TIMEOUT_MS } from './constants'
