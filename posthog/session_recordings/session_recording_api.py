@@ -270,9 +270,9 @@ class SessionRecordingUpdateSerializer(serializers.Serializer):
 
 
 def list_recordings_response(
-    listing_result: tuple[list[SessionRecording], bool, dict], context: dict[str, Any]
+    listing_result: tuple[list[SessionRecording], bool, str], context: dict[str, Any]
 ) -> Response:
-    (recordings, more_recordings_available, timings) = listing_result
+    (recordings, more_recordings_available, timings_header) = listing_result
 
     session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
     results = session_recording_serializer.data
@@ -280,9 +280,8 @@ def list_recordings_response(
     response = Response(
         {"results": results, "has_next": more_recordings_available, "version": 4},
     )
-    response.headers["Server-Timing"] = ", ".join(
-        f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
-    )
+    response.headers["Server-Timing"] = timings_header
+
     return response
 
 
@@ -1086,7 +1085,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
 def list_recordings_from_query(
     query: RecordingsQuery, user: User | None, team: Team
-) -> tuple[list[SessionRecording], bool, dict]:
+) -> tuple[list[SessionRecording], bool, str]:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
 
@@ -1178,7 +1177,7 @@ def list_recordings_from_query(
             if person:
                 recording.person = person
 
-    return recordings, more_recordings_available, timer.generate_timings(hogql_timings)
+    return recordings, more_recordings_available, timer.to_header_string(hogql_timings)
 
 
 def _other_users_viewed(recording_ids_in_list: list[str], user: User | None, team: Team) -> dict[str, list[str]]:
