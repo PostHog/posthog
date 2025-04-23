@@ -1,6 +1,7 @@
-from typing import cast
+from typing import cast, Optional
 
 from posthog.hogql import ast
+from posthog.models.team.team import Team
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.table import DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
@@ -14,7 +15,13 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     FieldOrTable,
 )
-from posthog.hogql.database.schema.exchange_rate import DEFAULT_CURRENCY, convert_currency_call
+from posthog.hogql.database.schema.exchange_rate import (
+    DEFAULT_CURRENCY,
+    revenue_expression_for_events,
+    revenue_where_expr_for_events,
+    convert_currency_call,
+    currency_expression_for_all_events,
+)
 
 
 from typing import TYPE_CHECKING
@@ -29,6 +36,7 @@ STRIPE_CHARGE_SUCCEEDED_STATUS = "succeeded"
 # Keep in sync with `revenueAnalyticsLogic.ts`
 CHARGE_REVENUE_VIEW_SUFFIX = "charge_revenue_view"
 CUSTOMER_REVENUE_VIEW_SUFFIX = "customer_revenue_view"
+EVENTS_VIEW_SUFFIX = "events_revenue_view"
 
 # Stripe represents most currencies with integer amounts multiplied by 100,
 # since most currencies have its smallest unit as 1/100 of their base unit
@@ -54,16 +62,23 @@ ZERO_DECIMAL_CURRENCIES_IN_STRIPE: list[str] = [
 ]
 
 CHARGE_FIELDS: dict[str, FieldOrTable] = {
+    # Helpers so that we can properly join across views when necessary
+    # Some of these are here only to power `events` views while others
+    # are here to support data warehouse tables, check below for more details
     "id": StringDatabaseField(name="id"),
     "timestamp": DateTimeDatabaseField(name="timestamp"),
     "customer_id": StringDatabaseField(name="customer_id"),
-    "original_amount": DecimalDatabaseField(name="original_amount"),
+    "session_id": StringDatabaseField(name="session_id"),
+    "event_name": StringDatabaseField(name="event_name"),
+    # Most important fields
+    "currency": StringDatabaseField(name="currency"),
+    "amount": DecimalDatabaseField(name="amount"),
+    # Mostly helper fields
     "original_currency": StringDatabaseField(name="original_currency"),
+    "original_amount": DecimalDatabaseField(name="original_amount"),
     "currency_is_zero_decimal": BooleanDatabaseField(name="currency_is_zero_decimal"),
     "amount_decimal_divider": DecimalDatabaseField(name="amount_decimal_divider"),
     "adjusted_original_amount": DecimalDatabaseField(name="adjusted_original_amount"),
-    "currency": StringDatabaseField(name="currency"),
-    "amount": DecimalDatabaseField(name="amount"),
 }
 
 CUSTOMER_FIELDS: dict[str, FieldOrTable] = {
@@ -75,7 +90,108 @@ CUSTOMER_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
+def is_zero_decimal(field: ast.Field) -> ast.Alias:
+    return ast.Alias(
+        alias="currency_is_zero_decimal",
+        expr=ast.Call(
+            name="in",
+            args=[field, ast.Constant(value=ZERO_DECIMAL_CURRENCIES_IN_STRIPE)],
+        ),
+    )
+
+
+def amount_decimal_divider() -> ast.Alias:
+    return ast.Alias(
+        alias="amount_decimal_divider",
+        expr=ast.Call(
+            name="if",
+            args=[
+                ast.Field(chain=["currency_is_zero_decimal"]),
+                ast.Call(
+                    name="toDecimal",
+                    args=[ast.Constant(value=1), ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION)],
+                ),
+                ast.Call(
+                    name="toDecimal",
+                    args=[ast.Constant(value=100), ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION)],
+                ),
+            ],
+        ),
+    )
+
+
+def adjusted_original_amount() -> ast.Alias:
+    return ast.Alias(
+        alias="adjusted_original_amount",
+        expr=ast.Call(
+            name="divideDecimal",
+            args=[
+                ast.Field(chain=["original_amount"]),
+                ast.Field(chain=["amount_decimal_divider"]),
+            ],
+        ),
+    )
+
+
 class RevenueAnalyticsRevenueView(SavedQuery):
+    source_id: Optional[str] = None
+    is_events_view: bool = False
+
+    @staticmethod
+    def for_events(team: "Team") -> list["RevenueAnalyticsRevenueView"]:
+        if len(team.revenue_config.events or []) == 0:
+            return []
+
+        revenue_config = team.revenue_config
+        base_currency = (revenue_config.baseCurrency or DEFAULT_CURRENCY).value
+
+        query = ast.SelectQuery(
+            select=[
+                ast.Alias(alias="id", expr=ast.Field(chain=["uuid"])),
+                ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
+                ast.Alias(alias="customer_id", expr=ast.Field(chain=["distinct_id"])),
+                ast.Alias(alias="session_id", expr=ast.Field(chain=["properties", "$session_id"])),
+                ast.Alias(alias="event_name", expr=ast.Field(chain=["event"])),
+                ast.Alias(alias="original_currency", expr=currency_expression_for_all_events(revenue_config)),
+                ast.Alias(
+                    alias="original_amount",
+                    expr=revenue_expression_for_events(revenue_config, do_currency_conversion=False),
+                ),
+                is_zero_decimal(ast.Field(chain=["original_currency"])),
+                amount_decimal_divider(),
+                adjusted_original_amount(),
+                ast.Alias(alias="currency", expr=ast.Constant(value=base_currency)),
+                ast.Alias(
+                    alias="amount",
+                    expr=revenue_expression_for_events(
+                        revenue_config, amount_expr=ast.Field(chain=["adjusted_original_amount"])
+                    ),
+                ),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(
+                exprs=[
+                    revenue_where_expr_for_events(revenue_config),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.NotEq,
+                        left=ast.Field(chain=["amount"]),  # refers to the Alias above
+                        right=ast.Constant(value=None),
+                    ),
+                ]
+            ),
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+        )
+
+        return [
+            RevenueAnalyticsRevenueView(
+                id=EVENTS_VIEW_SUFFIX,
+                name=EVENTS_VIEW_SUFFIX,
+                query=query.to_hogql(),
+                fields=CHARGE_FIELDS,
+                is_events_view=True,
+            )
+        ]
+
     @staticmethod
     def for_schema_source(source: ExternalDataSource) -> list["RevenueAnalyticsRevenueView"]:
         # Currently only works for stripe sources
@@ -102,7 +218,7 @@ class RevenueAnalyticsRevenueView(SavedQuery):
         return views
 
     @staticmethod
-    def __get_view_name_for(source: ExternalDataSource, view_name: str) -> str:
+    def __get_view_name_for_source(source: ExternalDataSource, view_name: str) -> str:
         if not source.prefix:
             return f"{source.source_type.lower()}.{view_name}"
         else:
@@ -126,6 +242,14 @@ class RevenueAnalyticsRevenueView(SavedQuery):
                 ast.Alias(alias="timestamp", expr=ast.Field(chain=["created_at"])),
                 # Useful for cross joins
                 ast.Alias(alias="customer_id", expr=ast.Field(chain=["customer_id"])),
+                # Empty, but required for the `events` view to work
+                ast.Alias(alias="session_id", expr=ast.Constant(value=None)),
+                ast.Alias(alias="event_name", expr=ast.Constant(value=None)),
+                # Compute the original currency, converting to uppercase to match the currency code in the `exchange_rate` table
+                ast.Alias(
+                    alias="original_currency",
+                    expr=ast.Call(name="upper", args=[ast.Field(chain=["currency"])]),
+                ),
                 # Compute the original amount in the original currency
                 # by looking at the captured amount, effectively ignoring refunded value
                 ast.Alias(
@@ -138,53 +262,14 @@ class RevenueAnalyticsRevenueView(SavedQuery):
                         ],
                     ),
                 ),
-                # Compute the original currency, converting to uppercase to match the currency code in the `exchange_rate` table
-                ast.Alias(
-                    alias="original_currency",
-                    expr=ast.Call(name="upper", args=[ast.Field(chain=["currency"])]),
-                ),
                 # Compute whether the original currency is a zero-decimal currency
                 # by comparing it against a list of zero-decimal currencies
-                ast.Alias(
-                    alias="currency_is_zero_decimal",
-                    expr=ast.Call(
-                        name="in",
-                        args=[
-                            ast.Field(chain=["original_currency"]),
-                            ast.Constant(value=ZERO_DECIMAL_CURRENCIES_IN_STRIPE),
-                        ],
-                    ),
-                ),
+                is_zero_decimal(ast.Field(chain=["original_currency"])),
                 # Compute the amount decimal divider, which is 1 for zero-decimal currencies and 100 for others
                 # This is used to convert the original amount to the adjusted amount
-                ast.Alias(
-                    alias="amount_decimal_divider",
-                    expr=ast.Call(
-                        name="if",
-                        args=[
-                            ast.Field(chain=["currency_is_zero_decimal"]),
-                            ast.Call(
-                                name="toDecimal",
-                                args=[ast.Constant(value=1), ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION)],
-                            ),
-                            ast.Call(
-                                name="toDecimal",
-                                args=[ast.Constant(value=100), ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION)],
-                            ),
-                        ],
-                    ),
-                ),
+                amount_decimal_divider(),
                 # Compute the adjusted original amount, which is the original amount divided by the amount decimal divider
-                ast.Alias(
-                    alias="adjusted_original_amount",
-                    expr=ast.Call(
-                        name="divideDecimal",
-                        args=[
-                            ast.Field(chain=["original_amount"]),
-                            ast.Field(chain=["amount_decimal_divider"]),
-                        ],
-                    ),
-                ),
+                adjusted_original_amount(),
                 # Expose the base/converted currency, which is the base currency from the team's revenue config
                 ast.Alias(alias="currency", expr=ast.Constant(value=base_currency)),
                 # Convert the adjusted original amount to the base currency
@@ -221,8 +306,9 @@ class RevenueAnalyticsRevenueView(SavedQuery):
 
         return RevenueAnalyticsRevenueView(
             id=str(table.id),
-            name=RevenueAnalyticsRevenueView.__get_view_name_for(source, CHARGE_REVENUE_VIEW_SUFFIX),
+            name=RevenueAnalyticsRevenueView.__get_view_name_for_source(source, CHARGE_REVENUE_VIEW_SUFFIX),
             query=query.to_hogql(),
+            source_id=str(source.id),
             fields=CHARGE_FIELDS,
         )
 
@@ -247,7 +333,8 @@ class RevenueAnalyticsRevenueView(SavedQuery):
 
         return RevenueAnalyticsRevenueView(
             id=str(table.id),
-            name=RevenueAnalyticsRevenueView.__get_view_name_for(source, CUSTOMER_REVENUE_VIEW_SUFFIX),
+            name=RevenueAnalyticsRevenueView.__get_view_name_for_source(source, CUSTOMER_REVENUE_VIEW_SUFFIX),
             query=query.to_hogql(),
+            source_id=str(source.id),
             fields=CUSTOMER_FIELDS,
         )

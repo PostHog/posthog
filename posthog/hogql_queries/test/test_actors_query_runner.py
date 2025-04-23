@@ -25,6 +25,10 @@ from posthog.schema import (
     IntervalType,
     InsightActorsQuery,
     TrendsQuery,
+    FunnelsQuery,
+    HogQLQueryModifiers,
+    FunnelsActorsQuery,
+    PersonsOnEventsMode,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -35,6 +39,8 @@ from posthog.test.base import (
 )
 from freezegun import freeze_time
 from django.test import override_settings
+from unittest.mock import patch
+from posthog.hogql.query import execute_hogql_query
 
 
 class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -505,3 +511,28 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         group = response.results[1][0]
         assert group["id"] == "org2"
         assert set(group.keys()) == {"id", "group_type_index"}
+
+    @patch("posthog.hogql_queries.insights.paginators.execute_hogql_query", wraps=execute_hogql_query)
+    def test_funnel_source_with_poe_mode(self, spy_execute_hogql_query):
+        self.team.modifiers = {
+            **(self.team.modifiers or {}),
+            "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+        }
+        self.team.save()
+
+        self.random_uuid = self._create_random_persons()
+        funnel_query = FunnelsQuery(
+            series=[
+                EventsNode(event="clicky-1"),
+                EventsNode(event="clicky-2"),
+            ],
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+        )
+
+        runner = self._create_runner(ActorsQuery(source=FunnelsActorsQuery(funnelStep=1, source=funnel_query)))
+
+        runner.calculate()
+
+        # Verify that execute_hogql_query was called with the correct modifiers
+        called_modifiers: HogQLQueryModifiers = spy_execute_hogql_query.call_args[1]["modifiers"]
+        self.assertEqual(called_modifiers.personsOnEventsMode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)

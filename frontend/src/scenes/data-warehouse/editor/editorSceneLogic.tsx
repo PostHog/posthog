@@ -1,4 +1,4 @@
-import { IconDatabase, IconDatabaseBolt, IconDocument } from '@posthog/icons'
+import { IconDatabase, IconDocument } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
@@ -48,6 +48,23 @@ const checkIsSavedQuery = (
 const checkIsManagedView = (
     view: DataWarehouseSavedQuery | DatabaseSchemaManagedViewTable
 ): view is DatabaseSchemaManagedViewTable => 'type' in view && view.type === 'managed_view'
+
+const renderTableCount = (count: undefined | number): null | JSX.Element => {
+    if (!count) {
+        return null
+    }
+
+    return (
+        <span className="text-xs mr-1 italic text-[color:var(--text-secondary-3000)]">
+            {`(${new Intl.NumberFormat('en', {
+                notation: 'compact',
+                compactDisplay: 'short',
+            })
+                .format(count)
+                .toLowerCase()})`}
+        </span>
+    )
+}
 
 export const editorSceneLogic = kea<editorSceneLogicType>([
     path(['data-warehouse', 'editor', 'editorSceneLogic']),
@@ -137,6 +154,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                   key: table.id,
                                   icon: <IconDatabase />,
                                   name: table.name,
+                                  endElement: renderTableCount(table.row_count),
                                   url: '',
                                   searchMatch: matches
                                       ? {
@@ -264,7 +282,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                 icon:
                                     isSavedQuery && view.last_run_at ? (
                                         <Tooltip title="Materialized view">
-                                            <IconDatabaseBolt />
+                                            <IconDatabase />
                                         </Tooltip>
                                     ) : (
                                         <Tooltip title="View">
@@ -348,10 +366,11 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     key: 'data-warehouse-tables',
                     noun: ['PostHog', 'PostHog'],
                     loading: databaseLoading,
-                    icon: <DataWarehouseSourceIcon type="PostHog" sizePx={18} disableTooltip />,
+                    icon: <DataWarehouseSourceIcon type="PostHog" size="xsmall" disableTooltip />,
                     items: posthogTables.map((table) => ({
                         key: table.id,
                         name: table.name,
+                        endElement: renderTableCount(table.row_count),
                         url: '',
                         icon: <IconDatabase />,
                         searchMatch: null,
@@ -401,6 +420,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     items: tables.map((table) => ({
                         key: table.id,
                         name: table.name,
+                        endElement: renderTableCount(table.row_count),
                         url: '',
                         icon: <IconDatabase />,
                         searchMatch: null,

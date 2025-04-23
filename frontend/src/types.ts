@@ -758,6 +758,13 @@ export enum ReplayTabs {
     Settings = 'settings',
 }
 
+export type ReplayTab = {
+    label: string
+    key: ReplayTabs
+    tooltip?: string
+    tooltipDocLink?: string
+}
+
 export enum ExperimentsTabs {
     All = 'all',
     Yours = 'yours',
@@ -4371,6 +4378,7 @@ export interface ExternalDataSource {
     prefix: string
     latest_error: string | null
     last_run_at?: Dayjs
+    revenue_analytics_enabled: boolean
     schemas: ExternalDataSourceSchema[]
     sync_frequency: DataWarehouseSyncInterval
     job_inputs: Record<string, any>

@@ -62,26 +62,26 @@ export const getDefaultTreeNew = (): FileSystemImport[] =>
             href: () => urls.survey('new'),
         },
         {
-            path: `Source`,
+            path: `Data/Source`,
             type: 'hog_function/source',
             href: () => urls.pipelineNodeNew(PipelineStage.Source),
         },
         {
-            path: `Destination`,
+            path: `Data/Destination`,
             type: 'hog_function/destination',
             href: () => urls.pipelineNodeNew(PipelineStage.Destination),
         },
         {
-            path: `Transformation`,
+            path: `Data/Transformation`,
             type: 'hog_function/transformation',
             href: () => urls.pipelineNodeNew(PipelineStage.Transformation),
         },
         {
-            path: `Site app`,
+            path: `Data/Site app`,
             type: 'hog_function/site_app',
             href: () => urls.pipelineNodeNew(PipelineStage.SiteApp),
         },
-    ].sort((a, b) => a.path.localeCompare(b.path))
+    ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 
 export const getDefaultTreeExplore = (groupNodes: FileSystemImport[]): FileSystemImport[] =>
     [
@@ -170,4 +170,4 @@ export const getDefaultTreeExplore = (groupNodes: FileSystemImport[]): FileSyste
             href: () => urls.heatmaps(),
             flag: FEATURE_FLAGS.HEATMAPS_UI,
         },
-    ].sort((a, b) => a.path.localeCompare(b.path))
+    ].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))

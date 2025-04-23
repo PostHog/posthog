@@ -14,9 +14,10 @@ type TreeNodeDisplayIconWrapperProps = {
     defaultNodeIcon?: React.ReactNode
     handleClick: (item: TreeDataItem) => void
     enableMultiSelection: boolean
-    depthOffset: number
+    defaultOffset: number
+    multiSelectionOffset: number
     checkedItemCount?: number
-    onItemChecked?: (id: string, checked: boolean) => void
+    onItemChecked?: (id: string, checked: boolean, shift: boolean) => void
 }
 
 export const TreeNodeDisplayIconWrapper = ({
@@ -25,9 +26,10 @@ export const TreeNodeDisplayIconWrapper = ({
     defaultNodeIcon,
     handleClick,
     enableMultiSelection,
-    depthOffset,
     checkedItemCount,
     onItemChecked,
+    defaultOffset,
+    multiSelectionOffset,
 }: TreeNodeDisplayIconWrapperProps): JSX.Element => {
     return (
         <>
@@ -47,8 +49,8 @@ export const TreeNodeDisplayIconWrapper = ({
             >
                 <TreeNodeDisplayCheckbox
                     item={item}
-                    handleCheckedChange={(checked) => {
-                        onItemChecked?.(item.id, checked)
+                    handleCheckedChange={(checked, shift) => {
+                        onItemChecked?.(item.id, checked, shift)
                     }}
                     className={cn('absolute z-2', {
                         // Apply hidden class only when hovering the (conditional)group and there are no checked items
@@ -56,7 +58,7 @@ export const TreeNodeDisplayIconWrapper = ({
                             checkedItemCount === 0,
                     })}
                     style={{
-                        left: `${depthOffset + 5}px`,
+                        left: `${defaultOffset}px`,
                     }}
                 />
 
@@ -65,7 +67,10 @@ export const TreeNodeDisplayIconWrapper = ({
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         // If multi-selection is enabled, we need to offset the icon to the right to make space for the checkbox
-                        left: enableMultiSelection ? `${depthOffset + 28}px` : `${depthOffset + 5}px`,
+                        left:
+                            enableMultiSelection && !item.disableSelect
+                                ? `${multiSelectionOffset}px`
+                                : `${defaultOffset}px`,
                     }}
                     // Since we need to make this element hoverable, we cannot pointer-events: none, so we pass onClick to mimic the sibling button click
                     onClick={() => {
@@ -86,7 +91,7 @@ export const TreeNodeDisplayIconWrapper = ({
 type TreeNodeDisplayCheckboxProps = {
     item: TreeDataItem
     style?: CSSProperties
-    handleCheckedChange?: (checked: boolean) => void
+    handleCheckedChange?: (checked: boolean, shift: boolean) => void
     className?: string
 }
 
@@ -107,16 +112,24 @@ export const TreeNodeDisplayCheckbox = ({
             <div className={ICON_CLASSES}>
                 <LemonCheckbox
                     className={cn('size-5 ml-[2px]', {
-                        // Hide the checkbox if the item is disabled from being checked
-                        hidden: item.disableSelect || item.record?.type === 'folder',
+                        // Hide the checkbox if the item is disabled from being checked and is a folder
+                        // When searching we disable folders from being checked
+                        hidden: item.disableSelect && item.record?.type === 'folder',
                     })}
                     checked={isChecked ?? false}
-                    onChange={(checked) => {
+                    onChange={(checked, event) => {
                         // Just in case
                         if (item.disableSelect) {
                             return
                         }
-                        handleCheckedChange?.(checked)
+                        let shift = false
+                        if (event.nativeEvent && 'shiftKey' in event.nativeEvent) {
+                            shift = !!(event.nativeEvent as PointerEvent).shiftKey
+                            if (shift) {
+                                event.stopPropagation()
+                            }
+                        }
+                        handleCheckedChange?.(checked, shift)
                     }}
                 />
             </div>
