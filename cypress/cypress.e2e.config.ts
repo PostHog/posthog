@@ -134,5 +134,6 @@ export default defineConfig({
         baseUrl: 'http://localhost:8000',
         specPattern: 'e2e/**/*.{js,jsx,ts,tsx}',
         chromeWebSecurity: false,
+        experimentalMemoryManagement: true,
     },
 })
