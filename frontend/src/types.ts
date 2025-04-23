@@ -36,7 +36,6 @@ import { WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 import type {
     DashboardFilter,
     DatabaseSchemaField,
-    ErrorTrackingIssueAssignee,
     ExperimentExposureCriteria,
     ExperimentFunnelsQuery,
     ExperimentMetric,
@@ -721,7 +720,7 @@ export type PropertyFilterValue =
     | number
     | bigint
     | (string | number | bigint)[]
-    | ErrorTrackingIssueAssignee
+    // | ErrorTrackingIssueAssignee - TODO - @david
     | null
 
 /** Sync with plugin-server/src/types.ts */
