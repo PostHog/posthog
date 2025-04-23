@@ -75,7 +75,7 @@ class TracesQueryRunner(QueryRunner):
             # Calculate max number of events needed with current offset and limit
             limit_value = self.query.limit if self.query.limit else 100
             offset_value = self.query.offset if self.query.offset else 0
-            pagination_limit = limit_value + offset_value
+            pagination_limit = limit_value + offset_value + 1
 
             query_result = self.paginator.execute_hogql_query(
                 query=self.to_query(),
@@ -315,7 +315,7 @@ class TracesQueryRunner(QueryRunner):
         if self.query.traceId is not None:
             where_exprs.append(
                 ast.CompareOperation(
-                    left=ast.Field(chain=["id"]),
+                    left=ast.Field(chain=["properties", "$ai_trace_id"]),
                     op=ast.CompareOperationOp.Eq,
                     right=ast.Constant(value=self.query.traceId),
                 ),
