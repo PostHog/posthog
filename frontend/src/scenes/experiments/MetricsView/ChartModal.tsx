@@ -1,6 +1,11 @@
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import {
+    ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentTrendsQuery,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { ExperimentIdType } from '~/types'
 
 import { ExploreButton, ResultsQuery } from '../ExperimentView/components'
@@ -10,7 +15,7 @@ import { SummaryTable } from '../ExperimentView/SummaryTable'
 interface ChartModalProps {
     isOpen: boolean
     onClose: () => void
-    metric: any
+    metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
     metricIndex: number
     isSecondary: boolean
     result: any
