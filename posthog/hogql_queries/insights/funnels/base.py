@@ -61,6 +61,26 @@ class FunnelBase(ABC):
             self._extra_event_fields = ["uuid"]
             self._extra_event_properties = ["$session_id", "$window_id"]
 
+        # validate funnel steps range
+        max_series_index = len(self.context.query.series) - 1
+        if self.context.funnelsFilter.funnelFromStep is not None:
+            if not (0 <= self.context.funnelsFilter.funnelFromStep <= max_series_index - 1):
+                raise ValidationError(
+                    f"funnelFromStep is out of bounds. It must be between 0 and {max_series_index - 1}."
+                )
+
+        if self.context.funnelsFilter.funnelToStep is not None:
+            if not (1 <= self.context.funnelsFilter.funnelToStep <= max_series_index):
+                raise ValidationError(f"funnelToStep is out of bounds. It must be between 1 and {max_series_index}.")
+
+            if (
+                self.context.funnelsFilter.funnelFromStep is not None
+                and self.context.funnelsFilter.funnelFromStep >= self.context.funnelsFilter.funnelToStep
+            ):
+                raise ValidationError(
+                    "Funnel step range is invalid. funnelToStep should be greater than funnelFromStep."
+                )
+
         # validate exclusions
         if self.context.funnelsFilter.exclusions is not None:
             for exclusion in self.context.funnelsFilter.exclusions:
@@ -741,13 +761,17 @@ class FunnelBase(ABC):
 
         if entity.math == FunnelMathType.FIRST_TIME_FOR_USER:
             subquery = FirstTimeForUserAggregationQuery(self.context, filter_expr, event_expr).to_query()
-            first_time_filter = parse_expr("e.uuid IN {subquery}", placeholders={"subquery": subquery})
+            first_time_filter = ast.CompareOperation(
+                left=ast.Field(chain=["e", "uuid"]), right=subquery, op=ast.CompareOperationOp.GlobalIn
+            )
             return ast.And(exprs=[*filters, first_time_filter])
         elif entity.math == FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS:
             subquery = FirstTimeForUserAggregationQuery(
                 self.context, ast.Constant(value=1), ast.And(exprs=filters)
             ).to_query()
-            first_time_filter = parse_expr("e.uuid IN {subquery}", placeholders={"subquery": subquery})
+            first_time_filter = ast.CompareOperation(
+                left=ast.Field(chain=["e", "uuid"]), right=subquery, op=ast.CompareOperationOp.GlobalIn
+            )
             return ast.And(exprs=[*filters, first_time_filter])
         elif len(filters) > 1:
             return ast.And(exprs=filters)

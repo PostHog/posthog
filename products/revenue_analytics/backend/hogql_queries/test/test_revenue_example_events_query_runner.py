@@ -1,27 +1,26 @@
 from decimal import Decimal
-
-from freezegun import freeze_time
 from unittest.mock import patch
 
-from products.revenue_analytics.backend.hogql_queries.revenue_example_events_query_runner import (
-    RevenueExampleEventsQueryRunner,
-)
+from freezegun import freeze_time
 
 from posthog.models.utils import uuid7
 from posthog.schema import (
     CurrencyCode,
-    RevenueExampleEventsQuery,
-    RevenueTrackingConfig,
     RevenueCurrencyPropertyConfig,
+    RevenueExampleEventsQuery,
     RevenueExampleEventsQueryResponse,
+    RevenueTrackingConfig,
     RevenueTrackingEventItem,
 )
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
-    snapshot_clickhouse_queries,
     _create_event,
     _create_person,
+    snapshot_clickhouse_queries,
+)
+from products.revenue_analytics.backend.hogql_queries.revenue_example_events_query_runner import (
+    RevenueExampleEventsQueryRunner,
 )
 
 EMPTY_REVENUE_TRACKING_CONFIG = RevenueTrackingConfig(events=[])
@@ -48,6 +47,11 @@ REVENUE_TRACKING_CONFIG_WITH_REVENUE_CURRENCY_PROPERTY = RevenueTrackingConfig(
             eventName="purchase_b",
             revenueProperty="revenue_b",
             revenueCurrencyProperty=RevenueCurrencyPropertyConfig(property="currency_b"),
+        ),
+        RevenueTrackingEventItem(
+            eventName="purchase_c",
+            revenueProperty="revenue_c",
+            revenueCurrencyProperty=RevenueCurrencyPropertyConfig(property="currency_c"),
         ),
     ],
     baseCurrency=CurrencyCode.EUR,
@@ -128,14 +132,14 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_no_crash_when_no_data(self):
         results = self._run_revenue_example_events_query(EMPTY_REVENUE_TRACKING_CONFIG).results
-        assert len(results.results) == 0
+        assert len(results) == 0
 
     def test_single_event(self):
         s11 = str(uuid7("2023-12-02"))
 
         self._create_events(
             [
-                ("p1", [("2023-12-02", s11, 42)]),
+                ("p1", [("2023-12-02", s11, 4200)]),
             ],
             event="purchase",
         )
@@ -150,14 +154,14 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         s1 = str(uuid7("2023-12-02"))
         self._create_events(
             [
-                ("p1", [("2023-12-02", s1, 42)]),
+                ("p1", [("2023-12-02", s1, 4200)]),
             ],
             event="purchase_a",
         )
         s2 = str(uuid7("2023-12-03"))
         self._create_events(
             [
-                ("p2", [("2023-12-03", s2, 43)]),
+                ("p2", [("2023-12-03", s2, 4300)]),
             ],
             event="purchase_b",
         )
@@ -175,23 +179,30 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         s1 = str(uuid7("2023-12-02"))
         self._create_events(
             [
-                ("p1", [("2023-12-02", s1, 42, "USD")]),
+                ("p1", [("2023-12-02", s1, 4200, "USD")]),
             ],
             event="purchase_a",
         )
         s2 = str(uuid7("2023-12-03"))
         self._create_events(
             [
-                ("p2", [("2023-12-03", s2, 43, "BRL")]),
+                ("p2", [("2023-12-03", s2, 4300, "BRL")]),
             ],
             event="purchase_b",
+        )
+        s3 = str(uuid7("2023-12-04"))
+        self._create_events(
+            [
+                ("p3", [("2023-12-04", s3, 1800, "JPY")]),
+            ],
+            event="purchase_c",
         )
 
         results = self._run_revenue_example_events_query(REVENUE_TRACKING_CONFIG_WITH_REVENUE_CURRENCY_PROPERTY).results
 
-        assert len(results) == 2
+        assert len(results) == 3
 
-        purchase_b, purchase_a = results
+        purchase_c, purchase_b, purchase_a = results
 
         # Stored USD on the event, but `purchase_a`'s revenueCurrencyProperty is set to static GBP
         assert purchase_a[1] == "purchase_a"
@@ -206,28 +217,46 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert purchase_b[4] == Decimal("8.0388947625")  # 43 BRL -> 8.03 EUR
         assert purchase_b[5] == CurrencyCode.EUR.value
 
+        assert purchase_c[1] == "purchase_c"
+        assert purchase_c[2] == Decimal("1800")  # JPY is not divided by 100 because lowest denomination is whole
+        assert purchase_c[3] == CurrencyCode.JPY.value
+        assert purchase_c[4] == Decimal("11.3165930643")  # 1800 JPY -> 11.31 EUR
+        assert purchase_c[5] == CurrencyCode.EUR.value
+
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_revenue_currency_property_without_feature_flag(self, feature_enabled_mock):
         s1 = str(uuid7("2023-12-02"))
         self._create_events(
             [
-                ("p1", [("2023-12-02", s1, 42, "USD")]),
+                ("p1", [("2023-12-02", s1, 4200, "USD")]),
             ],
             event="purchase_a",
         )
         s2 = str(uuid7("2023-12-03"))
         self._create_events(
             [
-                ("p2", [("2023-12-03", s2, 43, "BRL")]),
+                ("p2", [("2023-12-03", s2, 4300, "BRL")]),
             ],
             event="purchase_b",
+        )
+        s3 = str(uuid7("2023-12-04"))
+        self._create_events(
+            [
+                ("p3", [("2023-12-04", s3, 1800, "JPY")]),
+            ],
+            event="purchase_c",
         )
 
         results = self._run_revenue_example_events_query(REVENUE_TRACKING_CONFIG_WITH_REVENUE_CURRENCY_PROPERTY).results
 
         # Keep in the original revenue values
-        assert len(results) == 2
-        assert results[0][1] == "purchase_b"
-        assert results[0][2] == 43
-        assert results[1][1] == "purchase_a"
-        assert results[1][2] == 42
+        assert len(results) == 3
+
+        purchase_c, purchase_b, purchase_a = results
+
+        assert purchase_c[1] == "purchase_c"
+        assert purchase_c[2] == 1800  # JPY is not divided by 100 because lowest denomination is whole
+        assert purchase_b[1] == "purchase_b"
+        assert purchase_b[2] == 43
+        assert purchase_a[1] == "purchase_a"
+        assert purchase_a[2] == 42

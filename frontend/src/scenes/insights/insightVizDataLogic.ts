@@ -12,6 +12,7 @@ import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
 import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
+import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -28,6 +29,7 @@ import {
     DataWarehouseNode,
     DateRange,
     FunnelExclusionSteps,
+    FunnelsFilter,
     FunnelsQuery,
     InsightFilter,
     InsightQueryNode,
@@ -651,6 +653,19 @@ const handleQuerySourceUpdateSideEffects = (
                 `Switched to grouping by week, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
             )
             ;(mergedUpdate as TrendsQuery).interval = 'week'
+        }
+    }
+
+    // clamp the funnel steps
+    if (
+        maybeChangedSeries &&
+        isFunnelsQuery(currentState) &&
+        ((insightFilter as FunnelsFilter)?.funnelFromStep != null ||
+            (insightFilter as FunnelsFilter)?.funnelToStep != null)
+    ) {
+        ;(mergedUpdate as FunnelsQuery).funnelsFilter = {
+            ...(insightFilter as FunnelsFilter),
+            ...getClampedFunnelStepRange(insightFilter as FunnelsFilter, maybeChangedSeries),
         }
     }
 
