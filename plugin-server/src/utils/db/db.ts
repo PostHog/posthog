@@ -554,7 +554,7 @@ export class DB {
         distinctIds?: { distinctId: string; version?: number }[],
         tx?: TransactionClient
     ): Promise<InternalPerson> {
-        distinctIds ||= []
+        distinctIds = distinctIds || []
 
         for (const distinctId of distinctIds) {
             distinctId.version ||= 0
