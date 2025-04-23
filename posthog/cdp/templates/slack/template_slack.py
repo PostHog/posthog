@@ -287,7 +287,7 @@ if (res.status != 200 or res.body.ok == false) {
         ),
         HogFunctionSubTemplate(
             name="Post to Slack on insight alert firing",
-            description="Post to a Slack channel when an insight alert fires",
+            description="Post to a Slack channel when this insight alert fires",
             id=SUB_TEMPLATE_COMMON["insight-alert-firing"].id,
             type=SUB_TEMPLATE_COMMON["insight-alert-firing"].type,
             filters=SUB_TEMPLATE_COMMON["insight-alert-firing"].filters,
@@ -298,10 +298,16 @@ if (res.status != 200 or res.body.ok == false) {
                             "type": "header",
                             "text": {
                                 "type": "plain_text",
-                                "text": "{event.properties.insight_name} alert threshold breached",
+                                "text": "Alert threshold breached for insight '{event.properties.insight_name}'",
                             },
                         },
-                        {"type": "section", "text": {"type": "plain_text", "text": "Alert triggered"}},
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "{event.properties.breaches}",
+                            },
+                        },
                         {
                             "type": "context",
                             "elements": [
@@ -324,6 +330,7 @@ if (res.status != 200 or res.body.ok == false) {
                 },
                 "text": {
                     "default": "Alert triggered: {event.properties.insight_name}",
+                    "hidden": True,
                 },
             },
         ),
