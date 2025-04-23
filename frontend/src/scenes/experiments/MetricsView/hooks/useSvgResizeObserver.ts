@@ -52,8 +52,7 @@ export function useSvgResizeObserver(deps: any[] = []): SvgResizeObserverState {
         return () => {
             resizeObserver.disconnect()
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [...deps])
+    }, deps)
 
     return {
         ticksSvgRef,
