@@ -43,7 +43,7 @@ export function MetricsChartLayout({
             {/* eslint-disable-next-line react/forbid-dom-props */}
             <div style={{ width: metricTitlePanelWidth, verticalAlign: 'top', display: 'inline-block' }}>
                 {isFirstMetric && (
-                    <svg
+                    <div
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ height: `${ticksSvgHeight}px` }}
                     />
