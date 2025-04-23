@@ -5,6 +5,7 @@ import { Counter } from 'prom-client'
 
 import { ONE_HOUR } from '../../config/constants'
 import { TopicMessage } from '../../kafka/producer'
+import { runInstrumentedFunction } from '../../main/utils'
 import { InternalPerson, Person, PropertyUpdateOperation, Team } from '../../types'
 import { DB } from '../../utils/db/db'
 import { PostgresUse, TransactionClient } from '../../utils/db/postgres'
@@ -120,7 +121,14 @@ export class PersonState {
 
     async update(): Promise<[Person, Promise<void>]> {
         if (!this.processPerson) {
-            let existingPerson = await this.db.fetchPerson(this.team.id, this.distinctId, { useReadReplica: true })
+            let existingPerson = await runInstrumentedFunction({
+                timeoutMessage: 'DB timeout in person-state.ts update at fetchPerson (read replica)',
+                timeout: 60000, // TODO: safe timeout here?
+                func: async () => this.db.fetchPerson(this.team.id, this.distinctId, { useReadReplica: true }),
+                statsKey: 'db-tx-person-state-update-fetchPerson-ro',
+                teamId: this.team.id,
+                logExecutionTime: true,
+            })
 
             if (!existingPerson) {
                 // See the comment in `mergeDistinctIds`. We are inserting a row into `posthog_personlessdistinctid`
@@ -141,8 +149,14 @@ export class PersonState {
                         // has been updated by a merge (either since we called `fetchPerson` above, plus
                         // replication lag). We need to check `fetchPerson` again (this time using the leader)
                         // so that we properly associate this event with the Person we got merged into.
-                        existingPerson = await this.db.fetchPerson(this.team.id, this.distinctId, {
-                            useReadReplica: false,
+                        existingPerson = await runInstrumentedFunction({
+                            timeoutMessage: 'DB timeout in person-state.ts update at fetchPerson',
+                            timeout: 60000, // TODO: safe timeout here?
+                            func: async () =>
+                                this.db.fetchPerson(this.team.id, this.distinctId, { useReadReplica: false }),
+                            statsKey: 'db-tx-person-state-update-fetchPerson-rw',
+                            teamId: this.team.id,
+                            logExecutionTime: true,
                         })
                     }
                 }
@@ -223,7 +237,15 @@ export class PersonState {
      * @returns [Person, boolean that indicates if properties were already handled or not]
      */
     private async createOrGetPerson(): Promise<[InternalPerson, boolean]> {
-        let person = await this.db.fetchPerson(this.team.id, this.distinctId)
+        let person = await runInstrumentedFunction({
+            timeoutMessage: 'DB timeout in person-state.ts createOrGetPerson at fetchPerson',
+            timeout: 60000, // TODO: safe timeout here?
+            func: async () => this.db.fetchPerson(this.team.id, this.distinctId),
+            statsKey: 'db-tx-person-state-createOrGetPerson-fetchPerson-rw',
+            teamId: this.team.id,
+            logExecutionTime: true,
+        })
+
         if (person) {
             return [person, false]
         }
@@ -498,8 +520,23 @@ export class PersonState {
     ): Promise<[InternalPerson, Promise<void>]> {
         this.updateIsIdentified = true
 
-        const otherPerson = await this.db.fetchPerson(teamId, otherPersonDistinctId)
-        const mergeIntoPerson = await this.db.fetchPerson(teamId, mergeIntoDistinctId)
+        const otherPerson = await runInstrumentedFunction({
+            timeoutMessage: 'DB timeout in person-state.ts mergeDistinctIds (otherPerson)',
+            timeout: 60000, // TODO: safe timeout here?
+            func: async () => this.db.fetchPerson(teamId, otherPersonDistinctId),
+            statsKey: 'db-tx-person-state-mergeDistinctIds-other-rw',
+            teamId: teamId,
+            logExecutionTime: true,
+        })
+
+        const mergeIntoPerson = await runInstrumentedFunction({
+            timeoutMessage: 'DB timeout in person-state.ts mergeDistinctIds (mergeIntoPerson)',
+            timeout: 60000, // TODO: safe timeout here?
+            func: async () => this.db.fetchPerson(teamId, mergeIntoDistinctId),
+            statsKey: 'db-tx-person-state-mergeDistinctIds-into-rw',
+            teamId: teamId,
+            logExecutionTime: true,
+        })
 
         // A note about the `distinctIdVersion` logic you'll find below:
         //
@@ -548,6 +585,7 @@ export class PersonState {
                     )
                     const distinctIdVersion = insertedDistinctId ? 0 : 1
 
+                    // a Kafka event is enqueued here, inside the DB tx
                     await this.db.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion, tx)
                     return [existingPerson, Promise.resolve()]
                 }
