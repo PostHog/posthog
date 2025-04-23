@@ -8,9 +8,9 @@ import { CdpInternalEventSchema } from '../schema'
 import { HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { convertInternalEventToHogFunctionInvocationGlobals } from '../utils'
 import { counterParseError } from './cdp-base.consumer'
-import { CdpProcessedEventsConsumer } from './cdp-processed-events.consumer'
+import { CdpEventsConsumer } from './cdp-events.consumer'
 
-export class CdpInternalEventsConsumer extends CdpProcessedEventsConsumer {
+export class CdpInternalEventsConsumer extends CdpEventsConsumer {
     protected name = 'CdpInternalEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['internal_destination']
 

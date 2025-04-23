@@ -18,7 +18,7 @@ import {
     createIncomingEvent,
     createInternalEvent,
 } from '../_tests/fixtures'
-import { CdpProcessedEventsConsumer } from './cdp-processed-events.consumer'
+import { CdpEventsConsumer } from './cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 
 jest.mock('../../../src/utils/fetch', () => {
@@ -50,10 +50,10 @@ jest.mock('@posthog/cyclotron', () => ({
  * NOTE: The internal and normal events consumers are very similar so we can test them together
  */
 describe.each([
-    [CdpProcessedEventsConsumer.name, CdpProcessedEventsConsumer, 'destination' as const],
+    [CdpEventsConsumer.name, CdpEventsConsumer, 'destination' as const],
     [CdpInternalEventsConsumer.name, CdpInternalEventsConsumer, 'internal_destination' as const],
 ])('%s', (_name, Consumer, hogType) => {
-    let processor: CdpProcessedEventsConsumer | CdpInternalEventsConsumer
+    let processor: CdpEventsConsumer | CdpInternalEventsConsumer
     let hub: Hub
     let team: Team
     let team2: Team

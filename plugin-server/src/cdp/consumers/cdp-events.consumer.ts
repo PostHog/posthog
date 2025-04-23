@@ -1,6 +1,5 @@
 import { Message } from 'node-rdkafka'
 
-import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/batch-consumer-v2'
 import { runInstrumentedFunction } from '../../main/utils'
@@ -10,10 +9,11 @@ import { logger } from '../../utils/logger'
 import { HogWatcherState } from '../services/hog-watcher.service'
 import { CyclotronJobQueue } from '../services/job-queue'
 import { HogFunctionInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
+import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
-export class CdpProcessedEventsConsumer extends CdpConsumerBase {
-    protected name = 'CdpProcessedEventsConsumer'
+export class CdpEventsConsumer extends CdpConsumerBase {
+    protected name = 'CdpEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
     private cyclotronJobQueue: CyclotronJobQueue
     protected kafkaConsumer: KafkaConsumer

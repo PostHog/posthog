@@ -3,7 +3,7 @@ import { getProducedKafkaMessages, getProducedKafkaMessagesForTopic } from '~/te
 
 import { CdpCyclotronWorker } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpCyclotronWorkerFetch } from '../../src/cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
-import { CdpProcessedEventsConsumer } from '../../src/cdp/consumers/cdp-processed-events.consumer'
+import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../../src/cdp/types'
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, Team } from '../../src/types'
@@ -34,7 +34,7 @@ describe('CDP Consumer loop', () => {
     jest.setTimeout(10000)
 
     describe('e2e fetch call', () => {
-        let processedEventsConsumer: CdpProcessedEventsConsumer
+        let eventsConsumer: CdpEventsConsumer
         let cyclotronWorker: CdpCyclotronWorker | undefined
         let cyclotronFetchWorker: CdpCyclotronWorkerFetch | undefined
 
@@ -64,8 +64,8 @@ describe('CDP Consumer loop', () => {
 
             hub.CYCLOTRON_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
 
-            processedEventsConsumer = new CdpProcessedEventsConsumer(hub)
-            await processedEventsConsumer.start()
+            eventsConsumer = new CdpEventsConsumer(hub)
+            await eventsConsumer.start()
 
             cyclotronWorker = new CdpCyclotronWorker(hub)
             await cyclotronWorker.start()
@@ -92,7 +92,7 @@ describe('CDP Consumer loop', () => {
 
         afterEach(async () => {
             const stoppers = [
-                processedEventsConsumer?.stop().then(() => console.log('Stopped processedEventsConsumer')),
+                eventsConsumer?.stop().then(() => console.log('Stopped eventsConsumer')),
                 cyclotronWorker?.stop().then(() => console.log('Stopped cyclotronWorker')),
                 cyclotronFetchWorker?.stop().then(() => console.log('Stopped cyclotronFetchWorker')),
             ]
@@ -111,7 +111,7 @@ describe('CDP Consumer loop', () => {
          */
 
         it('should invoke a function in the worker loop until completed', async () => {
-            const invocations = await processedEventsConsumer.processBatch([globals])
+            const invocations = await eventsConsumer.processBatch([globals])
             expect(invocations).toHaveLength(1)
 
             await waitForExpect(() => {
@@ -221,7 +221,7 @@ describe('CDP Consumer loop', () => {
         it('should handle fetch failures with retries', async () => {
             mockFetch.mockRejectedValue(new FetchError('Test error', 'request-timeout'))
 
-            const invocations = await processedEventsConsumer.processBatch([globals])
+            const invocations = await eventsConsumer.processBatch([globals])
 
             expect(invocations).toHaveLength(1)
 
