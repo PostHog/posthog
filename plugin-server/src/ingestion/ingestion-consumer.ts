@@ -620,7 +620,7 @@ export class IngestionConsumer {
     }
 
     private async shouldSkipPerson(token?: string, distinctId?: string) {
-        if (this.hub.USE_REDIS_PERSON_FILTERING) {
+        if (this.hub.USE_REDIS_PERSON_PROCESS_FILTERING) {
             const shouldSkipPerson = await this.shouldSkipPersonWithRedisCache(token, distinctId)
             return shouldSkipPerson
         }
