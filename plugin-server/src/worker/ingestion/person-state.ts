@@ -127,7 +127,8 @@ export class PersonState {
                 func: async () => this.db.fetchPerson(this.team.id, this.distinctId, { useReadReplica: true }),
                 statsKey: 'db-tx-person-state-update-fetchPerson-ro',
                 teamId: this.team.id,
-                logExecutionTime: true,
+                logExecutionTime: false,
+                sendTimeoutGuardToSentry: false,
             })
 
             if (!existingPerson) {
@@ -156,7 +157,8 @@ export class PersonState {
                                 this.db.fetchPerson(this.team.id, this.distinctId, { useReadReplica: false }),
                             statsKey: 'db-tx-person-state-update-fetchPerson-rw',
                             teamId: this.team.id,
-                            logExecutionTime: true,
+                            logExecutionTime: false,
+                            sendTimeoutGuardToSentry: false,
                         })
                     }
                 }
@@ -243,7 +245,8 @@ export class PersonState {
             func: async () => this.db.fetchPerson(this.team.id, this.distinctId),
             statsKey: 'db-tx-person-state-createOrGetPerson-fetchPerson-rw',
             teamId: this.team.id,
-            logExecutionTime: true,
+            logExecutionTime: false,
+            sendTimeoutGuardToSentry: false,
         })
 
         if (person) {
@@ -526,7 +529,8 @@ export class PersonState {
             func: async () => this.db.fetchPerson(teamId, otherPersonDistinctId),
             statsKey: 'db-tx-person-state-mergeDistinctIds-other-rw',
             teamId: teamId,
-            logExecutionTime: true,
+            logExecutionTime: false,
+            sendTimeoutGuardToSentry: false,
         })
 
         const mergeIntoPerson = await runInstrumentedFunction({
@@ -535,7 +539,8 @@ export class PersonState {
             func: async () => this.db.fetchPerson(teamId, mergeIntoDistinctId),
             statsKey: 'db-tx-person-state-mergeDistinctIds-into-rw',
             teamId: teamId,
-            logExecutionTime: true,
+            logExecutionTime: false,
+            sendTimeoutGuardToSentry: false,
         })
 
         // A note about the `distinctIdVersion` logic you'll find below:
