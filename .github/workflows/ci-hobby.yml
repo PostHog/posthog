@@ -40,17 +40,12 @@ jobs:
               run: python3 bin/hobby-ci.py create
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
+                  SKIP_SERVICE_VERSION_REQUIREMENTS: 1
 
             - name: Run smoke tests on DO
               run: python3 bin/hobby-ci.py test $GITHUB_HEAD_REF
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
-
-            - name: Start upterm session if test fails
-              if: failure()
-              uses: lhotari/action-upterm@b0357f23233f5ea6d58947c0c402e0631bab7334 # v1
-              with:
-                  limit-access-to-actor: true
 
             - name: Post-cleanup step
               if: always()
