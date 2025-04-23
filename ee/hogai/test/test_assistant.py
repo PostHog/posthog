@@ -10,7 +10,7 @@ from langchain_core import messages
 from langchain_core.agents import AgentAction
 from langchain_core.prompts.chat import ChatPromptValue
 from langchain_core.runnables import RunnableConfig, RunnableLambda
-from langgraph.errors import NodeInterrupt, GraphRecursionError
+from langgraph.errors import GraphRecursionError, NodeInterrupt
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
 from pydantic import BaseModel
@@ -21,7 +21,7 @@ from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import search_documentation
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.utils.test import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
-from ee.hogai.utils.types import AssistantNodeName, AssistantMode, AssistantState, PartialAssistantState
+from ee.hogai.utils.types import AssistantMode, AssistantNodeName, AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation, CoreMemory
 from posthog.models import Action
 from posthog.schema import (
@@ -1142,3 +1142,28 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 mode=AssistantMode.INSIGHTS_TOOL,
             )
         self.assertEqual(str(cm.exception), "Invalid insight type: invalid_type")
+
+    @patch("ee.hogai.graph.title_generator.nodes.TitleGeneratorNode._model")
+    def test_conversation_title_is_set(self, title_generator_model_mock):
+        """Test that a title is generated and set for a new conversation."""
+        # Create a test graph with only the title generator node
+        graph = AssistantGraph(self.team).add_title_generator().compile()
+
+        self.assertIsNone(self.conversation.title)
+
+        # Mock the title generator to return "Generated Conversation Title"
+        title_generator_model_mock.return_value = FakeChatOpenAI(
+            responses=[messages.AIMessage(content="Generated Conversation Title")]
+        )
+
+        # Run the assistant
+        self._run_assistant_graph(
+            graph,
+            message="This is the first message in the conversation",
+            is_new_conversation=True,
+        )
+
+        # Assert the conversation doesn't have a title yet
+        self.conversation.refresh_from_db()
+        # Verify the title has been set
+        self.assertEqual(self.conversation.title, "Generated Conversation Title")
