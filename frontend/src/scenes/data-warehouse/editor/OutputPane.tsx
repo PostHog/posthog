@@ -1,8 +1,17 @@
 import 'react-data-grid/lib/styles.css'
 import './DataGrid.scss'
 
-import { IconCode, IconCopy, IconExpand45, IconGear, IconMinus, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonTable, LemonTabs } from '@posthog/lemon-ui'
+import {
+    IconCode,
+    IconCopy,
+    IconDownload,
+    IconExpand45,
+    IconGear,
+    IconGraph,
+    IconMinus,
+    IconPlus,
+} from '@posthog/icons'
+import { LemonButton, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
@@ -301,12 +310,10 @@ export function OutputPane(): JSX.Element {
     const hasColumns = columns.length > 1
 
     return (
-        <div className="OutputPane flex flex-col w-full flex-1 bg-primary">
-            <div className="flex flex-row justify-between align-center py-2 px-4 w-full h-[50px] border-b">
-                <LemonTabs
-                    activeKey={activeTab}
-                    onChange={(tab) => setActiveTab(tab as OutputTab)}
-                    tabs={[
+        <div className="OutputPane flex flex-col w-full flex-1 bg-white">
+            <div className="flex flex-row justify-between align-center w-full h-[50px]">
+                <div className="flex h-[50px] gap-2 ml-4">
+                    {[
                         {
                             key: OutputTab.Results,
                             label: 'Results',
@@ -315,9 +322,23 @@ export function OutputPane(): JSX.Element {
                             key: OutputTab.Visualization,
                             label: 'Visualization',
                         },
-                    ]}
-                />
-                <div className="flex gap-2">
+                    ].map((tab) => (
+                        <div
+                            key={tab.key}
+                            className={clsx(
+                                'flex-1 bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium]',
+                                {
+                                    'font-semibold !border-brand-yellow': tab.key === activeTab,
+                                    'border-transparent': tab.key !== activeTab,
+                                }
+                            )}
+                            onClick={() => setActiveTab(tab.key)}
+                        >
+                            {tab.label}
+                        </div>
+                    ))}
+                </div>
+                <div className="flex gap-2 py-2 px-4">
                     {showLegacyFilters && (
                         <DateRange
                             key="date-range"
@@ -329,22 +350,6 @@ export function OutputPane(): JSX.Element {
                                 })
                                 runQuery(query.query)
                             }}
-                        />
-                    )}
-                    {activeTab === OutputTab.Results && exportContext && (
-                        <ExportButton
-                            disabledReason={!hasColumns ? 'No results to export' : undefined}
-                            type="secondary"
-                            items={[
-                                {
-                                    export_format: ExporterFormat.CSV,
-                                    export_context: exportContext,
-                                },
-                                {
-                                    export_format: ExporterFormat.XLSX,
-                                    export_context: exportContext,
-                                },
-                            ]}
                         />
                     )}
                     {activeTab === OutputTab.Visualization && (
@@ -369,6 +374,7 @@ export function OutputPane(): JSX.Element {
                                                 disabledReason={!updateInsightButtonEnabled && 'No updates to save'}
                                                 type="primary"
                                                 onClick={() => updateInsight()}
+                                                id="sql-editor-update-insight"
                                                 sideAction={{
                                                     dropdown: {
                                                         placement: 'bottom-end',
@@ -393,8 +399,9 @@ export function OutputPane(): JSX.Element {
                                                 disabledReason={!hasColumns ? 'No results to save' : undefined}
                                                 type="primary"
                                                 onClick={() => saveAsInsight()}
+                                                id="sql-editor-save-insight"
                                             >
-                                                Create insight
+                                                Save insight
                                             </LemonButton>
                                         )}
                                     </div>
@@ -407,9 +414,30 @@ export function OutputPane(): JSX.Element {
                             disabledReason={!hasColumns ? 'No results to visualize' : undefined}
                             type="secondary"
                             onClick={() => setActiveTab(OutputTab.Visualization)}
+                            id="sql-editor-create-insight"
+                            icon={<IconGraph />}
                         >
-                            Visualize
+                            Create insight
                         </LemonButton>
+                    )}
+                    {activeTab === OutputTab.Results && exportContext && (
+                        <ExportButton
+                            disabledReason={!hasColumns ? 'No results to export' : undefined}
+                            type="secondary"
+                            icon={<IconDownload />}
+                            sideIcon={null}
+                            buttonCopy=""
+                            items={[
+                                {
+                                    export_format: ExporterFormat.CSV,
+                                    export_context: exportContext,
+                                },
+                                {
+                                    export_format: ExporterFormat.XLSX,
+                                    export_context: exportContext,
+                                },
+                            ]}
+                        />
                     )}
                 </div>
             </div>
@@ -541,7 +569,7 @@ const Content = ({
 }: any): JSX.Element | null => {
     if (responseLoading) {
         return (
-            <div className="flex flex-1 p-2 w-full justify-center items-center">
+            <div className="flex flex-1 p-2 w-full justify-center items-center border-t">
                 <StatelessInsightLoadingState
                     queryId={queryId}
                     pollResponse={pollResponse}
@@ -569,7 +597,7 @@ const Content = ({
                 ? 'Query results will appear here.'
                 : 'Query results will be visualized here.'
         return (
-            <div className="flex flex-1 justify-center items-center">
+            <div className="flex flex-1 justify-center items-center border-t">
                 <span className="text-secondary mt-3">
                     {msg} Press <KeyboardShortcut command enter /> to run the query.
                 </span>
@@ -591,7 +619,7 @@ const Content = ({
 
     if (activeTab === OutputTab.Visualization) {
         return (
-            <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar">
+            <div className="flex-1 absolute top-0 left-0 right-0 bottom-0 px-4 py-1 hide-scrollbar border-t">
                 <InternalDataTableVisualization
                     uniqueKey={vizKey}
                     query={sourceQuery}

@@ -25,13 +25,13 @@ import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playli
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { NotebookNodeType, ReplayTabs } from '~/types'
+import { NotebookNodeType, ReplayTab, ReplayTabs } from '~/types'
 import { ProductKey } from '~/types'
 
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
-import { humanFriendlyTabName, sessionReplaySceneLogic } from './sessionReplaySceneLogic'
+import { sessionReplaySceneLogic } from './sessionReplaySceneLogic'
 import SessionRecordingTemplates from './templates/SessionRecordingTemplates'
 
 function Header(): JSX.Element {
@@ -215,6 +215,28 @@ function MainPanel(): JSX.Element {
     )
 }
 
+const ReplayPageTabs: ReplayTab[] = [
+    {
+        label: 'Recordings',
+        tooltipDocLink: 'https://posthog.com/docs/session-replay/tutorials',
+        key: ReplayTabs.Home,
+    },
+    {
+        label: 'Playlists',
+        tooltipDocLink: 'https://posthog.com/docs/session-replay/how-to-watch-recordings',
+        key: ReplayTabs.Playlists,
+        tooltip: 'View & create playlists',
+    },
+    {
+        label: 'Figure out what to watch',
+        key: ReplayTabs.Templates,
+    },
+    {
+        label: 'Settings',
+        key: ReplayTabs.Settings,
+    },
+]
+
 function PageTabs(): JSX.Element {
     const { tab, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
 
@@ -222,17 +244,19 @@ function PageTabs(): JSX.Element {
         <LemonTabs
             activeKey={tab}
             onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
-            tabs={Object.values(ReplayTabs).map((replayTab) => {
+            tabs={ReplayPageTabs.map((replayTab) => {
                 return {
                     label: (
                         <>
-                            {humanFriendlyTabName(replayTab)}
-                            {replayTab === ReplayTabs.Templates && shouldShowNewBadge && (
+                            {replayTab.label}
+                            {replayTab.label === ReplayTabs.Templates && shouldShowNewBadge && (
                                 <LemonBadge className="ml-1" size="small" />
                             )}
                         </>
                     ),
-                    key: replayTab,
+                    key: replayTab.key,
+                    tooltip: replayTab.tooltip,
+                    tooltipDocLink: replayTab.tooltipDocLink,
                 }
             })}
         />

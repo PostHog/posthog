@@ -18,6 +18,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -1022,6 +1023,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         f"{self.query.__class__.__name__} does not support breakdown filters out of the box"
                     )
                 )
+
+
+class QueryRunnerWithHogQLContext(QueryRunner):
+    database: Database
+    hogql_context: HogQLContext
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # We create a new context here because we need to access the database
+        # below in the to_query method and creating a database is pretty heavy
+        # so we'll reuse this database for the query once it eventually runs
+        self.database = create_hogql_database(team=self.team)
+        self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database)
 
 
 ### START OF BACKWARDS COMPATIBILITY CODE
