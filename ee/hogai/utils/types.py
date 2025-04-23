@@ -141,6 +141,7 @@ class AssistantNodeName(StrEnum):
     INKEEP_DOCS = "inkeep_docs"
     INSIGHT_RAG_CONTEXT = "insight_rag_context"
     INSIGHTS_SUBGRAPH = "insights_subgraph"
+    TITLE_GENERATOR = "title_generator"
 
 
 class AssistantMode(StrEnum):
