@@ -383,7 +383,7 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
     const { result, hasMinimumExposureForResults, resultsLoading, experiment, error, dimensions } =
         useDeltaChartContext()
 
-    const { viewBoxWidth, chartHeight } = dimensions
+    const { chartHeight } = dimensions
 
     if (result && hasMinimumExposureForResults) {
         return (
@@ -394,11 +394,10 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
             </div>
         )
     } else if (resultsLoading) {
-        return <ChartLoadingState width={viewBoxWidth} height={chartHeight} />
+        return <ChartLoadingState height={chartHeight} />
     }
     return (
         <ChartEmptyState
-            width={viewBoxWidth}
             height={chartHeight}
             experimentStarted={!!experiment.start_date}
             hasMinimumExposure={hasMinimumExposureForResults}
