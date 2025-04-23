@@ -7,6 +7,7 @@ import { QueryResult } from 'pg'
 
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
+import { runInstrumentedFunction } from '../../main/utils'
 import {
     Action,
     ClickHouseEvent,
@@ -562,58 +563,67 @@ export class DB {
         // The Person is being created, and so we can hardcode version 0!
         const personVersion = 0
 
-        const { rows } = await this.postgres.query<RawPerson>(
-            tx ?? PostgresUse.COMMON_WRITE,
-            `WITH inserted_person AS (
-                    INSERT INTO posthog_person (
-                        created_at, properties, properties_last_updated_at,
-                        properties_last_operation, team_id, is_user_id, is_identified, uuid, version
-                    )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                    RETURNING *
-                )` +
-                distinctIds
-                    .map(
-                        // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
-                        // `addDistinctIdPooled`
-                        (_, index) => `, distinct_id_${index} AS (
-                        INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
-                        VALUES (
-                            $${11 + index + distinctIds!.length - 1},
-                            (SELECT id FROM inserted_person),
-                            $5,
-                            $${10 + index})
-                        )`
-                    )
-                    .join('') +
-                `SELECT * FROM inserted_person;`,
-            [
-                createdAt.toISO(),
-                sanitizeJsonbValue(properties),
-                sanitizeJsonbValue(propertiesLastUpdatedAt),
-                sanitizeJsonbValue(propertiesLastOperation),
-                teamId,
-                isUserId,
-                isIdentified,
-                uuid,
-                personVersion,
-                // The copy and reverse here is to maintain compatability with pre-existing code
-                // and tests. Postgres appears to assign IDs in reverse order of the INSERTs in the
-                // CTEs above, so we need to reverse the distinctIds to match the old behavior where
-                // we would do a round trip for each INSERT. We shouldn't actually depend on the
-                // `id` column of distinct_ids, so this is just a simple way to keeps tests exactly
-                // the same and prove behavior is the same as before.
-                ...distinctIds
-                    .slice()
-                    .reverse()
-                    .map(({ version }) => version),
-                ...distinctIds
-                    .slice()
-                    .reverse()
-                    .map(({ distinctId }) => distinctId),
-            ],
-            'insertPerson'
-        )
+        const { rows } = await runInstrumentedFunction({
+            timeoutMessage: 'DB timeout in person-state.ts createPerson at updatePerson',
+            timeout: 60000, // this shouldn't fail the operation, just log a warning
+            func: async () =>
+                this.postgres.query<RawPerson>(
+                    tx ?? PostgresUse.COMMON_WRITE,
+                    `WITH inserted_person AS (
+                        INSERT INTO posthog_person (
+                            created_at, properties, properties_last_updated_at,
+                            properties_last_operation, team_id, is_user_id, is_identified, uuid, version
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                        RETURNING *
+                    )` +
+                        distinctIds
+                            .map(
+                                // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
+                                // `addDistinctIdPooled`
+                                (_, index) => `, distinct_id_${index} AS (
+                            INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+                            VALUES (
+                                $${11 + index + distinctIds!.length - 1},
+                                (SELECT id FROM inserted_person),
+                                $5,
+                                $${10 + index})
+                            )`
+                            )
+                            .join('') +
+                        `SELECT * FROM inserted_person;`,
+                    [
+                        createdAt.toISO(),
+                        sanitizeJsonbValue(properties),
+                        sanitizeJsonbValue(propertiesLastUpdatedAt),
+                        sanitizeJsonbValue(propertiesLastOperation),
+                        teamId,
+                        isUserId,
+                        isIdentified,
+                        uuid,
+                        personVersion,
+                        // The copy and reverse here is to maintain compatability with pre-existing code
+                        // and tests. Postgres appears to assign IDs in reverse order of the INSERTs in the
+                        // CTEs above, so we need to reverse the distinctIds to match the old behavior where
+                        // we would do a round trip for each INSERT. We shouldn't actually depend on the
+                        // `id` column of distinct_ids, so this is just a simple way to keeps tests exactly
+                        // the same and prove behavior is the same as before.
+                        ...distinctIds
+                            .slice()
+                            .reverse()
+                            .map(({ version }) => version),
+                        ...distinctIds
+                            .slice()
+                            .reverse()
+                            .map(({ distinctId }) => distinctId),
+                    ],
+                    'insertPerson'
+                ),
+            statsKey: 'db-tx-createPerson-insertPerson-rw',
+            teamId: teamId,
+            logExecutionTime: false,
+            sendTimeoutGuardToSentry: false,
+        })
         const person = this.toPerson(rows[0])
 
         const kafkaMessages = [generateKafkaPersonUpdateMessage(person)]
