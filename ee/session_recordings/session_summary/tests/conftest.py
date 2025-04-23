@@ -7,22 +7,48 @@ from openai.types.chat.chat_completion import ChatCompletion, Choice, ChatComple
 @pytest.fixture
 def mock_valid_llm_yaml_response() -> str:
     return """```yaml
-summary: User logged in and created a new project
-key_events:
-  - description: User clicked login button
-    error: false
-    tags:
-      where: ["login page"]
-      what: ["authentication"]
-    importance: 0.8
-    event_id: abc123
-  - description: User created new project
-    error: false
-    tags:
-      where: ["dashboard"]
-      what: ["project creation"]
-    importance: 0.9
-    event_id: def456
+segments:
+    - index: 0
+      start_event_id: 'abcd1234'
+      end_event_id: 'vbgs1287'
+      name: 'Example Segment'
+    - index: 1
+      start_event_id: 'gfgz6242'
+      end_event_id: 'stuv9012'
+      name: 'Another Example Segment'
+
+key_actions:
+    - segment_index: 0
+      events:
+          - event_id: 'abcd1234'
+            failure: false
+            description: 'First significant action in this segment'
+          - event_id: 'defg4567'
+            failure: false
+            description: 'Second action in this segment'
+    - segment_index: 1
+      events:
+          - event_id: 'ghij7890'
+            failure: false
+            description: 'Significant action in this segment'
+          - event_id: 'mnop3456'
+            failure: true
+            description: 'User attempted to perform an action but encountered an error'
+          - event_id: 'stuv9012'
+            failure: false
+            description: 'Final action in this chronological segment'
+
+segment_outcomes:
+    - segment_index: 0
+      success: true
+      summary: 'Detailed description incorporating key action insights'
+    - segment_index: 1
+      success: false
+      summary: 'Description highlighting encountered failures and their impact'
+
+session_outcome:
+    success: true
+    description: 'Concise session outcome description focusing on conversion attempts, feature usage, and critical issues'
 ```"""
 
 

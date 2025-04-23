@@ -1,9 +1,9 @@
 from datetime import datetime
 from typing import Any
-from jsonschema import ValidationError
 from rest_framework import serializers
 import yaml
 import structlog
+from ee.session_recordings.session_summary import SummaryValidationError
 from ee.session_recordings.session_summary.prompt_data import SessionSummaryMetadata
 from ee.session_recordings.session_summary.utils import get_column_index, prepare_datetime
 
@@ -136,16 +136,20 @@ class SessionSummarySerializer(serializers.Serializer):
 def load_raw_session_summary_from_llm_content(
     raw_content: str, allowed_event_ids: list[str], session_id: str
 ) -> RawSessionSummarySerializer | None:
+    if not raw_content:
+        raise SummaryValidationError(f"No LLM content found when summarizing session_id {session_id}")
     try:
         # Strip the first and the last line of the content to load the YAML data only into JSON
         # TODO Work on a more robust solution
         json_content: dict = yaml.safe_load(raw_content.strip("```yaml\n").strip("```").strip())  # noqa: B005
     except Exception as e:
-        raise ValidationError(f"Error loading YAML content into JSON when summarizing session_id {session_id}: {e}")
+        raise SummaryValidationError(
+            f"Error loading YAML content into JSON when summarizing session_id {session_id}: {e}"
+        )
     # Validate the LLM output against the schema
     raw_session_summary = RawSessionSummarySerializer(data=json_content)
     if not raw_session_summary.is_valid():
-        raise ValidationError(
+        raise SummaryValidationError(
             f"Error validating LLM output against the schema when summarizing session_id {session_id}: {raw_session_summary.errors}"
         )
     segments = raw_session_summary.data.get("segments")
@@ -200,7 +204,7 @@ def _validate_enriched_summary(data: dict[str, Any], session_id: str) -> Session
     # Validating even when processing incomplete chunks as the `.data` can't be used without validation check
     if not session_summary.is_valid():
         # Most of the fields are optional, so failed validation should be reported
-        raise ValidationError(
+        raise SummaryValidationError(
             f"Error validating enriched content against the schema when summarizing session_id {session_id}: {session_summary.errors}"
         )
     return session_summary
@@ -377,7 +381,7 @@ def enrich_raw_session_summary_with_meta(
         # Validate the serializer to be able to use `.data`
         if not segment_meta.is_valid():
             # Most of the fields are optional, so failed validation should be reported
-            raise ValidationError(
+            raise SummaryValidationError(
                 f"Error validating segment meta against the schema when summarizing session_id {session_id}: {segment_meta.errors}"
             )
         enriched_segment["meta"] = segment_meta.data

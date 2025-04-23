@@ -5,7 +5,7 @@ class ExceptionToRetry(Exception):
     """
 
 
-class ValidationError(Exception):
+class SummaryValidationError(Exception):
     """
     Customn exception to differ from ValueError when validating streaming LLM responses.
     For example, incorrect schema is expected for some state of the stream chunks, so could be ignored till the chunk is complete.
