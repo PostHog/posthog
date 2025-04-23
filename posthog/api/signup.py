@@ -607,10 +607,13 @@ def social_create_user(
                     return redirect("/login?error_code=no_new_organizations")
             strategy.session_set("email", email)
             organization_name = strategy.session_get("organization_name")
+            next_url = strategy.session_get("next")
+
             query_params = {
                 "organization_name": organization_name or "",
                 "first_name": full_name or "",
                 "email": email or "",
+                "next": next_url or "",
             }
             query_params_string = urlencode(query_params)
             logger.info(
