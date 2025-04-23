@@ -1505,4 +1505,27 @@ mod tests {
                 && (f.filters.groups[0].rollout_percentage.unwrap() - 33.33).abs() < f64::EPSILON));
         }
     }
+
+    #[test]
+    fn test_empty_filters_deserialization() {
+        let empty_filters_json = r#"{
+            "id": 1,
+            "team_id": 2,
+            "name": "Empty Filters Flag",
+            "key": "empty_filters",
+            "filters": {},
+            "deleted": false,
+            "active": true
+        }"#;
+
+        let flag: FeatureFlag =
+            serde_json::from_str(empty_filters_json).expect("Should deserialize empty filters");
+
+        assert_eq!(flag.filters.groups.len(), 0);
+        assert!(flag.filters.multivariate.is_none());
+        assert!(flag.filters.aggregation_group_type_index.is_none());
+        assert!(flag.filters.payloads.is_none());
+        assert!(flag.filters.super_groups.is_none());
+        assert!(flag.filters.holdout_groups.is_none());
+    }
 }
