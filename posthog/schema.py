@@ -2644,6 +2644,7 @@ class DatabaseSchemaPostHogTable(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
+    row_count: Optional[float] = None
     type: Literal["posthog"] = "posthog"
 
 
@@ -2654,6 +2655,7 @@ class DatabaseSchemaTableCommon(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
+    row_count: Optional[float] = None
     type: Type1
 
 
@@ -5648,6 +5650,7 @@ class DatabaseSchemaBatchExportTable(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
+    row_count: Optional[float] = None
     type: Literal["batch_export"] = "batch_export"
 
 
@@ -5659,6 +5662,7 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     format: str
     id: str
     name: str
+    row_count: Optional[float] = None
     schema_: Optional[DatabaseSchemaSchema] = Field(default=None, alias="schema")
     source: Optional[DatabaseSchemaSource] = None
     type: Literal["data_warehouse"] = "data_warehouse"
@@ -8803,6 +8807,7 @@ class DatabaseSchemaManagedViewTable(BaseModel):
     id: str
     name: str
     query: HogQLQuery
+    row_count: Optional[float] = None
     type: Literal["managed_view"] = "managed_view"
 
 
@@ -8815,6 +8820,7 @@ class DatabaseSchemaMaterializedViewTable(BaseModel):
     last_run_at: Optional[str] = None
     name: str
     query: HogQLQuery
+    row_count: Optional[float] = None
     status: Optional[str] = None
     type: Literal["materialized_view"] = "materialized_view"
 
@@ -8827,6 +8833,7 @@ class DatabaseSchemaViewTable(BaseModel):
     id: str
     name: str
     query: HogQLQuery
+    row_count: Optional[float] = None
     type: Literal["view"] = "view"
 
 

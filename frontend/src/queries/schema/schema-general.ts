@@ -2351,6 +2351,7 @@ export interface DatabaseSchemaTableCommon {
     id: string
     name: string
     fields: Record<string, DatabaseSchemaField>
+    row_count?: number
 }
 
 export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
