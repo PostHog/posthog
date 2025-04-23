@@ -132,7 +132,6 @@ class ModelStatus(enum.StrEnum):
     COMPLETED = "Completed"
     FAILED = "Failed"
     READY = "Ready"
-    CANCELLED = "Cancelled"
 
 
 @dataclasses.dataclass
