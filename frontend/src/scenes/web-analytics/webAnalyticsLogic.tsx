@@ -960,9 +960,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     : undefined
 
                 // the queries don't currently include revenue when the conversion goal is an action
-                const includeRevenue =
-                    !!featureFlags[FEATURE_FLAGS.WEB_REVENUE_TRACKING] &&
-                    !(conversionGoal && 'actionId' in conversionGoal)
+                const includeRevenue = !(conversionGoal && 'actionId' in conversionGoal)
 
                 const revenueEventsSeries: EventsNode[] =
                     includeRevenue && currentTeam?.revenue_tracking_config
