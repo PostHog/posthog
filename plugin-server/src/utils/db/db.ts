@@ -7,6 +7,7 @@ import { QueryResult } from 'pg'
 
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
+import { runInstrumentedFunction } from '../../main/utils'
 import {
     Action,
     ClickHouseEvent,
@@ -666,12 +667,17 @@ export class DB {
         )} WHERE id = $${Object.values(update).length + 1}
         RETURNING *`
 
-        const { rows } = await this.postgres.query<RawPerson>(
-            tx ?? PostgresUse.COMMON_WRITE,
-            queryString,
-            values,
-            'updatePerson'
-        )
+        const { rows } = await runInstrumentedFunction({
+            timeoutMessage: 'DB timeout in db.ts updatePersonDeprecated at updatePerson',
+            timeout: 60000, // this shouldn't fail the operation, just log a warning
+            func: async () =>
+                this.postgres.query<RawPerson>(tx ?? PostgresUse.COMMON_WRITE, queryString, values, 'updatePerson'),
+            statsKey: 'db-tx-updatePersonDeprecated-updatePerson-rw',
+            teamId: person.team_id,
+            logExecutionTime: false,
+            sendTimeoutGuardToSentry: false,
+        })
+
         if (rows.length == 0) {
             throw new NoRowsUpdatedError(
                 `Person with team_id="${person.team_id}" and uuid="${person.uuid} couldn't be updated`
