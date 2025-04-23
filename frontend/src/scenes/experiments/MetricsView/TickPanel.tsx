@@ -28,10 +28,10 @@ export function TickPanel({
             // eslint-disable-next-line react/forbid-dom-props
             style={{ minHeight: `${tickPanelHeight}px` }} // Dynamic height based on panel configuration
         >
-            {tickValues.map((value, index) => {
+            {tickValues.map((value) => {
                 const x = valueToX(value)
                 return (
-                    <g key={index}>
+                    <g key={value}>
                         <text
                             x={x}
                             y={tickPanelHeight / 2}
