@@ -105,6 +105,7 @@ export enum NodeKind {
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
+    WebActiveHoursHeatMapQuery = 'WebActiveHoursHeatMapQuery',
 
     // Revenue analytics queries
     RevenueAnalyticsOverviewQuery = 'RevenueAnalyticsOverviewQuery',
@@ -165,6 +166,7 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | VectorSearchQuery
+    | WebActiveHoursHeatMapQuery
 
 /**
  * @discriminator kind
@@ -202,6 +204,7 @@ export type QuerySchema =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
+    | WebActiveHoursHeatMapQuery
 
     // Revenue analytics
     | RevenueAnalyticsOverviewQuery
@@ -704,6 +707,7 @@ export interface DataTableNode
                     | WebGoalsQuery
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
+                    | WebActiveHoursHeatMapQuery
                     | SessionAttributionExplorerQuery
                     | RevenueAnalyticsOverviewQuery
                     | RevenueAnalyticsGrowthRateQuery
@@ -733,6 +737,7 @@ export interface DataTableNode
         | WebGoalsQuery
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
+        | WebActiveHoursHeatMapQuery
         | SessionAttributionExplorerQuery
         | RevenueAnalyticsOverviewQuery
         | RevenueAnalyticsGrowthRateQuery
@@ -982,6 +987,7 @@ export type TrendsFilter = {
     aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
     aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
     decimalPlaces?: TrendsFilterLegacy['decimal_places']
+    minDecimalPlaces?: TrendsFilterLegacy['min_decimal_places']
     /** @default false */
     showValuesOnSeries?: TrendsFilterLegacy['show_values_on_series']
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
@@ -1823,6 +1829,15 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
  */
 export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
+    revenueSources: RevenueSources
+}
+
+export interface RevenueSources {
+    // These represent the IDs we're interested in from the data warehouse sources
+    dataWarehouseSources: string[]
+
+    // This is a list of strings that represent the event names we're interested in
+    events: string[]
 }
 
 export interface RevenueAnalyticsOverviewQuery
@@ -1850,9 +1865,11 @@ export interface RevenueAnalyticsGrowthRateQueryResponse extends AnalyticsQueryR
 }
 export type CachedRevenueAnalyticsGrowthRateQueryResponse = CachedQueryResponse<RevenueAnalyticsGrowthRateQueryResponse>
 
+export type RevenueAnalyticsTopCustomersGroupBy = 'month' | 'all'
 export interface RevenueAnalyticsTopCustomersQuery
     extends RevenueAnalyticsBaseQuery<RevenueAnalyticsTopCustomersQueryResponse> {
     kind: NodeKind.RevenueAnalyticsTopCustomersQuery
+    groupBy: RevenueAnalyticsTopCustomersGroupBy
 }
 
 export interface RevenueAnalyticsTopCustomersQueryResponse extends AnalyticsQueryResponseBase<unknown> {
@@ -1905,6 +1922,7 @@ export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
     last_seen: string
     earliest?: string
     aggregations: ErrorTrackingIssueAggregations
+    library: string | null
 }
 
 export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase<ErrorTrackingIssue[]> {
@@ -2387,6 +2405,7 @@ export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryRespons
 export type DatabaseSerializedFieldType =
     | 'integer'
     | 'float'
+    | 'decimal'
     | 'string'
     | 'datetime'
     | 'date'
@@ -2399,6 +2418,7 @@ export type DatabaseSerializedFieldType =
     | 'expression'
     | 'view'
     | 'materialized_view'
+    | 'unknown'
 
 export type HogQLExpression = string
 
@@ -2892,3 +2912,38 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 }
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
+
+export interface WebActiveHoursHeatMapQuery extends WebAnalyticsQueryBase<WebActiveHoursHeatMapQueryResponse> {
+    kind: NodeKind.WebActiveHoursHeatMapQuery
+}
+
+export interface WebActiveHoursHeatMapQueryResponse
+    extends AnalyticsQueryResponseBase<WebActiveHoursHeatMapStructuredResult> {
+    hasMore?: boolean
+    limit?: integer
+}
+
+export interface WebActiveHoursHeatMapDayAndHourResult {
+    day: integer
+    hour: integer
+    total: integer
+}
+
+export interface WebActiveHoursHeatMapDayResult {
+    day: integer
+    total: integer
+}
+
+export interface WebActiveHoursHeatMapHourResult {
+    hour: integer
+    total: integer
+}
+
+export interface WebActiveHoursHeatMapStructuredResult {
+    dayAndHours: WebActiveHoursHeatMapDayAndHourResult[]
+    days: WebActiveHoursHeatMapDayResult[]
+    hours: WebActiveHoursHeatMapHourResult[]
+    total: integer
+}
+
+export type CachedWebActiveHoursHeatMapQueryResponse = CachedQueryResponse<WebActiveHoursHeatMapQueryResponse>

@@ -7,7 +7,7 @@ from posthog.models.team.team import Team
 import structlog
 from celery import shared_task
 from dateutil.relativedelta import relativedelta
-from django.db.models import F, ExpressionWrapper, DurationField, Q
+from django.db.models import Case, F, ExpressionWrapper, DurationField, Q, QuerySet, When
 from django.utils import timezone
 from prometheus_client import Gauge
 from sentry_sdk import set_tag
@@ -17,8 +17,7 @@ from datetime import timedelta
 from posthog.exceptions_capture import capture_exception
 from posthog.api.monitoring import Feature
 from posthog.models import Cohort
-from posthog.models.cohort import get_and_update_pending_version
-from posthog.models.cohort.util import clear_stale_cohortpeople, get_static_cohort_size
+from posthog.models.cohort.util import get_static_cohort_size
 from posthog.models.user import User
 from posthog.tasks.utils import CeleryQueue
 
@@ -37,6 +36,16 @@ logger = structlog.get_logger(__name__)
 MAX_AGE_MINUTES = 15
 
 
+def get_cohort_calculation_candidates_queryset() -> QuerySet:
+    return Cohort.objects.filter(
+        Q(last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES))
+        | Q(last_calculation__isnull=True),
+        deleted=False,
+        is_calculating=False,
+        errors_calculating__lte=20,
+    ).exclude(is_static=True)
+
+
 def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
     """
     Calculates maximum N cohorts in parallel.
@@ -44,57 +53,40 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
     Args:
         parallel_count: Maximum number of cohorts to calculate in parallel.
     """
-
-    # This task will be run every minute
-    # Every minute, grab a few cohorts off the list and execute them
-
-    # calculate exponential backoff
+    # Exponential backoff, with the first one starting after 30 minutes
     backoff_duration = ExpressionWrapper(
         timedelta(minutes=30) * (2 ** F("errors_calculating")),  # type: ignore
         output_field=DurationField(),
     )
 
     for cohort in (
-        Cohort.objects.filter(
-            deleted=False,
-            is_calculating=False,
-            last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES),
-            errors_calculating__lte=20,
-            # Exponential backoff, with the first one starting after 30 minutes
-        )
+        get_cohort_calculation_candidates_queryset()
         .filter(
             Q(last_error_at__lte=timezone.now() - backoff_duration)  # type: ignore
             | Q(last_error_at__isnull=True)  # backwards compatability cohorts before last_error_at was introduced
         )
-        .exclude(is_static=True)
         .order_by(F("last_calculation").asc(nulls_first=True))[0:parallel_count]
     ):
         cohort = Cohort.objects.filter(pk=cohort.pk).get()
         increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=None)
 
-    # update gauge
-    backlog = (
-        Cohort.objects.filter(
-            deleted=False,
-            is_calculating=False,
-            last_calculation__lte=timezone.now() - relativedelta(minutes=MAX_AGE_MINUTES),
-            errors_calculating__lte=20,
-        )
-        .exclude(is_static=True)
-        .count()
-    )
+    backlog = get_cohort_calculation_candidates_queryset().count()
     COHORT_RECALCULATIONS_BACKLOG_GAUGE.set(backlog)
 
 
 def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
-    pending_version = get_and_update_pending_version(cohort)
-    calculate_cohort_ch.delay(cohort.id, pending_version, initiating_user.id if initiating_user else None)
+    cohort.pending_version = Case(When(pending_version__isnull=True, then=1), default=F("pending_version") + 1)
+    update_fields = ["pending_version"]
 
+    if not cohort.is_static:
+        # avoid starting another cohort calculation if one is already expected to be in progress
+        # XXX: it is possible for a job to fail without resetting this field and need to be manually recovered
+        cohort.is_calculating = True
+        update_fields.append("is_calculating")
 
-@shared_task(ignore_result=True)
-def clear_stale_cohort(cohort_id: int, before_version: int) -> None:
-    cohort: Cohort = Cohort.objects.get(pk=cohort_id)
-    clear_stale_cohortpeople(cohort, before_version)
+    cohort.save(update_fields=update_fields)
+    cohort.refresh_from_db()
+    calculate_cohort_ch.delay(cohort.id, cohort.pending_version, initiating_user.id if initiating_user else None)
 
 
 @shared_task(ignore_result=True, max_retries=2, queue=CeleryQueue.LONG_RUNNING.value)

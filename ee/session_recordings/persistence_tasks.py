@@ -28,18 +28,12 @@ REPLAY_NEEDS_PERSISTENCE_V2_COUNTER = Counter(
 )
 
 
-@shared_task(
-    ignore_result=True,
-    queue=CeleryQueue.SESSION_REPLAY_PERSISTENCE.value,
-)
+@shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_PERSISTENCE.value, rate_limit="10/m")
 def persist_single_recording(id: str, team_id: int) -> None:
     persist_recording(id, team_id)
 
 
-@shared_task(
-    ignore_result=True,
-    queue=CeleryQueue.SESSION_REPLAY_PERSISTENCE.value,
-)
+@shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_PERSISTENCE.value, rate_limit="10/m")
 def persist_single_recording_v2(id: str, team_id: int) -> None:
     persist_recording_v2(id, team_id)
 

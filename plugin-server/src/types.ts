@@ -16,6 +16,7 @@ import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { VM } from 'vm2'
+import { z } from 'zod'
 
 import { EncryptedFields } from './cdp/encryption-utils'
 import { LegacyOneventCompareService } from './cdp/services/legacy-onevent-compare.service'
@@ -76,6 +77,7 @@ export enum PluginServerMode {
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
+    cdp_cyclotron_worker_fetch = 'cdp-cyclotron-worker-fetch',
     cdp_api = 'cdp-api',
     functional_tests = 'functional-tests',
 }
@@ -117,6 +119,10 @@ export type CdpConfig = {
     CDP_REDIS_PASSWORD: string
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
+    CDP_FETCH_TIMEOUT_MS: number
+    CDP_FETCH_RETRIES: number
+    CDP_FETCH_BACKOFF_BASE_MS: number
+    CDP_FETCH_BACKOFF_MAX_MS: number
 }
 
 export type IngestionConsumerConfig = {
@@ -248,7 +254,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CLOUD_DEPLOYMENT: string | null
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
-    DROP_EVENTS_BY_TOKEN: string
     SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     RUSTY_HOOK_FOR_TEAMS: string
@@ -408,6 +413,7 @@ export interface PluginServerCapabilities {
     cdpInternalEvents?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerPlugins?: boolean
+    cdpCyclotronWorkerFetch?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
@@ -739,6 +745,22 @@ export interface RawClickHouseEvent extends BaseEvent {
     group4_created_at?: ClickHouseTimestamp
     person_mode: PersonMode
 }
+
+export type KafkaConsumerBreadcrumb = {
+    topic: string
+    offset: string | number
+    partition: number
+    processed_at: string
+    consumer_id: string
+}
+
+export const KafkaConsumerBreadcrumbSchema = z.object({
+    topic: z.string(),
+    offset: z.union([z.string(), z.number()]),
+    partition: z.number(),
+    processed_at: z.string(),
+    consumer_id: z.string(),
+})
 
 export interface RawKafkaEvent extends RawClickHouseEvent {
     /**

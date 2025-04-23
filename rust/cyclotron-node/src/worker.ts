@@ -159,5 +159,8 @@ export class CyclotronWorker {
         if (updates?.blob) {
             cyclotron.setBlob(id, updates.blob)
         }
+        if (updates?.scheduled) {
+            cyclotron.setScheduledAt(id, updates.scheduled)
+        }
     }
 }
