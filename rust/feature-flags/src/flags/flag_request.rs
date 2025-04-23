@@ -15,7 +15,7 @@ where
     #[serde(untagged)]
     enum StringOrNumber {
         String(String),
-        Number(i64),
+        Number(serde_json::Number),
     }
 
     let opt = Option::<StringOrNumber>::deserialize(deserializer)?;
@@ -209,6 +209,18 @@ mod tests {
 
         // First verify the field is None
         assert_eq!(flag_payload.distinct_id, Option::<String>::None);
+    }
+
+    #[test]
+    fn float_distinct_id_is_handled_correctly() {
+        let json = json!({
+            "$distinct_id": 123.45,
+            "token": "my_token1",
+        });
+        let bytes = Bytes::from(json.to_string());
+
+        let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
+        assert_eq!(flag_payload.distinct_id, Some("123.45".to_string()));
     }
 
     #[tokio::test]
