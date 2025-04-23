@@ -63,6 +63,7 @@ class DeltaTableHelper:
                 "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
                 "AWS_ALLOW_HTTP": "true",
                 "AWS_S3_ALLOW_UNSAFE_RENAME": "false",
+                "conditional_put": "etag",
             }
 
         return {
@@ -71,6 +72,7 @@ class DeltaTableHelper:
             "region_name": settings.AIRBYTE_BUCKET_REGION,
             "AWS_DEFAULT_REGION": settings.AIRBYTE_BUCKET_REGION,
             "AWS_S3_ALLOW_UNSAFE_RENAME": "false",
+            "conditional_put": "etag",
         }
 
     def _get_delta_table_uri(self) -> str:
