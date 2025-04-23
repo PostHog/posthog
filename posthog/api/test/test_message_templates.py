@@ -27,7 +27,7 @@ class TestMessageTemplatesAPI(APIBaseTest):
         )
 
     def test_list_message_templates(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/messaging/templates/")
+        response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_data = response.json()
@@ -41,7 +41,7 @@ class TestMessageTemplatesAPI(APIBaseTest):
         self.assertEqual(template["type"], "email")
 
     def test_retrieve_message_template(self):
-        response = self.client.get(f"/api/environments/{self.team.id}/messaging/templates/{self.message_template.id}/")
+        response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         template = response.json()
@@ -52,21 +52,21 @@ class TestMessageTemplatesAPI(APIBaseTest):
         self.assertEqual(template["type"], "email")
 
     def test_cannot_access_other_teams_templates(self):
-        response = self.client.get(f"/api/environments/{self.other_team.id}/messaging/templates/")
+        response = self.client.get(f"/api/environments/{self.other_team.id}/messaging_templates/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
         response = self.client.get(
-            f"/api/environments/{self.team.id}/messaging/templates/{self.other_team_template.id}/"
+            f"/api/environments/{self.team.id}/messaging_templates/{self.other_team_template.id}/"
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_authentication_required(self):
         self.client.logout()
-        response = self.client.get(f"/api/environments/{self.team.id}/messaging/templates/")
+        response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_delete_operation_not_allowed(self):
         response = self.client.delete(
-            f"/api/environments/{self.team.id}/messaging/templates/{self.message_template.id}/"
+            f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/"
         )
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
