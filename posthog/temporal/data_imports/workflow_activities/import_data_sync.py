@@ -13,7 +13,10 @@ from temporalio import activity
 
 from posthog.models.integration import Integration
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
-from posthog.temporal.common.logger import bind_temporal_worker_logger_sync
+from posthog.temporal.common.logger import (
+    bind_temporal_worker_logger_sync,
+    get_internal_logger,
+)
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.bigquery import (
     delete_all_temp_destination_tables,
@@ -78,9 +81,10 @@ def _trim_source_job_inputs(source: ExternalDataSource) -> None:
 
 @activity.defn
 def import_data_activity_sync(inputs: ImportDataActivityInputs):
+    internal_logger = get_internal_logger()
     logger = bind_temporal_worker_logger_sync(team_id=inputs.team_id)
 
-    with HeartbeaterSync(factor=30, logger=logger), ShutdownMonitor() as shutdown_monitor:
+    with HeartbeaterSync(factor=30, logger=internal_logger), ShutdownMonitor() as shutdown_monitor:
         close_old_connections()
 
         model = ExternalDataJob.objects.prefetch_related(
