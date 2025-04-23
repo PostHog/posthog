@@ -43,7 +43,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LLMObservabilityUsers: () => import('../../products/llm_observability/frontend/LLMObservabilityUsers'),
     MessagingCampaigns: () => import('../../products/messaging/frontend/Campaigns'),
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
-    MessagingLibrary: () => import('../../products/messaging/frontend/Library'),
+    MessagingLibrary: () => import('../../products/messaging/frontend/library/MessageLibrary'),
+    MessagingLibraryTemplate: () => import('../../products/messaging/frontend/library/MessageTemplate'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
 }
 
@@ -64,8 +65,12 @@ export const productRoutes: Record<string, [string, string]> = {
     '/messaging/broadcasts/:id': ['MessagingBroadcasts', 'messagingBroadcast'],
     '/messaging/broadcasts/new': ['MessagingBroadcasts', 'messagingBroadcastNew'],
     '/messaging/library': ['MessagingLibrary', 'messagingLibrary'],
-    '/messaging/library/new': ['MessagingLibrary', 'messagingLibraryNew'],
-    '/messaging/library/:id': ['MessagingLibrary', 'messagingLibraryTemplate'],
+    '/messaging/library/templates/:id': ['MessagingLibraryTemplate', 'messagingLibraryTemplate'],
+    '/messaging/library/templates/new': ['MessagingLibraryTemplate', 'messagingLibraryTemplate'],
+    '/messaging/library/templates/new?messageId=:messageId': [
+        'MessagingLibraryTemplate',
+        'messagingLibraryTemplateFromMessage',
+    ],
     '/revenue_analytics': ['RevenueAnalytics', 'revenueAnalytics'],
 }
 
@@ -113,6 +118,7 @@ export const productConfiguration: Record<string, any> = {
     MessagingCampaigns: { name: 'Messaging', projectBased: true },
     MessagingBroadcasts: { name: 'Messaging', projectBased: true },
     MessagingLibrary: { name: 'Messaging', projectBased: true },
+    MessagingLibraryTemplate: { name: 'Messaging', projectBased: true },
     RevenueAnalytics: {
         name: 'Revenue Analytics',
         projectBased: true,
@@ -180,8 +186,8 @@ export const productUrls = {
     messagingBroadcast: (id?: string): string => `/messaging/broadcasts/${id}`,
     messagingBroadcastNew: (): string => '/messaging/broadcasts/new',
     messagingLibrary: (): string => '/messaging/library',
-    messagingLibraryNew: (): string => '/messaging/library/new',
-    messagingLibraryTemplate: (id?: string): string => `/messaging/library/${id}`,
+    messagingLibraryTemplate: (id?: string): string => `/messaging/library/templates/${id}`,
+    messagingLibraryTemplateFromMessage: (id?: string): string => `/messaging/library/templates/new?messageId=${id}`,
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
@@ -269,6 +275,7 @@ export const fileSystemTypes = {
     experiment: { icon: <IconTestTube />, href: (ref: string) => urls.experiment(ref) },
     feature_flag: { icon: <IconToggle />, href: (ref: string) => urls.featureFlag(ref) },
     'hog_function/broadcast': { icon: <IconMegaphone />, href: (ref: string) => urls.messagingBroadcast(ref) },
+    'hog_function/campaign': { icon: <IconMegaphone />, href: (ref: string) => urls.messagingCampaign(ref) },
     insight: { icon: <IconGraph />, href: (ref: string) => urls.insightView(ref as InsightShortId) },
     notebook: { icon: <IconNotebook />, href: (ref: string) => urls.notebook(ref) },
     session_recording_playlist: { icon: <IconRewindPlay />, href: (ref: string) => urls.replayPlaylist(ref) },
@@ -281,6 +288,12 @@ export const treeItemsNew = [
         type: 'hog_function/broadcast',
         href: () => urls.messagingBroadcastNew(),
         flag: FEATURE_FLAGS.MESSAGING,
+    },
+    {
+        path: `Campaign`,
+        type: 'hog_function/campaign',
+        href: () => urls.messagingCampaignNew(),
+        flag: FEATURE_FLAGS.MESSAGING_AUTOMATION,
     },
     { path: `Dashboard`, type: 'dashboard', href: () => urls.dashboards() + '#newDashboard=modal' },
     { path: `Experiment`, type: 'experiment', href: () => urls.experiment('new') },

@@ -44,6 +44,7 @@ export const VariablesForDashboard = (): JSX.Element => {
                         showEditingUI={false}
                         onChange={(variableId, value, isNull) => overrideVariableValue(variableId, value, isNull, true)}
                         variableOverridesAreSet={false}
+                        emptyState={<i className="text-xs">No override set</i>}
                         insightsUsingVariable={n.insights}
                     />
                 ))}
@@ -294,6 +295,7 @@ interface VariableComponentProps {
     onRemove?: (variableId: string) => void
     variableSettingsOnClick?: () => void
     insightsUsingVariable?: string[]
+    emptyState?: JSX.Element | string
 }
 
 export const VariableComponent = ({
@@ -304,6 +306,7 @@ export const VariableComponent = ({
     onRemove,
     variableSettingsOnClick,
     insightsUsingVariable,
+    emptyState = '',
 }: VariableComponentProps): JSX.Element => {
     const [isPopoverOpen, setPopoverOpen] = useState(false)
 
@@ -359,6 +362,8 @@ export const VariableComponent = ({
                     >
                         {variable.isNull
                             ? 'Set to null'
+                            : (variable.value?.toString() || variable.default_value?.toString() || '') === ''
+                            ? emptyState
                             : variable.value?.toString() ?? variable.default_value?.toString()}
                     </LemonButton>
                 </LemonField.Pure>

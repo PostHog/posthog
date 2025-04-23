@@ -1,6 +1,7 @@
-import { Meta } from '@storybook/react'
+import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -20,6 +21,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
+        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS],
         testOptions: {
             includeNavigationInSnapshot: true,
             waitForLoadersToDisappear: true,
@@ -101,4 +103,16 @@ export function RevenueAnalyticsDashboardLineView(): JSX.Element {
     }, [setGrowthRateDisplayMode, setTopCustomersDisplayMode])
 
     return <App />
+}
+
+export const RevenueAnalyticsDashboardWithoutFeatureFlag: StoryFn = () => {
+    useEffect(() => {
+        router.actions.push(urls.revenueAnalytics())
+    }, [])
+
+    return <App />
+}
+RevenueAnalyticsDashboardWithoutFeatureFlag.parameters = {
+    ...meta.parameters,
+    featureFlags: [],
 }

@@ -37,16 +37,23 @@ class WebActiveHoursHeatMapQueryRunner(WebAnalyticsQueryRunner):
                 query.total
             FROM (
                 SELECT
-                    uniqMap(map(concat(toString(toDayOfWeek(timestamp)), ',' ,toString(toHour(timestamp))), events.person_id)) as hoursAndDays,
-                    uniqMap(map(toHour(timestamp), events.person_id)) as hours,
-                    uniqMap(map(toDayOfWeek(timestamp), events.person_id)) as days,
+                    uniqMap(map(concat(toString(toDayOfWeek(uniqueSessionEvents.timestamp)), ',' ,toString(toHour(uniqueSessionEvents.timestamp))), uniqueSessionEvents.person_id)) as hoursAndDays,
+                    uniqMap(map(toHour(uniqueSessionEvents.timestamp), uniqueSessionEvents.person_id)) as hours,
+                    uniqMap(map(toDayOfWeek(uniqueSessionEvents.timestamp), uniqueSessionEvents.person_id)) as days,
                     uniq(person_id) as total
-                FROM events
-                WHERE and(
-                    event = '$pageview',
-                    {all_properties},
-                    {current_period}
-                )
+                FROM (
+                    SELECT
+                        any(events.person_id) as person_id,
+                        session.session_id as session_id,
+                        min(session.$start_timestamp) as timestamp
+                    FROM events
+                    WHERE and(
+                        event = '$pageview',
+                        {all_properties}
+                    )
+                    GROUP BY session_id
+                ) as uniqueSessionEvents
+                WHERE {current_period}
             ) as query
             """,
             placeholders={

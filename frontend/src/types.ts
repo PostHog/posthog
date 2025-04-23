@@ -5012,7 +5012,7 @@ export type HogFunctionKind = 'messaging_campaign' | null
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
-    kind?: HogFunctionKind
+    kind?: HogFunctionKind | null
     icon_url?: string
     name: string
     description: string
