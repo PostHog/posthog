@@ -111,6 +111,7 @@ export const OnboardingProductConfiguration = ({
                             <div className="flex justify-end">
                                 {item.type === 'toggle' ? (
                                     <LemonSwitch
+                                        data-attr={`onboarding-product-configuration-toggle-${idx}`}
                                         onChange={item.onChange}
                                         className="justify-end"
                                         fullWidth={true}
@@ -118,6 +119,7 @@ export const OnboardingProductConfiguration = ({
                                     />
                                 ) : item.type === 'plugin' ? (
                                     <LemonSwitch
+                                        data-attr={`onboarding-product-configuration-plugin-${idx}`}
                                         onChange={item.onChange}
                                         className="justify-end"
                                         fullWidth={true}
@@ -126,6 +128,7 @@ export const OnboardingProductConfiguration = ({
                                 ) : (
                                     <div className="flex justify-end items-center mb-1 gap-x-4">
                                         <LemonSelect
+                                            data-attr={`onboarding-product-configuration-select-${idx}`}
                                             dropdownMatchSelectWidth={false}
                                             onChange={item.onChange}
                                             options={item.selectOptions || []}
