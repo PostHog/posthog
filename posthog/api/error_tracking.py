@@ -452,8 +452,8 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
     def generate_byte_code(self, props: PropertyGroupFilterValue):
         expr = property_to_expr(props, self.team, strict=True)
         # The rust HogVM expects a return statement, so we wrap the compiled filter expression in one
-        expr = ast.ReturnStatement(expr=expr)
-        bytecode = create_bytecode(expr).bytecode
+        with_return = ast.ReturnStatement(expr=expr)
+        bytecode = create_bytecode(with_return).bytecode
         validate_bytecode(bytecode)
         return bytecode
 
