@@ -33,11 +33,6 @@ export interface AlertCheck {
     targets_notified: boolean
 }
 
-export type AlertDestination = {
-    type: 'slack'
-    target: string
-}
-
 export interface AlertType extends AlertTypeBase {
     id: string
     subscribed_users: UserBasicType[]

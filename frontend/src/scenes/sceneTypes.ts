@@ -95,7 +95,6 @@ export enum Scene {
     MessagingBroadcasts = 'MessagingBroadcasts',
     MessagingLibrary = 'MessagingLibrary',
     Wizard = 'Wizard',
-    InsightAlertDestination = 'InsightAlertDestination',
     StartupProgram = 'StartupProgram',
 }
 
