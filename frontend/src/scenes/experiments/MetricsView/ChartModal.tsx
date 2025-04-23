@@ -31,6 +31,8 @@ export function ChartModal({
     result,
     experimentId,
 }: ChartModalProps): JSX.Element {
+    const isLegacyResult =
+        result && (result.kind === NodeKind.ExperimentTrendsQuery || result.kind === NodeKind.ExperimentFunnelsQuery)
     return (
         <LemonModal
             isOpen={isOpen}
@@ -44,12 +46,11 @@ export function ChartModal({
             }
         >
             {/* Only show explore button if the metric is a trends or funnels query */}
-            {result &&
-                (result.kind === NodeKind.ExperimentTrendsQuery || result.kind === NodeKind.ExperimentFunnelsQuery) && (
-                    <div className="flex justify-end">
-                        <ExploreButton result={result} />
-                    </div>
-                )}
+            {isLegacyResult && (
+                <div className="flex justify-end">
+                    <ExploreButton result={result} />
+                </div>
+            )}
             <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                 <div className="items-center inline-flex flex-wrap">
                     <WinningVariantText result={result} experimentId={experimentId} />
@@ -58,10 +59,7 @@ export function ChartModal({
             </LemonBanner>
             <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
             {/* Only show results query if the metric is a trends or funnels query */}
-            {result &&
-                (result.kind === NodeKind.ExperimentTrendsQuery || result.kind === NodeKind.ExperimentFunnelsQuery) && (
-                    <ResultsQuery result={result} showTable={true} />
-                )}
+            {isLegacyResult && <ResultsQuery result={result} showTable={true} />}
         </LemonModal>
     )
 }
