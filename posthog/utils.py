@@ -1564,3 +1564,14 @@ def get_from_dict_or_attr(obj: Any, key: str):
         return getattr(obj, key, None)
     else:
         raise AttributeError(f"Object {obj} has no key {key}")
+
+
+def is_relative_url(url: str) -> bool:
+    """
+    Returns True if `url` is a relative URL (e.g. "/foo/bar" or "/")
+    """
+    parsed = urlparse(url)
+
+    return (
+        parsed.scheme == "" and parsed.netloc == "" and parsed.path.startswith("/") and not parsed.path.startswith("//")
+    )

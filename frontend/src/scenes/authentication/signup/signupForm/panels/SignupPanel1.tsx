@@ -13,7 +13,7 @@ import { signupLogic } from '../signupLogic'
 
 export function SignupPanel1(): JSX.Element | null {
     const { preflight, socialAuthAvailable } = useValues(preflightLogic)
-    const { isSignupPanel1Submitting, validatedPassword } = useValues(signupLogic)
+    const { isSignupPanel1Submitting, validatedPassword, loginUrl } = useValues(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
 
     useEffect(() => {
@@ -82,7 +82,7 @@ export function SignupPanel1(): JSX.Element | null {
                 // but future-proofing this (with `preflight.initiated`) in case this changes
                 <div className="text-center mt-4">
                     Already have an account?{' '}
-                    <Link to="/login" data-attr="signup-login-link" className="font-bold">
+                    <Link to={loginUrl} data-attr="signup-login-link" className="font-bold">
                         Log in
                     </Link>
                 </div>

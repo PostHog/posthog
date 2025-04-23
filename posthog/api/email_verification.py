@@ -35,10 +35,10 @@ email_verification_token_generator = EmailVerificationTokenGenerator()
 
 class EmailVerifier:
     @staticmethod
-    def create_token_and_send_email_verification(user: User) -> None:
+    def create_token_and_send_email_verification(user: User, next_url: str | None = None) -> None:
         token = email_verification_token_generator.make_token(user)
         try:
-            send_email_verification(user.pk, token)
+            send_email_verification(user.pk, token, next_url)
         except Exception as e:
             capture_exception(Exception(f"Verification email failed: {e}"))
             raise exceptions.APIException(

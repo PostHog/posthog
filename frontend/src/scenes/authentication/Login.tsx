@@ -51,6 +51,7 @@ export const scene: SceneExport = {
 
 export function Login(): JSX.Element {
     const { precheck } = useActions(loginLogic)
+    const { signupUrl } = useValues(loginLogic)
     const { precheckResponse, precheckResponseLoading, login, isLoginSubmitting, generalError } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -160,7 +161,7 @@ export function Login(): JSX.Element {
                 {preflight?.cloud && (
                     <div className="text-center mt-4">
                         Don't have an account?{' '}
-                        <Link to="/signup" data-attr="signup" className="font-bold">
+                        <Link to={signupUrl} data-attr="signup" className="font-bold">
                             Create an account
                         </Link>
                     </div>

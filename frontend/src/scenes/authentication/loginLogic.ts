@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { encodeParams, urlToAction } from 'kea-router'
@@ -89,6 +89,15 @@ export const loginLogic = kea<loginLogicType>([
                     const response = await api.create<any>('api/login/precheck', { email })
                     return { status: 'completed', ...response }
                 },
+            },
+        ],
+    })),
+    selectors(() => ({
+        signupUrl: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, string>) => {
+                const nextParam = searchParams['next']
+                return nextParam ? `/signup?next=${encodeURIComponent(nextParam)}` : '/signup'
             },
         ],
     })),
