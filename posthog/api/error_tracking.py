@@ -512,4 +512,3 @@ def validate_bytecode(bytecode: list[Any]) -> None:
                 raise ValidationError(f"Expected string for global function name, got {type(name)}")
             if name not in RUST_HOGVM_STL:
                 raise ValidationError(f"Unknown global function: {name}")
-            name += 1
