@@ -130,6 +130,9 @@ export function convertFileSystemEntryToTreeDataItem({
                 } else {
                     // We have a folder without an id, but the incoming one has an id. Remove the current one
                     currentLevel = currentLevel.filter((node) => !folderMatch(node))
+                    if (folderNode) {
+                        folderNode.children = currentLevel
+                    }
                     if (existingFolder.children) {
                         accumulatedChildren = [...accumulatedChildren, ...existingFolder.children]
                     }
@@ -171,7 +174,7 @@ export function convertFileSystemEntryToTreeDataItem({
             if (!node.children) {
                 node.children = []
             }
-            if (accumulatedChildren) {
+            if (accumulatedChildren && accumulatedChildren.length > 0) {
                 node.children = [...node.children, ...accumulatedChildren]
             }
             if (folderStates[item.path] === 'has-more') {

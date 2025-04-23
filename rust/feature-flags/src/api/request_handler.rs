@@ -568,7 +568,7 @@ mod tests {
             FlagDetails, FlagDetailsMetadata, FlagEvaluationReason, FlagValue, LegacyFlagsResponse,
         },
         config::Config,
-        flags::flag_models::{FeatureFlag, FlagFilters, FlagGroupType},
+        flags::flag_models::{FeatureFlag, FlagFilters, FlagPropertyGroup},
         properties::property_models::{OperatorType, PropertyFilter},
         utils::test_utils::{
             insert_new_team_in_pg, insert_person_for_team_in_pg, setup_pg_reader_client,
@@ -689,7 +689,7 @@ mod tests {
             deleted: false,
             team_id: team.id,
             filters: FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "country".to_string(),
                         value: json!("US"),
@@ -770,7 +770,7 @@ mod tests {
             deleted: false,
             team_id: team.id,
             filters: FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     // Reference a non-existent cohort
                     properties: Some(vec![PropertyFilter {
                         key: "id".to_string(),
@@ -1149,7 +1149,7 @@ mod tests {
                 deleted: false,
                 team_id: team.id,
                 filters: FlagFilters {
-                    groups: vec![FlagGroupType {
+                    groups: vec![FlagPropertyGroup {
                         properties: Some(vec![]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -1171,7 +1171,7 @@ mod tests {
                 deleted: false,
                 team_id: team.id,
                 filters: FlagFilters {
-                    groups: vec![FlagGroupType {
+                    groups: vec![FlagPropertyGroup {
                         properties: Some(vec![]),
                         rollout_percentage: Some(0.0),
                         variant: None,
@@ -1241,7 +1241,7 @@ mod tests {
                 deleted: false,
                 team_id: team.id,
                 filters: FlagFilters {
-                    groups: vec![FlagGroupType {
+                    groups: vec![FlagPropertyGroup {
                         properties: Some(vec![]),
                         rollout_percentage: Some(100.0),
                         variant: None,
@@ -1263,7 +1263,7 @@ mod tests {
                 deleted: false,
                 team_id: team.id,
                 filters: FlagFilters {
-                    groups: vec![FlagGroupType {
+                    groups: vec![FlagPropertyGroup {
                         properties: Some(vec![]),
                         rollout_percentage: Some(0.0),
                         variant: None,
@@ -1393,7 +1393,7 @@ mod tests {
             deleted: false,
             team_id: team.id,
             filters: FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
                         key: "industry".to_string(),
                         value: json!("tech"),
@@ -1488,7 +1488,7 @@ mod tests {
             deleted: false,
             team_id: team.id,
             filters: FlagFilters {
-                groups: vec![FlagGroupType {
+                groups: vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
