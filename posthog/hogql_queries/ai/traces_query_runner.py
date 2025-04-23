@@ -198,17 +198,17 @@ class TracesQueryRunner(QueryRunner):
         query = parse_select(
             """
             WITH relevant_trace_ids AS (
-                SELECT $ai_trace_id as trace_id
+                SELECT properties.$ai_trace_id as trace_id
                 FROM events
                 WHERE event IN ('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback', '$ai_trace')
-                  AND $ai_trace_id IS NOT NULL
+                  AND properties.$ai_trace_id IS NOT NULL
                   AND {common_conditions}
                 ORDER BY timestamp DESC
-                LIMIT 1 BY $ai_trace_id
+                LIMIT 1 BY properties.$ai_trace_id
                 LIMIT {pagination_limit}
             )
             SELECT
-                $ai_trace_id AS id,
+                properties.$ai_trace_id AS id,
                 min(timestamp) AS first_timestamp,
                 tuple(
                     argMin(person.id, timestamp),
@@ -277,9 +277,9 @@ class TracesQueryRunner(QueryRunner):
             WHERE event IN (
                 '$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback', '$ai_trace'
             )
-              AND $ai_trace_id IN (SELECT trace_id FROM relevant_trace_ids)
+              AND properties.$ai_trace_id IN (SELECT trace_id FROM relevant_trace_ids)
               AND {common_conditions}
-            GROUP BY $ai_trace_id
+            GROUP BY properties.$ai_trace_id
             ORDER BY first_timestamp DESC
             """,
         )
