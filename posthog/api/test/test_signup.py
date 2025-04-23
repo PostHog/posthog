@@ -938,7 +938,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(User.objects.count(), user_count)
         self.assertEqual(Organization.objects.count(), org_count)
 
-    def test_api_sign_up_with_next_param(self):
+    def test_api_sign_up_preserves_next_param(self):
         response = self.client.post(
             "/api/signup/?next=/next_path",
             {
