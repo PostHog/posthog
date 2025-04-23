@@ -123,7 +123,7 @@ export class PersonState {
         if (!this.processPerson) {
             let existingPerson = await runInstrumentedFunction({
                 timeoutMessage: 'DB timeout in person-state.ts update at fetchPerson (read replica)',
-                timeout: 60000, // TODO: safe timeout here?
+                timeout: 60000, // this shouldn't fail the operation, just log a warning
                 func: async () => this.db.fetchPerson(this.team.id, this.distinctId, { useReadReplica: true }),
                 statsKey: 'db-tx-person-state-update-fetchPerson-ro',
                 teamId: this.team.id,
@@ -151,7 +151,7 @@ export class PersonState {
                         // so that we properly associate this event with the Person we got merged into.
                         existingPerson = await runInstrumentedFunction({
                             timeoutMessage: 'DB timeout in person-state.ts update at fetchPerson',
-                            timeout: 60000, // TODO: safe timeout here?
+                            timeout: 60000, // this shouldn't fail the operation, just log a warning
                             func: async () =>
                                 this.db.fetchPerson(this.team.id, this.distinctId, { useReadReplica: false }),
                             statsKey: 'db-tx-person-state-update-fetchPerson-rw',
@@ -522,7 +522,7 @@ export class PersonState {
 
         const otherPerson = await runInstrumentedFunction({
             timeoutMessage: 'DB timeout in person-state.ts mergeDistinctIds (otherPerson)',
-            timeout: 60000, // TODO: safe timeout here?
+            timeout: 60000, // this shouldn't fail the operation, just log a warning
             func: async () => this.db.fetchPerson(teamId, otherPersonDistinctId),
             statsKey: 'db-tx-person-state-mergeDistinctIds-other-rw',
             teamId: teamId,
@@ -531,7 +531,7 @@ export class PersonState {
 
         const mergeIntoPerson = await runInstrumentedFunction({
             timeoutMessage: 'DB timeout in person-state.ts mergeDistinctIds (mergeIntoPerson)',
-            timeout: 60000, // TODO: safe timeout here?
+            timeout: 60000, // this shouldn't fail the operation, just log a warning
             func: async () => this.db.fetchPerson(teamId, mergeIntoDistinctId),
             statsKey: 'db-tx-person-state-mergeDistinctIds-into-rw',
             teamId: teamId,
