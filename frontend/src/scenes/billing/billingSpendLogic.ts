@@ -29,8 +29,6 @@ export interface BillingSpendResponse {
 export interface BillingSpendFilters {
     // Renamed interface
     breakdowns?: string[]
-    interval?: 'day' | 'week' | 'month'
-    compare?: 'previous_period' // Is compare supported for spend? Keeping for now.
     show_values_on_series?: boolean // Is this relevant for spend? Keeping for now.
 }
 
@@ -38,7 +36,6 @@ export interface BillingSpendFilters {
 export const DEFAULT_BILLING_SPEND_FILTERS: BillingSpendFilters = {
     // Renamed const
     breakdowns: ['type', 'team'], // Default breakdown for spend? Keeping type+team for now.
-    interval: 'day',
 }
 
 export interface BillingSpendLogicProps {
@@ -66,9 +63,10 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                 loadBillingSpend: async () => {
                     // Renamed action
                     // Removed usage_type from filters destructuring and params
-                    const { ...restFilters } = values.filters
+                    const { show_values_on_series, breakdowns } = values.filters
                     const params = {
-                        ...restFilters,
+                        ...(show_values_on_series ? { show_values_on_series } : {}),
+                        ...(breakdowns ? { breakdowns: JSON.stringify(breakdowns) } : {}), // Ensure breakdowns are stringified
                         start_date: values.dateFrom || dayjs().subtract(30, 'day').format('YYYY-MM-DD'),
                         end_date: values.dateTo || dayjs().format('YYYY-MM-DD'),
                         organization_id: values.currentOrganization?.id,

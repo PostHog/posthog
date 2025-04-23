@@ -1,6 +1,6 @@
 import './BillingUsage.scss'
 
-import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { useState } from 'react'
@@ -24,12 +24,6 @@ const BREAKDOWN_OPTIONS: BreakdownOption[] = [
     { label: 'By Type', value: 'type' },
     { label: 'By Team', value: 'team' },
     { label: 'By Type & Team', value: 'both' },
-]
-
-const INTERVAL_OPTIONS = [
-    { label: 'Day', value: 'day' },
-    { label: 'Week', value: 'week' },
-    { label: 'Month', value: 'month' },
 ]
 
 export function BillingUsage(): JSX.Element {
@@ -82,23 +76,11 @@ export function BillingUsage(): JSX.Element {
                     onChange={handleBreakdownChange}
                     placeholder="Select breakdown"
                 />
-                <LemonSelect
-                    value={filters.interval || 'day'}
-                    options={INTERVAL_OPTIONS}
-                    onChange={(value) => setFilters({ interval: value as 'day' | 'week' | 'month' })}
-                />
                 <DateFilter
                     dateFrom={dateFrom}
                     dateTo={dateTo}
                     onChange={(fromDate, toDate) => setDateRange(fromDate || null, toDate || null)}
                 />
-                <LemonButton
-                    type="secondary"
-                    onClick={() => setFilters({ compare: filters.compare ? undefined : 'previous_period' })}
-                    active={!!filters.compare}
-                >
-                    Compare
-                </LemonButton>
             </div>
 
             {!filters.usage_type && !filters.breakdowns?.includes('type') && (

@@ -1,6 +1,6 @@
 import './BillingUsage.scss' // Keep existing styles for now
 
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonSelect } from '@posthog/lemon-ui'
 // Added TooltipItem
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -20,12 +20,6 @@ const BREAKDOWN_OPTIONS: BreakdownOption[] = [
     { label: 'By Type', value: 'type' },
     { label: 'By Team', value: 'team' },
     { label: 'By Type & Team', value: 'both' },
-]
-
-const INTERVAL_OPTIONS = [
-    { label: 'Day', value: 'day' },
-    { label: 'Week', value: 'week' },
-    { label: 'Month', value: 'month' },
 ]
 
 // Helper function to format currency
@@ -80,25 +74,11 @@ export function BillingSpendView(): JSX.Element {
                     onChange={handleBreakdownChange}
                     placeholder="Select breakdown"
                 />
-                <LemonSelect
-                    value={filters.interval || 'day'}
-                    options={INTERVAL_OPTIONS}
-                    onChange={(value) => setFilters({ interval: value as 'day' | 'week' | 'month' })}
-                />
                 <DateFilter
                     dateFrom={dateFrom}
                     dateTo={dateTo}
                     onChange={(fromDate, toDate) => setDateRange(fromDate || null, toDate || null)}
                 />
-                <LemonButton
-                    type="secondary"
-                    onClick={() => setFilters({ compare: filters.compare ? undefined : 'previous_period' })}
-                    active={!!filters.compare}
-                    // TODO: Verify if compare is supported for spend API
-                    tooltip="Compare to previous period (if supported)"
-                >
-                    Compare
-                </LemonButton>
             </div>
 
             {/* Removed banner related to usage type selection */}
