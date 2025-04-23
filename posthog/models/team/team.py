@@ -614,9 +614,9 @@ def check_is_feature_available_for_team(team_id: int, feature_key: str, current_
 @receiver(post_save, sender=Team)
 def handle_team_save_from_admin(sender, instance, **kwargs):
     client = get_client(settings.PLUGINS_RELOAD_REDIS_URL)
-    if instance.skip_person_processing_for_ids:
+    if instance.distinct_ids_excluded_from_person_processing:
         key = f"skip_person_processing:{instance.api_token}"
-        value = ",".join(instance.skip_person_processing_for_ids)
+        value = ",".join(instance.distinct_ids_excluded_from_person_processing)
         client.set(key, value)
     else:
         key = f"skip_person_processing:{instance.api_token}"
