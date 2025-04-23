@@ -221,6 +221,7 @@ jobs:
                   CELERY_METRICS_PORT=8999
                   CLOUD_DEPLOYMENT=E2E
                   ENCRYPTION_SALT_KEYS=00beef0000beef0000beef0000beef00
+                  CYPRESS_NO_COMMAND_LOG=1
                   EOT
 
             - name: Start PostHog
@@ -263,6 +264,7 @@ jobs:
                   # See https://github.com/cypress-io/cypress/issues/28893#issuecomment-1956480875
               env:
                   E2E_TESTING: 1
+                  CYPRESS_NO_COMMAND_LOG: 1
                   OPT_OUT_CAPTURE: 0
                   GITHUB_ACTION_RUN_URL: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
 
