@@ -3716,6 +3716,7 @@ export interface ProjectTreeBreadcrumb extends BreadcrumbBase {
     type: string
     ref?: string
     symbol?: never
+    onRename?: never
 }
 export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb | ProjectTreeBreadcrumb
 
