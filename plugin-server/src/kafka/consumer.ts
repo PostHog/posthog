@@ -16,7 +16,7 @@ import { defaultConfig } from '../config/config'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { retryIfRetriable } from '../utils/retries'
-import { delay, promisifyCallback } from '../utils/utils'
+import { promisifyCallback } from '../utils/utils'
 import { ensureTopicExists } from './admin'
 import { getConsumerConfigFromEnv } from './config'
 
