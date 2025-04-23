@@ -411,13 +411,13 @@ export function OutputPane(): JSX.Element {
                     )}
                     {activeTab === OutputTab.Results && (
                         <LemonButton
-                            disabledReason={!hasColumns ? 'No results to visualize' : undefined}
+                            disabledReason={!hasColumns && !editingInsight ? 'No results to visualize' : undefined}
                             type="secondary"
                             onClick={() => setActiveTab(OutputTab.Visualization)}
-                            id="sql-editor-create-insight"
+                            id={`sql-editor-${editingInsight ? 'view' : 'create'}-insight`}
                             icon={<IconGraph />}
                         >
-                            Create insight
+                            {editingInsight ? 'View insight' : 'Create insight'}
                         </LemonButton>
                     )}
                     {activeTab === OutputTab.Results && exportContext && (
