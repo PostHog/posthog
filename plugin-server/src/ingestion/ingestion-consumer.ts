@@ -330,7 +330,8 @@ export class IngestionConsumer {
             // NOTE: If we are forcing to overflow we typically want to keep the partition key
             // If the event is marked for skipping persons however locality doesn't matter so we would rather have the higher throughput
             // of random partitioning.
-            const preserveLocality = shouldForceOverflow && !this.shouldSkipPerson(token, distinctId) ? true : undefined
+            const preserveLocality =
+                shouldForceOverflow && !this.shouldSkipPersonSynchronusly(token, distinctId) ? true : undefined
 
             void this.scheduleWork(
                 this.emitToOverflow(
@@ -479,7 +480,7 @@ export class IngestionConsumer {
         return new EventPipelineRunner(this.hub, event, this.hogTransformer, breadcrumbs)
     }
 
-    private parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
+    private async parseKafkaBatch(messages: Message[]): Promise<IncomingEventsByDistinctId> {
         const batches: IncomingEventsByDistinctId = {}
 
         for (const message of messages) {
@@ -516,7 +517,11 @@ export class IngestionConsumer {
 
             let eventKey = `${event.token}:${event.distinct_id}`
 
-            if (this.shouldSkipPerson(event.token, event.distinct_id)) {
+            const shouldSkipPerson = await this.runInstrumented('shouldSkipPerson', async () => {
+                return await this.shouldSkipPerson(event.token, event.distinct_id)
+            })
+
+            if (shouldSkipPerson) {
                 // If we are skipping person processing, then we can parallelize processing of this event for dramatic performance gains
                 eventKey = new UUIDT().toString()
                 event.properties = {
@@ -614,11 +619,46 @@ export class IngestionConsumer {
         )
     }
 
-    private shouldSkipPerson(token?: string, distinctId?: string) {
+    private async shouldSkipPerson(token?: string, distinctId?: string) {
+        if (this.hub.USE_REDIS_PERSON_FILTERING) {
+            const shouldSkipPerson = await this.shouldSkipPersonWithRedisCache(token, distinctId)
+            return shouldSkipPerson
+        }
+        return this.shouldSkipPersonSynchronusly(token, distinctId)
+    }
+
+    private shouldSkipPersonSynchronusly(token?: string, distinctId?: string) {
         return (
             (token && this.tokenDistinctIdsToSkipPersons.includes(token)) ||
             (token && distinctId && this.tokenDistinctIdsToSkipPersons.includes(`${token}:${distinctId}`))
         )
+    }
+
+    private async shouldSkipPersonWithRedisCache(token?: string, distinctId?: string) {
+        if (this.shouldSkipPersonSynchronusly(token, distinctId)) {
+            return true
+        }
+        if (!token || !distinctId) {
+            return false
+        }
+        try {
+            const redisClient = await this.hub.redisPool.acquire()
+            try {
+                const key = `skip_person_processing:${token}`
+                const result = await redisClient.get(key)
+
+                if (result) {
+                    const distinctIds = result.split(',')
+                    return distinctIds.includes(distinctId)
+                }
+                return false
+            } finally {
+                await this.hub.redisPool.release(redisClient)
+            }
+        } catch (error) {
+            logger.warn('Error checking Redis for skip person status', { error, token, distinctId })
+            return false
+        }
     }
 
     private shouldForceOverflow(token?: string, distinctId?: string) {

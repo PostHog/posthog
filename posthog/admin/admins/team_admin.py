@@ -95,6 +95,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "inject_web_apps",
                     "extra_settings",
                     "modifiers",
+                    "distinct_ids_excluded_from_person_processing",
                 ],
             },
         ),

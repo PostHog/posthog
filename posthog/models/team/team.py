@@ -18,6 +18,7 @@ from django.core.validators import (
 from django.db import connection, models, transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
@@ -37,6 +38,7 @@ from posthog.models.utils import (
 )
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
+from posthog.redis import get_client
 
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema import RevenueTrackingConfig, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
@@ -314,6 +316,9 @@ class Team(UUIDClassicModel):
     # Don't use directly in Django, use the `revenue_config` property instead
     # That way we can validate the schema when setting the value and return reasonable defaults
     revenue_tracking_config = models.JSONField(null=True, blank=True)
+    distinct_ids_excluded_from_person_processing = ArrayField(
+        models.CharField(max_length=200), blank=True, default=list
+    )
 
     @property
     def revenue_config(self) -> RevenueTrackingConfig:
@@ -604,3 +609,15 @@ def check_is_feature_available_for_team(team_id: int, feature_key: str, current_
                 return current_usage < int(feature["limit"])
             return True
     return False
+
+
+@receiver(post_save, sender=Team)
+def handle_team_save_from_admin(sender, instance, **kwargs):
+    client = get_client(settings.PLUGINS_RELOAD_REDIS_URL)
+    if instance.skip_person_processing_for_ids:
+        key = f"skip_person_processing:{instance.api_token}"
+        value = ",".join(instance.skip_person_processing_for_ids)
+        client.set(key, value)
+    else:
+        key = f"skip_person_processing:{instance.api_token}"
+        client.delete(key)
