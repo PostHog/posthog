@@ -709,3 +709,15 @@ export const areMapsEqual = <K, V>(map1: Map<K, V>, map2: Map<K, V>): boolean =>
     }
     return true
 }
+
+export function promisifyCallback<TResult>(fn: (cb: (err: any, result?: TResult) => void) => void): Promise<TResult> {
+    return new Promise<TResult>((resolve, reject) => {
+        fn((err, result) => {
+            if (err) {
+                reject(err)
+            } else {
+                resolve(result as TResult)
+            }
+        })
+    })
+}

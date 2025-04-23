@@ -4,12 +4,17 @@ import {
     KafkaConsumer as RdKafkaConsumer,
     LibrdKafkaError,
     Message,
+    Metadata,
+    PartitionMetadata,
     TopicPartitionOffset,
+    WatermarkOffsets,
 } from 'node-rdkafka'
 import { hostname } from 'os'
 
 import { defaultConfig } from '../config/config'
 import { logger } from '../utils/logger'
+import { captureException } from '../utils/posthog'
+import { promisifyCallback } from '../utils/utils'
 import { ensureTopicExists } from './admin'
 import { getConsumerConfigFromEnv } from './config'
 import {
@@ -25,10 +30,7 @@ const DEFAULT_FETCH_BATCH_SIZE = 1000
 const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
 const MAX_HEALTH_HEARTBEAT_INTERVAL_MS = 60_000
 
-export type KafkaConsumerConfig = Omit<
-    ConsumerGlobalConfig,
-    'group.id' | 'enable.auto.offset.store' | 'enable.auto.commit'
-> & {
+export type KafkaConsumerConfig = {
     groupId: string
     topic: string
     batchTimeoutMs?: number
@@ -37,27 +39,25 @@ export type KafkaConsumerConfig = Omit<
     autoCommit?: boolean
 }
 
+export type RdKafkaConsumerConfig = Omit<
+    ConsumerGlobalConfig,
+    'group.id' | 'enable.auto.offset.store' | 'enable.auto.commit'
+>
+
 export class KafkaConsumer {
     private isStopping = false
     private lastHeartbeatTime = 0
     private rdKafkaConsumer: RdKafkaConsumer
     private consumerConfig: ConsumerGlobalConfig
-    private autoCommit: boolean
-    private autoOffsetStore: boolean
     private fetchBatchSize: number
     private maxHealthHeartbeatIntervalMs: number
     private consumerLoop: Promise<void> | undefined
 
-    constructor(private config: KafkaConsumerConfig) {
-        const {
-            groupId,
-            topic,
-            autoCommit = true,
-            autoOffsetStore = true,
-            ...additionalConfig
-        }: KafkaConsumerConfig = config
-        this.autoCommit = autoCommit
-        this.autoOffsetStore = autoOffsetStore
+    constructor(private config: KafkaConsumerConfig, private rdKafkaConfig: RdKafkaConsumerConfig = {}) {
+        this.config.autoCommit ??= true
+        this.config.autoOffsetStore ??= true
+        this.config.callEachBatchWhenEmpty ??= false
+
         this.fetchBatchSize = defaultConfig.CONSUMER_BATCH_SIZE || DEFAULT_FETCH_BATCH_SIZE
         this.maxHealthHeartbeatIntervalMs =
             defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
@@ -70,7 +70,7 @@ export class KafkaConsumer {
             'security.protocol': 'plaintext',
             'metadata.broker.list': 'kafka:9092', // Overridden with KAFKA_CONSUMER_METADATA_BROKER_LIST
             log_level: 4, // WARN as the default
-            'group.id': groupId,
+            'group.id': this.config.groupId,
             'session.timeout.ms': 30_000,
             'max.poll.interval.ms': 300_000,
             'max.partition.fetch.bytes': 1_048_576,
@@ -82,10 +82,10 @@ export class KafkaConsumer {
             // Custom settings and overrides - this is where most configuration overrides should be done
             ...getConsumerConfigFromEnv(),
             // Finally any specifically given consumer config overrides
-            ...additionalConfig,
+            ...rdKafkaConfig,
             // Below is config that we explicitly DO NOT want to be overrideable by env vars - i.e. things that would require code changes to change
             'enable.auto.offset.store': false, // NOTE: This is always false - we handle it using a custom function
-            'enable.auto.commit': autoCommit,
+            'enable.auto.commit': this.config.autoCommit,
             'partition.assignment.strategy': 'cooperative-sticky',
             'enable.partition.eof': true,
             rebalance_cb: true,
@@ -93,6 +93,12 @@ export class KafkaConsumer {
         }
 
         this.rdKafkaConsumer = this.createConsumer()
+    }
+
+    public getConfig() {
+        return {
+            ...this.consumerConfig,
+        }
     }
 
     public heartbeat() {
@@ -105,6 +111,51 @@ export class KafkaConsumer {
         const isWithinInterval = Date.now() - this.lastHeartbeatTime < this.maxHealthHeartbeatIntervalMs
         const isConnected = this.rdKafkaConsumer.isConnected()
         return isConnected && isWithinInterval
+    }
+
+    public assignments() {
+        return this.rdKafkaConsumer.assignments()
+    }
+
+    public offsetsStore(topicPartitionOffsets: TopicPartitionOffset[]) {
+        return this.rdKafkaConsumer.offsetsStore(topicPartitionOffsets)
+    }
+
+    public on: RdKafkaConsumer['on'] = (...args) => {
+        // Delegate to the internal consumer
+        return this.rdKafkaConsumer.on(...args)
+    }
+
+    public async queryWatermarkOffsets(topic: string, partition: number, timeout = 10000): Promise<[number, number]> {
+        if (!this.rdKafkaConsumer.isConnected()) {
+            throw new Error('Not connected')
+        }
+
+        const offsets = await promisifyCallback<WatermarkOffsets>((cb) =>
+            this.rdKafkaConsumer.queryWatermarkOffsets(topic, partition, timeout, cb)
+        ).catch((err) => {
+            captureException(err)
+            logger.error('🔥', 'Failed to query kafka watermark offsets', err)
+            throw err
+        })
+
+        return [offsets.lowOffset, offsets.highOffset]
+    }
+
+    public async getPartitionsForTopic(topic: string): Promise<PartitionMetadata[]> {
+        if (!this.rdKafkaConsumer.isConnected()) {
+            throw new Error('Not connected')
+        }
+
+        const meta = await promisifyCallback<Metadata>((cb) => this.rdKafkaConsumer.getMetadata({ topic }, cb)).catch(
+            (err) => {
+                captureException(err)
+                logger.error('🔥', 'Failed to get partition metadata', err)
+                throw err
+            }
+        )
+
+        return meta.topics.find((x) => x.name === topic)?.partitions ?? []
     }
 
     private createConsumer() {
@@ -223,7 +274,7 @@ export class KafkaConsumer {
                         logger.warn('🕒', `Slow batch: ${logSummary}`)
                     }
 
-                    if (this.autoCommit && this.autoOffsetStore) {
+                    if (this.config.autoCommit && this.config.autoOffsetStore) {
                         // TODO: Move this into this class
                         storeOffsetsForMessages(messages, this.rdKafkaConsumer)
                     }
