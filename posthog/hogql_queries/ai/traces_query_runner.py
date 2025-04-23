@@ -72,12 +72,18 @@ class TracesQueryRunner(QueryRunner):
 
     def calculate(self):
         with self.timings.measure("traces_query_hogql_execute"):
+            # Calculate pagination limit including offset
+            limit_value = self.query.limit if self.query.limit else 100
+            offset_value = self.query.offset if self.query.offset else 0
+            pagination_limit = limit_value + offset_value
+
             query_result = self.paginator.execute_hogql_query(
                 query=self.to_query(),
                 placeholders={
                     "common_conditions": self._get_where_clause(),
                     "filter_conditions": self._get_properties_filter(),
                     "return_full_trace": ast.Constant(value=1 if self.query.traceId is not None else 0),
+                    "pagination_limit": ast.Constant(value=pagination_limit),
                 },
                 team=self.team,
                 query_type=NodeKind.TRACES_QUERY,
@@ -189,9 +195,22 @@ class TracesQueryRunner(QueryRunner):
         )
 
     def _get_event_query(self) -> ast.SelectQuery:
-        # single-pass over events, conditional aggregates instead of two joins
         query = parse_select(
             """
+            WITH time_window AS (
+                SELECT min(timestamp) as min_timestamp
+                FROM (
+                    SELECT timestamp
+                    FROM events
+                    WHERE event IN (
+                        '$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback', '$ai_trace'
+                    )
+                    AND properties.$ai_trace_id IS NOT NULL
+                    AND {common_conditions}
+                    ORDER BY timestamp DESC
+                    LIMIT {pagination_limit}
+                )
+            )
             SELECT
                 properties.$ai_trace_id AS id,
                 min(timestamp) AS first_timestamp,
@@ -264,6 +283,7 @@ class TracesQueryRunner(QueryRunner):
             )
               AND properties.$ai_trace_id IS NOT NULL
               AND {common_conditions}
+              AND timestamp >= (SELECT min_timestamp FROM time_window)
             GROUP BY properties.$ai_trace_id
             ORDER BY first_timestamp DESC
             """,
