@@ -46,13 +46,13 @@ if TYPE_CHECKING:
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
     DatabaseSerializedFieldType.INTEGER: "Int64",
     DatabaseSerializedFieldType.FLOAT: "Float64",
+    DatabaseSerializedFieldType.DECIMAL: "Decimal",
     DatabaseSerializedFieldType.STRING: "String",
     DatabaseSerializedFieldType.DATETIME: "DateTime64",
     DatabaseSerializedFieldType.DATE: "Date",
     DatabaseSerializedFieldType.BOOLEAN: "Bool",
     DatabaseSerializedFieldType.ARRAY: "Array",
     DatabaseSerializedFieldType.JSON: "Map",
-    DatabaseSerializedFieldType.DECIMAL: "Decimal",
 }
 
 ExtractErrors = {

@@ -37,6 +37,7 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.schema import QueryTiming
 from posthog.utils import load_data_from_request
 from posthog.utils_cors import cors_response
+from posthoganalytics import capture_exception
 
 logger = structlog.get_logger(__name__)
 
@@ -526,7 +527,24 @@ class ServerTimingsGathered:
         all_timings = {**timings_dict, **hogql_timings_dict}
         return all_timings
 
-    def to_header_string(self, hogql_timings: list[QueryTiming] | None = None):
-        return ", ".join(
-            f"{key};dur={round(duration, ndigits=2)}" for key, duration in self.generate_timings(hogql_timings).items()
-        )
+    def to_header_string(self, hogql_timings: list[QueryTiming] | None = None) -> str:
+        timings = self.generate_timings(hogql_timings).items()
+        result: list[str] = []
+        current_length = 0
+
+        for key, duration in timings:
+            timing_str = f"{key};dur={round(duration, ndigits=2)}"
+            # +2 for ", " separator, except for first item
+            new_length = current_length + len(timing_str) + (2 if result else 0)
+
+            if new_length > 10000:
+                capture_exception(
+                    Exception(f"Server timing header exceeded 10k limit with {len(timings)} timings"),
+                    properties={"timings": timings},
+                )
+                break
+
+            result.append(timing_str)
+            current_length = new_length
+
+        return ", ".join(result)
