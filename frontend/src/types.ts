@@ -4990,12 +4990,12 @@ export type HogFunctionTypeType =
     | 'alert'
     | 'broadcast'
 
-export type HogFunctionKind = 'messaging_campaign' | 'messaging_template' | null
+export type HogFunctionKind = 'messaging_campaign'
 
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
-    kind?: HogFunctionKind
+    kind?: HogFunctionKind | null
     icon_url?: string
     name: string
     description: string
