@@ -63,9 +63,9 @@ def init_clickhouse_users() -> Mapping[ClickHouseUser, tuple[str, str]]:
         if user and password:
             user_dict[u] = (user, password)
         elif bool(user) != bool(password):
-            logging.warn(f"only one of clickhouse user/password provided, check your config")
+            logging.warning(f"only one of clickhouse user/password provided, check your config")
     user_names = ",".join([x.name for x in user_dict.keys()])
-    logging.warn(f"initialized clickhouse users: {user_names}")
+    logging.warning(f"initialized clickhouse users: {user_names}")
     return user_dict
 
 
