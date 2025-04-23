@@ -6,7 +6,7 @@ import React, { useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { navigation3000Logic } from '../navigationLogic'
-import { SidebarCategory, SidebarLogic, SidebarNavbarItem } from '../types'
+import { SidebarLogic, SidebarNavbarItem } from '../types'
 import { SidebarAccordion } from './SidebarAccordion'
 import { SidebarList } from './SidebarList'
 
@@ -55,7 +55,9 @@ export function Sidebar({ navbarItem, sidebarOverlay, sidebarOverlayProps }: Sid
                 {navbarItem?.logic && isSearchShown && (
                     <SidebarSearchBar activeSidebarLogic={navbarItem.logic} inputElementRef={inputElementRef} />
                 )}
-                <div className="Sidebar3000__lists">{contents && <SidebarContent contents={contents} />}</div>
+                <div className="Sidebar3000__lists">
+                    {navbarItem?.logic && <SidebarContent activeSidebarLogic={navbarItem.logic} />}
+                </div>
                 {contents
                     .filter(({ modalContent }) => modalContent)
                     .map((category) => (
@@ -124,7 +126,13 @@ function SidebarSearchBar({
     )
 }
 
-function SidebarContent({ contents }: { contents: SidebarCategory[] }): JSX.Element | null {
+function SidebarContent({
+    activeSidebarLogic,
+}: {
+    activeSidebarLogic: LogicWrapper<SidebarLogic>
+}): JSX.Element | null {
+    const { contents } = useValues(activeSidebarLogic)
+
     return contents.length !== 1 ? (
         <>
             {contents.map((accordion) => (

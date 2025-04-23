@@ -1,4 +1,4 @@
-import { IconBrackets, IconDatabaseBolt, IconServer } from '@posthog/icons'
+import { IconBolt, IconBrackets, IconServer } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -32,7 +32,7 @@ export const EditorSidebar = ({
 
     useEffect(() => {
         setSidebarWidth(sidebarWidth)
-    }, [sidebarWidth, setSidebarWidth])
+    }, [sidebarWidth])
 
     const tabs = useMemo(
         () => [
@@ -66,7 +66,7 @@ export const EditorSidebar = ({
                 label: (
                     <Tooltip title="Materialization and query properties">
                         <div className="flex justify-center px-2">
-                            <IconDatabaseBolt className="text-xl" />
+                            <IconBolt className="text-xl" />
                         </div>
                     </Tooltip>
                 ),

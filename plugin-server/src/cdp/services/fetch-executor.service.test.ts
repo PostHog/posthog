@@ -55,6 +55,7 @@ describe('FetchExecutorService', () => {
         const invocation = createInvocation({
             url: `${baseUrl}/test`,
             method: 'GET',
+            body: 'test body',
             return_queue: 'hog',
         })
 

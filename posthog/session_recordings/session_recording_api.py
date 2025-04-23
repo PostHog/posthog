@@ -42,7 +42,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthent
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
-from posthog.models.person.person import PersonDistinctId
+from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -421,7 +421,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 raise Throttled(detail="Query timeout exceeded. Try again later.")
 
             posthoganalytics.capture_exception(
-                e, distinct_id=user_distinct_id, properties={"replay_feature": "listing_recordings"}
+                e,
+                distinct_id=user_distinct_id,
+                properties={"replay_feature": "listing_recordings", "unfiltered_query": request.GET.dict()},
             )
             return Response({"error": "An internal error has occurred. Please try again later."}, status=500)
 
@@ -1145,8 +1147,10 @@ def list_recordings_from_query(
     with timer("load_persons"):
         # Get the related persons for all the recordings
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
-        person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
-            "person"
+        person_distinct_ids = (
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(distinct_id__in=distinct_ids, team=team)
+            .select_related("person")
         )
 
     with timer("process_persons"):

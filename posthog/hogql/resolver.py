@@ -485,7 +485,12 @@ class Resolver(CloningVisitor):
             if node.name == "recording_button":
                 return self.visit(recording_button(node=node, args=node.args))
             if node.name == "matchesAction":
-                return self.visit(matches_action(node=node, args=node.args, context=self.context))
+                events_alias, _ = self._get_events_table_current_scope()
+                if events_alias is None:
+                    raise QueryError("matchesAction can only be used with the events table")
+                return self.visit(
+                    matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
+                )
 
         node = super().visit_call(node)
         arg_types: list[ast.ConstantType] = []
@@ -843,6 +848,21 @@ class Resolver(CloningVisitor):
                 node.op = ast.CompareOperationOp.GlobalNotIn
 
         return node
+
+    # Used to find events table in current scope for action functions
+    def _get_events_table_current_scope(self) -> tuple[Optional[str], Optional[EventsTable]]:
+        scope = self.scopes[-1]
+        for alias, table_type in scope.tables.items():
+            if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
+                return alias, table_type.table
+
+            if isinstance(table_type, ast.TableAliasType):
+                if isinstance(table_type.table_type, ast.TableType) and isinstance(
+                    table_type.table_type.table, EventsTable
+                ):
+                    return alias, table_type.table_type.table
+
+        return None, None
 
     def _is_events_table(self, node: ast.Expr) -> bool:
         while isinstance(node, ast.Alias):
