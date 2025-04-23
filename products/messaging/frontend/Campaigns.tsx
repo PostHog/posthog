@@ -35,6 +35,7 @@ const Campaign = ({ campaignId }: { campaignId: string }): JSX.Element => {
                     displayOptions={{
                         showPersonsCount: false,
                         showExpectedVolume: true,
+                        canEditSource: false,
                     }}
                 />
             )}
