@@ -42,7 +42,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthent
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
-from posthog.models.person.person import PersonDistinctId
+from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -400,17 +400,27 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
         return recording
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        logger.error(
+            "list_recordings_response_started",
+        )
+
         user_distinct_id = cast(User, request.user).distinct_id
 
         try:
             query = filter_from_params_to_query(request.GET.dict())
 
             self._maybe_report_recording_list_filters_changed(request, team=self.team)
-            return list_recordings_response(
+            response = list_recordings_response(
                 list_recordings_from_query(query, cast(User, request.user), team=self.team),
                 context=self.get_serializer_context(),
             )
 
+            logger.error(
+                "list_recordings_response_successful",
+                user_distinct_id=user_distinct_id,
+                headers=response.headers,
+            )
+            return response
         except CHQueryErrorTooManySimultaneousQueries:
             raise Throttled(detail="Too many simultaneous queries. Try again later.")
         except (ServerException, Exception) as e:
@@ -1147,8 +1157,10 @@ def list_recordings_from_query(
     with timer("load_persons"):
         # Get the related persons for all the recordings
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
-        person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
-            "person"
+        person_distinct_ids = (
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(distinct_id__in=distinct_ids, team=team)
+            .select_related("person")
         )
 
     with timer("process_persons"):

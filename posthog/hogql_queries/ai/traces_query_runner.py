@@ -195,6 +195,7 @@ class TracesQueryRunner(QueryRunner):
         )
 
     def _get_event_query(self) -> ast.SelectQuery:
+        # single-pass over events, conditional aggregates instead of two joins
         query = parse_select(
             """
             WITH time_window AS (

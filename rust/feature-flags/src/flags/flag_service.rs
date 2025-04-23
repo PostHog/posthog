@@ -160,7 +160,9 @@ mod tests {
     use serde_json::json;
 
     use crate::{
-        flags::flag_models::{FeatureFlag, FlagFilters, FlagGroupType, TEAM_FLAGS_CACHE_PREFIX},
+        flags::flag_models::{
+            FeatureFlag, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
+        },
         properties::property_models::{OperatorType, PropertyFilter},
         utils::test_utils::{insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client},
     };
@@ -221,7 +223,7 @@ mod tests {
                     name: Some("Beta Feature".to_string()),
                     key: "beta_feature".to_string(),
                     filters: FlagFilters {
-                        groups: vec![FlagGroupType {
+                        groups: vec![FlagPropertyGroup {
                             properties: Some(vec![PropertyFilter {
                                 key: "country".to_string(),
                                 value: json!("US"),
@@ -268,7 +270,7 @@ mod tests {
                     name: Some("Premium Feature".to_string()),
                     key: "premium_feature".to_string(),
                     filters: FlagFilters {
-                        groups: vec![FlagGroupType {
+                        groups: vec![FlagPropertyGroup {
                             properties: Some(vec![PropertyFilter {
                                 key: "is_premium".to_string(),
                                 value: json!(true),
