@@ -133,12 +133,12 @@ function Trace({
                                     <span>{resolved_name}</span>
                                 </div>
                             ) : null}
-                            <div className="flex font-light text-xs">
+                            <div className="flex text-xs">
                                 <span>{source}</span>
                                 {line ? (
                                     <>
-                                        <span className="text-secondary">@</span>
-                                        <span>
+                                        <span className="text-secondary font-light"> @ </span>
+                                        <span className="text-secondary font-light">
                                             {line}
                                             {column && `:${column}`}
                                         </span>

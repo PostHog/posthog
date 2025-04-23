@@ -8,4 +8,10 @@
     & .LemonCollapsePanel > .LemonButton:hover:has(.LemonSegmentedButton:hover) {
         background-color: inherit;
     }
+
+    &__sidebar {
+        .LemonTabs--small {
+            --lemon-tabs-margin-bottom: 0px;
+        }
+    }
 }

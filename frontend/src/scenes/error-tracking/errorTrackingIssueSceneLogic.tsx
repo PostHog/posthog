@@ -20,7 +20,7 @@ import {
     ErrorTrackingIssueAssignee,
     ErrorTrackingRelationalIssue,
 } from '~/queries/schema/schema-general'
-import { ActivityScope, Breadcrumb } from '~/types'
+import { ActivityScope, Breadcrumb, EventType } from '~/types'
 
 import { RuntimeIcon } from './components/RuntimeIcon'
 import type { errorTrackingIssueSceneLogicType } from './errorTrackingIssueSceneLogicType'
@@ -69,7 +69,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateStatus: (status: ErrorTrackingIssueStatus) => ({ status }),
         updateAssignee: (assignee: ErrorTrackingIssueAssignee | null) => ({ assignee }),
         setLastSeen: (lastSeen: Dayjs) => ({ lastSeen }),
-        setActiveException: (activeException: Record<string, any>) => ({ activeException }),
+        setActiveException: (activeException: EventType | null) => ({ activeException }),
     }),
 
     defaults({
@@ -104,7 +104,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             },
         },
         activeException: [
-            null as Record<string, any>,
+            null as EventType | null,
             {
                 setActiveException: (_, { activeException }) => activeException,
             },

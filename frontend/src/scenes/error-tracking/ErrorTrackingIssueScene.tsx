@@ -1,10 +1,13 @@
 import './ErrorTracking.scss'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
+import { LemonTabs } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import PanelLayout, { SettingsToggle } from 'lib/components/PanelLayout/PanelLayout'
-import { useEffect } from 'react'
+import { Resizer } from 'lib/components/Resizer/Resizer'
+import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
+import { useEffect, useRef, useState } from 'react'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SettingsBar } from 'scenes/session-recordings/components/PanelSettings'
@@ -44,6 +47,17 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { issue, issueLoading, activeException } = useValues(errorTrackingIssueSceneLogic)
     const { loadIssue, updateStatus, updateAssignee } = useActions(errorTrackingIssueSceneLogic)
 
+    const ref = useRef<HTMLDivElement>(null)
+
+    const resizerLogicProps: ResizerLogicProps = {
+        containerRef: ref,
+        logicKey: 'error-tracking-issue',
+        persistent: true,
+        placement: 'left',
+    }
+
+    const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
+
     useEffect(() => {
         loadIssue()
     }, [loadIssue])
@@ -77,27 +91,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                 }
             />
             <div className="ErrorTrackingIssue flex">
-                <div
-                    className="relative bg-surface-primary flex min-w-[350px]"
-                    ref={ref}
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{
-                        width: desiredSize || 100,
-                    }}
-                >
-                    <div className="overflow-y-auto w-full pt-2 space-y-4">
-                        <Filters />
-                        <Metadata />
-                        <EventsTab />
-                    </div>
-                    <Metadata />
-                </div>
-                <div className="flex flex-1 gap-3 px-2 pb-2">
-                    <PanelLayout.Panel primary={false} className="w-1/3">
-                        <EventsTab />
-                    </PanelLayout.Panel>
-                    <ExceptionContent />
-                </div>
                 <div className="flex flex-col flex-1 overflow-x-auto">
                     {activeException ? (
                         <div className="flex-1">
@@ -107,6 +100,25 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                         <ExceptionContent />
                     )}
                     <WorkspaceSettings />
+                </div>
+                <div
+                    className="flex relative bg-surface-primary min-w-[420px]"
+                    ref={ref}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ width: desiredSize ?? undefined }}
+                >
+                    <Resizer {...resizerLogicProps} />
+                    <div className="ErrorTrackingIssue__sidebar overflow-y-auto space-y-4 pt-2 w-full">
+                        <Filters />
+                        <Metadata />
+                        <LemonTabs
+                            size="small"
+                            tabs={[
+                                { key: 'events', label: <div className="px-2">Events</div>, content: <EventsTab /> },
+                            ]}
+                            activeKey="events"
+                        />
+                    </div>
                 </div>
             </div>
         </ErrorTrackingSetupPrompt>
@@ -126,28 +138,50 @@ const Filters = (): JSX.Element => {
 }
 
 const ExceptionContent = (): JSX.Element => {
+    const [activeKey, setActiveKey] = useState<'overview' | 'recording' | 'properties'>('overview')
+
     return (
-        <PanelLayout column className="flex-1 overflow-y-auto">
-            <PanelLayout.Panel primary={false}>
-                <ContextDisplay />
-            </PanelLayout.Panel>
-            <PanelLayout.Panel primary={false}>
-                <StacktraceDisplay />
-            </PanelLayout.Panel>
-            <RecordingPlayer />
-        </PanelLayout>
+        <div className="flex-1 overflow-y-auto p-2">
+            <PanelLayout column>
+                <PanelLayout.Panel primary={false}>
+                    <StacktraceDisplay />
+                </PanelLayout.Panel>
+            </PanelLayout>
+            <LemonTabs
+                activeKey={activeKey}
+                tabs={[
+                    {
+                        key: 'overview',
+                        label: 'Overview',
+                        content: <ContextDisplay />,
+                    },
+                    {
+                        key: 'recording',
+                        label: 'Recording',
+                        content: <RecordingPlayer />,
+                    },
+                ]}
+                onChange={setActiveKey}
+            />
+        </div>
     )
 }
 
 const WorkspaceSettings = (): JSX.Element => {
-    const { showAllFrames } = useValues(errorTrackingIssueSceneLogic)
-    const { setShowAllFrames } = useActions(errorTrackingIssueSceneLogic)
+    const { showAllFrames, activeException } = useValues(errorTrackingIssueSceneLogic)
+    const { setShowAllFrames, setActiveException } = useActions(errorTrackingIssueSceneLogic)
 
     return (
-        <SettingsBar border="top" className="bg-surface-primary justify-end">
+        <SettingsBar border="top" className="bg-surface-primary justify-between">
+            <SettingsToggle
+                active
+                tooltip={!activeException ? 'Select an event to view' : undefined}
+                label={activeException ? 'View latest exception' : 'Latest exception'}
+                onClick={() => activeException && setActiveException(null)}
+            />
             <SettingsToggle
                 label={showAllFrames ? 'Hide extra frames' : 'Show all frames'}
-                active={true}
+                active={false}
                 icon={showAllFrames ? <IconCollapse /> : <IconExpand />}
                 size="xsmall"
                 onClick={() => setShowAllFrames(!showAllFrames)}

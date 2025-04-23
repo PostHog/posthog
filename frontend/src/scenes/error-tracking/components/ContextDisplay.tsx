@@ -1,4 +1,4 @@
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonTable, Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { match, P } from 'ts-pattern'
 
@@ -15,34 +15,36 @@ export function ContextDisplay(): JSX.Element {
                 ))
                 .with([false, P.nullish], () => <div>No data available</div>)
                 .with([false, P.any], ([_, attrs]) => {
+                    const dataSource = [
+                        { property: 'Level', value: attrs?.level },
+                        { property: 'Synthetic', value: attrs?.synthetic },
+                        { property: 'Library', value: attrs?.library },
+                        { property: 'Unhandled', value: attrs?.unhandled },
+                        { property: 'Browser', value: attrs?.browser },
+                        { property: 'OS', value: attrs?.os },
+                        { property: 'URL', value: attrs?.url },
+                    ].filter((row) => row.value !== undefined)
+
                     return (
-                        <table className="w-full overflow-hidden">
-                            <tbody className="w-full">
-                                {[
-                                    { label: 'Level', value: attrs?.level },
-                                    { label: 'Synthetic', value: attrs?.synthetic },
-                                    { label: 'Library', value: attrs?.library },
-                                    { label: 'Unhandled', value: attrs?.unhandled },
-                                    { label: 'Browser', value: attrs?.browser },
-                                    { label: 'OS', value: attrs?.os },
-                                    { label: 'URL', value: attrs?.url },
-                                ]
-                                    .filter((row) => row.value !== undefined)
-                                    .map((row, index) => (
-                                        <tr key={index} className="even:bg-fill-tertiary w-full">
-                                            <th className="border-r-1 font-semibold text-xs p-1 w-1/3 text-left">
-                                                {row.label}
-                                            </th>
-                                            <td
-                                                className="w-full truncate p-1 text-xs max-w-0"
-                                                title={String(row.value)}
-                                            >
-                                                {String(row.value)}
-                                            </td>
-                                        </tr>
-                                    ))}
-                            </tbody>
-                        </table>
+                        <LemonTable
+                            size="small"
+                            firstColumnSticky
+                            showHeader={false}
+                            columns={[
+                                {
+                                    title: 'Property',
+                                    dataIndex: 'property',
+                                    className: 'font-semibold',
+                                },
+                                {
+                                    title: 'Value',
+                                    dataIndex: 'value',
+                                    className: 'truncate',
+                                    render: (dataValue) => String(dataValue),
+                                },
+                            ]}
+                            dataSource={dataSource}
+                        />
                     )
                 })
                 .exhaustive()}

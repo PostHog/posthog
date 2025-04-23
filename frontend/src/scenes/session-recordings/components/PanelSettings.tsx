@@ -21,8 +21,6 @@ interface SettingsMenuProps extends Omit<LemonMenuProps, 'items' | 'children'> {
     label?: string
     items: LemonMenuItem[]
     icon?: JSX.Element
-    isAvailable?: boolean
-    whenUnavailable?: LemonMenuItem
     highlightWhenActive?: boolean
     closeOnClickInside?: boolean
     /**
@@ -59,21 +57,14 @@ export function SettingsMenu({
     label,
     items,
     icon,
-    isAvailable = true,
     closeOnClickInside = true,
     highlightWhenActive = true,
-    whenUnavailable,
     rounded = false,
     ...props
 }: SettingsMenuProps): JSX.Element {
     const active = items.some((cf) => !!cf.active)
     return (
-        <LemonMenu
-            buttonSize="xsmall"
-            closeOnClickInside={closeOnClickInside}
-            items={isAvailable ? items : whenUnavailable ? [whenUnavailable] : []}
-            {...props}
-        >
+        <LemonMenu buttonSize="xsmall" closeOnClickInside={closeOnClickInside} items={items} {...props}>
             <LemonButton
                 className={clsx(rounded ? 'rounded' : 'rounded-[0px]')}
                 status={highlightWhenActive && active ? 'danger' : 'default'}

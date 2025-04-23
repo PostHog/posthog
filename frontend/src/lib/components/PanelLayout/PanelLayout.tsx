@@ -1,6 +1,6 @@
 import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { LemonMenu, LemonMenuItem, LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { LemonMenu, LemonMenuItems, LemonMenuProps } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { PropsWithChildren } from 'react'
 
 type PanelContainerProps = PropsWithChildren<{
@@ -11,11 +11,8 @@ type PanelContainerProps = PropsWithChildren<{
 
 interface SettingsMenuProps extends Omit<LemonMenuProps, 'items' | 'children'> {
     label?: string
-    items: LemonMenuItem[]
+    items: LemonMenuItems
     icon?: JSX.Element
-    isAvailable?: boolean
-    whenUnavailable?: LemonMenuItem
-    highlightWhenActive?: boolean
     closeOnClickInside?: boolean
 }
 
@@ -81,26 +78,12 @@ export function SettingsMenu({
     label,
     items,
     icon,
-    isAvailable = true,
     closeOnClickInside = true,
-    highlightWhenActive = true,
-    whenUnavailable,
     ...props
 }: SettingsMenuProps): JSX.Element {
-    const active = items.some((cf) => !!cf.active)
     return (
-        <LemonMenu
-            buttonSize="xsmall"
-            closeOnClickInside={closeOnClickInside}
-            items={isAvailable ? items : whenUnavailable ? [whenUnavailable] : []}
-            {...props}
-        >
-            <LemonButton
-                className="rounded-[0px]"
-                status={highlightWhenActive && active ? 'danger' : 'default'}
-                size="xsmall"
-                icon={icon}
-            >
+        <LemonMenu buttonSize="xsmall" closeOnClickInside={closeOnClickInside} items={items} {...props}>
+            <LemonButton className="rounded-[0px]" size="xsmall" icon={icon}>
                 {label}
             </LemonButton>
         </LemonMenu>

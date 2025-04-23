@@ -40,22 +40,27 @@ const CustomExceptionColumn: QueryContextColumnComponent = ({ record }) => {
     const { setActiveException } = useActions(errorTrackingIssueSceneLogic)
     const [exception, person] = record as [EventType, { distinct_id: string }]
 
+    const currentUrl = exception.properties.$current_url
+
     return (
         <LemonTableLink
             className="w-full"
             onClick={() => setActiveException(exception)}
             title={<PersonDisplay noLink noPopover person={person} />}
             description={
-                <div className="flex space-x-1">
-                    <TZLabel time={exception.timestamp} showSeconds />
-                    <PropertyIcons properties={exception.properties} iconClassNames="text-secondary" />
-                    {mightHaveRecording(exception.properties) && (
-                        <Tooltip title="Recording captured">
-                            <div className="inline-flex items-center text-secondary">
-                                <IconRewindPlay />
-                            </div>
-                        </Tooltip>
-                    )}
+                <div className="space-y-0.5">
+                    {currentUrl && <div className="truncate">{currentUrl}</div>}
+                    <div className="flex space-x-1">
+                        <TZLabel time={exception.timestamp} showSeconds />
+                        <PropertyIcons properties={exception.properties} iconClassNames="text-secondary" />
+                        {mightHaveRecording(exception.properties) && (
+                            <Tooltip title="Recording captured">
+                                <div className="inline-flex items-center text-secondary">
+                                    <IconRewindPlay />
+                                </div>
+                            </Tooltip>
+                        )}
+                    </div>
                 </div>
             }
         />
