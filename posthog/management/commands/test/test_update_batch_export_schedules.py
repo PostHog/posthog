@@ -175,7 +175,7 @@ def test_update_batch_export_schedules_for_all_batch_exports_of_a_given_destinat
 
 
 def test_update_batch_export_schedules_for_all_batch_exports_of_a_given_team(team, team_2, timezone, temporal):
-    """Test the update_batch_export_schedules command updates the schedule for all batch exports of a given destination type."""
+    """Test the update_batch_export_schedules command updates the schedule for all batch exports of a given team."""
 
     batch_export_1 = _create_batch_export(team, "S3", timezone)
     batch_export_2 = _create_batch_export(team, "S3", timezone)
