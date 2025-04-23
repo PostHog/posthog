@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
-import { ProjectTreeRef } from '~/types'
+import { Breadcrumb, ProjectTreeBreadcrumb, ProjectTreeRef } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import { getDefaultTreeExplore, getDefaultTreeNew } from './defaultTree'
@@ -43,7 +43,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             panelLayoutLogic,
             ['searchTerm'],
             breadcrumbsLogic,
-            ['projectTreeRef'],
+            ['projectTreeRef', 'appBreadcrumbs'],
         ],
         actions: [panelLayoutLogic, ['setSearchTerm']],
     })),
@@ -744,6 +744,37 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
 
                 return `${sum}${hasFolder ? '+' : ''}`
+            },
+        ],
+        projectTreeRefEntry: [
+            (s) => [s.projectTreeRef, s.sortedItems],
+            (projectTreeRef, sortedItems): FileSystemEntry | null => {
+                if (!projectTreeRef) {
+                    return null
+                }
+                const treeItem = projectTreeRef.type.endsWith('/')
+                    ? sortedItems.find(
+                          (item) => item.type?.startsWith(projectTreeRef.type) && item.ref === projectTreeRef.ref
+                      )
+                    : sortedItems.find((item) => item.type === projectTreeRef.type && item.ref === projectTreeRef.ref)
+                return treeItem ?? null
+            },
+        ],
+        projectTreeRefBreadcrumbs: [
+            (s) => [s.projectTreeRefEntry, s.appBreadcrumbs],
+            (projectTreeRefEntry, appBreadcrumbs): Breadcrumb[] | null => {
+                if (!projectTreeRefEntry) {
+                    return null
+                }
+                const pathParts = splitPath(projectTreeRefEntry.path)
+                const breadcrumbs: ProjectTreeBreadcrumb[] = pathParts.map((path, index) => ({
+                    key: `project-folder/${path}`,
+                    name: path,
+                    path: joinPath(pathParts.slice(0, index + 1)),
+                    type: projectTreeRefEntry.type,
+                    ref: projectTreeRefEntry.ref,
+                }))
+                return [...appBreadcrumbs, ...breadcrumbs]
             },
         ],
     }),
