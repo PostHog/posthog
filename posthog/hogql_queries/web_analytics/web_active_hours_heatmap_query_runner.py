@@ -50,7 +50,6 @@ class WebActiveHoursHeatMapQueryRunner(WebAnalyticsQueryRunner):
                     WHERE and(
                         event = '$pageview',
                         {all_properties}
-
                     )
                     GROUP BY session_id
                 ) as uniqueSessionEvents
