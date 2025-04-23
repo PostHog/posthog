@@ -866,7 +866,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
   WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
          AND "posthog_externaldatasource"."team_id" = 99999
@@ -938,7 +939,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -2257,7 +2259,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
   WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
          AND "posthog_externaldatasource"."team_id" = 99999
@@ -2329,7 +2332,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -2909,7 +2913,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
   WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
          AND "posthog_externaldatasource"."team_id" = 99999
@@ -2981,7 +2986,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -3560,7 +3566,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
   WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
          AND "posthog_externaldatasource"."team_id" = 99999
@@ -3632,7 +3639,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -4290,7 +4298,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
   WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
          AND "posthog_externaldatasource"."team_id" = 99999
@@ -4362,7 +4371,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -4995,7 +5005,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
   WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
          AND "posthog_externaldatasource"."team_id" = 99999
@@ -5067,7 +5078,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -5322,7 +5334,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
   WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
          AND "posthog_externaldatasource"."team_id" = 99999
@@ -5394,7 +5407,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -5995,7 +6009,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
   WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
          AND "posthog_externaldatasource"."team_id" = 99999
@@ -6067,7 +6082,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -6620,7 +6636,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
   WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
          AND "posthog_externaldatasource"."team_id" = 99999
@@ -6692,7 +6709,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -7261,7 +7279,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
   WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
          AND "posthog_externaldatasource"."team_id" = 99999
@@ -7333,7 +7352,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -7411,7 +7431,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
   WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
          AND "posthog_externaldatasource"."team_id" = 99999
@@ -7840,7 +7861,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -7966,7 +7988,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_externaldatasource"
   WHERE ("posthog_externaldatasource"."source_type" = 'Stripe'
          AND "posthog_externaldatasource"."team_id" = 99999
@@ -8038,7 +8061,8 @@
          "posthog_externaldatasource"."source_type",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix"
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_user" ON ("posthog_datawarehousetable"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")

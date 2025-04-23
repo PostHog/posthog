@@ -109,6 +109,8 @@ function InsightCardInternal(
         variablesOverride,
         children,
         noCache,
+        breakdownColorOverride: _breakdownColorOverride,
+        dataColorThemeId: _dataColorThemeId,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
