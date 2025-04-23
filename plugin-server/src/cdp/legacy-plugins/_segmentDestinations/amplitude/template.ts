@@ -196,6 +196,7 @@ const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): 
         type: field.choices ? 'choice'
             : field.type === 'object' ? 'dictionary'
             : ['number', 'integer', 'datetime'].includes(field.type) ? 'string'
+            : typeof field.default === 'object' && '@path' in field.default ? 'string'
             : field.type ?? 'string',
         description: field.description,
         default: field.type !== 'object' ? translateInputs(field.default) : Object.fromEntries(Object.entries(field.properties ?? {}).map(([key, _]) => {
@@ -214,6 +215,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations).filter(([_, des
             _event: ProcessedPluginEvent,
             { config, fetch, logger }: LegacyDestinationPluginMeta
         ): Promise<void> =>  {
+            logger.warn('config', config)
             destination.actions.logEventV2.perform(async (endpoint, options) => {
                 await fetch(endpoint, {
                     method: options?.method ?? "POST",
