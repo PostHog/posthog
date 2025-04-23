@@ -188,8 +188,12 @@ export function TaxonomicPropertyFilter({
                             {orFiltering ? (
                                 <>
                                     {propertyGroupType && index !== 0 && filter?.key && (
-                                        <div className="text-sm font-medium">
-                                            {propertyGroupType === FilterLogicalOperator.And ? '&' : propertyGroupType}
+                                        <div className="flex items-center">
+                                            {propertyGroupType === FilterLogicalOperator.And ? (
+                                                <OperandTag operand="and" />
+                                            ) : (
+                                                <OperandTag operand="or" />
+                                            )}
                                         </div>
                                     )}
                                 </>

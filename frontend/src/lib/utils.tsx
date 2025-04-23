@@ -262,6 +262,12 @@ export const cleanedPathOperatorMap: Record<string, string> = {
     is_cleaned_path_exact: '= equals',
 }
 
+export const assigneeOperatorMap: Record<string, string> = {
+    exact: 'is',
+    is_not: 'is not',
+    is_not_set: 'is not set',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
     ...stickinessOperatorMap,
     ...dateTimeOperatorMap,
@@ -273,6 +279,7 @@ export const allOperatorsMapping: Record<string, string> = {
     ...selectorOperatorMap,
     ...cohortOperatorMap,
     ...cleanedPathOperatorMap,
+    ...assigneeOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
@@ -285,6 +292,7 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Duration: durationOperatorMap,
     Selector: selectorOperatorMap,
     Cohort: cohortOperatorMap,
+    Assignee: assigneeOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {

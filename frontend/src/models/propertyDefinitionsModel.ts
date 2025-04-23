@@ -53,13 +53,12 @@ const localProperties: PropertyDefinitionStorage = {
         is_seen_on_filtered_events: false,
         property_type: PropertyType.Selector,
     },
-    // TODO - @david
-    // 'resource/assignee': {
-    //     id: 'assignee',
-    //     name: 'assignee',
-    //     description: 'User or role the resource is assigned to',
-    //     property_type: PropertyType.Assignee,
-    // },
+    'resource/assignee': {
+        id: 'assignee',
+        name: 'assignee',
+        description: 'User or role assigned to a resource',
+        property_type: PropertyType.Assignee,
+    },
 }
 
 const localOptions: Record<string, PropValue[]> = {

@@ -1,4 +1,4 @@
-import { LemonButtonProps } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
@@ -8,12 +8,15 @@ import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 import { useEffect } from 'react'
+import { AssigneeLabelDisplay } from 'scenes/error-tracking/components/Assignee/AssigneeDisplay'
+import { AssigneeSelect } from 'scenes/error-tracking/components/Assignee/AssigneeSelect'
 
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
     PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS,
     propertyDefinitionsModel,
 } from '~/models/propertyDefinitionsModel'
+import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
 import { GroupTypeIndex, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
 export interface PropertyValueProps {
@@ -22,12 +25,11 @@ export interface PropertyValueProps {
     endpoint?: string // Endpoint to fetch options from
     placeholder?: string
     onSet: CallableFunction
-    value?: string | number | bigint | Array<string | number | bigint> | null // | ErrorTrackingIssueAssignee TODO - @david
+    value?: string | number | bigint | Array<string | number | bigint> | ErrorTrackingIssueAssignee | null
     operator: PropertyOperator
     autoFocus?: boolean
     eventNames?: string[]
     addRelativeDateTimeOptions?: boolean
-    forceSingleSelect?: boolean
     inputClassName?: string
     additionalPropertiesFilter?: { key: string; values: string | string[] }[]
     groupTypeIndex?: GroupTypeIndex
@@ -46,7 +48,6 @@ export function PropertyValue({
     autoFocus = false,
     eventNames = [],
     addRelativeDateTimeOptions = false,
-    forceSingleSelect = false,
     inputClassName = undefined,
     additionalPropertiesFilter = [],
     groupTypeIndex = undefined,
@@ -54,16 +55,15 @@ export function PropertyValue({
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
 
-    const isMultiSelect = operator && isOperatorMulti(operator) && !forceSingleSelect
+    const isMultiSelect = operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
     const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(type)
 
     const isDurationProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Duration
 
-    // TODO - @david
-    // const isAssigneeProperty =
-    //     propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
+    const isAssigneeProperty =
+        propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
 
     const load = (newInput: string | undefined): void => {
         loadPropertyValues({
@@ -92,20 +92,17 @@ export function PropertyValue({
         }
     }
 
-    // TODO - @david
-    // if (isAssigneeProperty) {
-    //     return (
-    //         <AssigneeSelect
-    //             showName
-    //             type="secondary"
-    //             fullWidth
-    //             allowRemoval={false}
-    //             size={size}
-    //             assignee={value as ErrorTrackingIssueAssignee}
-    //             onChange={setValue}
-    //         />
-    //     )
-    // }
+    if (isAssigneeProperty) {
+        return (
+            <AssigneeSelect assignee={value as ErrorTrackingIssueAssignee} onChange={setValue}>
+                {(displayAssignee) => (
+                    <LemonButton fullWidth type="secondary" size={size}>
+                        <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Choose user" />
+                    </LemonButton>
+                )}
+            </AssigneeSelect>
+        )
+    }
 
     if (isDurationProperty) {
         return <DurationPicker autoFocus={autoFocus} value={value as number} onChange={setValue} />

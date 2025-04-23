@@ -51,16 +51,14 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     <div className="flex gap-x-2">
                         {!issueLoading && issue?.status == 'active' && (
                             <AssigneeSelect assignee={issue?.assignee} onChange={updateAssignee}>
-                                {(displayAssignee) => {
-                                    return (
-                                        <LemonButton
-                                            type="secondary"
-                                            icon={<AssigneeIconDisplay assignee={displayAssignee} />}
-                                        >
-                                            <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Unassigned" />
-                                        </LemonButton>
-                                    )
-                                }}
+                                {(displayAssignee) => (
+                                    <LemonButton
+                                        type="secondary"
+                                        icon={<AssigneeIconDisplay assignee={displayAssignee} />}
+                                    >
+                                        <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Unassigned" />
+                                    </LemonButton>
+                                )}
                             </AssigneeSelect>
                         )}
                         {!issueLoading && (

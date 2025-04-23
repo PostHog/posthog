@@ -1,4 +1,4 @@
-import { kea, path, selectors } from 'kea'
+import { kea, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
@@ -13,32 +13,24 @@ export type ErrorTrackingAssignmentRule = {
     filters: UniversalFiltersGroup
 }
 
-// const validRule = (rule: ErrorTrackingAssignmentRule): boolean => {
-//     return rule.assignee !== null && rule.filters.values.length > 0
-// }
+const DEFAULT_ASSIGNMENT_RULE = {
+    id: 'new',
+    assignee: null,
+    filters: { type: FilterLogicalOperator.Or, values: [] },
+}
 
 export const errorTrackingAutoAssignmentLogic = kea<errorTrackingAutoAssignmentLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingAutoAssignmentLogic']),
+    props({} as { newRuleIfNone: boolean }),
 
-    loaders(({ values }) => ({
+    loaders(({ props, values }) => ({
         assignmentRules: [
-            [
-                {
-                    id: 'new',
-                    assignee: null,
-                    filters: { type: FilterLogicalOperator.Or, values: [] },
-                },
-            ] as ErrorTrackingAssignmentRule[],
+            [DEFAULT_ASSIGNMENT_RULE] as ErrorTrackingAssignmentRule[],
             {
                 loadRules: async () => {
-                    const res = await api.errorTracking.assignmentRules()
-                    const rules = res.results
-                    if (rules.length === 0) {
-                        rules.push({
-                            id: 'new',
-                            assignee: null,
-                            filters: { type: FilterLogicalOperator.Or, values: [] },
-                        })
+                    const { results: rules } = await api.errorTracking.assignmentRules()
+                    if (rules.length === 0 && props.newRuleIfNone) {
+                        return [DEFAULT_ASSIGNMENT_RULE]
                     }
                     return rules
                 },
@@ -76,6 +68,17 @@ export const errorTrackingAutoAssignmentLogic = kea<errorTrackingAutoAssignmentL
             },
         ],
     })),
+
+    reducers({
+        loadingAllRules: [
+            true,
+            {
+                loadRules: () => true,
+                loadRulesSuccess: () => false,
+                loadRulesFailure: () => false,
+            },
+        ],
+    }),
 
     selectors({
         hasNewRule: [(s) => [s.assignmentRules], (assignmentRules) => assignmentRules.some(({ id }) => id === 'new')],
