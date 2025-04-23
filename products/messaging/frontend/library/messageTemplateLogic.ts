@@ -10,19 +10,19 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import { NEW_TEMPLATE } from './constants'
-import type { templateLogicType } from './templateLogicType'
-import { MessageTemplate } from './templatesLogic'
+import type { messageTemplateLogicType } from './messageTemplateLogicType'
+import { MessageTemplate } from './messageTemplatesLogic'
 
-export interface TemplateLogicProps {
+export interface MessageTemplateLogicProps {
     logicKey?: string
     id?: string | null
     messageId?: string | null
 }
 
-export const templateLogic = kea<templateLogicType>([
-    path(['products', 'messaging', 'frontend', 'templateLogic']),
+export const messageTemplateLogic = kea<messageTemplateLogicType>([
+    path(['products', 'messaging', 'frontend', 'messageTemplateLogic']),
     key(({ id }) => id ?? 'unknown'),
-    props({} as TemplateLogicProps),
+    props({} as MessageTemplateLogicProps),
     actions({
         setTemplate: (template: MessageTemplate) => ({ template }),
         setOriginalTemplate: (template: MessageTemplate) => ({ template }),
@@ -30,7 +30,7 @@ export const templateLogic = kea<templateLogicType>([
     selectors({
         breadcrumbs: [
             () => [(_, props) => props],
-            (props: TemplateLogicProps): Breadcrumb[] => {
+            (props: MessageTemplateLogicProps): Breadcrumb[] => {
                 const { id } = props
 
                 if (!id) {

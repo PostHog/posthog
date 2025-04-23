@@ -43,8 +43,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LLMObservabilityUsers: () => import('../../products/llm_observability/frontend/LLMObservabilityUsers'),
     MessagingCampaigns: () => import('../../products/messaging/frontend/Campaigns'),
     MessagingBroadcasts: () => import('../../products/messaging/frontend/Broadcasts'),
-    MessagingLibrary: () => import('../../products/messaging/frontend/library/Library'),
-    MessagingLibraryTemplate: () => import('../../products/messaging/frontend/library/Template'),
+    MessagingLibrary: () => import('../../products/messaging/frontend/library/MessageLibrary'),
+    MessagingLibraryTemplate: () => import('../../products/messaging/frontend/library/MessageTemplate'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
 }
 

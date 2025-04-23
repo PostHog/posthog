@@ -1,4 +1,4 @@
-import { MessageTemplate } from './templatesLogic'
+import { MessageTemplate } from './messageTemplatesLogic'
 
 export const NEW_TEMPLATE: MessageTemplate = {
     id: 'new',

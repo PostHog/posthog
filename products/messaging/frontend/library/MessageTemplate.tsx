@@ -6,27 +6,27 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { EmailTemplater } from 'scenes/pipeline/hogfunctions/email-templater/EmailTemplater'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { templateLogic, TemplateLogicProps } from './templateLogic'
+import { messageTemplateLogic, MessageTemplateLogicProps } from './messageTemplateLogic'
 
 export const scene: SceneExport = {
-    component: Template,
-    logic: templateLogic,
-    paramsToProps: ({ params: { id }, searchParams: { messageId } }): (typeof templateLogic)['props'] => ({
+    component: MessageTemplate,
+    logic: messageTemplateLogic,
+    paramsToProps: ({ params: { id }, searchParams: { messageId } }): (typeof messageTemplateLogic)['props'] => ({
         id: id || 'new',
         messageId,
     }),
 }
 
-export function Template({ id }: TemplateLogicProps = {}): JSX.Element {
-    const { submitTemplate, resetTemplate } = useActions(templateLogic)
-    const { originalTemplate, isTemplateSubmitting, templateChanged, messageLoading } = useValues(templateLogic)
+export function MessageTemplate({ id }: MessageTemplateLogicProps = {}): JSX.Element {
+    const { submitTemplate, resetTemplate } = useActions(messageTemplateLogic)
+    const { originalTemplate, isTemplateSubmitting, templateChanged, messageLoading } = useValues(messageTemplateLogic)
 
     return (
         <div className="space-y-4">
-            <Form logic={templateLogic} formKey="template">
+            <Form logic={messageTemplateLogic} formKey="template">
                 <PageHeader
                     buttons={
-                        <div className="flex items-center gap-2">
+                        <>
                             {templateChanged && (
                                 <LemonButton
                                     data-attr="cancel-message-template"
@@ -46,7 +46,7 @@ export function Template({ id }: TemplateLogicProps = {}): JSX.Element {
                             >
                                 {id === 'new' ? 'Create' : 'Save'}
                             </LemonButton>
-                        </div>
+                        </>
                     }
                 />
                 <div className="flex flex-wrap gap-4 items-start">
@@ -70,7 +70,7 @@ export function Template({ id }: TemplateLogicProps = {}): JSX.Element {
                             <Spinner className="text-lg" />
                         ) : (
                             <EmailTemplater
-                                formLogic={templateLogic}
+                                formLogic={messageTemplateLogic}
                                 formLogicProps={{ id }}
                                 formKey="template"
                                 formFieldsPrefix="content.email"
