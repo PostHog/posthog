@@ -18,6 +18,8 @@ interface MaxToolProps extends ToolDefinition {
     children: React.ReactElement | (({ toolAvailable }: { toolAvailable: boolean }) => React.ReactElement)
     initialMaxPrompt?: string
     onMaxOpen?: () => void
+    headline?: string
+    description?: string
 }
 
 function generateBurstPoints(spikeCount: number, spikiness: number): string {
@@ -51,8 +53,17 @@ export function MaxTool({
     children: Children,
     initialMaxPrompt,
     onMaxOpen,
+    headline,
+    description,
 }: MaxToolProps): JSX.Element {
-    const { registerTool, deregisterTool } = useActions(maxGlobalLogic)
+    const {
+        registerTool,
+        deregisterTool,
+        registerHeadline,
+        deregisterHeadline,
+        registerDescription,
+        deregisterDescription,
+    } = useActions(maxGlobalLogic)
     const { user } = useValues(userLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
@@ -66,6 +77,26 @@ export function MaxTool({
             deregisterTool(name)
         }
     }, [name, displayName, JSON.stringify(context), callback, registerTool, deregisterTool])
+
+    useEffect(() => {
+        if (headline) {
+            registerHeadline(name, headline)
+        }
+        return () => {
+            deregisterHeadline(name)
+        }
+    }, [headline, registerHeadline, deregisterHeadline])
+
+    useEffect(() => {
+        if (description) {
+            registerDescription(name, description)
+        }
+        return () => {
+            if (description) {
+                deregisterDescription(name)
+            }
+        }
+    }, [description, registerDescription, deregisterDescription])
 
     let content: JSX.Element
     if (!isMaxAvailable) {

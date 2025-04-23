@@ -29,6 +29,10 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
         registerTool: (tool: ToolDefinition) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
+        registerHeadline: (toolName: AssistantContextualTool, headline: string) => ({ toolName, headline }),
+        deregisterHeadline: (toolName: AssistantContextualTool) => ({ toolName }),
+        registerDescription: (toolName: AssistantContextualTool, description: string) => ({ toolName, description }),
+        deregisterDescription: (toolName: AssistantContextualTool) => ({ toolName }),
     }),
     reducers({
         toolMap: [
@@ -41,6 +45,28 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 deregisterTool: (state, { key }) => {
                     const newState = { ...state }
                     delete newState[key]
+                    return newState
+                },
+            },
+        ],
+        headlineMap: [
+            {} as Record<AssistantContextualTool, string>,
+            {
+                registerHeadline: (state, { toolName, headline }) => ({ ...state, [toolName]: headline }),
+                deregisterHeadline: (state, { toolName }) => {
+                    const newState = { ...state }
+                    delete newState[toolName]
+                    return newState
+                },
+            },
+        ],
+        descriptionMap: [
+            {} as Record<AssistantContextualTool, string>,
+            {
+                registerDescription: (state, { toolName, description }) => ({ ...state, [toolName]: description }),
+                deregisterDescription: (state, { toolName }) => {
+                    const newState = { ...state }
+                    delete newState[toolName]
                     return newState
                 },
             },

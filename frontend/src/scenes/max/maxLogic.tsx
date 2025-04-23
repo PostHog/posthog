@@ -51,6 +51,13 @@ const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
     status: 'completed',
 }
 
+const HEADLINES = [
+    'How can I help you build?',
+    'What are you curious about?',
+    'How can I help you understand users?',
+    'What do you want to know today?',
+]
+
 export const maxLogic = kea<maxLogicType>([
     path(['scenes', 'max', 'maxLogic']),
     props({} as MaxLogicProps),
@@ -60,7 +67,7 @@ export const maxLogic = kea<maxLogicType>([
             projectLogic,
             ['currentProject'],
             maxGlobalLogic,
-            ['dataProcessingAccepted', 'toolMap', 'tools'],
+            ['dataProcessingAccepted', 'toolMap', 'tools', 'headlineMap', 'descriptionMap'],
             maxSettingsLogic,
             ['coreMemory'],
             // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
@@ -434,6 +441,39 @@ export const maxLogic = kea<maxLogicType>([
                 }
 
                 return undefined
+            },
+        ],
+        headline: [
+            (s) => [s.conversation, s.tools, s.headlineMap],
+            (conversation, tools, headlineMap) => {
+                if (process.env.STORYBOOK) {
+                    return HEADLINES[0] // Preventing UI snapshots from being different every time
+                }
+
+                if (tools.length > 0 && headlineMap[tools[0].name]) {
+                    return headlineMap[tools[0].name]
+                }
+
+                return HEADLINES[
+                    parseInt((conversation?.id || uuid()).split('-').at(-1) as string, 16) % HEADLINES.length
+                ]
+            },
+        ],
+        description: [
+            (s) => [s.tools, s.descriptionMap],
+            (tools, descriptionMap) => {
+                let descriptionAddon = <>Ask&nbsp;me about your product and your&nbsp;users.</>
+                if (tools.length > 0 && descriptionMap[tools[0].name]) {
+                    descriptionAddon = <>{descriptionMap[tools[0].name]}</>
+                }
+
+                return (
+                    <>
+                        I'm Max, here to help you build a successful&nbsp;product.
+                        <br />
+                        {descriptionAddon}
+                    </>
+                )
             },
         ],
     }),
