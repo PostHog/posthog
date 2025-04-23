@@ -91,6 +91,7 @@
          "posthog_team"."human_friendly_comparison_periods",
          "posthog_team"."cookieless_server_hash_mode",
          "posthog_team"."revenue_tracking_config",
+         "posthog_team"."distinct_ids_excluded_from_person_processing",
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
