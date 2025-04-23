@@ -37,6 +37,7 @@ pub struct Args {
 pub struct Result(pub i8, pub PropVal, pub Vec<f64>, pub Vec<Vec<Uuid>>);
 
 struct Vars {
+    // The furthest step we've made it to, 1 indexed
     max_step: (usize, EnteredTimestamp),
     event_uuids: Vec<Vec<Uuid>>,
     entered_timestamp: Vec<EnteredTimestamp>,
@@ -183,7 +184,7 @@ impl AggregateFunnelRow {
         let optional_count = args
             .optional_steps
             .iter()
-            .filter(|i| **i < final_index as i8)
+            .filter(|i| **i <= final_index as i8)
             .count();
 
         for i in 0..(final_index - optional_count) {
