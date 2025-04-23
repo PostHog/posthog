@@ -88,6 +88,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         checkSelectedFolders: true,
         syncTypeAndRef: (type: string, ref: string) => ({ type, ref }),
         updateSyncedFiles: (files: FileSystemEntry[]) => ({ files }),
+        scrollToView: (item: FileSystemEntry) => ({ item }),
+        clearScrollTarget: true,
     }),
     loaders(({ actions, values }) => ({
         unfiledItems: [
@@ -444,6 +446,14 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 setLastCheckedItem: (_, { id, checked, shift }) => ({ id, checked, shift }),
             },
         ],
+        scrollTargetId: [
+            '' as string,
+            {
+                scrollToView: (_, { item }) =>
+                    item.type === 'folder' ? `project-folder/${item.path}` : `project/${item.id}`,
+                clearScrollTarget: () => '',
+            },
+        ],
     }),
     selectors({
         savedItems: [
@@ -768,11 +778,10 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
                 const pathParts = splitPath(projectTreeRefEntry.path)
                 const breadcrumbs: ProjectTreeBreadcrumb[] = pathParts.map((path, index) => ({
-                    key: `project-folder/${path}`,
+                    key: `project-tree/${path}`,
                     name: path,
                     path: joinPath(pathParts.slice(0, index + 1)),
-                    type: projectTreeRefEntry.type,
-                    ref: projectTreeRefEntry.ref,
+                    type: 'folder',
                 }))
                 return [...appBreadcrumbs, ...breadcrumbs]
             },
@@ -1114,6 +1123,17 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         },
         assureVisibility: async ({ projectTreeRef }, breakpoint) => {
             if (projectTreeRef) {
+                if (projectTreeRef.type === 'folder') {
+                    actions.expandProjectFolder(projectTreeRef.ref)
+                    const item = values.viableItems.find(
+                        (item) => item.type === 'folder' && item.path === projectTreeRef.ref
+                    )
+                    if (item) {
+                        actions.scrollToView(item)
+                    }
+                    return
+                }
+
                 const treeItem = projectTreeRef.type.endsWith('/')
                     ? values.viableItems.find(
                           (item) => item.type?.startsWith(projectTreeRef.type) && item.ref === projectTreeRef.ref
@@ -1166,6 +1186,9 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
 
                 if (path) {
                     actions.expandProjectFolder(path)
+                    if (treeItem) {
+                        actions.scrollToView(treeItem)
+                    }
                 }
             }
         },

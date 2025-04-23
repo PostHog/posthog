@@ -3710,11 +3710,12 @@ export interface SymbolBreadcrumb extends BreadcrumbBase {
 }
 export interface ProjectTreeBreadcrumb extends BreadcrumbBase {
     /** Last part of path */
-    name?: string
+    name: string
     /** Rest of the path. */
     path?: string
-    type?: string
+    type: string
     ref?: string
+    symbol?: never
 }
 export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb | ProjectTreeBreadcrumb
 

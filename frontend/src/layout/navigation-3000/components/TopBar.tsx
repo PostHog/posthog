@@ -154,6 +154,8 @@ interface BreadcrumbProps {
 function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.Element {
     const { renameState } = useValues(breadcrumbsLogic)
     const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
+    const { assureVisibility } = useActions(projectTreeLogic)
+    const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
     const [popoverShown, setPopoverShown] = useState(false)
 
     const joinedKey = joinBreadcrumbKey(breadcrumb.key)
@@ -195,7 +197,11 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
         )
     }
 
-    const Component = breadcrumb.path ? Link : 'div'
+    const isProjectTreeFolder = Boolean(
+        breadcrumb.name && breadcrumb.path && 'type' in breadcrumb && breadcrumb.type === 'folder'
+    )
+
+    const Component = !isProjectTreeFolder && breadcrumb.path ? Link : 'div'
     const breadcrumbContent = (
         <Component
             className={clsx(
@@ -206,6 +212,11 @@ function Breadcrumb({ breadcrumb, here, isOnboarding }: BreadcrumbProps): JSX.El
             )}
             onClick={() => {
                 breadcrumb.popover && setPopoverShown(!popoverShown)
+                if (isProjectTreeFolder && breadcrumb.path) {
+                    assureVisibility({ type: 'folder', ref: breadcrumb.path })
+                    showLayoutPanel(true)
+                    setActivePanelIdentifier('Project')
+                }
             }}
             data-attr={`breadcrumb-${joinedKey}`}
             to={breadcrumb.path}
