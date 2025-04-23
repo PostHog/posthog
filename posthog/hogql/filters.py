@@ -52,10 +52,9 @@ class ReplaceFilters(CloningVisitor):
         return node
 
     def visit_placeholder(self, node):
-        if node.chain == ["filters"]:
-            if self.filters is None:
-                return ast.Constant(value=True)
+        no_filters = self.filters is None or not self.filters.model_fields_set
 
+        if node.chain == ["filters"]:
             last_select = self.selects[-1]
             last_join = last_select.select_from
             found_events = False
@@ -74,6 +73,9 @@ class ReplaceFilters(CloningVisitor):
                 raise QueryError(
                     "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events or sessions table."
                 )
+
+            if no_filters:
+                return ast.Constant(value=True)
 
             exprs: list[ast.Expr] = []
             if self.filters.properties is not None:
@@ -134,7 +136,7 @@ class ReplaceFilters(CloningVisitor):
         if node.chain == ["filters", "dateRange", "from"]:
             compare_op_wrapper = self.compare_operations[-1]
 
-            if self.filters is None:
+            if no_filters:
                 compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
 
@@ -152,7 +154,7 @@ class ReplaceFilters(CloningVisitor):
         if node.chain == ["filters", "dateRange", "to"]:
             compare_op_wrapper = self.compare_operations[-1]
 
-            if self.filters is None:
+            if no_filters:
                 compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
 
