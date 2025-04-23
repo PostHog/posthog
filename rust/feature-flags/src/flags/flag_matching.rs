@@ -391,8 +391,7 @@ impl FeatureFlagMatcher {
         // Get cached static cohort results or evaluate them if not cached
         let static_cohort_matches = match self.flag_evaluation_state.get_static_cohort_matches() {
             Some(matches) => matches.clone(),
-            // TODO probably fine to return empty here, maybe just log but not error.
-            None => return Err(FlagError::StaticCohortMatchesNotCached),
+            None => HashMap::new(), // NB: this happens if a flag has static cohort filters but is targeting an anonymous user.  Shouldn't error, just return empty.
         };
 
         // Store all cohort match results, starting with static cohort results
