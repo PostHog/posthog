@@ -16,7 +16,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--batch-export-id", default=None, type=str, help="Single batch export ID to update")
-        parser.add_argument("--team-id", default=None, type=str, help="Team ID for which to update all batch exports")
+        parser.add_argument("--team-id", default=None, type=int, help="Team ID for which to update all batch exports")
         parser.add_argument(
             "--destination-type", default=None, type=str, help="Update all batch exports for a given destination type"
         )
