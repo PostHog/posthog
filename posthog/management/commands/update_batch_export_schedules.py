@@ -50,7 +50,7 @@ class Command(BaseCommand):
                 query_set = query_set.filter(destination__type=options["destination_type"])
 
             if options["team_id"]:
-                query_set = query_set.filter(team__id=int(options["team_id"]))
+                query_set = query_set.filter(team_id=int(options["team_id"]))
 
             batch_exports = list(query_set)
         else:
