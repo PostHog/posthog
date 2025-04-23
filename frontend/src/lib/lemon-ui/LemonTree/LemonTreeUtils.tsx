@@ -1,7 +1,8 @@
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { IconChevronRight, IconDocument, IconFolder, IconFolderOpenFilled } from '@posthog/icons'
+import { buttonVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import { CSSProperties } from 'react'
+import { CSSProperties, useEffect, useRef } from 'react'
 
 import { LemonCheckbox } from '../LemonCheckbox'
 import { TreeDataItem } from './LemonTree'
@@ -268,5 +269,64 @@ export const TreeNodeDroppable = (props: DroppableProps): JSX.Element => {
         >
             {props.children}
         </div>
+    )
+}
+
+export const InlineEditField = ({
+    value,
+    handleSubmit,
+    style,
+}: {
+    value: string
+    style?: CSSProperties
+    handleSubmit: (value: string) => void
+}): JSX.Element => {
+    const inputRef = useRef<HTMLInputElement>(null)
+
+    useEffect(() => {
+        setTimeout(() => {
+            if (inputRef.current) {
+                inputRef.current.focus()
+                inputRef.current.select()
+            }
+        }, 100)
+    }, [])
+
+    function onSubmit(e: React.FormEvent<HTMLFormElement>): void {
+        e.preventDefault()
+        handleSubmit(inputRef.current?.value || '')
+    }
+
+    function handleBlur(): void {
+        handleSubmit(inputRef.current?.value || '')
+    }
+
+    return (
+        <form onSubmit={onSubmit} className={buttonVariants({ menuItem: true, size: 'base', sideActionLeft: true })}>
+            {/* Spacer to offset button padding */}
+            <div
+                className="h-full bg-transparent pointer-events-none flex-shrink-0 transition-[width] duration-50"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={style}
+            />
+            <input
+                ref={inputRef}
+                type="text"
+                defaultValue={value}
+                onBlur={handleBlur}
+                autoFocus
+                className="w-full"
+                onKeyDown={(e) => {
+                    e.stopPropagation()
+                    if (e.key === 'Enter') {
+                        e.preventDefault()
+                        handleSubmit(inputRef.current?.value || '')
+                    }
+                    if (e.key === 'Escape') {
+                        handleSubmit(value)
+                    }
+                }}
+            />
+        </form>
     )
 }

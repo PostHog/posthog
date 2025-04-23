@@ -73,7 +73,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             offsetIncrease,
         }),
         loadFolderFailure: (folder: string, error: string) => ({ folder, error }),
-        rename: (item: FileSystemEntry) => ({ item }),
+        rename: (value: string, item: FileSystemEntry) => ({ value, item }),
         createFolder: (parentPath: string) => ({ parentPath }),
         loadSearchResults: (searchTerm: string, offset = 0) => ({ searchTerm, offset }),
         assureVisibility: (projectTreeRef: ProjectTreeRef) => ({ projectTreeRef }),
@@ -1101,24 +1101,18 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 }
             }
         },
-        rename: ({ item }) => {
+        rename: ({ value, item }) => {
             const splits = splitPath(item.path)
             if (splits.length > 0) {
-                const currentName = splits[splits.length - 1].replace(/\\/g, '')
-                const folder = prompt('New name?', currentName)
-                if (folder) {
-                    actions.moveItem(item, joinPath([...splits.slice(0, -1), folder]))
+                if (value) {
+                    actions.moveItem(item, joinPath([...splits.slice(0, -1), value]))
                 }
             }
         },
         createFolder: ({ parentPath }) => {
-            const promptMessage = parentPath ? `Create a folder under "${parentPath}":` : 'Create a new folder:'
-            const folder = prompt(promptMessage, '')
-            if (folder) {
-                const parentSplits = parentPath ? splitPath(parentPath) : []
-                const newPath = joinPath([...parentSplits, folder])
-                actions.addFolder(newPath)
-            }
+            const parentSplits = parentPath ? splitPath(parentPath) : []
+            const newPath = joinPath([...parentSplits, 'Untitled Folder'])
+            actions.addFolder(newPath)
         },
         setSearchTerm: ({ searchTerm }) => {
             actions.loadSearchResults(searchTerm)
