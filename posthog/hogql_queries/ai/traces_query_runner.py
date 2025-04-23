@@ -218,7 +218,7 @@ class TracesQueryRunner(QueryRunner):
                 ) AS first_person,
                 round(
                     sumIf(toFloat(properties.$ai_latency),
-                          properties.$ai_parent_id IS NULL
+                        properties.$ai_parent_id IS NULL
                         OR properties.$ai_parent_id = properties.$ai_trace_id
                     ), 2
                 ) AS total_latency,
