@@ -35,6 +35,9 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub overflow_enabled: bool,
 
+    #[envconfig(default = "false")]
+    pub overflow_preserve_partition_locality: bool,
+
     #[envconfig(default = "100")]
     pub overflow_per_second_limit: NonZeroU32,
 

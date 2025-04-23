@@ -1,9 +1,10 @@
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { AssigneeSelect } from './AssigneeSelect'
+import { AssigneeLabelDisplay } from './components/Assignee/AssigneeDisplay'
+import { AssigneeSelect } from './components/Assignee/AssigneeSelect'
 import { errorTrackingLogic } from './errorTrackingLogic'
 import { errorTrackingSceneLogic } from './errorTrackingSceneLogic'
 import { BulkActions } from './issue/BulkActions'
@@ -90,15 +91,15 @@ export const ErrorTrackingListOptions = (): JSX.Element => {
                         </div>
                         <div className="flex items-center gap-1">
                             <span>Assigned to:</span>
-                            <AssigneeSelect
-                                showName
-                                showIcon={false}
-                                assignee={assignee}
-                                onChange={(assignee) => setAssignee(assignee)}
-                                unassignedLabel="Any user"
-                                type="secondary"
-                                size="small"
-                            />
+                            <AssigneeSelect assignee={assignee} onChange={(assignee) => setAssignee(assignee)}>
+                                {(displayAssignee) => {
+                                    return (
+                                        <LemonButton type="secondary" size="small">
+                                            <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Any user" />
+                                        </LemonButton>
+                                    )
+                                }}
+                            </AssigneeSelect>
                         </div>
                     </span>
                 )}

@@ -16,6 +16,7 @@ import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { VM } from 'vm2'
+import { z } from 'zod'
 
 import { EncryptedFields } from './cdp/encryption-utils'
 import { LegacyOneventCompareService } from './cdp/services/legacy-onevent-compare.service'
@@ -178,6 +179,10 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     // Common redis params
     REDIS_POOL_MIN_SIZE: number // minimum number of Redis connections to use per thread
     REDIS_POOL_MAX_SIZE: number // maximum number of Redis connections to use per thread
+
+    CONSUMER_BATCH_SIZE: number // Primarily for kafka consumers the batch size to use
+    CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number // Primarily for kafka consumers the max heartbeat interval to use after which it will be considered unhealthy
+
     // Kafka params - identical for client and producer
     KAFKA_HOSTS: string // comma-delimited Kafka hosts
     KAFKA_PRODUCER_HOSTS?: string // If specified - different hosts to produce to (useful for migrating between kafka clusters)
@@ -206,9 +211,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     KAFKA_CONSUMPTION_REBALANCE_TIMEOUT_MS: number | null
     KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS: number
     KAFKA_CONSUMPTION_MAX_POLL_INTERVAL_MS: number
-    KAFKA_TOPIC_CREATION_TIMEOUT_MS: number
     KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS: number | undefined
-    KAFKA_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_FREQUENCY_MS: number
     APP_METRICS_FLUSH_MAX_QUEUE_SIZE: number
     BASE_DIR: string // base path for resolving local plugins
@@ -257,7 +260,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CLOUD_DEPLOYMENT: string | null
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
-    DROP_EVENTS_BY_TOKEN: string
     SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     RUSTY_HOOK_FOR_TEAMS: string
@@ -749,6 +751,22 @@ export interface RawClickHouseEvent extends BaseEvent {
     group4_created_at?: ClickHouseTimestamp
     person_mode: PersonMode
 }
+
+export type KafkaConsumerBreadcrumb = {
+    topic: string
+    offset: string | number
+    partition: number
+    processed_at: string
+    consumer_id: string
+}
+
+export const KafkaConsumerBreadcrumbSchema = z.object({
+    topic: z.string(),
+    offset: z.union([z.string(), z.number()]),
+    partition: z.number(),
+    processed_at: z.string(),
+    consumer_id: z.string(),
+})
 
 export interface RawKafkaEvent extends RawClickHouseEvent {
     /**

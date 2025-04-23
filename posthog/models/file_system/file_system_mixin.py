@@ -1,11 +1,11 @@
 # posthog/models/file_system/file_system_mixin.py
 
 import dataclasses
-import posthoganalytics
 from django.db.models import Exists, OuterRef, CharField, Model, F, Q, QuerySet
 from django.db.models.functions import Cast
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
+from posthog.exceptions_capture import capture_exception
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
@@ -97,7 +97,7 @@ class FileSystemSyncMixin(Model):
                     )
             except Exception as e:
                 # Don't raise exceptions in signals
-                posthoganalytics.capture_exception(e, properties=dataclasses.asdict(fs_data))
+                capture_exception(e, additional_properties=dataclasses.asdict(fs_data))
 
         @receiver(post_delete, sender=cls)
         def _file_system_post_delete(sender, instance: FileSystemSyncMixin, **kwargs):
@@ -109,4 +109,4 @@ class FileSystemSyncMixin(Model):
                 delete_file(team=team, file_type=fs_data.type, ref=fs_data.ref)
             except Exception as e:
                 # Don't raise exceptions in signals
-                posthoganalytics.capture_exception(e, properties=dataclasses.asdict(fs_data))
+                capture_exception(e, additional_properties=dataclasses.asdict(fs_data))

@@ -1,10 +1,10 @@
 import { Message } from 'node-rdkafka'
 
-import { Hub, RawClickHouseEvent } from '~/src/types'
-
 import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
+import { KafkaConsumer } from '../../kafka/batch-consumer-v2'
 import { runInstrumentedFunction } from '../../main/utils'
+import { Hub, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { HogWatcherState } from '../services/hog-watcher.service'
@@ -14,14 +14,14 @@ import { CdpConsumerBase } from './cdp-base.consumer'
 
 export class CdpProcessedEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpProcessedEventsConsumer'
-    protected topic = KAFKA_EVENTS_JSON
-    protected groupId = 'cdp-processed-events-consumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
     private cyclotronJobQueue: CyclotronJobQueue
+    protected kafkaConsumer: KafkaConsumer
 
-    constructor(hub: Hub) {
+    constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-processed-events-consumer') {
         super(hub)
         this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hog', this.hogFunctionManager)
+        this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
     }
 
     public async processBatch(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<HogFunctionInvocation[]> {
@@ -159,14 +159,25 @@ export class CdpProcessedEventsConsumer extends CdpConsumerBase {
         await super.start()
         // Make sure we are ready to produce to cyclotron first
         await this.cyclotronJobQueue.startAsProducer()
-        // Then start the kafka consumer
-        await this.startKafkaConsumer({
-            topic: this.topic,
-            groupId: this.groupId,
-            handleBatch: async (messages) => {
+        // Start consuming messages
+        await this.kafkaConsumer.connect(async (messages) => {
+            logger.info('🔁', `${this.name} - handling batch`, {
+                size: messages.length,
+            })
+
+            return await this.runInstrumented('handleEachBatch', async () => {
                 const invocationGlobals = await this._parseKafkaBatch(messages)
                 await this.processBatch(invocationGlobals)
-            },
+            })
         })
+    }
+
+    public async stop(): Promise<void> {
+        await this.kafkaConsumer.disconnect()
+        await super.stop()
+    }
+
+    public isHealthy() {
+        return this.kafkaConsumer.isHealthy()
     }
 }

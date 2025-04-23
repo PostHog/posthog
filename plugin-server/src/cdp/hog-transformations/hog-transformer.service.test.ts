@@ -1059,7 +1059,7 @@ describe('HogTransformer', () => {
             )
         })
 
-        it('should apply transformation when filter errors and continue processing', async () => {
+        it('should skip transformation when filter errors and not continue processing', async () => {
             const errorFilterTemplate = {
                 free: true,
                 status: 'beta',
@@ -1070,7 +1070,7 @@ describe('HogTransformer', () => {
                 category: ['Custom'],
                 hog: `
                     let returnEvent := event
-                    returnEvent.properties.error_filter_property := 'should_be_set'
+                    returnEvent.properties.error_filter_property := 'should_not_be_set'
                     return returnEvent
                 `,
                 inputs_schema: [],
@@ -1101,7 +1101,7 @@ describe('HogTransformer', () => {
                 filters: {
                     bytecode: await compileHog(`
                         // Invalid filter that will throw an error
-                        throw new Error('Test error in filter')
+                        lol
                     `),
                 },
             })
@@ -1125,12 +1125,14 @@ describe('HogTransformer', () => {
             const event = createPluginEvent({ event: 'test-event' }, teamId)
             const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-            // Verify both transformations were applied
-            expect(result.event?.properties?.error_filter_property).toBe('should_be_set')
-            expect(result.event?.properties?.working_property).toBe('working')
-            expect(result.event?.properties?.$transformations_succeeded).toContain(
+            // Verify one transformation was applied and the other was skipped
+            expect(result.event?.properties?.error_filter_property).toBeUndefined()
+            expect(result.invocationResults[0].error).toContain('Global variable not found')
+            expect(result.event?.properties?.$transformations_skipped).toContain(
                 `${errorFunction.name} (${errorFunction.id})`
             )
+
+            expect(result.event?.properties?.working_property).toBe('working')
             expect(result.event?.properties?.$transformations_succeeded).toContain(
                 `${workingFunction.name} (${workingFunction.id})`
             )

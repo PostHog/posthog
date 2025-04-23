@@ -42,7 +42,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthent
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
-from posthog.models.person.person import PersonDistinctId
+from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -72,6 +72,7 @@ from openai.types.chat import (
 from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.storage.session_recording_v2_object_storage import BlockFetchError
+from posthog.exceptions_capture import capture_exception
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -369,7 +370,7 @@ def clean_referer_url(current_url: str | None) -> str:
         path = re.sub("/", "-", path)
         return path or "unknown"
     except Exception as e:
-        posthoganalytics.capture_exception(e, distinct_id="clean_referer_url", properties={"current_url": current_url})
+        capture_exception(e, additional_properties={"current_url": current_url, "function_name": "clean_referer_url"})
         return "unknown"
 
 
@@ -420,7 +421,9 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                 raise Throttled(detail="Query timeout exceeded. Try again later.")
 
             posthoganalytics.capture_exception(
-                e, distinct_id=user_distinct_id, properties={"replay_feature": "listing_recordings"}
+                e,
+                distinct_id=user_distinct_id,
+                properties={"replay_feature": "listing_recordings", "unfiltered_query": request.GET.dict()},
             )
             return Response({"error": "An internal error has occurred. Please try again later."}, status=500)
 
@@ -1144,8 +1147,10 @@ def list_recordings_from_query(
     with timer("load_persons"):
         # Get the related persons for all the recordings
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
-        person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
-            "person"
+        person_distinct_ids = (
+            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+            .filter(distinct_id__in=distinct_ids, team=team)
+            .select_related("person")
         )
 
     with timer("process_persons"):
