@@ -12,7 +12,6 @@ import { ChartEmptyState } from './ChartEmptyState'
 import { ChartLoadingState } from './ChartLoadingState'
 import { ChartModal } from './ChartModal'
 import { useChartColors } from './colors'
-import { EmptyStateTooltip } from './EmptyStateTooltip'
 import { GridLines } from './GridLines'
 import { MetricHeader } from './MetricHeader'
 import { MetricsChartLayout } from './MetricsChartLayout'
@@ -338,7 +337,7 @@ function ChartControls(): JSX.Element {
 // Tooltips component
 function ChartTooltips(): JSX.Element {
     const {
-        tooltip: { tooltipData, emptyStateTooltipVisible, setEmptyStateTooltipVisible, tooltipPosition },
+        tooltip: { tooltipData },
         experimentId,
         result,
         metricType,
@@ -346,8 +345,6 @@ function ChartTooltips(): JSX.Element {
         countDataForVariant,
         exposureCountDataForVariant,
         credibleIntervalForVariant,
-        error,
-        metric,
     } = useDeltaChartContext()
 
     return (
@@ -363,16 +360,6 @@ function ChartTooltips(): JSX.Element {
                     countDataForVariant={countDataForVariant}
                     exposureCountDataForVariant={exposureCountDataForVariant}
                     credibleIntervalForVariant={credibleIntervalForVariant}
-                />
-            )}
-
-            {/* Empty state tooltip */}
-            {emptyStateTooltipVisible && error && (
-                <EmptyStateTooltip
-                    tooltipPosition={tooltipPosition}
-                    error={error}
-                    metric={metric}
-                    setEmptyStateTooltipVisible={setEmptyStateTooltipVisible}
                 />
             )}
         </>
