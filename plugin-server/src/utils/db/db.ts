@@ -564,7 +564,7 @@ export class DB {
         const personVersion = 0
 
         const { rows } = await runInstrumentedFunction({
-            timeoutMessage: 'DB timeout in person-state.ts createPerson at updatePerson',
+            timeoutMessage: 'DB timeout in db.ts createPerson at updatePerson',
             timeout: 60000, // this shouldn't fail the operation, just log a warning
             func: async () =>
                 this.postgres.query<RawPerson>(
