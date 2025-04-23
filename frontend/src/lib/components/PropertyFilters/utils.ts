@@ -357,9 +357,9 @@ export function propertyFilterTypeToPropertyDefinitionType(
         ? PropertyDefinitionType.Session
         : filterType === PropertyFilterType.LogEntry
         ? PropertyDefinitionType.LogEntry
-        : filterType === PropertyFilterType.ErrorTrackingIssue
-        ? PropertyDefinitionType.Resource
-        : PropertyDefinitionType.Event
+        : // : filterType === PropertyFilterType.ErrorTrackingIssue - TODO - @david
+          // ? PropertyDefinitionType.Resource
+          PropertyDefinitionType.Event
 }
 
 export function taxonomicFilterTypeToPropertyFilterType(
