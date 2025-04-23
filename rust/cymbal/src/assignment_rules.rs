@@ -10,6 +10,7 @@ use uuid::Uuid;
 use crate::{
     app_context::AppContext, error::UnhandledError, issue_resolution::Issue, types::OutputErrProps,
 };
+use crate::metric_consts::{ASSIGNMENT_RULES_DISABLED, ASSIGNMENT_RULES_FOUND, ASSIGNMENT_RULES_PROCESSING_TIME, ASSIGNMENT_RULES_TRIED, AUTO_ASSIGNMENTS};
 
 #[derive(Debug, Clone)]
 pub struct Assignment {
@@ -86,6 +87,8 @@ impl AssignmentRule {
         )
         .execute(conn)
         .await?;
+        
+        metrics::counter!(ASSIGNMENT_RULES_DISABLED).increment(1);
         Ok(())
     }
 
@@ -114,6 +117,7 @@ pub async fn assign_issue(
     issue: Issue,
     exception_properties: OutputErrProps,
 ) -> Result<(), UnhandledError> {
+    let timing = common_metrics::timing_guard(ASSIGNMENT_RULES_PROCESSING_TIME, &[]);
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct IssueJson {
         status: String,
@@ -134,12 +138,18 @@ pub async fn assign_issue(
         .get_rules(&context.pool, issue.team_id)
         .await?;
 
+    metrics::counter!(ASSIGNMENT_RULES_FOUND).increment(1);
+
     rules.sort_unstable_by_key(|r| r.order_key);
 
     for rule in rules {
         match try_rule(&rule.bytecode, &issue_json, &props_json) {
-            Ok(true) => return Ok(rule.apply(&context.pool, issue.id).await?),
             Ok(false) => continue,
+            Ok(true) => {
+                timing.label("outcome", "match").fin();
+                metrics::counter!(AUTO_ASSIGNMENTS).increment(1);
+                return Ok(rule.apply(&context.pool, issue.id).await?)
+            }
             Err(err) => {
                 rule.disable(
                     &context.pool,
@@ -147,10 +157,12 @@ pub async fn assign_issue(
                     issue_json.clone(),
                     props_json.clone(),
                 )
-                .await?
+                    .await?
             }
         }
     }
+
+    timing.label("outcome", "no_match").fin();
 
     Ok(())
 }
@@ -173,6 +185,8 @@ pub fn try_rule(rule_bytecode: &Value, issue: &Value, props: &Value) -> Result<b
         .expect("Can construct a json object from a hashmap of String:JsonValue");
     let context = ExecutionContext::with_defaults(rule_bytecode).with_globals(globals);
     let mut vm = context.to_vm()?;
+    
+    metrics::counter!(ASSIGNMENT_RULES_TRIED).increment(1);
 
     let mut i = 0;
     while i < context.max_steps {
