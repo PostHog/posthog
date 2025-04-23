@@ -169,7 +169,6 @@ export class PluginServer {
                         id: 'session-recordings-blob',
                         onShutdown: async () => await ingester.stop(),
                         healthcheck: () => ingester.isHealthy() ?? false,
-                        batchConsumer: ingester.batchConsumer,
                     }
                 })
             }
@@ -306,18 +305,6 @@ export class PluginServer {
                 })
             }
 
-            // If join rejects or throws, then the consumer is unhealthy and we should shut down the process.
-            // Ideally we would also join all the other background tasks as well to ensure we stop the
-            // server if we hit any errors and don't end up with zombie instances, but I'll leave that
-            // refactoring for another time. Note that we have the liveness health checks already, so in K8s
-            // cases zombies should be reaped anyway, albeit not in the most efficient way.
-
-            this.services.forEach((service) => {
-                service.batchConsumer?.join().catch(async (error) => {
-                    logger.error('💥', 'Unexpected task joined!', { error: error.stack ?? error })
-                    await this.stop(error)
-                })
-            })
             pluginServerStartupTimeMs.inc(Date.now() - startupTimer.valueOf())
             logger.info('🚀', `All systems go in ${Date.now() - startupTimer.valueOf()}ms`)
         } catch (error) {

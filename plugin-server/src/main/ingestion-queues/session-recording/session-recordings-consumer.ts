@@ -9,7 +9,7 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from '../../../config/kafka-topics'
-import { KafkaConsumer } from '../../../kafka/batch-consumer-v2'
+import { KafkaConsumer } from '../../../kafka/batch-consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import { PluginServerService, PluginsServerConfig, RedisPool, TeamId, ValueMatcher } from '../../../types'
 import { BackgroundRefresher } from '../../../utils/background-refresher'
