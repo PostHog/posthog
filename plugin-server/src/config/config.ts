@@ -264,7 +264,7 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         LAZY_TEAM_MANAGER_COMPARISON: false,
         USE_LAZY_TEAM_MANAGER: false,
-        USE_REDIS_PERSON_FILTERING: false,
+        USE_REDIS_PERSON_PROCESS_FILTERING: false,
     }
 }
 
