@@ -6,7 +6,7 @@ import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
-import { MessageTemplate } from 'products/messaging/frontend/library/templatesLogic'
+import { MessageTemplate } from 'products/messaging/frontend/library/messageTemplatesLogic'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SessionSummaryResponse } from 'scenes/session-recordings/player/player-meta/types'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -1144,7 +1144,7 @@ class ApiRequest {
     }
 
     public messagingTemplates(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging').addPathComponent('templates')
+        return this.environments().current().addPathComponent('messaging_templates')
     }
 
     public messagingTemplate(templateId: MessageTemplate['id']): ApiRequest {

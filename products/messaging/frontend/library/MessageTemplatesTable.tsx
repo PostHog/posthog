@@ -6,12 +6,12 @@ import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/column
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
-import { MessageTemplate, templatesLogic } from './templatesLogic'
+import { MessageTemplate, messageTemplatesLogic } from './messageTemplatesLogic'
 
-export function TemplatesTable(): JSX.Element {
-    useMountedLogic(templatesLogic)
-    const { templates, templatesLoading } = useValues(templatesLogic)
-    const { deleteTemplate } = useActions(templatesLogic)
+export function MessageTemplatesTable(): JSX.Element {
+    useMountedLogic(messageTemplatesLogic)
+    const { templates, templatesLoading } = useValues(messageTemplatesLogic)
+    const { deleteTemplate } = useActions(messageTemplatesLogic)
 
     const columns: LemonTableColumns<MessageTemplate> = [
         {
@@ -36,7 +36,7 @@ export function TemplatesTable(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    data-attr="feature-flag-duplicate"
+                                    data-attr="message-template-delete"
                                     fullWidth
                                     status="danger"
                                     onClick={() => deleteTemplate(message)}

@@ -342,8 +342,8 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         data = response.json()
         self.assertEqual(data["count"], 1)
-        item = FileSystem.objects.all()[0]
-        self.assertEqual(item.path, "Unfiled/Feature Flags/Flag \\/ With Slash")
+        item = FileSystem.objects.filter(depth=3).all()
+        self.assertEqual(item[0].path, "Unfiled/Feature Flags/Flag \\/ With Slash")
 
     def test_list_by_depth(self):
         """
@@ -612,6 +612,46 @@ class TestFileSystemAPI(APIBaseTest):
         # The full path "A/B/C" should NOT be created by assure_parent_folders.
         folder_abc = FileSystem.objects.filter(team=self.team, path="A/B/C").first()
         self.assertIsNone(folder_abc)
+
+    def test_list_depth_folders_first_case_insensitive(self):
+        """
+        ?depth=N must return folders first, then everything else, each block ordered
+        case-insensitively by path.
+        """
+        # FOLDERS (depth=1)
+        FileSystem.objects.create(team=self.team, path="beta", type="folder", created_by=self.user, depth=1)
+        FileSystem.objects.create(team=self.team, path="alpha", type="folder", created_by=self.user, depth=1)
+
+        # FILES (depth=1)
+        FileSystem.objects.create(team=self.team, path="bFile.txt", type="doc", created_by=self.user, depth=1)
+        FileSystem.objects.create(team=self.team, path="Afile.txt", type="doc", created_by=self.user, depth=1)
+
+        url = f"/api/projects/{self.team.id}/file_system/?depth=1"
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+
+        paths = [item["path"] for item in resp.json()["results"]]
+        self.assertEqual(
+            paths,
+            ["alpha", "beta", "Afile.txt", "bFile.txt"],  # folders first, then files, both A→Z ignoring case
+        )
+
+    def test_list_no_depth_case_insensitive_order_only(self):
+        """
+        Without ?depth the endpoint should ignore type and sort *everything*
+        purely case-insensitively by path.
+        """
+        FileSystem.objects.create(team=self.team, path="beta", type="folder", created_by=self.user, depth=1)
+        FileSystem.objects.create(team=self.team, path="alpha", type="folder", created_by=self.user, depth=1)
+        FileSystem.objects.create(team=self.team, path="bFile.txt", type="doc", created_by=self.user, depth=1)
+        FileSystem.objects.create(team=self.team, path="Afile.txt", type="doc", created_by=self.user, depth=1)
+
+        resp = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+
+        paths = [item["path"] for item in resp.json()["results"]]
+        # Pure case-insensitive alphabetical order, regardless of type
+        self.assertEqual(paths, ["Afile.txt", "alpha", "beta", "bFile.txt"])
 
 
 @pytest.mark.ee  # Mark these tests to run only if EE code is available (for AccessControl)

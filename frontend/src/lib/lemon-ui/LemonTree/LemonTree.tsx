@@ -393,7 +393,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                                 {renderItem(
                                                                     item,
                                                                     <span
-                                                                        className={cn('xxxxx', {
+                                                                        className={cn({
                                                                             'font-semibold': isFolder,
                                                                         })}
                                                                     >
@@ -413,9 +413,18 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                             </>
                                                         ) : (
                                                             <span
-                                                                className={cn('yyyyyy', {
+                                                                className={cn('truncate', {
                                                                     'font-semibold': isFolder && !isEmptyFolder,
                                                                 })}
+                                                                // eslint-disable-next-line react/forbid-dom-props
+                                                                style={{
+                                                                    paddingRight:
+                                                                        mode === 'table'
+                                                                            ? DEPTH_OFFSET === 0
+                                                                                ? `3px`
+                                                                                : `${emptySpaceOffset - 20}px`
+                                                                            : undefined,
+                                                                }}
                                                             >
                                                                 <Tooltip
                                                                     title={mode === 'table' ? displayName : undefined}
@@ -444,6 +453,14 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                                     <span
                                                                         key={header.key}
                                                                         className="truncate text-left"
+                                                                        // eslint-disable-next-line react/forbid-dom-props
+                                                                        style={{
+                                                                            // -20 is to handle the offset of the icon (size-5)
+                                                                            marginLeft:
+                                                                                DEPTH_OFFSET === 0
+                                                                                    ? `3px`
+                                                                                    : `-${emptySpaceOffset - 20}px`,
+                                                                        }}
                                                                     >
                                                                         <Tooltip
                                                                             title={
@@ -1218,11 +1235,22 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         {tableViewKeys?.headers.map((header, index) => (
                             <div
                                 key={header.key}
-                                className={cn('text-secondary font-bold text-xs uppercase flex gap-2', {
-                                    'pl-px': index === 0,
-                                })}
+                                className="text-secondary font-bold text-xs uppercase flex gap-2 transition-[padding] duration-50"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    // To match the nodes padding
+                                    paddingLeft: checkedItemCount && checkedItemCount >= 1 ? `26px` : undefined,
+                                }}
                             >
-                                <span>{header.title}</span>
+                                <span
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{
+                                        // To match the nodes padding
+                                        marginLeft: index === 0 ? `-1px` : undefined,
+                                    }}
+                                >
+                                    {header.title}
+                                </span>
                             </div>
                         ))}
                     </div>

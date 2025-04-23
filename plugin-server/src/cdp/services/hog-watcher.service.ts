@@ -28,7 +28,6 @@ export const hogFunctionExecutionTimeSummary = new Histogram({
     name: 'cdp_hog_watcher_timings',
     help: 'Processing time of hog function execution by kind',
     labelNames: ['kind'],
-    buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, Infinity],
 })
 
 // TODO: Future follow up - we should swap this to an API call or something.
@@ -150,7 +149,7 @@ export class HogWatcherService {
 
                 for (const timing of result.invocation.timings) {
                     // Record metrics for this timing entry
-                    hogFunctionExecutionTimeSummary.labels(timing.kind).observe(timing.duration_ms)
+                    hogFunctionExecutionTimeSummary.labels({ kind: timing.kind }).observe(timing.duration_ms)
                     const ratio = Math.max(timing.duration_ms - lowerBound, 0) / (upperBound - lowerBound)
 
                     // Add to the total cost for this result

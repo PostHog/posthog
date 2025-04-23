@@ -758,6 +758,13 @@ export enum ReplayTabs {
     Settings = 'settings',
 }
 
+export type ReplayTab = {
+    label: string
+    key: ReplayTabs
+    tooltip?: string
+    tooltipDocLink?: string
+}
+
 export enum ExperimentsTabs {
     All = 'all',
     Yours = 'yours',
@@ -4990,12 +4997,12 @@ export type HogFunctionTypeType =
     | 'alert'
     | 'broadcast'
 
-export type HogFunctionKind = 'messaging_campaign' | 'messaging_template' | null
+export type HogFunctionKind = 'messaging_campaign' | null
 
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
-    kind?: HogFunctionKind
+    kind?: HogFunctionKind | null
     icon_url?: string
     name: string
     description: string

@@ -133,6 +133,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             credential=credentials,
             url_pattern="https://bucket.s3/data/*",
             columns={"id": {"hogql": "UnknownDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+            row_count=100,
         )
 
         database = create_hogql_database(team=self.team)
@@ -141,6 +142,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
+        assert table.row_count == 100
 
         field = table.fields.get("id")
         assert field is not None
@@ -206,6 +208,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             columns={
                 "id-hype": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
             },
+            row_count=100,
         )
 
         database = create_hogql_database(team=self.team)
@@ -214,6 +217,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
+        assert table.row_count == 100
 
         field = table.fields.get("id-hype")
         assert field is not None

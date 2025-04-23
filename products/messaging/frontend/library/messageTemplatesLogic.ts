@@ -6,7 +6,7 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
 import { UserBasicType } from '~/types'
 
-import type { templatesLogicType } from './templatesLogicType'
+import type { messageTemplatesLogicType } from './messageTemplatesLogicType'
 
 export interface MessageTemplate {
     id: string
@@ -26,8 +26,8 @@ export interface MessageTemplate {
     created_by: UserBasicType | null
 }
 
-export const templatesLogic = kea<templatesLogicType>([
-    path(['products', 'messaging', 'frontend', 'library', 'templatesLogic']),
+export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
+    path(['products', 'messaging', 'frontend', 'library', 'messageTemplatesLogic']),
     loaders(({ values, actions }) => ({
         templates: [
             [] as MessageTemplate[],
@@ -53,10 +53,9 @@ export const templatesLogic = kea<templatesLogicType>([
                 },
                 createTemplate: async ({ template }: { template: Partial<MessageTemplate> }) => {
                     try {
-                        await api.messaging.createTemplate(template)
+                        const newTemplate = await api.messaging.createTemplate(template)
                         lemonToast.success('Template created successfully')
-                        actions.loadTemplates()
-                        return values.templates
+                        return [...values.templates, newTemplate]
                     } catch (error) {
                         lemonToast.error('Failed to create template')
                         return values.templates
@@ -70,10 +69,9 @@ export const templatesLogic = kea<templatesLogicType>([
                     template: Partial<MessageTemplate>
                 }) => {
                     try {
-                        await api.messaging.updateTemplate(templateId, template)
+                        const updatedTemplate = await api.messaging.updateTemplate(templateId, template)
                         lemonToast.success('Template updated successfully')
-                        actions.loadTemplates()
-                        return values.templates
+                        return values.templates.map((t: MessageTemplate) => (t.id === templateId ? updatedTemplate : t))
                     } catch (error) {
                         lemonToast.error('Failed to update template')
                         return values.templates

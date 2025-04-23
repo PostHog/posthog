@@ -55,4 +55,5 @@ export interface PropertyFilterInternalProps {
     allowRelativeDateOptions?: boolean
     exactMatchFeatureFlagCohortOperators?: boolean
     hideBehavioralCohorts?: boolean
+    addFilterDocLink?: string
 }
