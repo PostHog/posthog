@@ -177,6 +177,7 @@ class HobbyTester:
         while time.time() - start_time < timeout:
             try:
                 context = ssl.create_default_context()
+                context.minimum_version = ssl.TLSVersion.TLSv1_2
                 with socket.create_connection((hostname, port), timeout=10) as sock:
                     with context.wrap_socket(sock, server_hostname=hostname) as ssock:
                         cert = ssock.getpeercert()
