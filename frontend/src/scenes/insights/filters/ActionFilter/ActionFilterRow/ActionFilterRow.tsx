@@ -3,9 +3,10 @@ import './ActionFilterRow.scss'
 import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconTrash, IconWarning } from '@posthog/icons'
+import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconQuestion, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonBadge,
+    LemonCheckbox,
     LemonDivider,
     LemonMenu,
     LemonSelect,
@@ -28,8 +29,10 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getEventNamesForAction } from 'lib/utils'
 import { useState } from 'react'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 import {
     apiValueToMathType,
@@ -182,6 +185,11 @@ export function ActionFilterRow({
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
+
+    const { insightProps } = useValues(insightLogic)
+    // const { isTrends, interval, trendsFilter } = useValues(funnelDataLogic(insightProps))
+    const { funnelsFilter, isStepOptional } = useValues(funnelDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
     const mountedInsightDataLogic = insightDataLogic.findMounted({ dashboardItemId: typeKey })
     const query = mountedInsightDataLogic?.values?.query
@@ -580,6 +588,42 @@ export function ActionFilterRow({
                                                         ),
                                                     },
                                                     {
+                                                        label: () => (
+                                                            <>
+                                                                <div className="px-2 py-1">
+                                                                    <LemonCheckbox
+                                                                        checked={(
+                                                                            funnelsFilter?.optional || []
+                                                                        ).includes(index + 1)}
+                                                                        onChange={(checked) => {
+                                                                            const optionalSteps =
+                                                                                funnelsFilter?.optional || []
+
+                                                                            if (checked) {
+                                                                                updateInsightFilter({
+                                                                                    //...(funnelsQuery.funnelsFilter || {}),
+                                                                                    optional: [
+                                                                                        ...optionalSteps,
+                                                                                        index + 1,
+                                                                                    ],
+                                                                                })
+                                                                            } else {
+                                                                                updateInsightFilter({
+                                                                                    // ...(funnelsQuery.funnelsFilter || {}),
+                                                                                    optional: optionalSteps.filter(
+                                                                                        (i) => i !== index + 1
+                                                                                    ),
+                                                                                })
+                                                                            }
+                                                                        }}
+                                                                        label="Optional step"
+                                                                    />
+                                                                </div>
+                                                                <LemonDivider />
+                                                            </>
+                                                        ),
+                                                    },
+                                                    {
                                                         label: () => renameRowButton,
                                                     },
                                                     {
@@ -602,6 +646,12 @@ export function ActionFilterRow({
                                                 position="top-right"
                                                 size="small"
                                                 visible={math !== undefined}
+                                            />
+                                            <LemonBadge
+                                                size="small"
+                                                content={<IconQuestion />}
+                                                position="bottom-right"
+                                                visible={isStepOptional(index + 1)}
                                             />
                                         </div>
                                     </>
