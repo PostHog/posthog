@@ -479,6 +479,12 @@ def create_hogql_database(
                     views[view.name] = view
                     create_nested_table_group(view.name.split("."), views, view)
 
+        # No need to call `create_nested_table_group` because these arent using dot notation
+        with timings.measure("for_events"):
+            revenue_views = RevenueAnalyticsRevenueView.for_events(team)
+            for view in revenue_views:
+                views[view.name] = view
+
     with timings.measure("data_warehouse_tables"):
         with timings.measure("select"):
             tables = list(
@@ -922,11 +928,17 @@ def serialize_database(
             url_pattern=warehouse_table.url_pattern,
             schema=schema,
             source=source,
+            row_count=warehouse_table.row_count,
         )
 
     # Fetch all views in a single query
     all_views = (
-        DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team_id=context.team_id).all() if views else []
+        DataWarehouseSavedQuery.objects.select_related("table")
+        .exclude(deleted=True)
+        .filter(team_id=context.team_id)
+        .all()
+        if views
+        else []
     )
 
     # Process views using prefetched data
@@ -957,11 +969,16 @@ def serialize_database(
         if not saved_query:
             continue
 
+        row_count: int | None = None
+        if saved_query.table:
+            row_count = saved_query.table.row_count
+
         tables[view_name] = DatabaseSchemaViewTable(
             fields=fields_dict,
             id=str(saved_query.pk),
             name=view_name,
             query=HogQLQuery(query=saved_query.query["query"]),
+            row_count=row_count,
         )
 
     return tables
