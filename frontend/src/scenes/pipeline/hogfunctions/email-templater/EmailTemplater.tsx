@@ -1,7 +1,9 @@
 import { LemonButton, LemonLabel, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { capitalizeFirstLetter } from 'lib/utils'
 import EmailEditor from 'react-email-editor'
@@ -20,10 +22,14 @@ function EmailTemplaterForm({
     )
     const { appliedTemplate, templates, templatesLoading } = useValues(emailTemplaterLogic(props))
 
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isMessagingTemplatesEnabled = featureFlags[FEATURE_FLAGS.MESSAGING_LIBRARY]
+
     return (
         <>
-            {templates.length > 0 && (
+            {isMessagingTemplatesEnabled && templates.length > 0 && (
                 <LemonSelect
+                    className="mb-2"
                     placeholder="Start from a template (optional)"
                     loading={templatesLoading}
                     value={appliedTemplate?.id}
@@ -37,7 +43,6 @@ function EmailTemplaterForm({
                             applyTemplate(template)
                         }
                     }}
-                    className="mb-2"
                     data-attr="email-template-selector"
                 />
             )}

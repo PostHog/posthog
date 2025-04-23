@@ -189,65 +189,82 @@ class TracesQueryRunner(QueryRunner):
         )
 
     def _get_event_query(self) -> ast.SelectQuery:
+        # single-pass over events, conditional aggregates instead of two joins
         query = parse_select(
             """
             SELECT
-                generations.id AS id,
-                generations.first_timestamp AS first_timestamp,
-                generations.first_person AS first_person,
-                generations.total_latency AS total_latency,
-                generations.input_tokens AS input_tokens,
-                generations.output_tokens AS output_tokens,
-                generations.input_cost AS input_cost,
-                generations.output_cost AS output_cost,
-                generations.total_cost AS total_cost,
-                if({return_full_trace}, generations.events, arrayFilter(x -> x.2 IN ('$ai_metric', '$ai_feedback'), generations.events)) as events,
-                traces.input_state AS input_state,
-                traces.output_state AS output_state,
-                ifNull(traces.trace_name, generations.span_name) AS trace_name,
-                generations.filter_match OR traces.filter_match AS filter_match
-            FROM (
-                SELECT
-                    properties.$ai_trace_id as id,
-                    min(timestamp) as first_timestamp,
-                    tuple(
-                        argMin(person.id, timestamp), argMin(distinct_id, timestamp),
-                        argMin(person.created_at, timestamp), argMin(person.properties, timestamp)
-                    ) as first_person,
-                    round(toFloat(sum(if(
-                        properties.$ai_parent_id IS NULL OR
-                        properties.$ai_parent_id = properties.$ai_trace_id,
-                        properties.$ai_latency,
-                        0
-                    ))), 2) as total_latency,
-                    argMin(properties.$ai_span_name, timestamp) as span_name,
-                    sum(toFloat(properties.$ai_input_tokens)) as input_tokens,
-                    sum(toFloat(properties.$ai_output_tokens)) as output_tokens,
-                    round(sum(toFloat(properties.$ai_input_cost_usd)), 4) as input_cost,
-                    round(sum(toFloat(properties.$ai_output_cost_usd)), 4) as output_cost,
-                    round(sum(toFloat(properties.$ai_total_cost_usd)), 4) as total_cost,
-                    arraySort(x -> x.3, groupArray(tuple(uuid, event, timestamp, properties))) as events,
-                    {filter_conditions}
-                FROM events
-                WHERE event IN ('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback')
-                    AND properties.$ai_trace_id IS NOT NULL
-                    AND {common_conditions}
-                GROUP BY id
-            ) AS generations
-            LEFT JOIN (
-                SELECT
-                    properties.$ai_trace_id as id,
-                    argMin(properties.$ai_input_state, timestamp) as input_state,
-                    argMin(properties.$ai_output_state, timestamp) as output_state,
-                    argMin(ifNull(properties.$ai_span_name, properties.$ai_trace_name), timestamp) as trace_name,
-                    {filter_conditions}
-                FROM events
-                WHERE event = '$ai_trace'
-                    AND properties.$ai_trace_id IS NOT NULL
-                    AND {common_conditions}
-                GROUP BY id
-            ) AS traces
-            ON traces.id = generations.id
+                properties.$ai_trace_id AS id,
+                min(timestamp) AS first_timestamp,
+                tuple(
+                    argMin(person.id, timestamp),
+                    argMin(distinct_id, timestamp),
+                    argMin(person.created_at, timestamp),
+                    argMin(person.properties, timestamp)
+                ) AS first_person,
+                round(
+                    sumIf(toFloat(properties.$ai_latency),
+                          properties.$ai_parent_id IS NULL
+                          OR properties.$ai_parent_id = properties.$ai_trace_id
+                    ), 2
+                ) AS total_latency,
+                sumIf(toFloat(properties.$ai_input_tokens),
+                      event = '$ai_generation'
+                ) AS input_tokens,
+                sumIf(toFloat(properties.$ai_output_tokens),
+                      event = '$ai_generation'
+                ) AS output_tokens,
+                round(
+                    sumIf(toFloat(properties.$ai_input_cost_usd),
+                          event = '$ai_generation'
+                    ), 4
+                ) AS input_cost,
+                round(
+                    sumIf(toFloat(properties.$ai_output_cost_usd),
+                          event = '$ai_generation'
+                    ), 4
+                ) AS output_cost,
+                round(
+                    sumIf(toFloat(properties.$ai_total_cost_usd),
+                          event = '$ai_generation'
+                    ), 4
+                ) AS total_cost,
+                IF({return_full_trace},
+                    arraySort(
+                        x -> x.3,
+                        groupArrayIf(
+                            tuple(uuid, event, timestamp, properties),
+                            event != '$ai_trace'
+                        )
+                    ),
+                    arrayFilter(
+                        x -> x.2 IN ('$ai_metric','$ai_feedback'),
+                        arraySort(x -> x.3,
+                            groupArrayIf(
+                                tuple(uuid, event, timestamp, properties),
+                                event != '$ai_trace'
+                            )
+                        )
+                    )
+                ) AS events,
+                argMinIf(properties.$ai_input_state,
+                         timestamp, event = '$ai_trace'
+                ) AS input_state,
+                argMinIf(properties.$ai_output_state,
+                         timestamp, event = '$ai_trace'
+                ) AS output_state,
+                argMinIf(
+                    ifNull(properties.$ai_span_name, properties.$ai_trace_name),
+                    timestamp,
+                    event = '$ai_trace'
+                ) AS trace_name,
+                {filter_conditions}
+            FROM events
+            WHERE event IN (
+                '$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback', '$ai_trace'
+            )
+              AND properties.$ai_trace_id IS NOT NULL
+              AND {common_conditions}
+            GROUP BY properties.$ai_trace_id
             ORDER BY first_timestamp DESC
             """,
         )

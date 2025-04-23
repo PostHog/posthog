@@ -45,7 +45,6 @@ from . import (
     instance_settings,
     instance_status,
     integration,
-    messages,
     message_templates,
     notebook,
     organization,
@@ -650,14 +649,7 @@ register_grandfathered_environment_nested_viewset(
 environments_router.register(r"max_tools", MaxToolsViewSet, "environment_max_tools", ["team_id"])
 
 environments_router.register(
-    r"messaging/messages",
-    messages.MessageViewSet,
-    "environment_messaging",
-    ["team_id"],
-)
-
-environments_router.register(
-    r"messaging/templates",
+    r"messaging_templates",
     message_templates.MessageTemplateViewSet,
     "environment_messaging_templates",
     ["team_id"],

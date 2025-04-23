@@ -774,6 +774,7 @@ class Type1(StrEnum):
 class DatabaseSerializedFieldType(StrEnum):
     INTEGER = "integer"
     FLOAT = "float"
+    DECIMAL = "decimal"
     STRING = "string"
     DATETIME = "datetime"
     DATE = "date"
@@ -1709,12 +1710,25 @@ class RevenueAnalyticsOverviewItemKey(StrEnum):
     AVG_REVENUE_PER_CUSTOMER = "avg_revenue_per_customer"
 
 
+class RevenueAnalyticsTopCustomersGroupBy(StrEnum):
+    MONTH = "month"
+    ALL = "all"
+
+
 class RevenueCurrencyPropertyConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     property: Optional[str] = None
     static: Optional[CurrencyCode] = None
+
+
+class RevenueSources(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dataWarehouseSources: list[str]
+    events: list[str]
 
 
 class RevenueTrackingEventItem(BaseModel):
@@ -1892,6 +1906,7 @@ class TrendsFilterLegacy(BaseModel):
     display: Optional[ChartDisplayType] = None
     formula: Optional[str] = None
     hidden_legend_keys: Optional[dict[str, Union[bool, Any]]] = None
+    min_decimal_places: Optional[float] = None
     show_alert_threshold_lines: Optional[bool] = None
     show_labels_on_series: Optional[bool] = None
     show_legend: Optional[bool] = None
@@ -2625,6 +2640,7 @@ class DatabaseSchemaPostHogTable(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
+    row_count: Optional[float] = None
     type: Literal["posthog"] = "posthog"
 
 
@@ -2635,6 +2651,7 @@ class DatabaseSchemaTableCommon(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
+    row_count: Optional[float] = None
     type: Type1
 
 
@@ -3504,6 +3521,7 @@ class TrendsFilter(BaseModel):
     formulas: Optional[list[str]] = None
     goalLines: Optional[list[GoalLine]] = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: Optional[list[int]] = None
+    minDecimalPlaces: Optional[float] = None
     resultCustomizationBy: Optional[ResultCustomizationBy] = Field(
         default=ResultCustomizationBy.VALUE,
         description="Wether result datasets are associated by their values or by their order.",
@@ -3543,12 +3561,38 @@ class TrendsQueryResponse(BaseModel):
     )
 
 
-class WebActiveHoursHeatMapResult(BaseModel):
+class WebActiveHoursHeatMapDayAndHourResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     day: int
     hour: int
+    total: int
+
+
+class WebActiveHoursHeatMapDayResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    day: int
+    total: int
+
+
+class WebActiveHoursHeatMapHourResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hour: int
+    total: int
+
+
+class WebActiveHoursHeatMapStructuredResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dayAndHours: list[WebActiveHoursHeatMapDayAndHourResult]
+    days: list[WebActiveHoursHeatMapDayResult]
+    hours: list[WebActiveHoursHeatMapHourResult]
     total: int
 
 
@@ -4959,7 +5003,7 @@ class CachedWebActiveHoursHeatMapQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[WebActiveHoursHeatMapResult]
+    results: WebActiveHoursHeatMapStructuredResult
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -5367,7 +5411,7 @@ class Response9(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[WebActiveHoursHeatMapResult]
+    results: WebActiveHoursHeatMapStructuredResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -5574,6 +5618,7 @@ class DatabaseSchemaBatchExportTable(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
+    row_count: Optional[float] = None
     type: Literal["batch_export"] = "batch_export"
 
 
@@ -5585,6 +5630,7 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     format: str
     id: str
     name: str
+    row_count: Optional[float] = None
     schema_: Optional[DatabaseSchemaSchema] = Field(default=None, alias="schema")
     source: Optional[DatabaseSchemaSource] = None
     type: Literal["data_warehouse"] = "data_warehouse"
@@ -6702,7 +6748,7 @@ class QueryResponseAlternative24(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[WebActiveHoursHeatMapResult]
+    results: WebActiveHoursHeatMapStructuredResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -6950,7 +6996,7 @@ class QueryResponseAlternative37(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[WebActiveHoursHeatMapResult]
+    results: WebActiveHoursHeatMapStructuredResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -7423,6 +7469,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsGrowthRateQueryResponse(BaseModel
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[RevenueAnalyticsGrowthRateQueryResponse] = None
+    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
@@ -7435,6 +7482,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
+    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
@@ -7447,6 +7495,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseMod
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
+    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsGrowthRateQuery(BaseModel):
@@ -7459,6 +7508,7 @@ class RevenueAnalyticsGrowthRateQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[RevenueAnalyticsGrowthRateQueryResponse] = None
+    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsOverviewQuery(BaseModel):
@@ -7471,6 +7521,7 @@ class RevenueAnalyticsOverviewQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
+    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsTopCustomersQuery(BaseModel):
@@ -7478,11 +7529,13 @@ class RevenueAnalyticsTopCustomersQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
+    groupBy: RevenueAnalyticsTopCustomersGroupBy
     kind: Literal["RevenueAnalyticsTopCustomersQuery"] = "RevenueAnalyticsTopCustomersQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
+    revenueSources: RevenueSources
 
 
 class RevenueExampleDataWarehouseTablesQuery(BaseModel):
@@ -7652,7 +7705,7 @@ class WebActiveHoursHeatMapQueryResponse(BaseModel):
     query_status: Optional[QueryStatus] = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
     )
-    results: list[WebActiveHoursHeatMapResult]
+    results: WebActiveHoursHeatMapStructuredResult
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -8676,6 +8729,7 @@ class DatabaseSchemaManagedViewTable(BaseModel):
     id: str
     name: str
     query: HogQLQuery
+    row_count: Optional[float] = None
     type: Literal["managed_view"] = "managed_view"
 
 
@@ -8688,6 +8742,7 @@ class DatabaseSchemaMaterializedViewTable(BaseModel):
     last_run_at: Optional[str] = None
     name: str
     query: HogQLQuery
+    row_count: Optional[float] = None
     status: Optional[str] = None
     type: Literal["materialized_view"] = "materialized_view"
 
@@ -8700,6 +8755,7 @@ class DatabaseSchemaViewTable(BaseModel):
     id: str
     name: str
     query: HogQLQuery
+    row_count: Optional[float] = None
     type: Literal["view"] = "view"
 
 

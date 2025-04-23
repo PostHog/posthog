@@ -1,25 +1,14 @@
 import { IconPlusSmall } from '@posthog/icons'
-import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { MessagingTabs } from '../MessagingTabs'
-import { libraryLogic } from './libraryLogic'
-import { MessagesTable } from './MessagesTable'
-import { templatesLogic } from './templatesLogic'
-import { TemplatesTable } from './TemplatesTable'
+import { messageLibraryLogic } from './messageLibraryLogic'
+import { MessageTemplatesTable } from './MessageTemplatesTable'
 
-// Wrapper component to ensure templatesLogic is unmounted when component unmounts
-function TemplatesSection(): JSX.Element {
-    // This will mount the logic when component mounts and unmount when component unmounts
-    useValues(templatesLogic)
-    return <TemplatesTable />
-}
-
-export function Library(): JSX.Element {
+export function MessageLibrary(): JSX.Element {
     return (
         <div className="messaging-library">
             <MessagingTabs key="library-tabs" />
@@ -38,16 +27,12 @@ export function Library(): JSX.Element {
                 }
             />
 
-            <TemplatesSection />
-
-            <LemonDivider />
-
-            <MessagesTable />
+            <MessageTemplatesTable />
         </div>
     )
 }
 
 export const scene: SceneExport = {
-    component: Library,
-    logic: libraryLogic,
+    component: MessageLibrary,
+    logic: messageLibraryLogic,
 }

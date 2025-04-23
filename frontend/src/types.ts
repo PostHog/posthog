@@ -758,6 +758,13 @@ export enum ReplayTabs {
     Settings = 'settings',
 }
 
+export type ReplayTab = {
+    label: string
+    key: ReplayTabs
+    tooltip?: string
+    tooltipDocLink?: string
+}
+
 export enum ExperimentsTabs {
     All = 'all',
     Yours = 'yours',
@@ -2423,6 +2430,7 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
     decimal_places?: number
+    min_decimal_places?: number
     show_values_on_series?: boolean
     show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
@@ -4369,6 +4377,7 @@ export interface ExternalDataSource {
     prefix: string
     latest_error: string | null
     last_run_at?: Dayjs
+    revenue_analytics_enabled: boolean
     schemas: ExternalDataSourceSchema[]
     sync_frequency: DataWarehouseSyncInterval
     job_inputs: Record<string, any>
@@ -5002,7 +5011,7 @@ export type HogFunctionKind = 'messaging_campaign' | 'messaging_template' | null
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
-    kind?: HogFunctionKind
+    kind?: HogFunctionKind | null
     icon_url?: string
     name: string
     description: string

@@ -36,6 +36,10 @@ export function getSurveyResponseKey(questionIndex: number): string {
     return questionIndex === 0 ? SURVEY_RESPONSE_PROPERTY : `${SURVEY_RESPONSE_PROPERTY}_${questionIndex}`
 }
 
+export function getSurveyIdBasedResponseKey(questionId: string): string {
+    return `${SURVEY_RESPONSE_PROPERTY}_${questionId}`
+}
+
 // Helper function to generate the response field keys with proper typing
 export const getResponseFieldWithId = (
     questionIndex: number,
@@ -43,40 +47,8 @@ export const getResponseFieldWithId = (
 ): { indexBasedKey: string; idBasedKey: string | undefined } => {
     return {
         indexBasedKey: getSurveyResponseKey(questionIndex),
-        idBasedKey: questionId ? `${SURVEY_RESPONSE_PROPERTY}_${questionId}` : undefined,
+        idBasedKey: questionId ? getSurveyIdBasedResponseKey(questionId) : undefined,
     }
-}
-
-// Helper function to generate the HogQL condition for checking survey responses in both formats
-export const getResponseFieldCondition = (questionIndex: number, questionId?: string): string => {
-    const ids = getResponseFieldWithId(questionIndex, questionId)
-
-    if (!ids.idBasedKey) {
-        return `JSONExtractString(properties, '${ids.indexBasedKey}')`
-    }
-
-    // For ClickHouse, we need to use coalesce to check both fields
-    // This will return the first non-null value, prioritizing the ID-based format if available
-    return `coalesce(
-        nullIf(JSONExtractString(properties, '${ids.idBasedKey}'), ''),
-        nullIf(JSONExtractString(properties, '${ids.indexBasedKey}'), '')
-    )`
-}
-
-// Helper function to generate the HogQL condition for checking multiple choice survey responses in both formats
-export const getMultipleChoiceResponseFieldCondition = (questionIndex: number, questionId?: string): string => {
-    const ids = getResponseFieldWithId(questionIndex, questionId)
-
-    if (!ids.idBasedKey) {
-        return `JSONExtractArrayRaw(properties, '${ids.indexBasedKey}')`
-    }
-
-    // For multiple choice, we need to check if either field has a value and use that one
-    return `if(
-        JSONHas(properties, '${ids.idBasedKey}') AND length(JSONExtractArrayRaw(properties, '${ids.idBasedKey}')) > 0,
-        JSONExtractArrayRaw(properties, '${ids.idBasedKey}'),
-        JSONExtractArrayRaw(properties, '${ids.indexBasedKey}')
-    )`
 }
 
 export function sanitizeSurveyDisplayConditions(
@@ -189,27 +161,12 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
             continue
         }
 
-        // Extract question index from the filter key (assuming format like "$survey_response_X" or "$survey_response")
-        let questionIndex = 0
-        if (filter.key === '$survey_response') {
-            // If the key is exactly "$survey_response", it's for question index 0
-            questionIndex = 0
-        } else {
-            const questionIndexMatch = filter.key.match(/\$survey_response_(\d+)/)
-            if (!questionIndexMatch) {
-                continue // Skip if we can't determine the question index
-            }
-            questionIndex = parseInt(questionIndexMatch[1])
+        // split the string '$survey_response_' and take the last part, as that's the question id
+        const questionId = filter.key.split(`${SURVEY_RESPONSE_PROPERTY}_`).at(-1)
+        if (!questionId || !survey.questions.find((question) => question.id === questionId)) {
+            continue
         }
-
-        // Check if question index is valid before accessing
-        if (questionIndex >= survey.questions.length) {
-            continue // Skip if question index is out of bounds
-        }
-        const questionId = survey.questions[questionIndex]?.id
-
-        // Get both key formats
-        const { indexBasedKey, idBasedKey } = getResponseFieldWithId(questionIndex, questionId)
+        const questionIndex = survey.questions.findIndex((question) => question.id === questionId)
 
         // Create the condition for this filter
         let condition = ''
@@ -219,60 +176,34 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
         // Handle different operators
         switch (filter.operator) {
             case 'exact':
-                if (Array.isArray(filter.value)) {
-                    valueList = filter.value.map((v) => `'${escapeSqlString(String(v))}'`).join(', ')
-                    condition = `(properties['${indexBasedKey}'] IN (${valueList})`
-                    if (idBasedKey) {
-                        condition += ` OR properties['${idBasedKey}'] IN (${valueList})`
-                    }
-                } else {
-                    escapedValue = escapeSqlString(String(filter.value))
-                    condition = `(properties['${indexBasedKey}'] = '${escapedValue}'`
-                    if (idBasedKey) {
-                        condition += ` OR properties['${idBasedKey}'] = '${escapedValue}'`
-                    }
-                }
-                condition += ')'
-                break
             case 'is_not':
                 if (Array.isArray(filter.value)) {
                     valueList = filter.value.map((v) => `'${escapeSqlString(String(v))}'`).join(', ')
-                    condition = `(properties['${indexBasedKey}'] NOT IN (${valueList})`
-                    if (idBasedKey) {
-                        condition += ` OR properties['${idBasedKey}'] NOT IN (${valueList})`
-                    }
+                    condition = `(getSurveyResponse(${questionIndex}, '${questionId}') ${
+                        filter.operator === 'is_not' ? 'NOT IN' : 'IN'
+                    } (${valueList}))`
                 } else {
                     escapedValue = escapeSqlString(String(filter.value))
-                    condition = `(properties['${indexBasedKey}'] != '${escapedValue}'`
-                    if (idBasedKey) {
-                        condition += ` OR properties['${idBasedKey}'] != '${escapedValue}'`
-                    }
+                    condition = `(getSurveyResponse(${questionIndex}, '${questionId}') ${
+                        filter.operator === 'is_not' ? '!=' : '='
+                    } '${escapedValue}')`
                 }
-                condition += ')'
                 break
             case 'icontains':
                 escapedValue = escapeSqlString(String(filter.value))
-                condition = `(properties['${indexBasedKey}'] ILIKE '%${escapedValue}%'`
-                if (idBasedKey) {
-                    condition += ` OR properties['${idBasedKey}'] ILIKE '%${escapedValue}%'`
-                }
-                condition += ')'
+                condition = `(getSurveyResponse(${questionIndex}, '${questionId}') ILIKE '%${escapedValue}%')`
+                break
+            case 'not_icontains':
+                escapedValue = escapeSqlString(String(filter.value))
+                condition = `(NOT getSurveyResponse(${questionIndex}, '${questionId}') ILIKE '%${escapedValue}%')`
                 break
             case 'regex':
                 escapedValue = escapeSqlString(String(filter.value))
-                condition = `(match(properties['${indexBasedKey}'], '${escapedValue}')`
-                if (idBasedKey) {
-                    condition += ` OR match(properties['${idBasedKey}'], '${escapedValue}')`
-                }
-                condition += ')'
+                condition = `(match(getSurveyResponse(${questionIndex}, '${questionId}'), '${escapedValue}'))`
                 break
             case 'not_regex':
                 escapedValue = escapeSqlString(String(filter.value))
-                condition = `(NOT match(properties['${indexBasedKey}'], '${escapedValue}')`
-                if (idBasedKey) {
-                    condition += ` OR NOT match(properties['${idBasedKey}'], '${escapedValue}')`
-                }
-                condition += ')'
+                condition = `(NOT match(getSurveyResponse(${questionIndex}, '${questionId}'), '${escapedValue}'))`
                 break
             // Add more operators as needed
             default:

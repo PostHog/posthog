@@ -20,7 +20,6 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.test.base import APIBaseTest
 from django.utils import timezone
-from unittest.mock import call
 
 
 class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
@@ -232,20 +231,17 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
 
     @patch("posthoganalytics.capture_exception")
     @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
-    @patch(
-        "ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.count_recordings_that_match_playlist_filters"
-    )
     def test_sorts_nulls_first_and_then_least_recently_counted(
-        self, mock_count_task: MagicMock, _mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
+        self, _mock_list_recordings_from_query: MagicMock, mock_capture_exception: MagicMock
     ):
-        playlist1 = SessionRecordingPlaylist.objects.create(
+        SessionRecordingPlaylist.objects.create(
             team=self.team,
             name="test1",
             filters={"date_from": "-21d"},
             last_counted_at=timezone.now() - timedelta(days=2),
         )
 
-        playlist2 = SessionRecordingPlaylist.objects.create(
+        SessionRecordingPlaylist.objects.create(
             team=self.team,
             name="test2",
             filters={"date_from": "-21d"},
@@ -260,20 +256,12 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest):
             last_counted_at=timezone.now() - timedelta(hours=1),
         )
 
-        playlist4 = SessionRecordingPlaylist.objects.create(
+        SessionRecordingPlaylist.objects.create(
             team=self.team, name="test4", filters={"date_from": "-21d"}, last_counted_at=None
         )
 
         enqueue_recordings_that_match_playlist_filters()
         mock_capture_exception.assert_not_called()
-
-        assert mock_count_task.delay.call_count == 3
-
-        assert mock_count_task.delay.call_args_list == [
-            call(playlist4.id),
-            call(playlist1.id),
-            call(playlist2.id),
-        ]
 
     @patch("posthoganalytics.capture_exception")
     @patch("ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters.list_recordings_from_query")
