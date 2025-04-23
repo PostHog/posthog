@@ -1150,6 +1150,18 @@ class ApiRequest {
     public messagingTemplate(templateId: MessageTemplate['id']): ApiRequest {
         return this.messagingTemplates().addPathComponent(templateId)
     }
+
+    public messagingSetup(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging').addPathComponent('setup')
+    }
+
+    public messagingSetupEmail(): ApiRequest {
+        return this.messagingSetup().addPathComponent('email')
+    }
+
+    public messagingSetupEmailVerify(): ApiRequest {
+        return this.messagingSetupEmail().addPathComponent('verify')
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -3098,6 +3110,9 @@ const api = {
             data: Partial<MessageTemplate>
         ): Promise<MessageTemplate> {
             return await new ApiRequest().messagingTemplate(templateId).update({ data })
+        },
+        async createEmailSenderDomain(data: Partial<EmailSenderDomain>): Promise<EmailSenderDomain> {
+            return await new ApiRequest().messagingEmailSenderDomains().create({ data })
         },
     },
 

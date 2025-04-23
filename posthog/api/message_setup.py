@@ -1,4 +1,3 @@
-from rest_framework.permissions import IsAuthenticated
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from rest_framework.response import Response
 from rest_framework.decorators import action
@@ -7,10 +6,10 @@ from rest_framework import viewsets
 
 
 class MessageSetupViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    permission_classes = [IsAuthenticated]
+    scope_object = "INTERNAL"
 
     @action(methods=["POST"], detail=False)
-    def request_account(self, request, **kwargs):
+    def email(self, request, **kwargs):
         """Request a messaging account with a specified email domain."""
 
         #  Steps:
@@ -42,8 +41,8 @@ class MessageSetupViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             }
         )
 
-    @action(methods=["GET"], detail=False)
-    def verify_domain(self, request, **kwargs):
+    @action(methods=["POST"], detail=False, url_path="email/verify")
+    def verify_email(self, request, **kwargs):
         """Verify the email domain for messaging setup."""
 
         # Do a GET on /dns/{domain_ID or domain_name} to retrieve the values you need for the DNS record.
