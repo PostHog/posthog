@@ -274,13 +274,6 @@ export class SessionRecordingIngester {
             // TODO: immediately die? or just keep going?
         })
 
-        this.kafkaConsumer.on('disconnected', async (err) => {
-            // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
-            // we need to listen to disconnect and make sure we're stopped
-            logger.info('🔁', 'blob_ingester_consumer_v2 batch consumer disconnected, cleaning up', { err })
-            await this.stop()
-        })
-
         // nothing happens here unless we configure SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS
         this.kafkaConsumer.on('event.stats', (stats) => {
             logger.info('🪵', 'blob_ingester_consumer_v2 - kafka stats', { stats })

@@ -15,7 +15,8 @@ import { exponentialBuckets, Gauge, Histogram } from 'prom-client'
 import { defaultConfig } from '../config/config'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
-import { promisifyCallback } from '../utils/utils'
+import { retryIfRetriable } from '../utils/retries'
+import { delay, promisifyCallback } from '../utils/utils'
 import { ensureTopicExists } from './admin'
 import { getConsumerConfigFromEnv } from './config'
 
@@ -111,7 +112,7 @@ export class KafkaConsumer {
     private maxHealthHeartbeatIntervalMs: number
     private consumerLoop: Promise<void> | undefined
 
-    constructor(private config: KafkaConsumerConfig, private rdKafkaConfig: RdKafkaConsumerConfig = {}) {
+    constructor(private config: KafkaConsumerConfig, rdKafkaConfig: RdKafkaConsumerConfig = {}) {
         this.config.autoCommit ??= true
         this.config.autoOffsetStore ??= true
         this.config.callEachBatchWhenEmpty ??= false
@@ -172,7 +173,7 @@ export class KafkaConsumer {
     }
 
     public assignments() {
-        return this.rdKafkaConsumer.assignments()
+        return this.rdKafkaConsumer.isConnected() ? this.rdKafkaConsumer.assignments() : []
     }
 
     public offsetsStore(topicPartitionOffsets: TopicPartitionOffset[]) {
@@ -267,17 +268,14 @@ export class KafkaConsumer {
     public async connect(eachBatch: (messages: Message[]) => Promise<void>) {
         const { topic, groupId, callEachBatchWhenEmpty = false } = this.config
 
-        await new Promise<void>((resolve, reject) => {
-            this.rdKafkaConsumer.connect({}, (error, data) => {
-                if (error) {
-                    logger.error('⚠️', 'connect_error', { error: error })
-                    reject(error)
-                } else {
-                    logger.info('📝', 'librdkafka consumer connected', { brokers: data?.brokers })
-                    resolve()
-                }
-            })
-        })
+        try {
+            await promisifyCallback<Metadata>((cb) => this.rdKafkaConsumer.connect({}, cb))
+            logger.info('📝', 'librdkafka consumer connected')
+        } catch (error) {
+            logger.error('⚠️', 'connect_error', { error: error })
+            throw error
+        }
+
         this.heartbeat() // Setup the heartbeat so we are healthy since connection is established
 
         await ensureTopicExists(this.consumerConfig, this.config.topic)
@@ -294,25 +292,15 @@ export class KafkaConsumer {
             try {
                 while (!this.isStopping) {
                     logger.debug('🔁', 'main_loop_consuming')
-                    const messages = await new Promise<Message[]>((resolve, reject) => {
-                        this.rdKafkaConsumer.consume(
-                            this.fetchBatchSize,
-                            (error: LibrdKafkaError, messages: Message[]) => {
-                                if (error) {
-                                    reject(error)
-                                } else {
-                                    resolve(messages)
-                                }
-                            }
-                        )
-                    })
+
+                    // TRICKY: We wrap this in a retry check. It seems that despite being connected and ready, the client can still have an undeterministic
+                    // error when consuming, hence the retryIfRetriable.
+                    const messages = await retryIfRetriable(() =>
+                        promisifyCallback<Message[]>((cb) => this.rdKafkaConsumer.consume(this.fetchBatchSize, cb))
+                    )
 
                     // After successfully pulling a batch, we can update our heartbeat time
                     this.heartbeat()
-
-                    // for (const [topic, count] of countPartitionsPerTopic(this.rdKafkaConsumer.assignments())) {
-                    //     kafkaAbsolutePartitionCount.labels({ topic }).set(count)
-                    // }
 
                     if (!messages) {
                         logger.debug('🔁', 'main_loop_empty_batch', { cause: 'undefined' })
@@ -365,7 +353,11 @@ export class KafkaConsumer {
         }
 
         this.consumerLoop = startConsuming().catch((error) => {
-            logger.error('🔁', 'consumer_loop_error', { error: String(error) })
+            logger.error('🔁', 'consumer_loop_error', {
+                error: String(error),
+                config: this.config,
+                consumerConfig: this.consumerConfig,
+            })
             // We re-throw the error as that way it will be caught in server.ts and trigger a full shutdown
             throw error
         })
@@ -375,12 +367,19 @@ export class KafkaConsumer {
         if (this.isStopping) {
             return
         }
+
         // Mark as stopping - this will also essentially stop the consumer loop
         this.isStopping = true
 
         // Allow the in progress consumer loop to finish if possible
         if (this.consumerLoop) {
-            await this.consumerLoop
+            await this.consumerLoop.catch((error) => {
+                logger.error('🔁', 'failed to stop consumer loop safely. Continuing shutdown', {
+                    error: String(error),
+                    config: this.config,
+                    consumerConfig: this.consumerConfig,
+                })
+            })
         }
 
         await this.disconnectConsumer()
@@ -388,7 +387,9 @@ export class KafkaConsumer {
 
     private async disconnectConsumer() {
         if (this.rdKafkaConsumer.isConnected()) {
+            logger.info('📝', 'Disconnecting consumer...')
             await new Promise<void>((res, rej) => this.rdKafkaConsumer.disconnect((e) => (e ? rej(e) : res())))
+            logger.info('📝', 'Disconnected consumer!')
         }
     }
 }

@@ -484,7 +484,11 @@ export class SessionRecordingIngester {
         this.totalNumPartitions = (await this.kafkaConsumer.getPartitionsForTopic(this.topic)).length
 
         this.kafkaConsumer.on('rebalance', async (err, topicPartitions) => {
-            logger.info('🔁', 'blob_ingester_consumer - rebalancing', { err, topicPartitions })
+            logger.info('🔁', 'blob_ingester_consumer - rebalancing', {
+                err,
+                topicPartitions,
+                connected: this.kafkaConsumer.isHealthy(),
+            })
             /**
              * see https://github.com/Blizzard/node-rdkafka#rebalancing
              *
@@ -508,13 +512,6 @@ export class SessionRecordingIngester {
             // TODO: immediately die? or just keep going?
         })
 
-        this.kafkaConsumer.on('disconnected', async (err) => {
-            // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
-            // we need to listen to disconnect and make sure we're stopped
-            logger.info('🔁', 'blob_ingester_consumer batch consumer disconnected, cleaning up', { err })
-            await this.stop()
-        })
-
         // nothing happens here unless we configure SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS
         this.kafkaConsumer.on('event.stats', (stats) => {
             logger.info('🪵', 'blob_ingester_consumer - kafka stats', { stats })
@@ -528,7 +525,9 @@ export class SessionRecordingIngester {
         // NOTE: We have to get the partitions before we stop the consumer as it throws if disconnected
         const assignedPartitions = this.assignedTopicPartitions
         // Mark as stopping so that we don't actually process any more incoming messages, but still keep the process alive
+        logger.info('🔁', 'kafka consumer disconnecting')
         await this.kafkaConsumer.disconnect()
+        logger.info('🔁', 'kafka consumer disconnected')
 
         // Simulate a revoke command to try and flush all sessions
         // There is a race between the revoke callback and this function - Either way one of them gets there and covers the revocations
