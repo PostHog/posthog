@@ -7139,6 +7139,9 @@
                 "name": {
                     "type": "string"
                 },
+                "row_count": {
+                    "type": "number"
+                },
                 "type": {
                     "const": "batch_export",
                     "type": "string"
@@ -7164,6 +7167,9 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "row_count": {
+                    "type": "number"
                 },
                 "schema": {
                     "$ref": "#/definitions/DatabaseSchemaSchema"
@@ -7244,6 +7250,9 @@
                 "query": {
                     "$ref": "#/definitions/HogQLQuery"
                 },
+                "row_count": {
+                    "type": "number"
+                },
                 "type": {
                     "const": "managed_view",
                     "type": "string"
@@ -7273,6 +7282,9 @@
                 "query": {
                     "$ref": "#/definitions/HogQLQuery"
                 },
+                "row_count": {
+                    "type": "number"
+                },
                 "status": {
                     "type": "string"
                 },
@@ -7298,6 +7310,9 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "row_count": {
+                    "type": "number"
                 },
                 "type": {
                     "const": "posthog",
@@ -7422,6 +7437,9 @@
                 "name": {
                     "type": "string"
                 },
+                "row_count": {
+                    "type": "number"
+                },
                 "type": {
                     "enum": ["posthog", "data_warehouse", "view", "batch_export", "materialized_view", "managed_view"],
                     "type": "string"
@@ -7447,6 +7465,9 @@
                 },
                 "query": {
                     "$ref": "#/definitions/HogQLQuery"
+                },
+                "row_count": {
+                    "type": "number"
                 },
                 "type": {
                     "const": "view",
