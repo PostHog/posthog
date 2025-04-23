@@ -24,7 +24,7 @@ class HobbyTester:
         name=None,
         region="sfo3",
         image="ubuntu-22-04-x64",
-        size="s-4vcpu-8gb",
+        size="s-8vcpu-16gb",
         release_tag="latest-release",
         branch=None,
         hostname=None,
@@ -161,6 +161,50 @@ class HobbyTester:
         print(f"🧨 Last exception was: {last_exception}")
         return False
 
+    def wait_for_instance_readiness(self, timeout=900, interval=15):
+        """
+        Waits for the instance to come online by validating TLS, open port 443, and optionally /api/ route.
+        """
+        import socket
+        import ssl
+
+        hostname = self.hostname
+        port = 443
+        start_time = time.time()
+
+        print(f"🕵️ Waiting up to {timeout}s for TLS and port {port} to be ready on {hostname}...")
+
+        while time.time() - start_time < timeout:
+            try:
+                context = ssl.create_default_context()
+                with socket.create_connection((hostname, port), timeout=10) as sock:
+                    with context.wrap_socket(sock, server_hostname=hostname) as ssock:
+                        cert = ssock.getpeercert()
+                        not_after = cert["notAfter"]
+                        print(f"🔐 TLS cert present, expires: {not_after}")
+                        break
+            except Exception as e:
+                print(f"⏳ TLS/port not ready yet: {e}")
+
+            time.sleep(interval)
+        else:
+            print(f"❌ Timeout after {timeout}s waiting for TLS on {hostname}")
+            return False
+
+        # Optional: try basic GET on /api/
+        try:
+            print(f"🌐 Trying /api/ endpoint on https://{hostname}")
+            r = requests.get(f"https://{hostname}/api/", verify=False, timeout=10)
+            if r.status_code == 200:
+                print("✅ Instance responded at /api/")
+                return True
+            else:
+                print(f"⚠️ Non-200 from /api/: {r.status_code}")
+        except Exception as e:
+            print(f"🔌 Error connecting to /api/: {e}")
+
+        return True
+
     def create_dns_entry(self, type, name, data, ttl=30):
         self.domain = digitalocean.Domain(token=self.token, name=DOMAIN)
         self.record = self.domain.create_new_domain_record(type=type, name=name, data=data, ttl=ttl)
@@ -270,6 +314,14 @@ def main():
             record_id=record_id,
             droplet_id=droplet_id,
         )
+
+        # 🔍 New: Wait for TLS readiness and basic API responsiveness
+        ready = ht.wait_for_instance_readiness()
+        if not ready:
+            print("⚠️ Droplet didn't become ready for TLS + basic API — skipping test.")
+            exit(1)
+
+        # 🧪 Proceed with /_health check only if readiness probe passed
         health_success = ht.test_deployment()
         if health_success:
             print("We succeeded")
