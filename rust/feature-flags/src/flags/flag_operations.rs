@@ -28,7 +28,7 @@ impl FeatureFlag {
         self.filters.aggregation_group_type_index
     }
 
-    pub fn get_conditions(&self) -> &Vec<FlagGroupType> {
+    pub fn get_conditions(&self) -> &Vec<FlagPropertyGroup> {
         &self.filters.groups
     }
 

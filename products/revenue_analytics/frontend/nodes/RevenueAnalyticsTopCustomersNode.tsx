@@ -3,6 +3,7 @@ import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { useState } from 'react'
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 
@@ -16,7 +17,6 @@ import { QueryContext } from '~/queries/types'
 import { GraphDataset, GraphType } from '~/types'
 
 import { revenueEventsSettingsLogic } from '../settings/revenueEventsSettingsLogic'
-import { InsightsWrapper } from './utils'
 
 let uniqueNode = 0
 export function RevenueAnalyticsTopCustomersNode(props: {

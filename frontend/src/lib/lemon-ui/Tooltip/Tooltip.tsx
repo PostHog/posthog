@@ -158,7 +158,13 @@ export function Tooltip({
                             {typeof title === 'function' ? title() : title}
                             {docLink && (
                                 <p className={`mb-0 ${title ? 'mt-1' : ''}`}>
-                                    <Link to={docLink} target="_blank" className="text-xs">
+                                    <Link
+                                        to={docLink}
+                                        target="_blank"
+                                        className="text-xs"
+                                        data-ph-capture-attribute-autocapture-event-name="clicked tooltip doc link"
+                                        data-ph-capture-attribute-doclink={docLink}
+                                    >
                                         Read the docs
                                     </Link>
                                 </p>

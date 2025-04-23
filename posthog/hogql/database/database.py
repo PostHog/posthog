@@ -479,6 +479,12 @@ def create_hogql_database(
                     views[view.name] = view
                     create_nested_table_group(view.name.split("."), views, view)
 
+        # No need to call `create_nested_table_group` because these arent using dot notation
+        with timings.measure("for_events"):
+            revenue_views = RevenueAnalyticsRevenueView.for_events(team)
+            for view in revenue_views:
+                views[view.name] = view
+
     with timings.measure("data_warehouse_tables"):
         with timings.measure("select"):
             tables = list(
