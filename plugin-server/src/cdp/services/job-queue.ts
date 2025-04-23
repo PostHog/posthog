@@ -8,10 +8,16 @@ import { Message } from 'node-rdkafka'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { KafkaConsumer } from '../../kafka/batch-consumer-v2'
-import { KafkaProducerWrapper } from '../../kafka/producer'
+import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
 import { Hub } from '../../types'
+import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import { HogFunctionInvocation, HogFunctionInvocationJobQueue, HogFunctionInvocationResult } from '../types'
+import {
+    HogFunctionInvocation,
+    HogFunctionInvocationJobQueue,
+    HogFunctionInvocationResult,
+    HogFunctionInvocationSerialized,
+} from '../types'
 import {
     cyclotronJobToInvocation,
     invocationToCyclotronJobUpdate,
@@ -90,16 +96,18 @@ export class CyclotronJobQueue {
     }
 
     public async queueInvocations(invocations: HogFunctionInvocation[]) {
-        // TODO: Implement
-
         if (this.implementation === 'cyclotron') {
             await this.createCyclotronJobs(invocations)
+        } else {
+            await this.createKafkaJobs(invocations)
         }
     }
 
     public async queueInvocationResults(invocationResults: HogFunctionInvocationResult[]) {
         if (this.implementation === 'cyclotron') {
             await this.updateCyclotronJobs(invocationResults)
+        } else {
+            await this.updateKafkaJobs(invocationResults)
         }
     }
 
@@ -267,9 +275,16 @@ export class CyclotronJobQueue {
 
     // KAFKA
 
+    private getKafkaProducer(): KafkaProducerWrapper {
+        if (!this.kafkaProducer) {
+            throw new Error('KafkaProducer not initialized')
+        }
+        return this.kafkaProducer
+    }
+
     private async startKafkaConsumer() {
-        const groupId = `cdp-${this.queue}-consumer`
-        const topic = `cdp-${this.queue}`
+        const groupId = `cdp-cyclotron-${this.queue}-consumer`
+        const topic = `cdp-cyclotron-${this.queue}`
 
         // TODO: All of this
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true })
@@ -280,39 +295,42 @@ export class CyclotronJobQueue {
     }
 
     private async startKafkaProducer() {
-        // TODO: All of this
-
-        this.kafkaProducer = await KafkaProducerWrapper.create(this.config)
+        // TODO: This tbh
+        this.kafkaProducer = await KafkaProducerWrapper.create({})
     }
 
     private async createKafkaJobs(invocations: HogFunctionInvocation[]) {
-        // For the cyclotron ones we simply create the jobs
-        // const cyclotronJobs = invocations.map((item) => {
-        //     return {
-        //         teamId: item.globals.project.id,
-        //         functionId: item.hogFunction.id,
-        //         queueName: isLegacyPluginHogFunction(item.hogFunction) ? 'plugin' : 'hog',
-        //         priority: item.queuePriority,
-        //         vmState: serializeHogFunctionInvocation(item),
-        //     }
-        // })
-        // try {
-        //     histogramCyclotronJobsCreated.observe(cyclotronJobs.length)
-        //     // Cyclotron batches inserts into one big INSERT which can lead to contention writing WAL information hence we chunk into batches
-        //     const chunkedCyclotronJobs = chunk(cyclotronJobs, this.hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE)
-        //     if (this.hub.CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES) {
-        //         // NOTE: It's not super clear the perf tradeoffs of doing this in parallel hence the config option
-        //         await Promise.all(chunkedCyclotronJobs.map((jobs) => cyclotronManager.bulkCreateJobs(jobs)))
-        //     } else {
-        //         for (const jobs of chunkedCyclotronJobs) {
-        //             await cyclotronManager.bulkCreateJobs(jobs)
-        //         }
-        //     }
-        // } catch (e) {
-        //     logger.error('⚠️', 'Error creating cyclotron jobs', e)
-        //     logger.warn('⚠️', 'Failed jobs', { jobs: cyclotronJobs })
-        //     throw e
-        // }
+        const producer = this.getKafkaProducer()
+        const payload: TopicMessage = {
+            topic: `cdp-cyclotron-${this.queue}`,
+            messages: invocations.map((x) => {
+                const serialized = serializeHogFunctionInvocation(x)
+                // NOTE: Should we compress this already?
+                return {
+                    value: JSON.stringify(serialized),
+                    key: x.id,
+                    headers: {
+                        hogFunctionId: x.hogFunction.id,
+                        teamId: x.globals.project.id.toString(),
+                    },
+                }
+            }),
+        }
+
+        await producer.queueMessages(payload)
+    }
+
+    private async updateKafkaJobs(invocationResults: HogFunctionInvocationResult[]) {
+        // With kafka we are essentially re-queuing the work to the target topic if it isn't finished
+        const invocations = invocationResults.reduce((acc, res) => {
+            if (res.finished) {
+                return acc
+            }
+
+            return [...acc, res.invocation]
+        }, [] as HogFunctionInvocation[])
+
+        await this.createKafkaJobs(invocations)
     }
 
     private async consumeKafkaBatch(messages: Message[]) {
@@ -321,7 +339,17 @@ export class CyclotronJobQueue {
             .set(messages.length / this.hub.CDP_CYCLOTRON_BATCH_SIZE)
 
         const invocations: HogFunctionInvocation[] = []
-        const hogFunctionIds: string[] = []
+        const hogFunctionIds = new Set<string>()
+
+        messages.forEach((message) => {
+            message.headers?.forEach((header) => {
+                if (header.key === 'hogFunctionId' && header.value) {
+                    hogFunctionIds.add(header.value.toString())
+                }
+            })
+        })
+
+        const hogFunctions = await this.hogFunctionManager.getHogFunctions(Array.from(hogFunctionIds))
 
         // Parse all the messages into invocations
         for (const message of messages) {
@@ -329,32 +357,30 @@ export class CyclotronJobQueue {
                 throw new Error('Bad message: ' + JSON.stringify(message))
             }
 
-            hogFunctionIds.push(job.functionId)
-        }
+            const invocationSerialized: HogFunctionInvocationSerialized = parseJSON(message.value.toString() ?? '')
 
-        const hogFunctions = await this.hogFunctionManager.getHogFunctions(hogFunctionIds)
+            // NOTE: We might crash out here and thats fine as it would indicate that the schema changed
+            // which we have full control over so shouldn't be possible
 
-        for (const job of jobs) {
-            // NOTE: This is all a bit messy and might be better to refactor into a helper
-            const hogFunction = hogFunctions[job.functionId!]
+            const hogFunction = hogFunctions[invocationSerialized.hogFunctionId]
 
             if (!hogFunction) {
-                // Here we need to mark the job as failed
-
                 logger.error('⚠️', 'Error finding hog function', {
-                    id: job.functionId,
+                    id: invocationSerialized.hogFunctionId,
                 })
-                worker.updateJob(job.id, 'failed')
-                failReleases.push(worker.releaseJob(job.id))
                 continue
             }
 
-            const invocation = cyclotronJobToInvocation(job, hogFunction)
+            const invocation: HogFunctionInvocation = {
+                ...invocationSerialized,
+                hogFunction,
+            }
+
             invocations.push(invocation)
         }
 
-        await Promise.all([this.consumeBatch!(invocations), ...failReleases])
+        await this.consumeBatch!(invocations)
 
-        counterJobsProcessed.inc({ queue: this.queue }, jobs.length)
+        counterJobsProcessed.inc({ queue: this.queue }, invocations.length)
     }
 }

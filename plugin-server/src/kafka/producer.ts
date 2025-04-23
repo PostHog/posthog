@@ -35,6 +35,7 @@ export type TopicMessage = {
     messages: {
         value: string | Buffer | null
         key?: MessageKey
+        headers?: Record<string, string>
     }[]
 }
 
@@ -158,6 +159,10 @@ export class KafkaProducerWrapper {
                             topic: record.topic,
                             key: message.key ? Buffer.from(message.key) : null,
                             value: message.value ? Buffer.from(message.value) : null,
+                            headers: Object.entries(message.headers ?? {}).map(([key, value]) => ({
+                                key,
+                                value,
+                            })),
                         })
                     )
                 )

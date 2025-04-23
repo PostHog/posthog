@@ -39,11 +39,14 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
             async () => await this.processInvocations(invocations)
         )
 
-        // TODO: We can parallelize all this right??
         await this.queueInvocationResults(invocationResults)
-        await this.hogWatcher.observeResults(invocationResults)
         await this.hogFunctionMonitoringService.processInvocationResults(invocationResults)
-        await this.hogFunctionMonitoringService.produceQueuedMessages()
+
+        // After this point we parallelize and any issues are logged rather than thrown as retrying now would end up in duplicate messages
+        await Promise.allSettled([
+            this.hogWatcher.observeResults(invocationResults),
+            this.hogFunctionMonitoringService.produceQueuedMessages(),
+        ])
 
         return invocationResults
     }
