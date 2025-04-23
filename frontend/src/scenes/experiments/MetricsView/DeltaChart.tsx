@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createContext, useContext, useState } from 'react'
 
-import { ExperimentIdType, InsightType } from '~/types'
+import { Experiment, ExperimentIdType, FunnelExperimentVariant, InsightType, TrendExperimentVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { VariantTag } from '../ExperimentView/components'
@@ -51,8 +51,8 @@ type DeltaChartContextType = {
 
     // Experiment data
     experimentId: ExperimentIdType
-    experiment: any
-    variants: any[]
+    experiment: Experiment
+    variants: FunnelExperimentVariant[] | TrendExperimentVariant[]
     hasMinimumExposureForResults: boolean
     featureFlags: Record<string, any>
     primaryMetricsLengthWithSharedMetrics: number
