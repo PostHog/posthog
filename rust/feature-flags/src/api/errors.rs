@@ -175,7 +175,8 @@ impl IntoResponse for FlagError {
             }
             FlagError::CohortFiltersParsingError => {
                 tracing::error!("Failed to parse cohort filters: {:?}", self);
-                (StatusCode::BAD_REQUEST, "Failed to parse cohort filters. Please try again later or contact support if the problem persists.".to_string())
+                // this should be a 500
+                (StatusCode::INTERNAL_SERVER_ERROR, "Failed to parse cohort filters. Please try again later or contact support if the problem persists.".to_string())
             }
             FlagError::CohortDependencyCycle(msg) => {
                 tracing::error!("Cohort dependency cycle: {}", msg);
