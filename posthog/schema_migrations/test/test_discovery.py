@@ -1,6 +1,6 @@
 from unittest.mock import patch, MagicMock
 from posthog.schema import NodeKind
-from posthog.schema_migrations import _discover_migrations, LATEST_VERSIONS
+from posthog.schema_migrations import _discover_migrations, LATEST_VERSIONS, MIGRATIONS
 
 
 def test_discover_migrations():
@@ -17,8 +17,9 @@ def test_discover_migrations():
 
         mock_import.side_effect = [mock_module1, mock_module2]
 
-        # Reset LATEST_VERSIONS before test
+        # Reset LATEST_VERSIONS and MIGRATIONS before test
         LATEST_VERSIONS.clear()
+        MIGRATIONS.clear()
 
         # Run discovery
         _discover_migrations()
@@ -31,3 +32,10 @@ def test_discover_migrations():
         # Verify versions were updated correctly
         assert LATEST_VERSIONS[NodeKind.TRENDS_QUERY] == 3  # Max version + 1
         assert LATEST_VERSIONS[NodeKind.FUNNELS_QUERY] == 2  # Version + 1
+
+        # Verify migrations were stored correctly
+        assert NodeKind.TRENDS_QUERY in MIGRATIONS
+        assert NodeKind.FUNNELS_QUERY in MIGRATIONS
+        assert MIGRATIONS[NodeKind.TRENDS_QUERY][1] == mock_module1.Migration.return_value
+        assert MIGRATIONS[NodeKind.TRENDS_QUERY][2] == mock_module2.Migration.return_value
+        assert MIGRATIONS[NodeKind.FUNNELS_QUERY][1] == mock_module2.Migration.return_value

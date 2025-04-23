@@ -2,11 +2,13 @@ import os
 import importlib
 import re
 from posthog.schema import NodeKind
+from posthog.schema_migrations.base import SchemaMigration
 import structlog
 
 logger = structlog.get_logger(__name__)
 
 LATEST_VERSIONS: dict[NodeKind, int] = {}
+MIGRATIONS: dict[NodeKind, dict[int, SchemaMigration]] = {}
 
 
 def _discover_migrations():
@@ -18,8 +20,11 @@ def _discover_migrations():
         module = importlib.import_module(f"posthog.schema_migrations.{module_name}")
         migration = module.Migration()
 
-        # Update versions based on migration targets
         for kind, version in migration.targets.items():
+            if kind not in MIGRATIONS:
+                MIGRATIONS[kind] = {}
+            MIGRATIONS[kind][version] = migration
+
             old_version = LATEST_VERSIONS.get(kind, 1)
             new_version = max(old_version, version + 1)
             LATEST_VERSIONS[kind] = new_version
