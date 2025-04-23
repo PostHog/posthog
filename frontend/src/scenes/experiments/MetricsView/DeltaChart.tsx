@@ -381,7 +381,7 @@ function ChartTooltips(): JSX.Element {
 
 // Main chart content component
 function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSVGElement> }): JSX.Element {
-    const { result, hasMinimumExposureForResults, resultsLoading, experiment, error, dimensions } =
+    const { result, metric, hasMinimumExposureForResults, resultsLoading, experiment, error, dimensions } =
         useDeltaChartContext()
 
     const { chartHeight } = dimensions
@@ -397,17 +397,6 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
     } else if (resultsLoading) {
         return <ChartLoadingState height={chartHeight} />
     }
-    const { setEmptyStateTooltipVisible, setTooltipPosition } = useDeltaChartContext().tooltip
-
-    const handleErrorHover = (e: React.MouseEvent) => {
-        const rect = e.currentTarget.getBoundingClientRect()
-        setTooltipPosition({ x: rect.left + rect.width / 2, y: rect.top - 10 })
-        setEmptyStateTooltipVisible(true)
-    }
-
-    const handleErrorLeave = () => {
-        setEmptyStateTooltipVisible(false)
-    }
 
     return (
         <div className="relative w-full max-w-screen">
@@ -415,11 +404,9 @@ function DeltaChartContent({ chartSvgRef }: { chartSvgRef: React.RefObject<SVGSV
                 height={chartHeight}
                 experimentStarted={!!experiment.start_date}
                 hasMinimumExposure={hasMinimumExposureForResults}
+                metric={metric}
                 error={error}
-                onErrorHover={handleErrorHover}
-                onErrorLeave={handleErrorLeave}
             />
-            <ChartTooltips />
         </div>
     )
 }

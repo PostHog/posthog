@@ -1,4 +1,4 @@
-import { NoResultEmptyState } from './NoResultEmptyState'
+import { ErrorChecklist } from './NoResultEmptyState'
 
 interface EmptyStateTooltipProps {
     tooltipPosition: { x: number; y: number }
@@ -24,7 +24,7 @@ export function EmptyStateTooltip({
             onMouseEnter={() => setEmptyStateTooltipVisible(true)}
             onMouseLeave={() => setEmptyStateTooltipVisible(false)}
         >
-            <NoResultEmptyState error={error} metric={metric} />
+            <ErrorChecklist error={error} metric={metric} />
         </div>
     )
 }

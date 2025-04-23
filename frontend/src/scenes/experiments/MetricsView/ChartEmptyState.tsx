@@ -2,14 +2,14 @@ import { IconActivity, IconClock } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from '../constants'
+import { ErrorChecklist } from './NoResultEmptyState'
 
 interface ChartEmptyStateProps {
     height: number
     experimentStarted: boolean
     hasMinimumExposure: boolean
+    metric: any
     error?: any
-    onErrorHover?: (e: React.MouseEvent) => void
-    onErrorLeave?: () => void
 }
 
 export function ChartEmptyState({
@@ -17,8 +17,7 @@ export function ChartEmptyState({
     experimentStarted,
     hasMinimumExposure,
     error,
-    onErrorHover,
-    onErrorLeave,
+    metric,
 }: ChartEmptyStateProps): JSX.Element {
     return (
         // eslint-disable-next-line react/forbid-dom-props
@@ -42,37 +41,12 @@ export function ChartEmptyState({
             ) : (
                 <div className="flex items-center justify-center text-secondary cursor-default text-[12px] font-normal">
                     {error?.hasDiagnostics ? (
-                        <LemonTag
-                            size="small"
-                            type="highlight"
-                            className="mr-2 cursor-pointer"
-                            onMouseEnter={onErrorHover}
-                            onMouseLeave={onErrorLeave}
-                        >
-                            <IconActivity className="mr-1" fontSize="1em" />
-                            <span className="font-semibold">
-                                {(() => {
-                                    try {
-                                        return Object.values(error.detail).filter((v) => v === false).length
-                                    } catch {
-                                        return '0'
-                                    }
-                                })()}
-                            </span>
-                            /<span className="font-semibold">{error.metricType === 'trend' ? '3' : '2'}</span>
-                        </LemonTag>
+                        <ErrorChecklist error={error} metric={metric} />
                     ) : (
-                        <LemonTag
-                            size="small"
-                            type="danger"
-                            className="mr-1 cursor-pointer"
-                            onMouseEnter={onErrorHover}
-                            onMouseLeave={onErrorLeave}
-                        >
+                        <LemonTag size="small" type="danger" className="mr-1 cursor-pointer">
                             Error
                         </LemonTag>
                     )}
-                    <span>Results not yet available</span>
                 </div>
             )}
         </div>
