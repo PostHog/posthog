@@ -220,7 +220,7 @@ def _get_table_average_row_size(
         logger.debug(f"_get_table_average_row_size: No results returned.")
         return None
 
-    row_size_bytes = row[0] or 1
+    row_size_bytes = max(row[0] or 0, 1)
     return row_size_bytes
 
 
