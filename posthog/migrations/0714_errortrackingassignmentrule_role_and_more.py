@@ -3,7 +3,7 @@
 from django.db import migrations, models
 import django.db.models.deletion
 
-# # ORIGINIAL migration
+# # ORIGINAL migration
 # class Migration(migrations.Migration):
 #     dependencies = [
 #         ("ee", "0025_role_members"),
