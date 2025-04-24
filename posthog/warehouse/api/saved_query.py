@@ -12,7 +12,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.models import Team
-from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between, Change
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between, Change, load_activity
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
 from posthog.hogql.errors import ExposedHogQLError
@@ -37,6 +38,7 @@ from posthog.warehouse.data_load.saved_query_service import (
     sync_saved_query_workflow,
     delete_saved_query_schedule,
 )
+from rest_framework.response import Response
 import uuid
 import hashlib
 
@@ -387,6 +389,24 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             descendants = descendants.union(map(try_convert_to_uuid, model_path.path[start:end]))
 
         return response.Response({"descendants": descendants})
+
+    @action(methods=["GET"], detail=True, required_scopes=["activity_log:read"])
+    def activity(self, request: request.Request, **kwargs):
+        limit = int(request.query_params.get("limit", "10"))
+        page = int(request.query_params.get("page", "1"))
+
+        item_id = kwargs["pk"]
+        if not DataWarehouseSavedQuery.objects.filter(id=item_id, team_id=self.team_id).exists():
+            return Response("", status=status.HTTP_404_NOT_FOUND)
+
+        activity_page = load_activity(
+            scope="DataWarehouseSavedQuery",
+            team_id=self.team_id,
+            item_ids=[str(item_id)],
+            limit=limit,
+            page=page,
+        )
+        return activity_page_response(activity_page, limit, page, request)
 
 
 def try_convert_to_uuid(s: str) -> uuid.UUID | str:

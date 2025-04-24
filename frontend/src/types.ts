@@ -4251,6 +4251,7 @@ export enum ActivityScope {
     COHORT = 'Cohort',
     TEAM = 'Team',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
+    DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
 }
 
 export type CommentType = {
