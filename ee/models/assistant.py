@@ -22,9 +22,11 @@ class Conversation(UUIDModel):
 
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.IDLE)
     type = models.CharField(max_length=20, choices=Type.choices, default=Type.ASSISTANT)
-    title = models.TextField(null=True, blank=True, help_text="Title of the conversation.", max_length=250)
+    title = models.CharField(null=True, blank=True, help_text="Title of the conversation.", max_length=250)
 
     @property
     def is_locked(self) -> bool:

@@ -1144,10 +1144,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(str(cm.exception), "Invalid insight type: invalid_type")
 
     @patch("ee.hogai.graph.title_generator.nodes.TitleGeneratorNode._model")
-    def test_conversation_title_is_set(self, title_generator_model_mock):
-        """Test that a title is generated and set for a new conversation."""
+    def test_conversation_metadata_updated(self, title_generator_model_mock):
+        """Test that metadata (title, created_at, updated_at) is generated and set for a new conversation."""
         # Create a test graph with only the title generator node
         graph = AssistantGraph(self.team).add_title_generator().compile()
+        initial_updated_at = self.conversation.updated_at
+        initial_created_at = self.conversation.created_at
 
         self.assertIsNone(self.conversation.title)
 
@@ -1167,3 +1169,5 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.conversation.refresh_from_db()
         # Verify the title has been set
         self.assertEqual(self.conversation.title, "Generated Conversation Title")
+        self.assertGreater(self.conversation.updated_at, initial_updated_at)
+        self.assertEqual(self.conversation.created_at, initial_created_at)
