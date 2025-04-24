@@ -20,6 +20,8 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from django.db.models import Count
 from posthog.models import HogFunction
 from django.core.cache import cache
+from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
+from django.conf import settings
 
 
 logger = structlog.get_logger(__name__)
@@ -58,18 +60,55 @@ class HogFunctionTemplates:
 
     @classmethod
     def templates(cls):
+        if getattr(settings, "USE_DB_TEMPLATES", False):
+            return cls._get_templates_from_db()
         cls._load_templates()
         return cls._cached_templates
 
     @classmethod
     def sub_templates(cls):
+        if getattr(settings, "USE_DB_TEMPLATES", False):
+            return cls._get_sub_templates_from_db()
         cls._load_templates()
         return cls._cached_sub_templates
 
     @classmethod
     def template(cls, template_id: str):
+        if getattr(settings, "USE_DB_TEMPLATES", False):
+            return cls._get_template_from_db(template_id)
         cls._load_templates()
         return cls._cached_templates_by_id.get(template_id, cls._cached_sub_templates_by_id.get(template_id))
+
+    @classmethod
+    def _get_templates_from_db(cls):
+        """Get templates from the database instead of in-memory storage"""
+        db_templates = DBHogFunctionTemplate.get_latest_templates()
+        return [template.to_dataclass() for template in db_templates]
+
+    @classmethod
+    def _get_sub_templates_from_db(cls):
+        """Get derived sub-templates from the database templates"""
+        # Get templates first
+        templates = cls._get_templates_from_db()
+        # Then derive sub-templates from them
+        return derive_sub_templates(templates=templates)
+
+    @classmethod
+    def _get_template_from_db(cls, template_id: str):
+        """Get a specific template from the database by ID"""
+        # Check if it's a regular template
+        db_template = DBHogFunctionTemplate.get_template(template_id)
+        if db_template:
+            return db_template.to_dataclass()
+
+        # If not, it might be a sub-template
+        # First get all sub-templates and search through them
+        sub_templates = cls._get_sub_templates_from_db()
+        for sub_template in sub_templates:
+            if sub_template.id == template_id:
+                return sub_template
+
+        return None
 
     @classmethod
     def _load_templates(cls):

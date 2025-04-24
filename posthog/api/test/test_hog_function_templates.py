@@ -10,6 +10,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTes
 from posthog.cdp.templates.slack.template_slack import template
 from posthog.models import HogFunction
 from django.core.cache import cache
+from posthog.models.hog_function_template import HogFunctionTemplate as DBHogFunctionTemplate
 
 MOCK_NODE_TEMPLATES = json.loads(
     open(os.path.join(os.path.dirname(__file__), "__data__/hog_function_templates.json")).read()
@@ -155,3 +156,181 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         results = response.json()["results"]
         assert results[0]["id"] == "template-slack"
         assert results[1]["id"] == "template-webhook"
+
+
+class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def setUp(self):
+        super().setUp()
+        # Clear any existing templates
+        DBHogFunctionTemplate.objects.all().delete()
+
+        # Create some test templates in the database
+        self.template1 = DBHogFunctionTemplate.create_from_dataclass(template)
+
+        # Create a second version of the same template to test latest retrieval
+        # We need to convert the sub_templates properly to ensure they're correctly structured
+        sub_templates_json = []
+        if template.sub_templates:
+            for st in template.sub_templates:
+                sub_template_dict = {
+                    "id": st.id,
+                    "name": st.name,
+                    "description": st.description,
+                    "type": st.type,  # Make sure we include the type field
+                }
+                # Include other fields that might be needed
+                if hasattr(st, "filters") and st.filters:
+                    sub_template_dict["filters"] = st.filters
+                sub_templates_json.append(sub_template_dict)
+
+        self.newer_template = DBHogFunctionTemplate.objects.create(
+            template_id="template-slack",
+            version="newer-version",
+            name="Newer Slack",
+            description="Updated Slack template",
+            hog="return updated_event",
+            inputs_schema=template.inputs_schema,
+            type="destination",
+            status="stable",
+            category=["Customer Success"],
+            free=True,
+            sub_templates=sub_templates_json,
+        )
+
+        # Create a different template type
+        self.webhook_template = DBHogFunctionTemplate.objects.create(
+            template_id="template-webhook",
+            version="1.0.0",
+            name="Webhook",
+            description="Generic webhook template",
+            hog="return event",
+            inputs_schema={},
+            type="destination",
+            status="stable",
+            category=["Integrations"],
+            free=True,
+        )
+
+        # Create a deprecated template
+        self.deprecated_template = DBHogFunctionTemplate.objects.create(
+            template_id="template-deprecated",
+            version="1.0.0",
+            name="Deprecated Template",
+            description="A deprecated template",
+            hog="return event",
+            inputs_schema={},
+            type="destination",
+            status="deprecated",
+            category=["Other"],
+            free=True,
+        )
+
+    @patch("posthog.api.hog_function_template.settings")
+    def test_get_templates_from_db(self, mock_settings):
+        """Test retrieving templates from the database"""
+        mock_settings.USE_DB_TEMPLATES = True
+
+        # Test getting all templates
+        templates = HogFunctionTemplates.templates()
+
+        # Should have two templates (excluding deprecated)
+        assert len(templates) == 2
+
+        # Verify the templates are returned as DTOs
+        template_ids = {t.id for t in templates}
+        assert "template-slack" in template_ids
+        assert "template-webhook" in template_ids
+        assert "template-deprecated" not in template_ids
+
+        # Verify we get the latest version of the template
+        slack_template = next(t for t in templates if t.id == "template-slack")
+        assert slack_template.name == "Newer Slack"
+
+    @patch("posthog.api.hog_function_template.settings")
+    def test_get_specific_template_from_db(self, mock_settings):
+        """Test retrieving a specific template from the database"""
+        mock_settings.USE_DB_TEMPLATES = True
+
+        # Test getting a specific template
+        slack_template = HogFunctionTemplates.template("template-slack")
+
+        # Verify it's the newest version
+        assert slack_template is not None
+        assert slack_template.name == "Newer Slack"
+
+        # Get all sub-templates first to verify they exist
+        all_sub_templates = HogFunctionTemplates.sub_templates()
+        assert len(all_sub_templates) > 0
+
+        # Get one of the sub-templates that we know exists
+        first_sub_template_id = all_sub_templates[0].id
+        sub_template = HogFunctionTemplates.template(first_sub_template_id)
+
+        # Verify the sub-template was found
+        assert sub_template is not None
+        assert sub_template.id == first_sub_template_id
+
+        # Verify non-existent template returns None
+        non_existent = HogFunctionTemplates.template("non-existent-template")
+        assert non_existent is None
+
+    @patch("posthog.api.hog_function_template.settings")
+    def test_toggle_returns_in_memory_templates_when_off(self, mock_settings):
+        """Test that in-memory templates are used when USE_DB_TEMPLATES is False"""
+        # Setup: First create a distinct template in the DB with a unique name
+        # that doesn't exist in the in-memory templates
+        DBHogFunctionTemplate.objects.create(
+            template_id="unique-db-template",
+            version="1.0.0",
+            name="Unique DB Template",
+            description="This template only exists in the database",
+            hog="return event",
+            inputs_schema={},
+            type="destination",
+            status="stable",
+            category=["Testing"],
+            free=True,
+        )
+
+        # Mock the in-memory templates
+        with patch("posthog.api.hog_function_template.get_hog_function_templates") as mock_get_templates:
+            mock_get_templates.return_value.status_code = 200
+            mock_get_templates.return_value.json.return_value = MOCK_NODE_TEMPLATES
+
+            # 1. First test with USE_DB_TEMPLATES = True
+            mock_settings.USE_DB_TEMPLATES = True
+
+            # Get templates from database
+            db_templates = HogFunctionTemplates.templates()
+
+            # Verify our unique DB template is included
+            db_template_ids = [t.id for t in db_templates]
+            assert "unique-db-template" in db_template_ids
+
+            # Get the specific template
+            db_specific = HogFunctionTemplates.template("unique-db-template")
+            assert db_specific is not None
+            assert db_specific.name == "Unique DB Template"
+
+            # 2. Now test with USE_DB_TEMPLATES = False
+            mock_settings.USE_DB_TEMPLATES = False
+
+            # Force reload of in-memory templates
+            HogFunctionTemplates._cache_until = None
+
+            # Get templates from in-memory
+            memory_templates = HogFunctionTemplates.templates()
+
+            # Verify our unique DB template is NOT included
+            memory_template_ids = [t.id for t in memory_templates]
+            assert "unique-db-template" not in memory_template_ids
+
+            # Get the specific template - should be None since it only exists in DB
+            memory_specific = HogFunctionTemplates.template("unique-db-template")
+            assert memory_specific is None
+
+            # But we should get the regular slack template from in-memory
+            slack = HogFunctionTemplates.template("template-slack")
+            assert slack is not None
+            # Verify it's not the DB version (which has name "Newer Slack")
+            assert slack.name != "Newer Slack"
