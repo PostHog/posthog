@@ -48,7 +48,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
     sync_frequency = serializers.SerializerMethodField()
-    versions = VersionSerializer(read_only=True, many=True)
+    versions = serializers.SerializerMethodField()
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -102,6 +102,10 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     def get_sync_frequency(self, schema: DataWarehouseSavedQuery):
         return sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval)
 
+    def get_versions(self, obj):
+        versions = obj.versions.all().order_by("-created_at")[:5]  # Get latest 5 versions
+        return VersionSerializer(versions, many=True).data
+
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
@@ -142,7 +146,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
         return view
 
-    def next_version(self, validated_data: Any) -> Version:
+    def next_version(self, validated_data: Any, parent_version: Version | None = None) -> Version:
         try:
             content_hash = Content.get_content_hash(validated_data["query"]["query"])
         except Exception:
@@ -152,7 +156,10 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         content = Content.objects.filter(team_id=self.context["team_id"], content_hash=content_hash).first()
         if content:
             version = Version.objects.create(
-                team_id=self.context["team_id"], content_hash=content_hash, created_by=self.context["request"].user
+                team_id=self.context["team_id"],
+                content_hash=content_hash,
+                created_by=self.context["request"].user,
+                parent_version=parent_version,
             )
         else:
             # Create new content
@@ -160,7 +167,10 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 team_id=self.context["team_id"], content_hash=content_hash, content=validated_data["query"]["query"]
             )
             version = Version.objects.create(
-                team_id=self.context["team_id"], content_hash=content_hash, created_by=self.context["request"].user
+                team_id=self.context["team_id"],
+                content_hash=content_hash,
+                created_by=self.context["request"].user,
+                parent_version=parent_version,
             )
 
         return version
@@ -184,6 +194,8 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
             # Only update columns and status if the query has changed
             if "query" in validated_data:
+                version = self.next_version(validated_data, instance.versions.latest("created_at"))
+                DataWarehouseSavedQueryVersion.objects.create(saved_query=view, version=version)
                 try:
                     # The columns will be inferred from the query
                     client_types = self.context["request"].data.get("types", [])

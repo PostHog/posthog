@@ -655,6 +655,20 @@ class TestSavedQuery(APIBaseTest):
             versions[0]["content_hash"], Content.get_content_hash("select event as event from events LIMIT 100")
         )
 
+        with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
+            mock_get_columns.return_value = {}
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"query": {"query": "select event as event from events LIMIT 10"}},
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+            saved_query = response.json()
+            versions = saved_query["versions"]
+            self.assertEqual(len(versions), 2)
+            self.assertEqual(
+                versions[1]["content_hash"], Content.get_content_hash("select event as event from events LIMIT 10")
+            )
+
     def test_next_version_existing_content(self):
         content_hash = Content.get_content_hash("select event as event from events LIMIT 100")
         Content.objects.create(
@@ -675,3 +689,36 @@ class TestSavedQuery(APIBaseTest):
 
         contents = Content.objects.filter(team_id=self.team.id, content_hash=content_hash)
         self.assertEqual(len(contents), 1)
+
+    def test_next_version_limit(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+        versions = saved_query["versions"]
+        self.assertEqual(
+            versions[0]["content_hash"], Content.get_content_hash("select event as event from events LIMIT 100")
+        )
+
+        with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
+            mock_get_columns.return_value = {}
+            for i in range(10):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                    {"query": {"query": f"select event as event from events LIMIT {i}"}},
+                )
+                self.assertEqual(response.status_code, 200, response.content)
+                saved_query = response.json()
+                versions = saved_query["versions"]
+
+            self.assertEqual(len(versions), 5)
+            content = Content.objects.filter(team_id=self.team.id, content_hash=versions[0]["content_hash"]).first()
+            self.assertEqual(content.content, "select event as event from events LIMIT 9")
