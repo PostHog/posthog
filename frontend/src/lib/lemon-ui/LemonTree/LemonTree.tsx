@@ -1352,9 +1352,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
                                 // Note: For project tree, we have ids like `project-folder/Unfiled/new name \/ test \/ 2`, the last part is the name
                                 // so we need to build a new id with the new name and pass it to focusElementFromId
-                                // since split() method only splits on the exact character you specify (in this case /), not on escaped versions of it (\/).
                                 const newId = item.id.includes('/')
-                                    ? // if the id includes a /, we need to build a new id with the new name
+                                    ? // grab everything before the last / and add the new name
                                       item.id.split('/').slice(0, -1).join('/') + '/' + name
                                     : // if the id does not include a /, we can just use the new name
                                       name
