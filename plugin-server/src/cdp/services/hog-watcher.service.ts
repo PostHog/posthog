@@ -30,9 +30,9 @@ export const hogFunctionExecutionTimeSummary = new Histogram({
     labelNames: ['kind'],
 })
 
-export const hogTransformationDisabled = new Counter({
-    name: 'hog_transformation_disabled_total',
-    help: 'Number of times a transformation was skipped due to being disabled',
+export const hogFunctionStateChange = new Counter({
+    name: 'hog_function_state_change',
+    help: 'Number of times a transformation state changed',
     labelNames: ['state', 'kind'],
 })
 
@@ -239,7 +239,7 @@ export class HogWatcherService {
 
             // Finally track the results
             for (const id of functionsToDisablePermanently) {
-                hogTransformationDisabled
+                hogFunctionStateChange
                     .labels({
                         state: 'disabled_indefinitely',
                         kind: functionTypes[id],
@@ -250,7 +250,7 @@ export class HogWatcherService {
 
             for (const id of functionsTempDisabled) {
                 if (!functionsToDisablePermanently.includes(id)) {
-                    hogTransformationDisabled
+                    hogFunctionStateChange
                         .labels({
                             state: 'disabled_for_period',
                             kind: functionTypes[id],

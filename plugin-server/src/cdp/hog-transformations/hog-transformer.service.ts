@@ -174,6 +174,16 @@ export class HogTransformerService {
 
                         // If the function is in a degraded state, skip it
                         if (functionState && functionState >= HogWatcherState.disabledForPeriod) {
+                            this.hogFunctionMonitoringService.produceAppMetric({
+                                team_id: event.team_id,
+                                app_source_id: hogFunction.id,
+                                metric_kind: 'failure',
+                                metric_name:
+                                    functionState === HogWatcherState.disabledForPeriod
+                                        ? 'disabled_temporarily'
+                                        : 'disabled_permanently',
+                                count: 1,
+                            })
                             continue
                         }
                     }
