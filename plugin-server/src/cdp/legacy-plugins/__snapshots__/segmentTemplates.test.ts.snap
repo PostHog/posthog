@@ -40390,7 +40390,7 @@ exports[`segment templates template 104 matches expected format 1`] = `
           "type": "string",
         },
         {
-          "default": "{event.properties.$lib ?? segment}",
+          "default": "{event.properties.$lib ?? 'segment'}",
           "description": "Optional agent identifier that originated the event. Used to identify which SDK generated the event.",
           "key": "agent",
           "label": "Agent",
@@ -40468,7 +40468,7 @@ exports[`segment templates template 104 matches expected format 1`] = `
           "type": "string",
         },
         {
-          "default": "{event.properties.$lib ?? segment}",
+          "default": "{event.properties.$lib ?? 'segment'}",
           "description": "Optional agent identifier that originated the event. Used to identify which SDK generated the event.",
           "key": "agent",
           "label": "Agent",
@@ -40546,7 +40546,7 @@ exports[`segment templates template 104 matches expected format 1`] = `
           "type": "string",
         },
         {
-          "default": "{event.properties.$lib ?? segment}",
+          "default": "{event.properties.$lib ?? 'segment'}",
           "description": "Optional agent identifier that originated the event. Used to identify which SDK generated the event.",
           "key": "agent",
           "label": "Agent",
@@ -40606,7 +40606,7 @@ exports[`segment templates template 104 matches expected format 1`] = `
           "type": "string",
         },
         {
-          "default": "{event.properties.$lib ?? segment}",
+          "default": "{event.properties.$lib ?? 'segment'}",
           "description": "Optional agent identifier that originated the event. Used to identify which SDK generated the event.",
           "key": "agent",
           "label": "Agent",
@@ -65089,7 +65089,7 @@ exports[`segment templates template 167 matches expected format 1`] = `
           "type": "string",
         },
         {
-          "default": "{person.properties.status ?? unsubscribed}",
+          "default": "{person.properties.status ?? 'unsubscribed'}",
           "description": "The person's subscription status.",
           "key": "status",
           "label": "Status",

@@ -225,12 +225,16 @@ const translateInputs = (defaultVal: any) => {
                 if (typeof val === 'object' && val['@path']) {
                     val = val['@path'].replace('$.', 'event.')
                     val = normalizeValue(val)
+                } else if (typeof val === 'string') {
+                    val = `'${val}'`
                 }
 
                 let fallbackVal = defaultVal['@if'].else
                 if (typeof fallbackVal === 'object' && fallbackVal['@path']) {
                     fallbackVal = fallbackVal['@path'].replace('$.', 'event.')
                     fallbackVal = normalizeValue(fallbackVal)
+                } else if (typeof fallbackVal === 'string') {
+                    fallbackVal = `'${fallbackVal}'`
                 }
 
                 if (val === '' && fallbackVal === '') {
