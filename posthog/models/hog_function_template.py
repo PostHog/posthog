@@ -3,7 +3,6 @@ from typing import Optional, cast
 import hashlib
 import structlog
 import dataclasses
-from django.db import transaction
 
 from posthog.models.utils import UUIDModel
 from posthog.cdp.templates.hog_function_template import (
@@ -284,29 +283,26 @@ class HogFunctionTemplate(UUIDModel):
             )
             bytecode = None
 
-        # Use atomic transaction with get_or_create to handle race conditions
-        with transaction.atomic():
-            template, _ = cls.objects.get_or_create(
-                template_id=dataclass_template.id,
-                version=version,
-                defaults={
-                    "name": dataclass_template.name,
-                    "description": dataclass_template.description,
-                    "hog": dataclass_template.hog,
-                    "inputs_schema": dataclass_template.inputs_schema,
-                    "bytecode": bytecode,
-                    "type": dataclass_template.type,
-                    "status": dataclass_template.status,
-                    "category": dataclass_template.category,
-                    "kind": dataclass_template.kind,
-                    "free": dataclass_template.free,
-                    "icon_url": dataclass_template.icon_url,
-                    "filters": dataclass_template.filters,
-                    "masking": dataclass_template.masking,
-                    "sub_templates": sub_templates,
-                    "mappings": mappings,
-                    "mapping_templates": mapping_templates,
-                },
-            )
-
-            return template
+        template, _ = cls.objects.get_or_create(
+            template_id=dataclass_template.id,
+            version=version,
+            defaults={
+                "name": dataclass_template.name,
+                "description": dataclass_template.description,
+                "hog": dataclass_template.hog,
+                "inputs_schema": dataclass_template.inputs_schema,
+                "bytecode": bytecode,
+                "type": dataclass_template.type,
+                "status": dataclass_template.status,
+                "category": dataclass_template.category,
+                "kind": dataclass_template.kind,
+                "free": dataclass_template.free,
+                "icon_url": dataclass_template.icon_url,
+                "filters": dataclass_template.filters,
+                "masking": dataclass_template.masking,
+                "sub_templates": sub_templates,
+                "mappings": mappings,
+                "mapping_templates": mapping_templates,
+            },
+        )
+        return template
