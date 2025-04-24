@@ -2,7 +2,6 @@ from typing import Union
 
 from posthog.hogql import ast
 from posthog.schema import (
-    CurrencyCode,
     RevenueAnalyticsEventItem,
 )
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
@@ -14,8 +13,6 @@ from posthog.hogql.database.models import (
     Table,
     FieldOrTable,
 )
-
-DEFAULT_CURRENCY = CurrencyCode.USD
 
 
 class ExchangeRateTable(Table):
@@ -52,7 +49,7 @@ def currency_expression_for_events(
 ) -> ast.Expr:
     # Shouldn't happen but we need it here to make the type checker happy
     if not event_config.revenueCurrencyProperty:
-        return ast.Constant(value=config.base_currency or DEFAULT_CURRENCY.value)
+        return ast.Constant(value=config.base_currency)
 
     if event_config.revenueCurrencyProperty.property:
         return ast.Call(
@@ -60,8 +57,10 @@ def currency_expression_for_events(
             args=[ast.Field(chain=["events", "properties", event_config.revenueCurrencyProperty.property])],
         )
 
-    currency = event_config.revenueCurrencyProperty.static.value or config.base_currency or DEFAULT_CURRENCY.value
-    return ast.Constant(value=currency)
+    if event_config.revenueCurrencyProperty.static:
+        return ast.Constant(value=event_config.revenueCurrencyProperty.static.value)
+
+    return ast.Constant(value=config.base_currency)
 
 
 # Given the base config, check that we're looking at the right event and match the right currency to it
@@ -124,7 +123,7 @@ def revenue_comparison_and_value_exprs_for_events(
                 convert_currency_call(
                     amount_expr,
                     currency_expression_for_events(config, event_config),
-                    ast.Constant(value=config.base_currency or DEFAULT_CURRENCY.value),
+                    ast.Constant(value=config.base_currency),
                     ast.Call(name="_toDate", args=[ast.Field(chain=["events", "timestamp"])]),
                 ),
             ],
