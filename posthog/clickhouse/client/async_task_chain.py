@@ -43,20 +43,6 @@ def get_task_chain() -> list[tuple[Signature, "QueryStatusManager", QueryStatus]
     return _thread_locals.task_chain
 
 
-def set_parallelism(value: int) -> None:
-    """
-    Sets the parallelism in thread-local storage.
-    """
-    _thread_locals.parallelism = value
-
-
-def get_parallelism() -> int:
-    """
-    Retrieves the parallelism from thread-local storage. Defaults to 1.
-    """
-    return getattr(_thread_locals, "parallelism", 1)
-
-
 def set_in_context(value) -> None:
     """
     Sets the in_context flag in thread-local storage.
@@ -83,13 +69,15 @@ def add_task_to_on_commit(task_signature: Signature, manager: "QueryStatusManage
         transaction.on_commit(partial(kick_off_task, manager, query_status, task_signature))
 
 
-def execute_task_chain() -> None:
+def execute_task_chain(parallelism: int = 1) -> None:
     """
     Executes the task chain after the transaction is committed, supporting parallelism.
+
+    Args:
+        parallelism: number of tasks to run in parallel
     """
     task_chain = get_task_chain()
     if task_chain:
-        parallelism = get_parallelism()
         tasks_signatures = [args[0] for args in task_chain]
 
         if parallelism <= 1 or len(tasks_signatures) <= 1:
@@ -128,11 +116,9 @@ def task_chain_context(parallelism: int = 1) -> typing.Iterator[None]:
         raise ValueError("parallelism must be a positive integer")
 
     set_in_context(True)
-    set_parallelism(parallelism)
     try:
         yield
     finally:
         # Reset context flag and schedule execution
         set_in_context(False)
-        set_parallelism(1)
-        transaction.on_commit(execute_task_chain)
+        transaction.on_commit(partial(execute_task_chain, parallelism=parallelism))
