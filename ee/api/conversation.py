@@ -52,7 +52,7 @@ class ConversationSerializer(serializers.ModelSerializer):
         try:
             state = AssistantState.model_validate(snapshot.values)
             return state.model_dump()["messages"]
-        except:
+        except (pydantic.ValidationError, KeyError):
             return []
 
 
