@@ -48,7 +48,11 @@ class Command(BaseCommand):
 
             # Parse rollout date
             rollout_date_str = options.get("rollout_date")
-            rollout_date = datetime.strptime(rollout_date_str, "%Y-%m-%d").date()
+            try:
+                rollout_date = datetime.strptime(rollout_date_str, "%Y-%m-%d").date()
+            except ValueError:
+                self.stdout.write(self.style.ERROR(f"Invalid date format. Please use YYYY-MM-DD format."))
+                return
 
             self.stdout.write(f"Using rollout date: {rollout_date}")
 
