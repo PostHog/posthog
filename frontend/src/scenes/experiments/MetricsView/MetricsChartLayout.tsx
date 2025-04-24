@@ -53,7 +53,10 @@ export function MetricsChartLayout({
                 {/* Container for metric title that will match the chart height */}
                 <div
                     // eslint-disable-next-line react/forbid-dom-props
-                    style={{ height: `${chartSvgHeight}px`, borderRight: '1px solid var(--border-primary)' }}
+                    style={{
+                        height: `${Math.max(chartSvgHeight, 80)}px`,
+                        borderRight: '1px solid var(--border-primary)',
+                    }}
                     className="p-2"
                 >
                     {metricTitlePanel}
