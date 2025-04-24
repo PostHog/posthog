@@ -135,9 +135,6 @@ class TestHogFunctionTemplate(TestCase):
             status="deprecated",
         )
 
-        # Create templates with multiple versions
-        import time
-
         # First versions
         self._create_template(
             template_id="template-a",
@@ -152,9 +149,6 @@ class TestHogFunctionTemplate(TestCase):
             name="Template B v1",
             status="alpha",
         )
-
-        # Ensure created_at timestamps will be different
-        time.sleep(0.001)
 
         # Second versions
         self._create_template(
