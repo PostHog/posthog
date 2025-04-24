@@ -121,3 +121,63 @@ def test_load_session_data(mock_raw_events: list[list[Any]], mock_raw_metadata: 
     assert first_event[6] == "url_1"  # url mapped
     assert isinstance(first_event[-2], str)  # event_id is hex string
     assert first_event[-1] == 0  # event_index is 0 for first event
+
+
+def test_prepare_metadata_missing_required_fields() -> None:
+    prompt_data = SessionSummaryPromptData()
+
+    # Test missing start_time
+    with pytest.raises(ValueError, match="start_time is required"):
+        prompt_data._prepare_metadata({"console_error_count": 1, "duration": 100})
+
+    # Test missing console_error_count
+    with pytest.raises(ValueError, match="console_error_count is required"):
+        prompt_data._prepare_metadata({"start_time": "2025-03-31T18:40:32.302000Z", "duration": 100})
+
+    # Test missing duration and recording_duration
+    with pytest.raises(ValueError, match="duration/recording_duration is required"):
+        prompt_data._prepare_metadata({"start_time": "2025-03-31T18:40:32.302000Z", "console_error_count": 1})
+
+
+def test_load_session_data_empty_events(mock_raw_metadata: dict[str, Any]) -> None:
+    prompt_data = SessionSummaryPromptData()
+    raw_columns = ["event", "timestamp"]
+    session_id = "test_session_id"
+
+    with pytest.raises(ValueError, match="No session events provided"):
+        prompt_data.load_session_data([], mock_raw_metadata, raw_columns, session_id)
+
+
+def test_load_session_data_empty_metadata(mock_raw_events: list[list[Any]]) -> None:
+    prompt_data = SessionSummaryPromptData()
+    raw_columns = ["event", "timestamp"]
+    session_id = "test_session_id"
+
+    with pytest.raises(ValueError, match="No session metadata provided"):
+        prompt_data.load_session_data(mock_raw_events, {}, raw_columns, session_id)
+
+
+def test_metadata_to_dict() -> None:
+    """Test the to_dict method of SessionSummaryMetadata."""
+    metadata = SessionSummaryMetadata(
+        start_time=datetime(2025, 3, 31, 18, 40, 32, 302000),
+        duration=5323,
+        console_error_count=114,
+        active_seconds=1947,
+        click_count=679,
+        keypress_count=668,
+        mouse_activity_count=6629,
+        start_url="https://example.com",
+    )
+
+    result = metadata.to_dict()
+
+    assert isinstance(result, dict)
+    assert result["start_time"] == "2025-03-31T18:40:32.302000"
+    assert result["duration"] == 5323
+    assert result["console_error_count"] == 114
+    assert result["active_seconds"] == 1947
+    assert result["click_count"] == 679
+    assert result["keypress_count"] == 668
+    assert result["mouse_activity_count"] == 6629
+    assert result["start_url"] == "https://example.com"
