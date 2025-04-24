@@ -205,10 +205,10 @@ class HogFunctionTemplate(UUIDModel):
         This should be called after changing the hog field.
         """
         try:
-            from posthog.hogql.bytecode import compile_bytecode
+            from posthog.cdp.validation import compile_hog
 
             # Compile the hog source to bytecode and store it in the database field
-            self.bytecode = compile_bytecode(self.hog)
+            self.bytecode = compile_hog(self.hog, self.type)
         except Exception as e:
             logger.error(
                 "Failed to compile template bytecode",
@@ -230,6 +230,7 @@ class HogFunctionTemplate(UUIDModel):
             The saved database template instance
         """
         from posthog.cdp.templates.hog_function_template import HogFunctionTemplate as DataclassTemplate
+        from posthog.cdp.validation import compile_hog
         import json
 
         # Verify the dataclass_template is the correct type
@@ -260,9 +261,7 @@ class HogFunctionTemplate(UUIDModel):
 
         # Compile bytecode
         try:
-            from posthog.hogql.bytecode import compile_bytecode
-
-            bytecode = compile_bytecode(dataclass_template.hog)
+            bytecode = compile_hog(dataclass_template.hog, dataclass_template.type)
         except Exception as e:
             logger.error(
                 "Failed to compile template bytecode during creation",
