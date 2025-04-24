@@ -124,9 +124,9 @@ export type CdpConfig = {
     CDP_FETCH_RETRIES: number
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
-    CDP_KAFKA_HOSTS?: string
-    CDP_KAFKA_SECURITY_PROTOCOL?: KafkaSecurityProtocol
-    CDP_KAFKA_CLIENT_ID?: string
+    KAFKA_CDP_HOSTS?: string
+    KAFKA_CDP_SECURITY_PROTOCOL?: KafkaSecurityProtocol
+    KAFKA_CDP_CLIENT_ID?: string
 }
 
 export type IngestionConsumerConfig = {

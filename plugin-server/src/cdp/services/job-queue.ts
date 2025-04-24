@@ -89,10 +89,10 @@ export class CyclotronJobQueue {
 
     public isHealthy() {
         if (this.implementation === 'cyclotron') {
-            return this.cyclotronWorker?.isHealthy()
+            return this.getCyclotronWorker().isHealthy()
+        } else {
+            return this.kafkaConsumer!.isHealthy()
         }
-        // TODO: Kafka version
-        return true
     }
 
     public async queueInvocations(invocations: HogFunctionInvocation[]) {
@@ -286,7 +286,7 @@ export class CyclotronJobQueue {
         const groupId = `cdp-cyclotron-${this.queue}-consumer`
         const topic = `cdp-cyclotron-${this.queue}`
 
-        // TODO: All of this
+        // NOTE: As there is only ever one consumer per process we use the KAFKA_CONSUMER_ vars as with any other consumer
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true })
 
         await this.kafkaConsumer.connect(async (messages) => {
@@ -295,8 +295,13 @@ export class CyclotronJobQueue {
     }
 
     private async startKafkaProducer() {
-        // TODO: This tbh
-        this.kafkaProducer = await KafkaProducerWrapper.create({})
+        // NOTE: For producing we use different values dedicated for Cyclotron as this is typically using its own Kafka cluster
+        this.kafkaProducer = await KafkaProducerWrapper.create(
+            {
+                ...this.hub,
+            },
+            'cdp_producer'
+        )
     }
 
     private async createKafkaJobs(invocations: HogFunctionInvocation[]) {

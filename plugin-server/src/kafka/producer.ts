@@ -14,7 +14,7 @@ import { PluginsServerConfig } from '../types'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '../utils/db/error'
 import { logger } from '../utils/logger'
 import { getSpan } from '../utils/sentry'
-import { createRdConnectionConfigFromEnvVars, getProducerConfigFromEnv } from './config'
+import { createRdConnectionConfigFromEnvVars, getProducerConfigFromEnv, KafkaConfigTarget } from './config'
 
 // TODO: Rewrite this description
 /** This class is a wrapper around the rdkafka producer, and does very little.
@@ -43,7 +43,7 @@ export class KafkaProducerWrapper {
     /** Kafka producer used for syncing Postgres and ClickHouse person data. */
     public producer: HighLevelProducer
 
-    static async create(config: PluginsServerConfig, mode: 'producer' | 'consumer' = 'producer') {
+    static async create(config: PluginsServerConfig, mode: KafkaConfigTarget = 'producer') {
         // NOTE: In addition to some defaults we allow overriding any setting via env vars.
         // This makes it much easier to react to issues without needing code changes
 
