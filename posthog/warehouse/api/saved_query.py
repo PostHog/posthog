@@ -12,7 +12,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.models import Team
-from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between, Change
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
 from posthog.hogql.errors import ExposedHogQLError
@@ -130,9 +130,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
             team = Team.objects.get(id=view.team_id)
 
-            changes = changes_between("DataWarehouseSavedQuery", previous=None, current=view)
-
-            activity_log = log_activity(
+            log_activity(
                 organization_id=team.organization_id,
                 team_id=team.id,
                 user=view.created_by,
@@ -140,10 +138,11 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 item_id=view.id,
                 scope="DataWarehouseSavedQuery",
                 activity="created",
-                detail=Detail(name=view.name, changes=changes),
+                detail=Detail(
+                    name=view.name,
+                    changes=[Change(field="query", action="created", type=None, before=None, after=view.query)],
+                ),
             )
-            # Add the activity log to context so the serializer can use it
-            self.context["activity_logs"] = {str(view.id): activity_log.id}
 
         return view
 
@@ -216,7 +215,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             team = Team.objects.get(id=view.team_id)
 
             changes = changes_between("DataWarehouseSavedQuery", previous=before_update, current=view)
-            activity_log = log_activity(
+            log_activity(
                 organization_id=team.organization_id,
                 team_id=team.id,
                 user=view.created_by,
@@ -226,8 +225,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 activity="updated",
                 detail=Detail(name=view.name, changes=changes),
             )
-            # Add the activity log to context so the serializer can use it
-            self.context["activity_logs"] = {str(view.id): activity_log.id}
 
         if was_sync_frequency_updated:
             schedule_exists = saved_query_workflow_exists(str(instance.id))

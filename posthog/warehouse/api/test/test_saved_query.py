@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
+from posthog.models import ActivityLog
 
 
 class TestSavedQuery(APIBaseTest):
@@ -682,3 +683,34 @@ class TestSavedQuery(APIBaseTest):
 
             self.assertEqual(response.status_code, 400, response.content)
             self.assertEqual(response.json()["detail"], "The query was modified by someone else.")
+
+            activity_logs = ActivityLog.objects.filter(
+                item_id=saved_query["id"], scope="DataWarehouseSavedQuery"
+            ).order_by("-created_at")
+            self.assertEqual(activity_logs.count(), 2)
+            self.assertEqual(activity_logs[0].activity, "updated")
+            query_change = next(change for change in activity_logs[0].detail["changes"] if change["field"] == "query")
+            self.assertEqual(
+                query_change["after"],
+                {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 10",
+                },
+            )
+            self.assertEqual(
+                query_change["before"],
+                {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            )
+            self.assertEqual(activity_logs[1].activity, "created")
+            query_change = next(change for change in activity_logs[1].detail["changes"] if change["field"] == "query")
+            self.assertEqual(
+                query_change["after"],
+                {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            )
+            self.assertEqual(query_change["before"], None)
