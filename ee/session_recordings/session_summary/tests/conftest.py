@@ -100,6 +100,25 @@ def mock_raw_metadata() -> dict[str, Any]:
 
 
 @pytest.fixture
+def mock_events_columns(self) -> list[str]:
+    return [
+        "event",
+        "timestamp",
+        "elements_chain_href",
+        "elements_chain_texts",
+        "elements_chain_elements",
+        "$window_id",
+        "$current_url",
+        "$event_type",
+        "elements_chain_ids",
+        "elements_chain",
+        # Added later through enrichment
+        "event_index",
+        "event_id",
+    ]
+
+
+@pytest.fixture
 def mock_raw_events() -> list[list[Any]]:
     return [
         # First segment events
@@ -112,6 +131,8 @@ def mock_raw_events() -> list[list[Any]]:
             "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
             "http://localhost:8010/login",
             "click",
+            [],
+            "",
         ],
         [
             "$autocapture",  # defg4567
@@ -122,6 +143,8 @@ def mock_raw_events() -> list[list[Any]]:
             "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
             "http://localhost:8010/login",
             "submit",
+            [],
+            "",
         ],
         [
             "$pageview",  # vbgs1287 - end of segment 0
@@ -132,6 +155,8 @@ def mock_raw_events() -> list[list[Any]]:
             "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
             "http://localhost:8010/signup",
             None,
+            [],
+            "",
         ],
         # Second segment events
         [
@@ -143,6 +168,8 @@ def mock_raw_events() -> list[list[Any]]:
             "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
             "http://localhost:8010/signup",
             "click",
+            [],
+            "",
         ],
         [
             "$autocapture",  # ghij7890
@@ -153,6 +180,8 @@ def mock_raw_events() -> list[list[Any]]:
             "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
             "http://localhost:8010/signup",
             "click",
+            [],
+            "",
         ],
         [
             "$autocapture",  # mnop3456
@@ -163,6 +192,8 @@ def mock_raw_events() -> list[list[Any]]:
             "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
             "http://localhost:8010/signup/error",
             "submit",
+            [],
+            "",
         ],
         [
             "$autocapture",  # stuv9012 - end of segment 1
@@ -173,5 +204,7 @@ def mock_raw_events() -> list[list[Any]]:
             "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
             "http://localhost:8010/signup/error",
             "click",
+            [],
+            "",
         ],
     ]
