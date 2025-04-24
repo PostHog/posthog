@@ -12,7 +12,7 @@ pub struct EnteredTimestamp {
     pub excluded: bool,
     pub timings: Vec<f64>,
     pub uuids: Vec<Uuid>,
-    pub optional_steps: Vec<i8>,
+    pub steps: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -40,7 +40,7 @@ pub struct Result(
     pub PropVal,
     pub Vec<f64>,
     pub Vec<Vec<Uuid>>,
-    pub Vec<i8>,
+    pub u32,
 );
 
 struct Vars {
@@ -57,12 +57,12 @@ struct AggregateFunnelRow {
 
 const MAX_REPLAY_EVENTS: usize = 10;
 
-const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
+pub const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     timestamp: 0.0,
     excluded: false,
     timings: vec![],
     uuids: vec![],
-    optional_steps: vec![],
+    steps: 0,
 };
 
 pub fn process_line(line: &str) -> Value {
@@ -129,7 +129,7 @@ impl AggregateFunnelRow {
                 excluded: false,
                 timings: vec![],
                 uuids: vec![],
-                optional_steps: vec![],
+                steps: 0,
             };
 
             if events_with_same_timestamp.len() == 1 {
@@ -186,7 +186,7 @@ impl AggregateFunnelRow {
 
         if final_value.excluded {
             self.results
-                .push(Result(-1, prop_val.clone(), vec![], vec![], vec![]));
+                .push(Result(-1, prop_val.clone(), vec![], vec![], 0));
             return;
         }
 
@@ -212,7 +212,7 @@ impl AggregateFunnelRow {
                 .map(|w| w[1] - w[0])
                 .collect(),
             vars.event_uuids,
-            final_value.optional_steps.clone(),
+            final_value.steps,
         ))
     }
 
@@ -284,19 +284,16 @@ impl AggregateFunnelRow {
                     if !is_unmatched_step_attribution && !already_used_event {
                         let mut t = previous_step.timings.clone();
                         let mut u = previous_step.uuids.clone();
-                        let mut optional_steps = previous_step.optional_steps.clone();
                         if !args.optional_steps.contains(&(step as i8)) {
                             t.push(event.timestamp);
                             u.push(event.uuid);
-                        } else {
-                            optional_steps.push(step as i8);
                         }
                         let new_entered_timestamp = EnteredTimestamp {
                             timestamp: previous_step.timestamp,
                             excluded: previous_step.excluded,
                             timings: t,
                             uuids: u,
-                            optional_steps: optional_steps,
+                            steps: previous_step.steps | (1 << (step - 1)),
                         };
 
                         if !previous_step.excluded {
