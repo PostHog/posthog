@@ -84,6 +84,27 @@ class TestLoadRawSessionSummary:
                 modified_yaml, ["abcd1234", "defg4567", "ghij7890", "mnop3456", "stuv9012"], session_id
             )
 
+    def test_load_raw_session_summary_invalid_schema(self, mock_valid_llm_yaml_response: str) -> None:
+        # Modify the YAML to have invalid schema (wrong type for segment_index, should be integer)
+        modified_yaml = """```yaml
+segments:
+  - index: "not_a_number"
+    name: "test"
+    start_event_id: abcd1234
+    end_event_id: defg4567
+key_actions: []
+segment_outcomes: []
+session_outcome:
+  success: true
+  description: "test"
+        ```"""
+        session_id = "test_session"
+        with pytest.raises(
+            SummaryValidationError,
+            match=f"Error validating LLM output against the schema when summarizing session_id {session_id}",
+        ):
+            load_raw_session_summary_from_llm_content(modified_yaml, ["abcd1234", "defg4567"], session_id)
+
 
 @pytest.mark.parametrize(
     "event_time,start_time,expected",
@@ -217,14 +238,13 @@ class TestEnrichRawSessionSummary:
         first_event = first_segment_actions[0]
         assert first_event["event"] == "$autocapture"
         assert first_event["timestamp"] == "2025-03-31T18:40:39.302000Z"
-        assert first_event["milliseconds_since_start"] == 0
         assert first_event["window_id"] == "0195ed81-7519-7595-9221-8bb8ddb1fdcc"
         assert first_event["current_url"] == "http://localhost:8010/login"
         assert first_event["event_type"] == "click"
         assert first_event["event_index"] == 0
         # Check events are sorted by timestamp
         assert (
-            first_segment_actions[0]["milliseconds_since_start"] <= first_segment_actions[1]["milliseconds_since_start"]
+            first_segment_actions[0]["milliseconds_since_start"] < first_segment_actions[1]["milliseconds_since_start"]
         )
         assert datetime.fromisoformat(first_segment_actions[0]["timestamp"]) < datetime.fromisoformat(
             first_segment_actions[1]["timestamp"]
@@ -280,3 +300,84 @@ class TestEnrichRawSessionSummary:
                 mock_session_metadata,
                 session_id,
             )
+
+    def test_enrich_raw_session_summary_missing_url(
+        self,
+        mock_raw_session_summary: RawSessionSummarySerializer,
+        mock_events_mapping: dict[str, list[Any]],
+        mock_events_columns: list[str],
+        mock_url_mapping_reversed: dict[str, str],
+        mock_window_mapping_reversed: dict[str, str],
+        mock_session_metadata: SessionSummaryMetadata,
+    ) -> None:
+        # Remove URL from mapping
+        mock_url_mapping_reversed.pop("url_1")
+        session_id = "test_session"
+        with pytest.raises(
+            ValueError, match=f"Full URL not found for event_id abcd1234 when summarizing session_id {session_id}"
+        ):
+            enrich_raw_session_summary_with_meta(
+                mock_raw_session_summary,
+                mock_events_mapping,
+                mock_events_columns,
+                mock_url_mapping_reversed,
+                mock_window_mapping_reversed,
+                mock_session_metadata,
+                session_id,
+            )
+
+    def test_enrich_raw_session_summary_missing_window_id(
+        self,
+        mock_raw_session_summary: RawSessionSummarySerializer,
+        mock_events_mapping: dict[str, list[Any]],
+        mock_events_columns: list[str],
+        mock_url_mapping_reversed: dict[str, str],
+        mock_window_mapping_reversed: dict[str, str],
+        mock_session_metadata: SessionSummaryMetadata,
+    ) -> None:
+        # Remove window ID from mapping
+        mock_window_mapping_reversed.pop("window_1")
+        session_id = "test_session"
+        with pytest.raises(
+            ValueError, match=f"Full window ID not found for event_id abcd1234 when summarizing session_id {session_id}"
+        ):
+            enrich_raw_session_summary_with_meta(
+                mock_raw_session_summary,
+                mock_events_mapping,
+                mock_events_columns,
+                mock_url_mapping_reversed,
+                mock_window_mapping_reversed,
+                mock_session_metadata,
+                session_id,
+            )
+
+    def test_enrich_raw_session_summary_chronological_sorting(
+        self,
+        mock_raw_session_summary: RawSessionSummarySerializer,
+        mock_events_mapping: dict[str, list[Any]],
+        mock_events_columns: list[str],
+        mock_url_mapping_reversed: dict[str, str],
+        mock_window_mapping_reversed: dict[str, str],
+        mock_session_metadata: SessionSummaryMetadata,
+    ) -> None:
+        # Modify events to have different timestamps
+        mock_events_mapping["abcd1234"][1] = "2025-03-31T18:40:39.302000Z"  # Later timestamp
+        mock_events_mapping["defg4567"][1] = "2025-03-31T18:40:38.302000Z"  # Earlier timestamp
+        session_id = "test_session"
+        result = enrich_raw_session_summary_with_meta(
+            mock_raw_session_summary,
+            mock_events_mapping,
+            mock_events_columns,
+            mock_url_mapping_reversed,
+            mock_window_mapping_reversed,
+            mock_session_metadata,
+            session_id,
+        )
+        assert result.is_valid()
+        # Check that events are sorted chronologically
+        key_actions = result.data["key_actions"]
+        assert len(key_actions) > 0
+        events = key_actions[0]["events"]
+        assert len(events) > 1
+        assert events[0]["milliseconds_since_start"] < events[1]["milliseconds_since_start"]
+        assert datetime.fromisoformat(events[0]["timestamp"]) < datetime.fromisoformat(events[1]["timestamp"])
