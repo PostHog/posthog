@@ -41,7 +41,7 @@ class MessageSerializer(serializers.Serializer):
 class ConversationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
-        fields = ["id", "status", "type", "messages"]
+        fields = ["id", "status", "title", "messages"]
         read_only_fields = fields
 
     messages = serializers.SerializerMethodField()

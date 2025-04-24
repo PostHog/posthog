@@ -280,7 +280,6 @@ class TestConversation(APIBaseTest):
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0]["id"], str(conversation1.id))
             self.assertEqual(results[0]["title"], "Conversation 1")
-            self.assertEqual(results[0]["type"], Conversation.Type.ASSISTANT)
             self.assertIn("messages", results[0])
             self.assertIn("status", results[0])
 
