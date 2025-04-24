@@ -94,13 +94,6 @@ export function VariantTag({
 
     return (
         <span className={clsx('flex items-center min-w-0', className)}>
-            <div
-                className="w-2 h-2 rounded-full shrink-0"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    backgroundColor: getExperimentInsightColour(getIndexForVariant(metricResults[0], variantKey)),
-                }}
-            />
             <span
                 className={`ml-2 font-semibold truncate ${muted ? 'text-secondary' : ''}`}
                 // eslint-disable-next-line react/forbid-dom-props

@@ -10,7 +10,7 @@ from langchain_core import messages
 from langchain_core.agents import AgentAction
 from langchain_core.prompts.chat import ChatPromptValue
 from langchain_core.runnables import RunnableConfig, RunnableLambda
-from langgraph.errors import NodeInterrupt, GraphRecursionError
+from langgraph.errors import GraphRecursionError, NodeInterrupt
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
 from pydantic import BaseModel
@@ -21,7 +21,7 @@ from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import search_documentation
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.utils.test import FakeChatOpenAI, FakeRunnableLambdaWithTokenCounter
-from ee.hogai.utils.types import AssistantNodeName, AssistantMode, AssistantState, PartialAssistantState
+from ee.hogai.utils.types import AssistantMode, AssistantNodeName, AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation, CoreMemory
 from posthog.models import Action
 from posthog.schema import (
@@ -44,6 +44,11 @@ from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_ev
 
 from ..assistant import Assistant
 from ..graph import AssistantGraph, InsightsAssistantGraph
+
+title_generator_mock = patch(
+    "ee.hogai.graph.title_generator.nodes.TitleGeneratorNode._model",
+    return_value=FakeChatOpenAI(responses=[messages.AIMessage(content="Title")]),
+)
 
 
 class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -496,11 +501,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 actual_output.append(self._parse_stringified_message(message))
         self.assertConversationEqual(actual_output, expected_output)
 
+    @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
-    def test_full_trends_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock):
+    def test_full_trends_flow(
+        self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
+    ):
         res1 = FakeRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(
                 content="",
@@ -560,11 +568,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(actual_output, expected_output[1:])
         self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
 
+    @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
-    def test_full_funnel_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock):
+    def test_full_funnel_flow(
+        self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
+    ):
         res1 = FakeChatOpenAI(
             responses=[
                 messages.AIMessage(
@@ -631,11 +642,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(actual_output, expected_output[1:])
         self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
 
+    @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
-    def test_full_retention_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock):
+    def test_full_retention_flow(
+        self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
+    ):
         action = Action.objects.create(team=self.team, name="Marius Tech Tips")
 
         res1 = FakeRunnableLambdaWithTokenCounter(
@@ -702,11 +716,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(actual_output, expected_output[1:])
         self.assertEqual(actual_output[0][1]["id"], actual_output[5][1]["initiator"])
 
+    @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
-    def test_full_sql_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock):
+    def test_full_sql_flow(self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock):
         res1 = FakeRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(
                 content="",
@@ -894,12 +909,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.core_memory.refresh_from_db()
         self.assertIn("The product uses a subscription model.", self.core_memory.text)
 
+    @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.taxonomy_agent.nodes.TaxonomyAgentPlannerNode._model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
     @patch("ee.hogai.graph.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]"))
     def test_exits_infinite_loop_after_fourth_attempt(
-        self, memory_collector_mock, get_model_mock, planner_mock, generator_mock
+        self, memory_collector_mock, get_model_mock, planner_mock, generator_mock, title_node_mock
     ):
         """Test that the assistant exits an infinite loop of tool calls after the 4th attempt."""
 
@@ -1142,3 +1158,32 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 mode=AssistantMode.INSIGHTS_TOOL,
             )
         self.assertEqual(str(cm.exception), "Invalid insight type: invalid_type")
+
+    @patch("ee.hogai.graph.title_generator.nodes.TitleGeneratorNode._model")
+    def test_conversation_metadata_updated(self, title_generator_model_mock):
+        """Test that metadata (title, created_at, updated_at) is generated and set for a new conversation."""
+        # Create a test graph with only the title generator node
+        graph = AssistantGraph(self.team).add_title_generator().compile()
+        initial_updated_at = self.conversation.updated_at
+        initial_created_at = self.conversation.created_at
+
+        self.assertIsNone(self.conversation.title)
+
+        # Mock the title generator to return "Generated Conversation Title"
+        title_generator_model_mock.return_value = FakeChatOpenAI(
+            responses=[messages.AIMessage(content="Generated Conversation Title")]
+        )
+
+        # Run the assistant
+        self._run_assistant_graph(
+            graph,
+            message="This is the first message in the conversation",
+            is_new_conversation=True,
+        )
+
+        # Assert the conversation doesn't have a title yet
+        self.conversation.refresh_from_db()
+        # Verify the title has been set
+        self.assertEqual(self.conversation.title, "Generated Conversation Title")
+        self.assertGreater(self.conversation.updated_at, initial_updated_at)
+        self.assertEqual(self.conversation.created_at, initial_created_at)

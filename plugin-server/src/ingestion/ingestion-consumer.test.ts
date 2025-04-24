@@ -12,7 +12,7 @@ import {
     mockProducer,
 } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -115,7 +115,7 @@ describe('IngestionConsumer', () => {
         hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
         const team2Id = await createTeam(hub.db.postgres, team.organization_id)
-        team2 = (await hub.db.fetchTeam(team2Id)) as Team
+        team2 = (await getTeam(hub, team2Id))!
     })
 
     afterEach(async () => {

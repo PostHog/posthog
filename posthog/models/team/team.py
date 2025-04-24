@@ -266,7 +266,7 @@ class Team(UUIDClassicModel):
     session_recording_minimum_duration_milliseconds = models.IntegerField(
         null=True,
         blank=True,
-        validators=[MinValueValidator(0), MaxValueValidator(15000)],
+        validators=[MinValueValidator(0), MaxValueValidator(30000)],
     )
     session_recording_linked_flag = models.JSONField(null=True, blank=True)
     session_recording_network_payload_capture_config = models.JSONField(null=True, blank=True)

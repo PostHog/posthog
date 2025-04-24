@@ -1540,7 +1540,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             })
 
-            await runWithLimit(fetchItemFunctions, 1)
+            await runWithLimit(fetchItemFunctions, 4)
 
             eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.newestRefreshed)
         },
