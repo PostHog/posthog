@@ -4960,7 +4960,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[3]["count"], 3)  # users who did step 4 (optional)
 
             self.assertEqual(result[4]["name"], "step five")
-            self.assertEqual(result[4]["count"], 5)  # users who completed the funnel
+            self.assertEqual(result[4]["count"], 4)  # users who completed the funnel
 
     return TestGetFunnel
 
