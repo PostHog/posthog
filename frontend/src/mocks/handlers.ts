@@ -192,6 +192,7 @@ export const defaultMocks: Mocks = {
         '/api/organizations/:organization_id/proxy_records/': [],
         '/api/projects/:team_id/dashboard_templates/json_schema/': EMPTY_PAGINATED_RESPONSE,
         '/api/organizations/:organization_id/domains/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/file_system/unfiled/': { count: 0 },
     },
     post: {
         'https://us.i.posthog.com/e/': (req, res, ctx): MockSignature => posthogCORSResponse(req, res, ctx),
