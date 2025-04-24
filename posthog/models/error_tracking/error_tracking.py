@@ -104,6 +104,30 @@ class ErrorTrackingSymbolSet(UUIDModel):
         ]
 
 
+class ErrorTrackingAssignmentRule(UUIDModel):
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, null=True, on_delete=models.CASCADE)
+    user_group = models.ForeignKey(UserGroup, null=True, on_delete=models.CASCADE)
+    order_key = models.IntegerField(null=False, blank=False)
+    bytecode = models.JSONField(null=False, blank=False)  # The bytecode of the rule
+    filters = models.JSONField(null=False, blank=False)  # The json object describing the filter rule
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    # If not null, the rule is disabled, for the reason listed
+    # Structure is {"message": str, "issue": {}, properties: {}}. Everything except message is mostly for debugging purposes.
+    disabled_data = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team_id"]),
+        ]
+
+        # TODO - I think this is strictly necessary, but I'm not gonna enforce it right now while we're iterating
+        # constraints = [
+        #     models.UniqueConstraint(fields=["team_id", "order_key"], name="unique_order_key_per_team"),
+        # ]
+
+
 class ErrorTrackingStackFrame(UUIDModel):
     # Produced by a raw frame
     raw_id = models.TextField(null=False, blank=False)

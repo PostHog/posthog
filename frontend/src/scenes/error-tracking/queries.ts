@@ -27,7 +27,7 @@ export const errorTrackingQuery = ({
     'orderBy' | 'status' | 'dateRange' | 'assignee' | 'filterTestAccounts' | 'limit' | 'searchQuery' | 'orderDirection'
 > & {
     filterGroup: UniversalFiltersGroup
-    columns: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee')[]
+    columns: ('error' | 'volume' | 'occurrences' | 'sessions' | 'users' | 'assignee' | 'library')[]
     volumeResolution?: number
 }): DataTableNode => {
     return {

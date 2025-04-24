@@ -118,7 +118,7 @@ class TestReplaySummarizer:
             mock_enrich_summary.assert_called_once()
             # Verify result structure
             assert "content" in result
-            assert "timings" in result
+            assert "timings_header" in result
             assert result["content"] == {"summary": "test", "key_events": []}
 
     def test_summarize_recording_no_metadata(self, summarizer: ReplaySummarizer):

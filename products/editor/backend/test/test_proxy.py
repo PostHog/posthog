@@ -31,6 +31,22 @@ class TestLLMProxyViewSet(APIBaseTest):
         self.patcher.stop()
         self.feature_patcher.stop()
 
+    @patch("products.editor.backend.providers.inkeep.InkeepProvider.stream_response")
+    def test_validate_messages(self, mock_stream):
+        mock_stream.return_value = iter(["test response"])
+        response = self.client.post(
+            "/api/llm_proxy/completion/",
+            {"system": "test system", "messages": [{"role": "user", "content": "test"}], "model": "inkeep-qa-expert"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.post(
+            "/api/llm_proxy/completion/",
+            {"system": "test system", "messages": [{"role": "user"}], "model": "inkeep-qa-expert"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), {"error": "Invalid messages"})
+
     def test_completion_invalid_model(self):
         response = self.client.post(
             "/api/llm_proxy/completion/",

@@ -56,7 +56,7 @@ export function asDisplay(person: PersonPropType | null | undefined, maxLength?:
             : undefined)
     )?.trim()
 
-    return display ? midEllipsis(display, maxLength || 40) : 'Person without distinct_id'
+    return display ? midEllipsis(display, maxLength || 40) : 'Anonymous'
 }
 
 export const asLink = (person?: PersonPropType | null): string | undefined =>

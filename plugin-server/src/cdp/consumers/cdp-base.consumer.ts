@@ -8,7 +8,6 @@ import { runInstrumentedFunction } from '../../main/utils'
 import { Hub, PluginServerService, TeamId } from '../../types'
 import { logger } from '../../utils/logger'
 import { CdpRedis, createCdpRedisPool } from '../redis'
-import { FetchExecutorService } from '../services/fetch-executor.service'
 import { GroupsManagerService } from '../services/groups-manager.service'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogFunctionManagerService } from '../services/hog-function-manager.service'
@@ -44,7 +43,6 @@ export interface TeamIDWithConfig {
 export abstract class CdpConsumerBase {
     batchConsumer?: BatchConsumer
     hogFunctionManager: HogFunctionManagerService
-    fetchExecutor: FetchExecutorService
     hogExecutor: HogExecutorService
     hogWatcher: HogWatcherService
     hogMasker: HogMaskerService
@@ -65,7 +63,6 @@ export abstract class CdpConsumerBase {
         this.hogWatcher = new HogWatcherService(hub, this.redis)
         this.hogMasker = new HogMaskerService(this.redis)
         this.hogExecutor = new HogExecutorService(this.hub)
-        this.fetchExecutor = new FetchExecutorService(this.hub)
         this.groupsManager = new GroupsManagerService(this.hub)
         this.hogFunctionMonitoringService = new HogFunctionMonitoringService(this.hub)
     }

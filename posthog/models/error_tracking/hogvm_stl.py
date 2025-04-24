@@ -1,0 +1,16 @@
+RUST_HOGVM_STL = [
+    "toString",
+    "typeof",
+    "values",
+    "length",
+    "arrayPushBack",
+    "arrayPushFront",
+    "arrayPopBack",
+    "arrayPopFront",
+    "arraySort",
+    "arrayReverse",
+    "arrayReverseSort",
+    "arrayStringConcat",
+    "has",
+    "indexOf",
+]
