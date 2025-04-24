@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/2.2/ref/settings/
 # isort: skip_file
 
 import os
+import sys
 
 # :TRICKY: Imported before anything else to support overloads
 from posthog.settings.overrides import *
@@ -108,9 +109,6 @@ AUTO_LOGIN: bool = get_from_env("AUTO_LOGIN", False, type_cast=str_to_bool)
 CONTAINER_HOSTNAME: str = os.getenv("HOSTNAME", "unknown")
 
 PROM_PUSHGATEWAY_ADDRESS: str | None = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
-
-IN_UNIT_TESTING: bool = get_from_env("IN_UNIT_TESTING", False, type_cast=str_to_bool)
-IN_EVAL_TESTING: bool = get_from_env("DEEPEVAL", False, type_cast=str_to_bool)
 
 HOGQL_INCREASED_MAX_EXECUTION_TIME: int = get_from_env("HOGQL_INCREASED_MAX_EXECUTION_TIME", 600, type_cast=int)
 

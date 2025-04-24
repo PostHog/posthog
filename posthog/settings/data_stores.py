@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
-from posthog.settings.base_variables import DEBUG, IS_COLLECT_STATIC, TEST
+from posthog.settings.base_variables import DEBUG, IS_COLLECT_STATIC, TEST, IN_EVAL_TESTING
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
@@ -61,7 +61,7 @@ if TEST or DEBUG:
     PG_USER: str = os.getenv("PGUSER", "posthog")
     PG_PASSWORD: str = os.getenv("PGPASSWORD", "posthog")
     PG_PORT: str = os.getenv("PGPORT", "5432")
-    PG_DATABASE: str = os.getenv("PGDATABASE", "posthog")
+    PG_DATABASE: str = os.getenv("PGDATABASE", "posthog_ai_eval" if IN_EVAL_TESTING else "posthog")
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
         f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}",
@@ -71,7 +71,6 @@ else:
 
 if DATABASE_URL:
     DATABASES: dict[str, dict] = {"default": dj_database_url.config(default=DATABASE_URL, conn_max_age=0)}
-
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
@@ -137,7 +136,9 @@ try:
 except:
     pass
 
-if TEST:
+if IN_EVAL_TESTING:
+    SUFFIX = "_ai_eval" + XDIST_SUFFIX
+elif TEST:
     SUFFIX = "_test" + XDIST_SUFFIX
 
 # Clickhouse Settings
