@@ -160,7 +160,7 @@ class DeltaTableHelper:
             if use_partitioning:
                 # We are testing concurrent merges with a subset of teams.
                 # TODO: Do all merges concurrently and remove the sequential method.
-                if str(self._job.team.id) in settings.CONCURRENT_MERGES_TEAM_IDS:
+                if (str(self._job.team.id) in settings.CONCURRENT_MERGES_TEAM_IDS) or True:
                     self.merge_partitioned_delta_table(delta_table, data, predicate_ops)
 
                 else:
