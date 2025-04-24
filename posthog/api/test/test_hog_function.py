@@ -336,7 +336,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["hog"] == webhook_template["hog"].strip()
         assert response.json()["inputs_schema"] == webhook_template["inputs_schema"]
-        assert response.json()["name"] == "Webhook"
+        assert response.json()["name"] == webhook_template["name"]
         assert response.json()["description"] == webhook_template["description"]
         assert response.json()["icon_url"] == webhook_template["icon_url"]
 
