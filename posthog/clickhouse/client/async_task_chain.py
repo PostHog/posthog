@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from functools import partial
 import uuid
 
-from celery import chain
+from celery import chain, group
 from celery.canvas import Signature
 from celery.result import EagerResult
 from django.db import transaction
@@ -43,6 +43,20 @@ def get_task_chain() -> list[tuple[Signature, "QueryStatusManager", QueryStatus]
     return _thread_locals.task_chain
 
 
+def set_parallelism(value: int) -> None:
+    """
+    Sets the parallelism in thread-local storage.
+    """
+    _thread_locals.parallelism = value
+
+
+def get_parallelism() -> int:
+    """
+    Retrieves the parallelism from thread-local storage. Defaults to 1.
+    """
+    return getattr(_thread_locals, "parallelism", 1)
+
+
 def set_in_context(value) -> None:
     """
     Sets the in_context flag in thread-local storage.
@@ -71,26 +85,60 @@ def add_task_to_on_commit(task_signature: Signature, manager: "QueryStatusManage
 
 def execute_task_chain() -> None:
     """
-    Executes the task chain after the transaction is committed.
+    Executes the task chain after the transaction is committed, supporting parallelism.
     """
     task_chain = get_task_chain()
     if task_chain:
-        chained_tasks = chain(*[args[0] for args in task_chain])
-        result = chained_tasks.apply_async()
+        parallelism = get_parallelism()
+        tasks_signatures = [args[0] for args in task_chain]
+
+        if parallelism <= 1 or len(tasks_signatures) <= 1:
+            # Sequential execution (original logic or single task)
+            final_task = chain(*tasks_signatures)
+            is_parallel = False
+        else:
+            # Parallel execution: Chain groups of tasks
+            # Chunk signatures into groups of size parallelism
+            chunks = [tasks_signatures[i : i + parallelism] for i in range(0, len(tasks_signatures), parallelism)]
+            # Create a group for each chunk
+            grouped_tasks = [group(chunk) for chunk in chunks]
+            # Chain the groups
+            final_task = chain(*grouped_tasks)
+            is_parallel = True
+
+        result = final_task.apply_async()
 
         for args in task_chain:
             args[2].task_id = result.id
-            args[2].labels = ["chained", *(args[2].labels or [])]
+            labels = ["chained", *(args[2].labels or [])]
+
+            if is_parallel:
+                labels.append(f"parallel-{parallelism}")
+
+            args[2].labels = labels
             args[1].store_query_status(args[2])
 
         _thread_locals.task_chain = []
 
 
 @contextmanager
-def task_chain_context() -> typing.Iterator[None]:
+def task_chain_context(parallelism: int = 1) -> typing.Iterator[None]:
+    """
+    Context manager to group tasks to be executed within a transaction's on_commit hook.
+
+    Args:
+        parallelism: The maximum number of tasks to run in parallel within the chain.
+                         Defaults to 1 (sequential execution).
+    """
+    if not isinstance(parallelism, int) or parallelism < 1:
+        raise ValueError("parallelism must be a positive integer")
+
     set_in_context(True)
+    set_parallelism(parallelism)
     try:
         yield
     finally:
+        # Reset context flag and schedule execution
         set_in_context(False)
+        set_parallelism(1)
         transaction.on_commit(execute_task_chain)
