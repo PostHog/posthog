@@ -58,8 +58,6 @@ class ReplaySummarizer:
             session_metadata = get_session_metadata(
                 session_id=self.recording.session_id,
                 team=self.team,
-                # local_path="/Users/woutut/Documents/Code/posthog/playground/single-session-metadata_0195f10e-7c84-7944-9ea2-0303a4b37af7.json",
-                local_path="/Users/woutut/Documents/Code/posthog/playground/identify-objectives-samples/Contra (8910)/019644fd-28d9-744d-afc6-2a0abf0aa4e3_meta.json",
             )
         with timer("get_events"):
             # TODO: Add filter to skip some types of events that are not relevant for the summary, but increase the number of tokens
@@ -68,8 +66,6 @@ class ReplaySummarizer:
                 session_id=self.recording.session_id,
                 session_metadata=session_metadata,
                 team=self.team,
-                # local_path="/Users/woutut/Documents/Code/posthog/playground/single-session-csv-export_0195f10e-7c84-7944-9ea2-0303a4b37af7.csv",
-                local_path="/Users/woutut/Documents/Code/posthog/playground/identify-objectives-samples/Contra (8910)/019644fd-28d9-744d-afc6-2a0abf0aa4e3_events.csv",
             )
 
         with timer("add_context_and_filter"):
