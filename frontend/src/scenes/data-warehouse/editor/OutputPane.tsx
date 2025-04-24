@@ -10,8 +10,9 @@ import {
     IconGraph,
     IconMinus,
     IconPlus,
+    IconShare,
 } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
@@ -192,8 +193,9 @@ export function OutputPane(): JSX.Element {
         updateInsightButtonEnabled,
         showLegacyFilters,
         localStorageResponse,
+        queryInput,
     } = useValues(multitabEditorLogic)
-    const { saveAsInsight, updateInsight, setSourceQuery, runQuery } = useActions(multitabEditorLogic)
+    const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
@@ -421,23 +423,37 @@ export function OutputPane(): JSX.Element {
                         </LemonButton>
                     )}
                     {activeTab === OutputTab.Results && exportContext && (
-                        <ExportButton
-                            disabledReason={!hasColumns ? 'No results to export' : undefined}
-                            type="secondary"
-                            icon={<IconDownload />}
-                            sideIcon={null}
-                            buttonCopy=""
-                            items={[
-                                {
-                                    export_format: ExporterFormat.CSV,
-                                    export_context: exportContext,
-                                },
-                                {
-                                    export_format: ExporterFormat.XLSX,
-                                    export_context: exportContext,
-                                },
-                            ]}
-                        />
+                        <Tooltip title="Export the table results" className={!hasColumns ? 'hidden' : ''}>
+                            <ExportButton
+                                id="sql-editor-export"
+                                disabledReason={!hasColumns ? 'No results to export' : undefined}
+                                type="secondary"
+                                icon={<IconDownload />}
+                                sideIcon={null}
+                                buttonCopy=""
+                                items={[
+                                    {
+                                        export_format: ExporterFormat.CSV,
+                                        export_context: exportContext,
+                                    },
+                                    {
+                                        export_format: ExporterFormat.XLSX,
+                                        export_context: exportContext,
+                                    },
+                                ]}
+                            />
+                        </Tooltip>
+                    )}
+                    {activeTab === OutputTab.Results && (
+                        <Tooltip title="Share your current query">
+                            <LemonButton
+                                id="sql-editor-share"
+                                disabledReason={!queryInput && 'No query to share'}
+                                type="secondary"
+                                icon={<IconShare />}
+                                onClick={() => shareTab()}
+                            />
+                        </Tooltip>
                     )}
                 </div>
             </div>
