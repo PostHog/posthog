@@ -17,6 +17,7 @@ import {
 } from '~/queries/schema/schema-general'
 import {
     FilterLogicalOperator,
+    FunnelExperimentVariant,
     InsightType,
     RecordingUniversalFilters,
     ReplayTabs,
@@ -206,6 +207,36 @@ export function SummaryTable({
     }
 
     if (insightType === InsightType.FUNNELS) {
+        // NOTE: For funnel metrics on the new engine, we show exposures and converted counts in the table,
+        // as we don't yet have the detailed view as we do for the legacy funnel metrics.
+        if (metric.kind === NodeKind.ExperimentMetric) {
+            columns.push({
+                key: 'exposures',
+                title: 'Exposures',
+                render: function Key(_, item): JSX.Element {
+                    const variant = item as FunnelExperimentVariant
+                    const exposures = variant.success_count + variant.failure_count
+                    if (!exposures) {
+                        return <>—</>
+                    }
+
+                    return <div className="font-semibold">{humanFriendlyNumber(exposures)}</div>
+                },
+            })
+            columns.push({
+                key: 'converted',
+                title: 'Converted',
+                render: function Key(_, item): JSX.Element {
+                    const variant = item as FunnelExperimentVariant
+                    const converted = variant.success_count
+                    if (!converted) {
+                        return <>—</>
+                    }
+
+                    return <div className="font-semibold">{humanFriendlyNumber(converted)}</div>
+                },
+            })
+        }
         columns.push({
             key: 'conversionRate',
             title: 'Conversion rate',

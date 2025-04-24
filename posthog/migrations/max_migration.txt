@@ -1,1 +1,1 @@
-0711_externaldatasource_revenue_analytics_enabled
+0712_add_message_template_table
