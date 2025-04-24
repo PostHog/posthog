@@ -60,21 +60,21 @@ class HogFunctionTemplates:
 
     @classmethod
     def templates(cls):
-        if getattr(settings, "USE_DB_TEMPLATES", False):
+        if settings.USE_DB_TEMPLATES:
             return cls._get_templates_from_db()
         cls._load_templates()
         return cls._cached_templates
 
     @classmethod
     def sub_templates(cls):
-        if getattr(settings, "USE_DB_TEMPLATES", False):
+        if settings.USE_DB_TEMPLATES:
             return cls._get_sub_templates_from_db()
         cls._load_templates()
         return cls._cached_sub_templates
 
     @classmethod
     def template(cls, template_id: str):
-        if getattr(settings, "USE_DB_TEMPLATES", False):
+        if settings.USE_DB_TEMPLATES:
             return cls._get_template_from_db(template_id)
         cls._load_templates()
         return cls._cached_templates_by_id.get(template_id, cls._cached_sub_templates_by_id.get(template_id))
