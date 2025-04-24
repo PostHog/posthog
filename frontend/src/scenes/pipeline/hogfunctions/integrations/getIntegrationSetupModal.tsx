@@ -19,6 +19,7 @@ type IntegrationCredentials = Partial<
                 label: string
                 type: 'password' | 'text'
                 required: boolean
+                placeholder?: string
             }>
             helpText?: ReactNode
             createFn: (credentials: Record<string, string>, callback: (integration: any) => void) => void
@@ -28,10 +29,7 @@ type IntegrationCredentials = Partial<
 
 const INTEGRATION_CREDENTIALS: IntegrationCredentials = {
     email: {
-        fields: [
-            { key: 'apiKey', label: 'API key', type: 'text', required: true },
-            { key: 'secretKey', label: 'Secret key', type: 'password', required: true },
-        ],
+        fields: [{ key: 'domain', label: 'Domain', placeholder: 'example.com', type: 'text', required: true }],
         helpText: (
             <>
                 Log in or sign up for Mailjet and get your API key and secret key on the{' '}
@@ -79,7 +77,7 @@ export const getIntegrationSetupModalProps = ({
             <div className="space-y-4">
                 {integrationConfig.fields.map((field) => (
                     <LemonField key={field.key} name={field.key} label={field.label}>
-                        <LemonInput type={field.type} disabled={isLoading} />
+                        <LemonInput type={field.type} placeholder={field.placeholder} disabled={isLoading} />
                     </LemonField>
                 ))}
             </div>
