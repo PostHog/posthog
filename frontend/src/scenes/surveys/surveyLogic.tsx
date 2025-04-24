@@ -407,9 +407,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 const endDate = getSurveyEndDateForQuery(survey)
 
                 // if we have answer filters, we need to apply them to the query for the 'survey sent' event only
-                const answerFilterCondition = values.answerFilterHogQLExpression.startsWith('AND ')
-                    ? values.answerFilterHogQLExpression.substring(4)
-                    : '1=1' // Use '1=1' for SQL TRUE
+                const answerFilterCondition =
+                    values.answerFilterHogQLExpression === ''
+                        ? '1=1' // Use '1=1' for SQL TRUE
+                        : values.answerFilterHogQLExpression.substring(4)
 
                 const query: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
@@ -1313,7 +1314,7 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 if (answerFilterHogQLExpression !== '') {
                     // skip the 'AND ' prefix
-                    where.push(answerFilterHogQLExpression.slice(4))
+                    where.push(answerFilterHogQLExpression.substring(4))
                 }
 
                 return {
