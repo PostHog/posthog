@@ -453,7 +453,7 @@ async def test_mssql_get_table_average_row_size(
     Here we use a table with a variety of column types and data to ensure the queries to calculate the average row size
     are correct.
     We don't assert the average row size here as it's hard to determine and is likely to be flaky.  We do this instead
-    in the test below.
+    in another test below.
     """
     average_row_size = _get_table_average_row_size(
         cursor=mssql_source_table,
@@ -480,12 +480,12 @@ async def test_mssql_get_table_average_row_size_with_incremental_field(
     mssql_source_table: pymssql.Cursor,
     mssql_config: dict[str, Any],
 ):
-    """Test that the average row size is calculated correctly.
+    """Test that the average row size is calculated correctly for an incremental sync.
 
     Here we use a table with a variety of column types and data to ensure the queries to calculate the average row size
     are correct.
     We don't assert the average row size here as it's hard to determine and is likely to be flaky.  We do this instead
-    in the test below.
+    in another test below.
     """
     average_row_size = _get_table_average_row_size(
         cursor=mssql_source_table,
@@ -556,11 +556,8 @@ def mssql_source_table_known_row_size(
 @pytest.mark.asyncio
 @SKIP_IF_MISSING_MSSQL_CREDENTIALS
 async def test_mssql_get_table_average_row_size_calculates_correct_average_row_size(
-    team,
     mssql_source_table_known_row_size: pymssql.Cursor,
     mssql_config: dict[str, Any],
-    external_data_source: ExternalDataSource,
-    external_data_schema_full_refresh: ExternalDataSchema,
 ):
     """Test that the average row size is calculated correctly.
 
