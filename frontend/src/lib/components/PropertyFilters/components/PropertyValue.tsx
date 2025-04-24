@@ -1,3 +1,4 @@
+import { LemonButtonProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
@@ -21,7 +22,7 @@ export interface PropertyValueProps {
     endpoint?: string // Endpoint to fetch options from
     placeholder?: string
     onSet: CallableFunction
-    value?: string | number | bigint | Array<string | number | bigint> | null
+    value?: string | number | bigint | Array<string | number | bigint> | null // | ErrorTrackingIssueAssignee TODO - @david
     operator: PropertyOperator
     autoFocus?: boolean
     eventNames?: string[]
@@ -30,6 +31,7 @@ export interface PropertyValueProps {
     inputClassName?: string
     additionalPropertiesFilter?: { key: string; values: string | string[] }[]
     groupTypeIndex?: GroupTypeIndex
+    size?: LemonButtonProps['size']
 }
 
 export function PropertyValue({
@@ -40,6 +42,7 @@ export function PropertyValue({
     onSet,
     value,
     operator,
+    size,
     autoFocus = false,
     eventNames = [],
     addRelativeDateTimeOptions = false,
@@ -57,6 +60,10 @@ export function PropertyValue({
 
     const isDurationProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Duration
+
+    // TODO - @david
+    // const isAssigneeProperty =
+    //     propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
 
     const load = (newInput: string | undefined): void => {
         loadPropertyValues({
@@ -84,6 +91,21 @@ export function PropertyValue({
             load(newInput.trim())
         }
     }
+
+    // TODO - @david
+    // if (isAssigneeProperty) {
+    //     return (
+    //         <AssigneeSelect
+    //             showName
+    //             type="secondary"
+    //             fullWidth
+    //             allowRemoval={false}
+    //             size={size}
+    //             assignee={value as ErrorTrackingIssueAssignee}
+    //             onChange={setValue}
+    //         />
+    //     )
+    // }
 
     if (isDurationProperty) {
         return <DurationPicker autoFocus={autoFocus} value={value as number} onChange={setValue} />
@@ -148,6 +170,7 @@ export function PropertyValue({
             onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
             onInputChange={onSearchTextChange}
             placeholder={placeholder}
+            size={size}
             title={
                 PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
                     ? 'Suggested values (last 7 days)'
