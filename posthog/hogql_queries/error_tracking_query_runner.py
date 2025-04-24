@@ -488,7 +488,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
                     "type": (
                         "user"
                         if assignment_user_id
-                        else ("user_group" if assignment_user_group_id else assignment_role_id)
+                        else "user_group"
+                        if assignment_user_group_id
+                        else assignment_role_id
                     ),
                 }
 

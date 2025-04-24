@@ -63,7 +63,7 @@ class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
         return obj.user_id or obj.user_group_id or obj.role_id
 
     def get_type(self, obj):
-        return "user_group" if obj.user_group else ("role" if obj.role else "user")
+        return "user_group" if obj.user_group else "role" if obj.role else "user"
 
 
 class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
@@ -245,9 +245,9 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_i
         assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
             issue_id=issue.id,
             defaults={
-                "user_id": None if assignee["type"] == "user_group" else assignee["id"],
-                "user_group_id": None if assignee["type"] == "user" else assignee["id"],
-                "role_id": None if assignee["type"] == "role" else assignee["id"],
+                "user_id": None if assignee["type"] != "user" else assignee["id"],
+                "user_group_id": None if assignee["type"] != "user_group" else assignee["id"],
+                "role_id": None if assignee["type"] != "role" else assignee["id"],
             },
         )
 
@@ -418,8 +418,9 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
             assignment_rule.bytecode = self.generate_byte_code(parsed_filters)
 
         if assignee:
-            assignment_rule.user_id = None if assignee["type"] == "user_group" else assignee["id"]
-            assignment_rule.user_group_id = None if assignee["type"] == "user" else assignee["id"]
+            assignment_rule.user_id = None if assignee["type"] != "user" else assignee["id"]
+            assignment_rule.user_group_id = None if assignee["type"] != "user_group" else assignee["id"]
+            assignment_rule.role_id = None if assignee["type"] != "role" else assignee["id"]
 
         assignment_rule.save()
 
@@ -443,8 +444,9 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
             filters=json_filters,
             bytecode=bytecode,
             order_key=0,
-            user_id=None if assignee["type"] == "user_group" else assignee["id"],
-            user_group_id=None if assignee["type"] == "user" else assignee["id"],
+            user_id=None if assignee["type"] != "user" else assignee["id"],
+            user_group_id=None if assignee["type"] != "user_group" else assignee["id"],
+            role_id=None if assignee["type"] != "role" else assignee["id"],
         )
 
         serializer = ErrorTrackingAssignmentRuleSerializer(assignment_rule)
