@@ -224,7 +224,7 @@ class DeltaTableHelper:
         delta_table: deltalake.DeltaTable,
         data: pa.Table,
         predicate_ops: list[str],
-        max_workers: int | None = None,
+        max_workers: int | None = 5,
     ) -> None:
         """Execute concurrent merges of data partitions into delta table.
 
