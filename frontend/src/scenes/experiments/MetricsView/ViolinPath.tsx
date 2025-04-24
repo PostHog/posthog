@@ -50,7 +50,7 @@ export function ViolinPath({
                             y1="0"
                             y2="0"
                         >
-                            {x1 < valueToX() && x2 > valueToX() ? (
+                            {x1 < 0 && x2 > 0 ? (
                                 <>
                                     <stop offset="0%" stopColor={colors.BAR_NEGATIVE} />
                                     <stop offset={`${(-x1 / (x2 - x1)) * 100}%`} stopColor={colors.BAR_NEGATIVE} />
@@ -84,12 +84,4 @@ export function ViolinPath({
             </g>
         </>
     )
-}
-
-// Helper function to convert value to x position - this is just a stub
-// In real implementation this would come from props or context
-function valueToX(): number {
-    // This is a placeholder. In real implementation,
-    // this would be passed as a prop or from context
-    return 0
 }
