@@ -5,8 +5,9 @@ import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { DB } from '../../../utils/db/db'
 import { TransactionClient } from '../../../utils/db/postgres'
-import { PersonsStoreForDistinctID } from './distinct-id-person-store'
-import { PersonsStore } from './person-store'
+import { PersonsStore } from './persons-store'
+import { PersonsStoreForBatch } from './persons-store-for-batch'
+import { PersonsStoreForDistinctIdBatch } from './persons-store-for-distinct-id-batch'
 
 type MethodName =
     | 'fetchForChecking'
@@ -21,7 +22,27 @@ type MethodName =
     | 'addPersonlessDistinctId'
     | 'addPersonlessDistinctIdForMerge'
 
-export class MeasuringPersonsStoreForDistinctID implements PersonsStoreForDistinctID {
+export class MeasuringPersonsStore implements PersonsStore {
+    constructor(private db: DB) {}
+
+    forBatch(): PersonsStoreForBatch {
+        return new MeasuringBatchPersonsStore(this.db)
+    }
+}
+
+export class MeasuringBatchPersonsStore implements PersonsStoreForBatch {
+    constructor(private db: DB) {}
+
+    forDistinctID(teamId: number, distinctId: string): PersonsStoreForDistinctIdBatch {
+        return new MeasuringPersonsStoreForDistinctIdBatch(this.db, teamId, distinctId)
+    }
+
+    async reportBatch(): Promise<void> {
+        // Will be implemented later
+    }
+}
+
+export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForDistinctIdBatch {
     private methodCounts: Map<MethodName, number>
 
     constructor(private db: DB, private teamId: number, private distinctId: string) {
@@ -140,17 +161,5 @@ export class MeasuringPersonsStoreForDistinctID implements PersonsStoreForDistin
 
     private incrementCount(method: MethodName): void {
         this.methodCounts.set(method, (this.methodCounts.get(method) || 0) + 1)
-    }
-}
-
-export class MeasuringPersonsStore implements PersonsStore {
-    constructor(private db: DB) {}
-
-    forDistinctID(teamId: number, distinctId: string): PersonsStoreForDistinctID {
-        return new MeasuringPersonsStoreForDistinctID(this.db, teamId, distinctId)
-    }
-
-    async reportBatch(): Promise<void> {
-        // Will be implemented later
     }
 }

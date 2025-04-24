@@ -5,7 +5,7 @@ import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { TransactionClient } from '../../../utils/db/postgres'
 
-export interface PersonsStoreForDistinctID {
+export interface PersonsStoreForDistinctIdBatch {
     /**
      * Fetches a person by team ID and distinct ID for checking existence
      * Uses read replica when available
