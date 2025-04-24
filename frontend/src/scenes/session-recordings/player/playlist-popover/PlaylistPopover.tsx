@@ -23,6 +23,7 @@ export function PlaylistPopoverButton({
     const {
         logicProps: { logicKey: currentPlaylistId },
     } = useValues(sessionRecordingsPlaylistLogic)
+
     const logic = playlistPopoverLogic(logicProps)
     const {
         playlistsLoading,
@@ -49,7 +50,7 @@ export function PlaylistPopoverButton({
                                 <Form
                                     formKey="newPlaylist"
                                     logic={playlistPopoverLogic}
-                                    props={{ sessionRecordingId }}
+                                    props={{ sessionRecordingId, playerKey: logicProps.playerKey }}
                                     enableFormOnSubmit
                                     className="deprecated-space-y-1"
                                 >
