@@ -24,6 +24,20 @@ type MethodName =
     | 'addPersonlessDistinctId'
     | 'addPersonlessDistinctIdForMerge'
 
+const ALL_METHODS: MethodName[] = [
+    'fetchForChecking',
+    'fetchForUpdate',
+    'createPerson',
+    'updatePersonDeprecated',
+    'deletePerson',
+    'addDistinctId',
+    'addDistinctIdPooled',
+    'moveDistinctIds',
+    'updateCohortsAndFeatureFlagsForMerge',
+    'addPersonlessDistinctId',
+    'addPersonlessDistinctIdForMerge',
+]
+
 export class MeasuringPersonsStore implements PersonsStore {
     constructor(private db: DB) {}
 
@@ -64,6 +78,9 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
 
     constructor(private db: DB, private teamId: number, private distinctId: string) {
         this.methodCounts = new Map()
+        for (const method of ALL_METHODS) {
+            this.methodCounts.set(method, 0)
+        }
     }
 
     async fetchForChecking(): Promise<InternalPerson | null> {
