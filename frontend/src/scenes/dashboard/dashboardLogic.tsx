@@ -950,14 +950,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 allVariables: Variable[],
                 temporaryVariables: Record<string, HogQLVariable>
             ): { variable: Variable; insights: string[] }[] => {
-                const dataVizNodes =
-                    dashboard?.tiles
-                        ?.map((n) => ({ query: n.insight?.query, title: n.insight?.name }))
-                        .filter((n) => n.query?.kind === NodeKind.DataVisualizationNode)
-                        .filter(
-                            (n): n is { query: DataVisualizationNode; title: string } =>
-                                Boolean(n.query) && Boolean(n.title)
-                        ) ?? []
+                const dataVizNodes = (dashboard?.tiles ?? [])
+                    .map((n) => ({ query: n.insight?.query, title: n.insight?.name }))
+                    .filter((n) => n.query?.kind === NodeKind.DataVisualizationNode)
+                    .filter(
+                        (n): n is { query: DataVisualizationNode; title: string } =>
+                            Boolean(n.query) && Boolean(n.title)
+                    )
 
                 const hogQLVariables = dataVizNodes
                     .map((n) => n.query.source.variables)
