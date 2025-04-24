@@ -2,19 +2,19 @@ import { KafkaProducerWrapper, TopicMessage } from '../../../src/kafka/producer'
 import { parseJSON } from '../../../src/utils/json-parse'
 
 export type ParsedTopicMessage = {
-    topic: string
+    topic: TopicMessage['topic']
     messages: {
-        key: string | null
+        key: TopicMessage['messages'][number]['key']
         value: Record<string, any> | null
-        headers?: Record<string, string>
+        headers?: TopicMessage['messages'][number]['headers']
     }[]
 }
 
 export type DecodedKafkaMessage = {
-    topic: string
-    key?: any
+    topic: TopicMessage['topic']
+    key?: TopicMessage['messages'][number]['key']
     value: Record<string, unknown>
-    headers?: Record<string, string>
+    headers?: TopicMessage['messages'][number]['headers']
 }
 
 jest.mock('../../../src/kafka/producer', () => {
@@ -47,24 +47,23 @@ export const getQueuedMessages = (): TopicMessage[] => {
 
 export const getProducedMessages = (): TopicMessage[] => {
     return jest.mocked(mockProducer).produce.mock.calls.reduce((acc, call) => {
-        const headers = call[0].headers?.reduce<Record<string, string | Buffer>>((acc, header) => {
-            acc[Object.keys(header)[0]] = Object.values(header)[0]
+        const headers = call[0].headers?.reduce<Record<string, string>>((acc, header) => {
+            const key = Object.keys(header)[0]
+            const value = header[key]
+            acc[key] = value.toString()
             return acc
         }, {})
-
-        const message: TopicMessage['messages'][number] = {
-            key: call[0].key,
-            value: call[0].value,
-        }
-
-        if (headers) {
-            message.headers = headers
-        }
 
         return acc.concat([
             {
                 topic: call[0].topic,
-                messages: [message],
+                messages: [
+                    {
+                        key: call[0].key,
+                        value: call[0].value,
+                        headers: headers,
+                    },
+                ],
             },
         ])
     }, [] as TopicMessage[])

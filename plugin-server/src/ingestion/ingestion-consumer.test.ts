@@ -175,8 +175,6 @@ describe('IngestionConsumer', () => {
 
             expect(breadcrumbHeader).toBeDefined()
 
-            expect(breadcrumbHeader).toBeInstanceOf(Buffer)
-
             const parsedBreadcrumbs = parseJSON(breadcrumbHeader.toString())
             expect(Array.isArray(parsedBreadcrumbs)).toBe(true)
             expect(parsedBreadcrumbs.length).toBe(2)
@@ -1017,6 +1015,7 @@ describe('IngestionConsumer', () => {
             expect(forSnapshot(getProducedKafkaMessages())).toMatchInlineSnapshot(`
                 [
                   {
+                    "headers": undefined,
                     "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
                     "topic": "testing_topic",
                     "value": {
