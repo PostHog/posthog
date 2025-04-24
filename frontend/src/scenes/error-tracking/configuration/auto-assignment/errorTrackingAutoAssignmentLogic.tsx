@@ -129,7 +129,7 @@ export const errorTrackingAutoAssignmentLogic = kea<errorTrackingAutoAssignmentL
         allRules: [
             (s) => [s.localRules, s.assignmentRules],
             (localRules, assignmentRules): ErrorTrackingAssignmentRule[] =>
-                Array.from(new Map([...localRules, ...assignmentRules].map((item) => [item.id, item])).values()),
+                Array.from(new Map([...assignmentRules, ...localRules].map((item) => [item.id, item])).values()),
         ],
         hasNewRule: [(s) => [s.allRules], (allRules): boolean => allRules.some((r) => r.id === 'new')],
     }),
