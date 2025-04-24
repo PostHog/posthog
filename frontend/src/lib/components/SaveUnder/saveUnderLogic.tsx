@@ -1,20 +1,26 @@
-import { actions, kea, key, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
+
+import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
 import type { saveUnderLogicType } from './saveUnderLogicType'
 
 export interface SaveUnderLogicProps {
     type: string
     name: string
-    folder: string
+    defaultFolder?: string
     objectRef?: string | null
-    onSave?: (props: { name: string; folder: string }) => void
+    onSave?: (folder: string) => void
 }
 
 export const saveUnderLogic = kea<saveUnderLogicType>([
     path(['lib', 'components', 'SaveUnder', 'saveUnderLogic']),
     props({} as SaveUnderLogicProps),
-    key((props) => `${props.type}-${props.folder}`),
+    key((props) => `${props.type}`),
+    connect(() => ({
+        values: [projectTreeLogic, ['lastNewOperation']],
+        actions: [projectTreeLogic, ['setLastNewOperation']],
+    })),
     actions({
         openModal: true,
         closeModal: true,
@@ -29,27 +35,29 @@ export const saveUnderLogic = kea<saveUnderLogicType>([
             },
         ],
     }),
+    listeners(({ actions, props }) => ({
+        setLastNewOperation: ({ folder }) => {
+            actions.setFormValue('folder', folder || props.defaultFolder || 'Unfiled')
+        },
+    })),
     forms(({ props }) => ({
-        saveUnder: {
+        form: {
             defaults: {
-                name: props.name || '',
-                folder: props.folder || 'Unfiled',
+                folder: props.defaultFolder || 'Unfiled',
             },
-            errors: ({ name, folder }) => ({
-                name: !name
-                    ? 'You need to have a name.'
-                    : name.length > 150
-                    ? 'This name is too long. Please keep it under 151 characters.'
-                    : null,
+            errors: ({ folder }) => ({
                 folder: !folder ? 'You need to specify a folder.' : null,
             }),
             submit: (formValues) => {
                 if (props.onSave) {
-                    const name = formValues.name || props.name
-                    const folder = formValues.folder || props.folder
-                    props.onSave({ name, folder })
+                    props.onSave(formValues.folder || props.defaultFolder)
                 }
             },
         },
     })),
+    afterMount(({ actions, values }) => {
+        if (values.lastNewOperation?.folder) {
+            actions.setFormValue('folder', values.lastNewOperation.folder)
+        }
+    }),
 ])

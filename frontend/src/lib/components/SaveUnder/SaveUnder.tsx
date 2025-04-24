@@ -3,15 +3,19 @@ import { Form } from 'kea-forms'
 import { saveUnderLogic, SaveUnderLogicProps } from 'lib/components/SaveUnder/saveUnderLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
+import { FolderSelect } from '~/layout/panel-layout/ProjectTree/FolderSelect'
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 
+const defaultPath = 'Unfiled'
+
 export function SaveUnderModal(): JSX.Element {
-    const { isOpen } = useValues(saveUnderLogic)
-    const { closeModal, submitSaveUnder } = useActions(saveUnderLogic)
+    const { isOpen, form } = useValues(saveUnderLogic)
+    const { closeModal, submitForm } = useActions(saveUnderLogic)
+
+    const allFolders = splitPath(form.folder || defaultPath)
 
     return (
         <LemonModal
@@ -19,27 +23,37 @@ export function SaveUnderModal(): JSX.Element {
                 closeModal()
             }}
             isOpen={isOpen}
-            title="Save to folder"
+            title="Select a folder to save in"
             footer={
                 <>
-                    <div className="flex-1">
-                        <LemonButton type="primary" onClick={submitSaveUnder}>
-                            Save
+                    <div className="flex-1 flex gap-2 items-center">
+                        <LemonButton type="secondary" onClick={closeModal}>
+                            Close
                         </LemonButton>
                     </div>
-                    <LemonButton type="secondary" onClick={closeModal}>
-                        Close
+                    <LemonButton
+                        type="primary"
+                        onClick={submitForm}
+                        tooltip={
+                            <>
+                                {allFolders.map((pathPart, index) => (
+                                    <span key={index}>
+                                        {pathPart}
+                                        {index < allFolders.length - 1 ? ' / ' : ''}
+                                    </span>
+                                ))}
+                            </>
+                        }
+                    >
+                        Save
                     </LemonButton>
                 </>
             }
         >
             <div className="w-192 max-w-full">
-                <Form logic={saveUnderLogic} formKey="saveUnder" className="deprecated-space-y-2">
-                    <LemonField name="name" label="Name">
-                        <LemonInput data-attr="save-under-name" type="text" fullWidth placeholder="Name" />
-                    </LemonField>
-                    <LemonField name="folder" label="Folder">
-                        <LemonInput data-attr="save-under-folder" type="text" fullWidth placeholder="Folder" />
+                <Form logic={saveUnderLogic} formKey="form" className="deprecated-space-y-2">
+                    <LemonField name="folder">
+                        <FolderSelect className="h-[60vh] min-h-[200px]" />
                     </LemonField>
                 </Form>
             </div>
@@ -49,20 +63,34 @@ export function SaveUnderModal(): JSX.Element {
 
 export function SaveUnder(props: SaveUnderLogicProps): JSX.Element {
     const { openModal } = useActions(saveUnderLogic(props))
-    const { folder, objectRef } = props
-    const pathParts = splitPath(folder)
+    const { form, lastNewOperation } = useValues(saveUnderLogic(props))
+    const { objectRef, defaultFolder } = props
+    const actualFolder = lastNewOperation?.folder || form.folder || defaultFolder || defaultPath
+    const pathParts = splitPath(actualFolder)
+    const lastPath = pathParts.length > 0 ? pathParts[pathParts.length - 1] || defaultPath : defaultPath
 
     return (
         <BindLogic logic={saveUnderLogic} props={props}>
             <div className="text-xs font-normal text-center mr-1">
                 <div className="text-muted">{!objectRef ? 'Save' : 'Saved'} under</div>
-                <Tooltip title={folder}>
+                <Tooltip
+                    title={
+                        <>
+                            {pathParts.map((pathPart, index) => (
+                                <span key={index}>
+                                    {pathPart}
+                                    {index < pathParts.length - 1 ? ' / ' : ''}
+                                </span>
+                            ))}
+                        </>
+                    }
+                >
                     <div className="underline cursor-pointer" onClick={openModal}>
-                        {pathParts.length > 0 ? pathParts[pathParts.length - 1] || 'Unfiled' : 'Unfiled'}
+                        {lastPath}
                     </div>
                 </Tooltip>
-                <SaveUnderModal />
             </div>
+            <SaveUnderModal />
         </BindLogic>
     )
 }
