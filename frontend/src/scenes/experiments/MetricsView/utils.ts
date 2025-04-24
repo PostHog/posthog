@@ -107,11 +107,7 @@ export function getNiceTickValues(maxAbsValue: number, tickRangeFactor: number =
     }
 
     const maxAllowedValue = maxAbsValue * tickRangeFactor
-
-    // Calculate how many baseUnits we need without exceeding maxAllowedValue
-    const unitsNeeded = Math.min(Math.ceil(maxAllowedValue / baseUnit), Math.ceil(maxAbsValue / baseUnit) + 1)
-
-    // Determine appropriate number of decimal places based on magnitude
+    const unitsNeeded = Math.ceil(maxAllowedValue / baseUnit)
     const decimalPlaces = Math.max(0, -magnitude + 1)
 
     const ticks: number[] = []
