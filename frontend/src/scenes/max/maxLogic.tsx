@@ -466,7 +466,7 @@ export const maxLogic = kea<maxLogicType>([
         ],
         description: [
             (s) => [s.toolDescriptions],
-            (toolDescriptions) => {
+            (toolDescriptions): JSX.Element => {
                 return (
                     <>
                         I'm Max, here to help you build a&nbsp;successful&nbsp;product.{' '}
