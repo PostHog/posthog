@@ -276,10 +276,10 @@ export interface DataNode<R extends Record<string, any> = Record<string, any>> e
 /** HogQL Query Options are automatically set per team. However, they can be overridden in the query. */
 export interface HogQLQueryModifiers {
     personsOnEventsMode?:
-    | 'disabled' // `disabled` is deprecated and set for removal - `person_id_override_properties_joined` is its faster functional equivalent
-    | 'person_id_no_override_properties_on_events'
-    | 'person_id_override_properties_on_events'
-    | 'person_id_override_properties_joined'
+        | 'disabled' // `disabled` is deprecated and set for removal - `person_id_override_properties_joined` is its faster functional equivalent
+        | 'person_id_no_override_properties_on_events'
+        | 'person_id_override_properties_on_events'
+        | 'person_id_override_properties_joined'
     personsArgMaxVersion?: 'auto' | 'v1' | 'v2'
     inCohortVia?: 'auto' | 'leftjoin' | 'subquery' | 'leftjoin_conjoined'
     materializationMode?: 'auto' | 'legacy_null_as_string' | 'legacy_null_as_null' | 'disabled'
@@ -693,61 +693,61 @@ export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 
 export interface DataTableNode
     extends Node<
-        NonNullable<
-            (
-                | EventsNode
-                | EventsQuery
-                | PersonsNode
-                | ActorsQuery
-                | GroupsQuery
-                | HogQLQuery
-                | WebOverviewQuery
-                | WebStatsTableQuery
-                | WebExternalClicksTableQuery
-                | WebGoalsQuery
-                | WebVitalsQuery
-                | WebVitalsPathBreakdownQuery
-                | WebActiveHoursHeatMapQuery
-                | SessionAttributionExplorerQuery
-                | RevenueAnalyticsOverviewQuery
-                | RevenueAnalyticsGrowthRateQuery
-                | RevenueAnalyticsTopCustomersQuery
-                | RevenueExampleEventsQuery
-                | RevenueExampleDataWarehouseTablesQuery
-                | ErrorTrackingQuery
-                | ExperimentFunnelsQuery
-                | ExperimentTrendsQuery
-                | TracesQuery
-            )['response']
-        >
-    >,
-    DataTableNodeViewProps {
+            NonNullable<
+                (
+                    | EventsNode
+                    | EventsQuery
+                    | PersonsNode
+                    | ActorsQuery
+                    | GroupsQuery
+                    | HogQLQuery
+                    | WebOverviewQuery
+                    | WebStatsTableQuery
+                    | WebExternalClicksTableQuery
+                    | WebGoalsQuery
+                    | WebVitalsQuery
+                    | WebVitalsPathBreakdownQuery
+                    | WebActiveHoursHeatMapQuery
+                    | SessionAttributionExplorerQuery
+                    | RevenueAnalyticsOverviewQuery
+                    | RevenueAnalyticsGrowthRateQuery
+                    | RevenueAnalyticsTopCustomersQuery
+                    | RevenueExampleEventsQuery
+                    | RevenueExampleDataWarehouseTablesQuery
+                    | ErrorTrackingQuery
+                    | ExperimentFunnelsQuery
+                    | ExperimentTrendsQuery
+                    | TracesQuery
+                )['response']
+            >
+        >,
+        DataTableNodeViewProps {
     kind: NodeKind.DataTableNode
     /** Source of the events */
     source:
-    | EventsNode
-    | EventsQuery
-    | PersonsNode
-    | ActorsQuery
-    | GroupsQuery
-    | HogQLQuery
-    | WebOverviewQuery
-    | WebStatsTableQuery
-    | WebExternalClicksTableQuery
-    | WebGoalsQuery
-    | WebVitalsQuery
-    | WebVitalsPathBreakdownQuery
-    | WebActiveHoursHeatMapQuery
-    | SessionAttributionExplorerQuery
-    | RevenueAnalyticsOverviewQuery
-    | RevenueAnalyticsGrowthRateQuery
-    | RevenueAnalyticsTopCustomersQuery
-    | RevenueExampleEventsQuery
-    | RevenueExampleDataWarehouseTablesQuery
-    | ErrorTrackingQuery
-    | ExperimentFunnelsQuery
-    | ExperimentTrendsQuery
-    | TracesQuery
+        | EventsNode
+        | EventsQuery
+        | PersonsNode
+        | ActorsQuery
+        | GroupsQuery
+        | HogQLQuery
+        | WebOverviewQuery
+        | WebStatsTableQuery
+        | WebExternalClicksTableQuery
+        | WebGoalsQuery
+        | WebVitalsQuery
+        | WebVitalsPathBreakdownQuery
+        | WebActiveHoursHeatMapQuery
+        | SessionAttributionExplorerQuery
+        | RevenueAnalyticsOverviewQuery
+        | RevenueAnalyticsGrowthRateQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | RevenueExampleEventsQuery
+        | RevenueExampleDataWarehouseTablesQuery
+        | ErrorTrackingQuery
+        | ExperimentFunnelsQuery
+        | ExperimentTrendsQuery
+        | TracesQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -1004,8 +1004,8 @@ export type TrendsFilter = {
     resultCustomizationBy?: ResultCustomizationBy
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?:
-    | Record<string, ResultCustomizationByValue>
-    | Record<numerical_key, ResultCustomizationByPosition>
+        | Record<string, ResultCustomizationByValue>
+        | Record<numerical_key, ResultCustomizationByPosition>
     /** Goal Lines */
     goalLines?: GoalLine[]
 }
@@ -1098,8 +1098,8 @@ export interface FunnelExclusionSteps {
     funnelFromStep: integer
     funnelToStep: integer
 }
-export interface FunnelExclusionEventsNode extends EventsNode, FunnelExclusionSteps { }
-export interface FunnelExclusionActionsNode extends ActionsNode, FunnelExclusionSteps { }
+export interface FunnelExclusionEventsNode extends EventsNode, FunnelExclusionSteps {}
+export interface FunnelExclusionActionsNode extends ActionsNode, FunnelExclusionSteps {}
 export type FunnelExclusion = FunnelExclusionEventsNode | FunnelExclusionActionsNode
 
 export type FunnelsFilter = {
@@ -1198,7 +1198,7 @@ export interface RetentionResult {
     breakdown_value?: string | number | null
 }
 
-export interface RetentionQueryResponse extends AnalyticsQueryResponseBase<RetentionResult[]> { }
+export interface RetentionQueryResponse extends AnalyticsQueryResponseBase<RetentionResult[]> {}
 
 export type CachedRetentionQueryResponse = CachedQueryResponse<RetentionQueryResponse>
 
@@ -1217,7 +1217,7 @@ export type PathsLink = {
     average_conversion_time: number
 }
 
-export interface PathsQueryResponse extends AnalyticsQueryResponseBase<PathsLink[]> { }
+export interface PathsQueryResponse extends AnalyticsQueryResponseBase<PathsLink[]> {}
 
 export type CachedPathsQueryResponse = CachedQueryResponse<PathsQueryResponse>
 
@@ -1300,7 +1300,7 @@ export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
     'hiddenLegendIndexes',
 ])
 
-export interface StickinessQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> { }
+export interface StickinessQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
 
 export type CachedStickinessQueryResponse = CachedQueryResponse<StickinessQueryResponse>
 
@@ -1427,7 +1427,7 @@ export interface QueryStatusResponse {
 }
 
 /** @deprecated Only exported for use in test_query_runner.py! Don't use anywhere else. */
-export interface TestBasicQueryResponse extends AnalyticsQueryResponseBase<any[]> { }
+export interface TestBasicQueryResponse extends AnalyticsQueryResponseBase<any[]> {}
 /** @deprecated Only exported for use in test_query_runner.py! Don't use anywhere else. */
 export type TestCachedBasicQueryResponse = CachedQueryResponse<TestBasicQueryResponse>
 
@@ -1491,7 +1491,7 @@ export type QueryStatus = {
     labels?: string[]
 }
 
-export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> { }
+export interface LifecycleQueryResponse extends AnalyticsQueryResponseBase<Record<string, any>[]> {}
 
 export type CachedLifecycleQueryResponse = CachedQueryResponse<LifecycleQueryResponse>
 
@@ -1852,7 +1852,7 @@ export interface RevenueAnalyticsOverviewItem {
 }
 
 export interface RevenueAnalyticsOverviewQueryResponse
-    extends AnalyticsQueryResponseBase<RevenueAnalyticsOverviewItem[]> { }
+    extends AnalyticsQueryResponseBase<RevenueAnalyticsOverviewItem[]> {}
 export type CachedRevenueAnalyticsOverviewQueryResponse = CachedQueryResponse<RevenueAnalyticsOverviewQueryResponse>
 
 export interface RevenueAnalyticsGrowthRateQuery
