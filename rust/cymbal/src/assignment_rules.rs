@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use common_types::TeamId;
@@ -14,9 +14,7 @@ use crate::metric_consts::{
 };
 
 use crate::teams::TeamManager;
-use crate::{
-    app_context::AppContext, error::UnhandledError, issue_resolution::Issue, types::OutputErrProps,
-};
+use crate::{error::UnhandledError, issue_resolution::Issue, types::OutputErrProps};
 
 #[derive(Debug, Clone)]
 pub struct Assignment {
