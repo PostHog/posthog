@@ -555,6 +555,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"error_tracking/assignment_rules",
+    error_tracking.ErrorTrackingAssignmentRuleViewSet,
+    "project_error_tracking_assignment_rule",
+    ["team_id"],
+)
+
+environments_router.register(
     r"error_tracking/issue",
     error_tracking.ErrorTrackingIssueViewSet,
     "project_error_tracking_issue",

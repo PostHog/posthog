@@ -46,6 +46,9 @@ export function SignificanceText({
     metricIndex: number
     isSecondary?: boolean
 }): JSX.Element {
+    /**
+     * Remove this functions from the logic and make them pure so this component can be tested
+     */
     const { isPrimaryMetricSignificant, isSecondaryMetricSignificant } = useValues(experimentLogic)
 
     return (
@@ -53,9 +56,7 @@ export function SignificanceText({
             <span>Your results are&nbsp;</span>
             <span className="font-semibold">
                 {`${
-                    isSecondary
-                        ? isSecondaryMetricSignificant(metricIndex)
-                        : isPrimaryMetricSignificant(metricIndex)
+                    (isSecondary ? isSecondaryMetricSignificant(metricIndex) : isPrimaryMetricSignificant(metricIndex))
                         ? 'significant'
                         : 'not significant'
                 }`}

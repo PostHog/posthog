@@ -46,6 +46,8 @@ from posthog.schema import (
     EmptyPropertyFilter,
     DataWarehousePropertyFilter,
     DataWarehousePersonPropertyFilter,
+    ErrorTrackingIssueFilter,
+    ErrorTrackingIssuePropertyFilter,
 )
 from posthog.warehouse.models import DataWarehouseJoin
 from posthog.utils import get_from_dict_or_attr
@@ -299,9 +301,12 @@ def property_to_expr(
         | EmptyPropertyFilter
         | DataWarehousePropertyFilter
         | DataWarehousePersonPropertyFilter
+        | ErrorTrackingIssueFilter
+        | ErrorTrackingIssuePropertyFilter
     ),
     team: Team,
     scope: Literal["event", "person", "group", "session", "replay", "replay_entity"] = "event",
+    strict: bool = False,
 ) -> ast.Expr:
     if isinstance(property, dict):
         try:
@@ -309,11 +314,15 @@ def property_to_expr(
         # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
         # TODO: revert this when removing legacy insights?
         except ValueError:
+            if strict:
+                raise
             return ast.Constant(value=1)
         except TypeError:
+            if strict:
+                raise
             return ast.Constant(value=1)
     elif isinstance(property, list):
-        properties = [property_to_expr(p, team, scope) for p in property]
+        properties = [property_to_expr(p, team, scope, strict=strict) for p in property]
         if len(properties) == 0:
             return ast.Constant(value=1)
         if len(properties) == 1:
@@ -344,18 +353,20 @@ def property_to_expr(
         if len(property.values) == 0:
             return ast.Constant(value=1)
         if len(property.values) == 1:
-            return property_to_expr(property.values[0], team, scope)
+            return property_to_expr(property.values[0], team, scope, strict=strict)
 
         if property.type == PropertyOperatorType.AND or property.type == FilterLogicalOperator.AND_:
-            return ast.And(exprs=[property_to_expr(p, team, scope) for p in property.values])
+            return ast.And(exprs=[property_to_expr(p, team, scope, strict=strict) for p in property.values])
         else:
-            return ast.Or(exprs=[property_to_expr(p, team, scope) for p in property.values])
+            return ast.Or(exprs=[property_to_expr(p, team, scope, strict=strict) for p in property.values])
     elif isinstance(property, EmptyPropertyFilter):
         return ast.Constant(value=1)
     elif isinstance(property, BaseModel):
         try:
             property = Property(**property.dict())
         except ValueError:
+            if strict:
+                raise
             # The property was saved as an incomplete object. Instead of crashing the entire query, pretend it's not there.
             return ast.Constant(value=1)
     else:
@@ -374,6 +385,8 @@ def property_to_expr(
         or property.type == "session"
         or property.type == "recording"
         or property.type == "log_entry"
+        or property.type == "error_tracking_issue"
+        or property.type == "error_tracking_issue_property"
     ):
         if (
             (scope == "person" and property.type != "person")
@@ -433,6 +446,9 @@ def property_to_expr(
             chain = ["session"]
         elif property.type == "session" and scope == "session":
             chain = ["sessions"]
+        elif property.type == "error_tracking_issue" or property.type == "error_tracking_issue_property":
+            # TODO - I'm not sure what the distinction between error_tracking_issue and error_tracking_issue_property is
+            chain = ["issue"]
         else:
             chain = ["properties"]
 
@@ -478,6 +494,7 @@ def property_to_expr(
                         ),
                         team,
                         scope,
+                        strict=strict,
                     )
                     for v in value
                 ]
@@ -518,6 +535,7 @@ def property_to_expr(
                         ),
                         team,
                         scope,
+                        strict=strict,
                     )
                     for v in value
                 ]
