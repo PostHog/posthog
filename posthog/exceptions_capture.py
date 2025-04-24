@@ -14,6 +14,11 @@ def capture_exception(error=None, additional_properties=None):
 
     if api_key:
         _, msg = posthog_capture_exception(error, properties=properties)
-        logger.exception(error, event_id=msg.get("uuid"))
+
+        log_kwargs = {}
+        if isinstance(msg, dict):
+            log_kwargs["event_id"] = msg.get("uuid")
+
+        logger.exception(error, **log_kwargs)
     else:
         logger.exception(error)
