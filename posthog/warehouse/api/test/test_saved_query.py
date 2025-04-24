@@ -2,7 +2,7 @@ import uuid
 from unittest.mock import patch
 
 from posthog.test.base import APIBaseTest
-from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
+from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseSavedQueryVersion
 from posthog.warehouse.models.version_control import Content
 
 
@@ -722,3 +722,81 @@ class TestSavedQuery(APIBaseTest):
             self.assertEqual(len(versions), 5)
             content = Content.objects.filter(team_id=self.team.id, content_hash=versions[0]["content_hash"]).first()
             self.assertEqual(content.content, "select event as event from events LIMIT 9")
+
+    def test_next_version_with_current_version(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+        versions = saved_query["versions"]
+        self.assertEqual(
+            versions[0]["content_hash"], Content.get_content_hash("select event as event from events LIMIT 100")
+        )
+
+        with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
+            mock_get_columns.return_value = {}
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {
+                    "query": {"query": f"select event as event from events LIMIT 10"},
+                    "current_version": versions[0]["id"],
+                },
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+
+            # Try updating again with the same current version
+            mock_get_columns.return_value = {}
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {
+                    "query": {"query": f"select event as event from events LIMIT 1"},
+                    "current_version": versions[0]["id"],
+                },
+            )
+            self.assertEqual(response.status_code, 400, response.content)
+            self.assertEqual(response.json()["detail"], "Base version mismatch - query was updated by another user")
+
+    def test_next_version_with_current_version_is_none(self):
+        # Test for when the current version is None (i.e. existing queries that have no history)
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+        versions = saved_query["versions"]
+        self.assertEqual(
+            versions[0]["content_hash"], Content.get_content_hash("select event as event from events LIMIT 100")
+        )
+        DataWarehouseSavedQueryVersion.objects.filter(saved_query_id=saved_query["id"]).delete()
+
+        with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
+            mock_get_columns.return_value = {}
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {
+                    "query": {"query": f"select event as event from events LIMIT 10"},
+                    "current_version": None,
+                },
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+            saved_query = response.json()
+            versions = saved_query["versions"]
+            self.assertEqual(len(versions), 1)
+            self.assertEqual(
+                versions[0]["content_hash"], Content.get_content_hash("select event as event from events LIMIT 10")
+            )

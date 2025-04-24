@@ -49,6 +49,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     columns = serializers.SerializerMethodField(read_only=True)
     sync_frequency = serializers.SerializerMethodField()
     versions = serializers.SerializerMethodField()
+    current_version = serializers.UUIDField(write_only=True, required=False, allow_null=True)
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -65,6 +66,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "last_run_at",
             "latest_error",
             "versions",
+            "current_version",
         ]
         read_only_fields = [
             "id",
@@ -146,7 +148,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
         return view
 
-    def next_version(self, validated_data: Any, parent_version: Version | None = None) -> Version:
+    def next_version(self, validated_data: Any, current_version_id: uuid.UUID | None = None) -> Version:
         try:
             content_hash = Content.get_content_hash(validated_data["query"]["query"])
         except Exception:
@@ -159,7 +161,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 team_id=self.context["team_id"],
                 content_hash=content_hash,
                 created_by=self.context["request"].user,
-                parent_version=parent_version,
+                parent_version_id=current_version_id,
             )
         else:
             # Create new content
@@ -170,7 +172,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 team_id=self.context["team_id"],
                 content_hash=content_hash,
                 created_by=self.context["request"].user,
-                parent_version=parent_version,
+                parent_version_id=current_version_id,
             )
 
         return version
@@ -178,24 +180,32 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     def update(self, instance: Any, validated_data: Any) -> Any:
         sync_frequency = self.context["request"].data.get("sync_frequency", None)
         was_sync_frequency_updated = False
+        current_version_id = self.context["request"].data.pop("current_version", None)
 
         with transaction.atomic():
+            locked_instance = DataWarehouseSavedQuery.objects.select_for_update().get(pk=instance.pk)
+
             if sync_frequency == "never":
-                delete_saved_query_schedule(str(instance.id))
-                instance.sync_frequency_interval = None
+                delete_saved_query_schedule(str(locked_instance.id))
+                locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
             elif sync_frequency:
                 sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
                 was_sync_frequency_updated = True
-                instance.sync_frequency_interval = sync_frequency_interval
+                locked_instance.sync_frequency_interval = sync_frequency_interval
 
-            view: DataWarehouseSavedQuery = super().update(instance, validated_data)
+            view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
 
             # Only update columns and status if the query has changed
             if "query" in validated_data:
-                version = self.next_version(validated_data, instance.versions.latest("created_at"))
+                latest_version = locked_instance.versions.order_by("-created_at").first()
+                if current_version_id and (not latest_version or str(latest_version.id) != str(current_version_id)):
+                    raise serializers.ValidationError("Base version mismatch - query was updated by another user")
+
+                version = self.next_version(validated_data, current_version_id)
                 DataWarehouseSavedQueryVersion.objects.create(saved_query=view, version=version)
+
                 try:
                     # The columns will be inferred from the query
                     client_types = self.context["request"].data.get("types", [])
