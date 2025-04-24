@@ -40,7 +40,7 @@ export const saveUnderLogic = kea<saveUnderLogicType>([
             actions.setFormValue('folder', folder || props.defaultFolder || 'Unfiled')
         },
     })),
-    forms(({ props }) => ({
+    forms(({ actions, values, props }) => ({
         form: {
             defaults: {
                 folder: props.defaultFolder || 'Unfiled',
@@ -50,6 +50,7 @@ export const saveUnderLogic = kea<saveUnderLogicType>([
             }),
             submit: (formValues) => {
                 if (props.onSave) {
+                    actions.setLastNewOperation(values.lastNewOperation?.objectType || 'unknown', formValues.folder)
                     props.onSave(formValues.folder || props.defaultFolder)
                 }
             },
