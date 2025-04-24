@@ -85,7 +85,8 @@ class SessionSummaryPromptData:
         self.results = list(simplified_events_mapping.values())
         return simplified_events_mapping
 
-    def _prepare_metadata(self, raw_session_metadata: dict[str, Any]) -> SessionSummaryMetadata:
+    @staticmethod
+    def _prepare_metadata(raw_session_metadata: dict[str, Any]) -> SessionSummaryMetadata:
         # Remove excessive data or fields that negatively impact the LLM performance
         # For example, listing 114 errors, increases chances of error hallucination
         session_metadata = raw_session_metadata.copy()  # Avoid mutating the original

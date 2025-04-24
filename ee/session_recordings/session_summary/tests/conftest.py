@@ -102,84 +102,76 @@ def mock_raw_metadata() -> dict[str, Any]:
 @pytest.fixture
 def mock_raw_events() -> list[list[Any]]:
     return [
+        # First segment events
         [
-            "client_request_failure",
+            "$autocapture",  # abcd1234 - start of segment 0
             datetime(2025, 3, 31, 18, 40, 39, 302000),
             "",
-            [],
-            [],
-            "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
-            "http://localhost:8010/login?next=/",
-            None,
-        ],
-        [
-            "$pageview",
-            datetime(2025, 3, 31, 18, 40, 39, 200000),
-            "",
-            [],
-            [],
-            "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
-            "http://localhost:8010/login?next=/",
-            None,
-        ],
-        [
-            "$autocapture",
-            datetime(2025, 3, 31, 18, 40, 43, 645000),
-            "",
             ["Log in"],
-            ["button", "form"],
+            ["button"],
             "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
-            "http://localhost:8010/login?next=/",
+            "http://localhost:8010/login",
             "click",
         ],
         [
-            "$autocapture",
-            datetime(2025, 3, 31, 18, 40, 43, 647000),
+            "$autocapture",  # defg4567
+            datetime(2025, 3, 31, 18, 40, 43, 645000),
             "",
-            [],
+            ["Submit"],
             ["form"],
             "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
-            "http://localhost:8010/login?next=/",
+            "http://localhost:8010/login",
             "submit",
         ],
         [
-            "$web_vitals",
+            "$pageview",  # vbgs1287 - end of segment 0
             datetime(2025, 3, 31, 18, 40, 44, 251000),
             "",
             [],
             [],
             "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
-            "http://localhost:8010/login?next=/",
+            "http://localhost:8010/signup",
             None,
         ],
+        # Second segment events
         [
-            "$autocapture",
+            "$autocapture",  # gfgz6242 - start of segment 1
             datetime(2025, 3, 31, 18, 40, 58, 699000),
-            "/signup",
-            ["Create an account"],
-            ["a"],
+            "",
+            ["Create"],
+            ["button"],
             "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
-            "http://localhost:8010/login?next=/",
+            "http://localhost:8010/signup",
             "click",
         ],
         [
-            "$pageview",
-            datetime(2025, 3, 31, 18, 40, 58, 710000),
-            "",
-            [],
-            [],
-            "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
-            "http://localhost:8010/signup",
-            None,
-        ],
-        [
-            "$autocapture",
+            "$autocapture",  # ghij7890
             datetime(2025, 3, 31, 18, 41, 5, 459000),
             "",
             ["Continue"],
-            ["button", "form"],
-            "0235ed82-1519-7595-9221-8bb8ddb1fdc4",
+            ["button"],
+            "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
             "http://localhost:8010/signup",
+            "click",
+        ],
+        [
+            "$autocapture",  # mnop3456
+            datetime(2025, 3, 31, 18, 41, 10, 123000),
+            "",
+            ["Submit"],
+            ["form"],
+            "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
+            "http://localhost:8010/signup/error",
+            "submit",
+        ],
+        [
+            "$autocapture",  # stuv9012 - end of segment 1
+            datetime(2025, 3, 31, 18, 41, 15, 789000),
+            "",
+            ["Try Again"],
+            ["button"],
+            "0195ed81-7519-7595-9221-8bb8ddb1fdcc",
+            "http://localhost:8010/signup/error",
             "click",
         ],
     ]
