@@ -1,11 +1,13 @@
-import { HogFunctionFilterEvent, HogFunctionInputSchemaType } from '~/src/cdp/types';
+import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { destinations } from '@segment/action-destinations/dist/destinations'
+
+import { HogFunctionMappingTemplate } from '~/src/cdp/templates/types'
+import { HogFunctionFilterEvent, HogFunctionInputSchemaType } from '~/src/cdp/types'
+
 import { LegacyDestinationPlugin, LegacyDestinationPluginMeta } from './types'
-import { ProcessedPluginEvent } from '@posthog/plugin-scaffold';
-import { HogFunctionMappingTemplate } from '~/src/cdp/templates/types';
-import { destinations } from "@segment/action-destinations/dist/destinations"
 
 const translateFilters = (subscribe: string): { events: HogFunctionFilterEvent[] } => {
-    let mapped = subscribe
+    const mapped = subscribe
         .replaceAll('type = "page"', 'event = "$pageview"')
         .replaceAll('type = "screen"', 'event = "$screen"')
         .replaceAll('type = "identify"', `event in ('$identify', '$set')`)
@@ -17,19 +19,19 @@ const translateFilters = (subscribe: string): { events: HogFunctionFilterEvent[]
     return {
         events: [
             {
-                "id": null,
-                "name": "All events",
-                "type": "events",
-                "order": 0,
-                "properties": [
+                id: null,
+                name: 'All events',
+                type: 'events',
+                order: 0,
+                properties: [
                     {
-                        "key": mapped,
-                        "type": "hogql",
-                        "value": null
-                    }
-                ]
-            }
-        ]
+                        key: mapped,
+                        type: 'hogql',
+                        value: null,
+                    },
+                ],
+            },
+        ],
     }
 }
 
@@ -197,8 +199,11 @@ const translateInputs = (defaultVal: any) => {
             modifiedVal = modifiedVal.replaceAll(/integrations\.[^}]+/g, '')
         }
 
-        if (modifiedVal.endsWith('.')) return ''
-        else return modifiedVal
+        if (modifiedVal.endsWith('.')) {
+            return ''
+        } else {
+            return modifiedVal
+        }
     }
 
     if (['boolean', 'string'].includes(typeof defaultVal)) {
@@ -206,12 +211,14 @@ const translateInputs = (defaultVal: any) => {
     }
     if (typeof defaultVal === 'object') {
         if (defaultVal && '@path' in defaultVal) {
-            let modifiedVal = defaultVal['@path']
-                .replace('$.', 'event.')
+            let modifiedVal = defaultVal['@path'].replace('$.', 'event.')
 
             modifiedVal = normalizeValue(modifiedVal)
-            if (modifiedVal === '') return ''
-            else return `{${modifiedVal}}`
+            if (modifiedVal === '') {
+                return ''
+            } else {
+                return `{${modifiedVal}}`
+            }
         } else if (defaultVal && '@if' in defaultVal) {
             if (JSON.stringify(defaultVal['@if'].exists) === JSON.stringify(defaultVal['@if'].then)) {
                 let val = defaultVal['@if'].then
@@ -226,10 +233,15 @@ const translateInputs = (defaultVal: any) => {
                     fallbackVal = normalizeValue(fallbackVal)
                 }
 
-                if (val === '' && fallbackVal === '') return ''
-                else if (val === '' && fallbackVal !== '') return `{${fallbackVal}}`
-                else if (val !== '' && fallbackVal === '') return `{${val}}`
-                else return `{${val} ?? ${fallbackVal}}`
+                if (val === '' && fallbackVal === '') {
+                    return ''
+                } else if (val === '' && fallbackVal !== '') {
+                    return `{${fallbackVal}}`
+                } else if (val !== '' && fallbackVal === '') {
+                    return `{${val}}`
+                } else {
+                    return `{${val} ?? ${fallbackVal}}`
+                }
             } else {
                 return JSON.stringify(defaultVal)
             }
@@ -240,94 +252,120 @@ const translateInputs = (defaultVal: any) => {
 }
 
 const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): HogFunctionInputSchemaType[] => {
-    if (!inputs_schema) return []
+    if (!inputs_schema) {
+        return []
+    }
     return Object.entries(inputs_schema).map(([key, field]) => ({
         key,
         label: field.label,
-        type: field.choices ? 'choice'
-            : field.type === 'object' ? typeof field.default !== 'undefined' && ('@path' in field.default) ? 'string' : 'dictionary'
-            : ['number', 'integer', 'datetime'].includes(field.type) ? 'string'
-            : typeof field.default === 'object' && '@path' in field.default ? 'string'
+        type: field.choices
+            ? 'choice'
+            : field.type === 'object'
+            ? typeof field.default !== 'undefined' && '@path' in field.default
+                ? 'string'
+                : 'dictionary'
+            : ['number', 'integer', 'datetime'].includes(field.type)
+            ? 'string'
+            : typeof field.default === 'object' && '@path' in field.default
+            ? 'string'
             : field.type ?? 'string',
         description: field.description,
-        default: field.type !== 'object' || typeof field.default !== 'undefined' && ('@path' in field.default) ? translateInputs(field.default) : Object.fromEntries(Object.entries(field.properties ?? {}).map(([key, _]) => {
-            const defaultVal = field.default as Record<string, object> ?? {}
-            return [key, translateInputs(defaultVal[key])]
-        })),
+        default:
+            field.type !== 'object' || (typeof field.default !== 'undefined' && '@path' in field.default)
+                ? translateInputs(field.default)
+                : Object.fromEntries(
+                      Object.entries(field.properties ?? {}).map(([key, _]) => {
+                          const defaultVal = (field.default as Record<string, object>) ?? {}
+                          return [key, translateInputs(defaultVal[key])]
+                      })
+                  ),
         required: field.required ?? false,
         secret: false,
         ...(field.choices ? { choices: field.choices } : {}),
     })) as HogFunctionInputSchemaType[]
 }
 
-export const SEGMENT_DESTINATIONS = Object.entries(destinations).filter(([_, destination]) => destination).map(([_, destination]) => {
-    return {
-        onEvent: async (
-            _event: ProcessedPluginEvent,
-            { config, fetch, logger }: LegacyDestinationPluginMeta
-        ): Promise<void> =>  {
-            logger.warn('config', config)
-            destination.actions[config.internal_partner_action as keyof typeof destination.actions].perform(async (endpoint, options) => {
-                logger.warn('endpoint', endpoint)
-                logger.warn('options', options)
-                let headers: Record<string, string> = {
-                    'endpoint': endpoint,
-                    ...options?.headers
-                }
-
-                let body: string | URLSearchParams = ''
-
-                if (options?.json) {
-                    body = JSON.stringify(options.json)
-                    headers['Content-Type'] = 'application/json'
-                } else if (options?.body && options.body instanceof URLSearchParams) {
-                    body = options.body
-                    headers['Content-Type'] = 'application/x-www-form-urlencoded'
-                }
-
-                await fetch(endpoint, {
-                    method: options?.method ?? "POST",
-                    headers,
-                    body
-                })
-                return Promise.resolve({} as any)
-            }, {
-                payload: config,
-                settings: config
-            })
-        },
-        template: {
-            free: false,
-            status: 'beta',
-            type: 'destination',
-            id: destination.slug?.replace('actions-', 'plugin-segment-') ?? `plugin-segment-${destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase()}`,
-            name: destination.name.replace(' (Actions)', '').replace('Actions ', ''),
-            description: `Send event data to ${destination.name.replace(' (Actions)', '').replace('Actions ', '')}`,
-            icon_url: `https://img.logo.dev/${destination.slug?.split('-')[1]}.com?token=pk_NiEhY0r4ToO7w_3DQvOALw`,
-            category: [],
-            inputs_schema: translateInputsSchema(destination.authentication?.fields),
-            hog: 'return event',
-            mapping_templates: (destination.presets ?? [])
-                .filter((preset) => preset.type === 'automatic')
-                .filter((preset) => preset.partnerAction in destination.actions)
-                .map((preset) => ({
-                    name: preset.name,
-                    include_by_default: true,
-                    filters: translateFilters(preset.subscribe),
-                    inputs_schema: [
-                        ...(preset.partnerAction in destination.actions ? translateInputsSchema(destination.actions[preset.partnerAction as keyof typeof destination.actions].fields) : []),
-                        {
-                            key: 'internal_partner_action',
-                            label: 'Partner Action',
-                            hidden: true,
-                            type: 'string',
-                            default: preset.partnerAction,
-                            description: 'The partner action to use',
-                            required: true,
-                            secret: false,
+export const SEGMENT_DESTINATIONS = Object.entries(destinations)
+    .filter(([_, destination]) => destination)
+    .map(([_, destination]) => {
+        return {
+            onEvent: async (
+                /* eslint-disable-line @typescript-eslint/require-await */
+                _event: ProcessedPluginEvent,
+                { config, fetch, logger }: LegacyDestinationPluginMeta
+            ): Promise<void> => {
+                logger.warn('config', config)
+                destination.actions[config.internal_partner_action as keyof typeof destination.actions].perform(
+                    async (endpoint, options) => {
+                        logger.warn('endpoint', endpoint)
+                        logger.warn('options', options)
+                        const headers: Record<string, string> = {
+                            endpoint: endpoint,
+                            ...options?.headers,
                         }
-                    ]
-                })) as HogFunctionMappingTemplate[]
-        }
-    } as LegacyDestinationPlugin
-})
+
+                        let body: string | URLSearchParams = ''
+
+                        if (options?.json) {
+                            body = JSON.stringify(options.json)
+                            headers['Content-Type'] = 'application/json'
+                        } else if (options?.body && options.body instanceof URLSearchParams) {
+                            body = options.body
+                            headers['Content-Type'] = 'application/x-www-form-urlencoded'
+                        }
+
+                        await fetch(endpoint, {
+                            method: options?.method ?? 'POST',
+                            headers,
+                            body,
+                        })
+                        return Promise.resolve({} as any)
+                    },
+                    {
+                        payload: config,
+                        settings: config,
+                    }
+                )
+            },
+            template: {
+                free: false,
+                status: 'beta',
+                type: 'destination',
+                id:
+                    destination.slug?.replace('actions-', 'plugin-segment-') ??
+                    `plugin-segment-${destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase()}`,
+                name: destination.name.replace(' (Actions)', '').replace('Actions ', ''),
+                description: `Send event data to ${destination.name.replace(' (Actions)', '').replace('Actions ', '')}`,
+                icon_url: `https://img.logo.dev/${destination.slug?.split('-')[1]}.com?token=pk_NiEhY0r4ToO7w_3DQvOALw`,
+                category: [],
+                inputs_schema: translateInputsSchema(destination.authentication?.fields),
+                hog: 'return event',
+                mapping_templates: (destination.presets ?? [])
+                    .filter((preset) => preset.type === 'automatic')
+                    .filter((preset) => preset.partnerAction in destination.actions)
+                    .map((preset) => ({
+                        name: preset.name,
+                        include_by_default: true,
+                        filters: translateFilters(preset.subscribe),
+                        inputs_schema: [
+                            ...(preset.partnerAction in destination.actions
+                                ? translateInputsSchema(
+                                      destination.actions[preset.partnerAction as keyof typeof destination.actions]
+                                          .fields
+                                  )
+                                : []),
+                            {
+                                key: 'internal_partner_action',
+                                label: 'Partner Action',
+                                hidden: true,
+                                type: 'string',
+                                default: preset.partnerAction,
+                                description: 'The partner action to use',
+                                required: true,
+                                secret: false,
+                            },
+                        ],
+                    })) as HogFunctionMappingTemplate[],
+            },
+        } as LegacyDestinationPlugin
+    })
