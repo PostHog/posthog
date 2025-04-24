@@ -1,1 +1,1 @@
-0714_alter_team_session_recording_minimum_duration_milliseconds
+0715_teamrevenueanalyticsconfig
