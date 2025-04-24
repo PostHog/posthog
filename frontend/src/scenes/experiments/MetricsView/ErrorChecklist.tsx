@@ -16,7 +16,7 @@ export enum ResultErrorCode {
     NO_EXPOSURES = 'no-exposures',
 }
 
-export function NoResultEmptyState({ error, metric }: { error: any; metric: any }): JSX.Element {
+export function ErrorChecklist({ error, metric }: { error: any; metric: any }): JSX.Element {
     const { experiment, variants, getInsightType } = useValues(experimentLogic)
 
     if (!error) {

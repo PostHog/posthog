@@ -38,6 +38,7 @@ type ButtonBaseProps = {
     disabled?: boolean
     active?: boolean
     tooltip?: TooltipProps['title']
+    tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
     buttonWrapper?: (button: JSX.Element) => JSX.Element
 } & VariantProps<typeof buttonVariants>
@@ -124,7 +125,6 @@ const buttonVariants = cva({
         group/button-primitive
         cursor-pointer
         inline-flex
-        w-fit
         relative
         items-center
         rounded-md
@@ -178,7 +178,7 @@ const buttonVariants = cva({
             fit: 'px-0',
         },
         iconOnly: {
-            true: 'p-0 justify-center items-center shrink-0',
+            true: 'icon-only p-0 justify-center items-center shrink-0',
             false: '',
         },
         fullWidth: {
@@ -217,21 +217,6 @@ const buttonVariants = cva({
         menuItem: false,
     },
     compoundVariants: [
-        {
-            iconOnly: true,
-            size: 'sm',
-            className: 'w-[var(--button-height-sm)]',
-        },
-        {
-            iconOnly: true,
-            size: 'base',
-            className: 'w-[var(--button-height-base)]',
-        },
-        {
-            iconOnly: true,
-            size: 'lg',
-            className: 'w-[var(--button-height-lg)]',
-        },
         {
             sideActionLeft: true,
             size: 'sm',
@@ -280,6 +265,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement | HTMLAnchorElement,
         sideActionRight,
         tooltip,
         tooltipPlacement,
+        tooltipDocLink,
         ...rest
     } = props
     // If inside a ButtonGroup, use the context values, otherwise use props
@@ -330,9 +316,9 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement | HTMLAnchorElement,
         children
     )
 
-    if (tooltip) {
+    if (tooltip || tooltipDocLink) {
         buttonComponent = (
-            <Tooltip title={tooltip} placement={tooltipPlacement}>
+            <Tooltip title={tooltip} placement={tooltipPlacement} docLink={tooltipDocLink}>
                 {buttonComponent}
             </Tooltip>
         )

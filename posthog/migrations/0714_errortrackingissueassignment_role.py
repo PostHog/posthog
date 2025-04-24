@@ -5,10 +5,7 @@ import django.db.models.deletion
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("ee", "0024_conversation_type"),
-        ("posthog", "0710_add_salesforce_tables"),
-    ]
+    dependencies = [("ee", "0024_conversation_type"), ("posthog", "0713_errortrackingassignmentrule")]
 
     operations = [
         migrations.AddField(

@@ -19,6 +19,7 @@ impl UrlList {
         allow_internal_ips: bool,
         timeout: Duration,
         retries: usize,
+        validate_urls: bool,
     ) -> Result<Self, Error> {
         let resolver = Arc::new(common_dns::PublicIPv4Resolver {});
 
@@ -37,8 +38,10 @@ impl UrlList {
         };
 
         // Validate the passed urls, and assert they all support range requests
-        for url in &source.urls {
-            source.assert_valid_url(url).await?;
+        if validate_urls {
+            for url in &source.urls {
+                source.assert_valid_url(url).await?;
+            }
         }
 
         Ok(source)
@@ -187,7 +190,7 @@ mod test {
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
         let url_count = urls.len();
-        let source = UrlList::new(urls, true, Duration::from_secs(10), 1)
+        let source = UrlList::new(urls, true, Duration::from_secs(10), 1, true)
             .await
             .unwrap();
         let keys = source.keys().await.unwrap();
@@ -207,7 +210,7 @@ mod test {
         });
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
-        let source_res = UrlList::new(urls, true, Duration::from_secs(10), 0).await;
+        let source_res = UrlList::new(urls, true, Duration::from_secs(10), 0, true).await;
 
         assert!(source_res.is_err());
     }
@@ -222,7 +225,7 @@ mod test {
         });
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
-        let source_res = UrlList::new(urls, true, Duration::from_secs(10), 0).await;
+        let source_res = UrlList::new(urls, true, Duration::from_secs(10), 0, true).await;
 
         assert!(source_res.is_err());
     }
@@ -236,7 +239,7 @@ mod test {
         });
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
-        let source_res = UrlList::new(urls, true, Duration::from_secs(10), 0).await;
+        let source_res = UrlList::new(urls, true, Duration::from_secs(10), 0, true).await;
 
         assert!(source_res.is_err());
     }
@@ -252,7 +255,7 @@ mod test {
         });
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
-        let source_res = UrlList::new(urls, true, Duration::from_secs(10), 0).await;
+        let source_res = UrlList::new(urls, true, Duration::from_secs(10), 0, true).await;
 
         assert!(source_res.is_err());
     }
@@ -268,7 +271,7 @@ mod test {
         });
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
-        let source = UrlList::new(urls.clone(), true, Duration::from_secs(10), 0)
+        let source = UrlList::new(urls.clone(), true, Duration::from_secs(10), 0, true)
             .await
             .unwrap();
         let size = source.size(&urls[0]).await.unwrap();
@@ -294,7 +297,7 @@ mod test {
         });
 
         let urls: Vec<_> = ["/1", "/2"].iter().map(|&path| server.url(path)).collect();
-        let source = UrlList::new(urls.clone(), true, Duration::from_secs(10), 0)
+        let source = UrlList::new(urls.clone(), true, Duration::from_secs(10), 0, true)
             .await
             .unwrap();
         let chunk = source.get_chunk(&urls[0], 0, 100).await.unwrap();
