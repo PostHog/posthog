@@ -134,7 +134,7 @@ staleness_threshold_map: dict[ThresholdMode, dict[Optional[str], timedelta]] = {
         "hour": timedelta(hours=1),
         "day": timedelta(hours=6),
         "week": timedelta(days=1),
-        "month": timedelta(days=2),
+        "month": timedelta(days=1),
     },
     ThresholdMode.LAZY: {
         None: timedelta(hours=12),
@@ -142,7 +142,7 @@ staleness_threshold_map: dict[ThresholdMode, dict[Optional[str], timedelta]] = {
         "hour": timedelta(hours=2),
         "day": timedelta(hours=12),
         "week": timedelta(days=1),
-        "month": timedelta(days=2),
+        "month": timedelta(days=1),
     },
     ThresholdMode.AI: {
         None: timedelta(hours=1),
