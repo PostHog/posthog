@@ -1,23 +1,12 @@
-import { MessageHeader, MessageKey } from 'node-rdkafka'
-
 import { KafkaProducerWrapper, TopicMessage } from '../../../src/kafka/producer'
 import { parseJSON } from '../../../src/utils/json-parse'
-
-type TopicMessageWithHeaders = {
-    topic: string
-    messages: {
-        value: string | Buffer | null
-        key?: MessageKey
-        headers?: MessageHeader[]
-    }[]
-}
 
 export type ParsedTopicMessage = {
     topic: string
     messages: {
         key: string | null
         value: Record<string, any> | null
-        headers?: MessageHeader[]
+        headers?: Record<string, string>
     }[]
 }
 
@@ -25,7 +14,7 @@ export type DecodedKafkaMessage = {
     topic: string
     key?: any
     value: Record<string, unknown>
-    headers?: MessageHeader[]
+    headers?: Record<string, string>
 }
 
 jest.mock('../../../src/kafka/producer', () => {
@@ -56,21 +45,29 @@ export const getQueuedMessages = (): TopicMessage[] => {
     }, [] as TopicMessage[])
 }
 
-export const getProducedMessages = (): TopicMessageWithHeaders[] => {
+export const getProducedMessages = (): TopicMessage[] => {
     return jest.mocked(mockProducer).produce.mock.calls.reduce((acc, call) => {
+        const headers = call[0].headers?.reduce<Record<string, string | Buffer>>((acc, header) => {
+            acc[Object.keys(header)[0]] = Object.values(header)[0]
+            return acc
+        }, {})
+
+        const message: TopicMessage['messages'][number] = {
+            key: call[0].key,
+            value: call[0].value,
+        }
+
+        if (headers) {
+            message.headers = headers
+        }
+
         return acc.concat([
             {
                 topic: call[0].topic,
-                messages: [
-                    {
-                        key: call[0].key,
-                        value: call[0].value,
-                        headers: call[0].headers,
-                    },
-                ],
+                messages: [message],
             },
         ])
-    }, [] as TopicMessageWithHeaders[])
+    }, [] as TopicMessage[])
 }
 
 export const getParsedQueuedMessages = (): ParsedTopicMessage[] => {
@@ -96,6 +93,7 @@ export const getProducedKafkaMessages = (): DecodedKafkaMessage[] => {
                 topic: topicMessage.topic,
                 key: message.key,
                 value: message.value ?? {},
+                headers: message.headers,
             })
         }
     }
@@ -124,8 +122,4 @@ export const getProducedKafkaMessagesWithHeaders = (): DecodedKafkaMessage[] => 
 
 export const getProducedKafkaMessagesForTopic = (topic: string): DecodedKafkaMessage[] => {
     return getProducedKafkaMessages().filter((x) => x.topic === topic)
-}
-
-export const getProducedKafkaMessagesWithHeadersForTopic = (topic: string): DecodedKafkaMessage[] => {
-    return getProducedKafkaMessagesWithHeaders().filter((x) => x.topic === topic)
 }

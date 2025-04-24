@@ -8,7 +8,6 @@ import {
     DecodedKafkaMessage,
     getProducedKafkaMessages,
     getProducedKafkaMessagesForTopic,
-    getProducedKafkaMessagesWithHeadersForTopic,
     mockProducer,
 } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
@@ -168,18 +167,17 @@ describe('IngestionConsumer', () => {
             ]
             await ingester.handleKafkaBatch(messages)
 
-            const producedMessages = getProducedKafkaMessagesWithHeadersForTopic('clickhouse_events_json_test')
+            const producedMessages = getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
             expect(producedMessages.length).toBe(1)
 
-            const headers = producedMessages[0].headers || []
-            const breadcrumbHeader = headers.find((h) => 'kafka-consumer-breadcrumbs' in h)
+            const headers = producedMessages[0].headers || {}
+            const breadcrumbHeader = headers['kafka-consumer-breadcrumbs']
 
             expect(breadcrumbHeader).toBeDefined()
 
-            const value = breadcrumbHeader?.['kafka-consumer-breadcrumbs'] as Buffer
-            expect(value).toBeInstanceOf(Buffer)
+            expect(breadcrumbHeader).toBeInstanceOf(Buffer)
 
-            const parsedBreadcrumbs = parseJSON(value.toString())
+            const parsedBreadcrumbs = parseJSON(breadcrumbHeader.toString())
             expect(Array.isArray(parsedBreadcrumbs)).toBe(true)
             expect(parsedBreadcrumbs.length).toBe(2)
 
