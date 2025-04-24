@@ -1,12 +1,12 @@
 import { TeamId } from '../../../../types'
 import { ParsedMessageData } from '../kafka/types'
 
-export interface Team {
+export interface TeamForReplay {
     teamId: TeamId
     consoleLogIngestionEnabled: boolean
 }
 
 export interface MessageWithTeam {
-    team: Team
+    team: TeamForReplay
     message: ParsedMessageData
 }

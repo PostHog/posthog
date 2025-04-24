@@ -1,10 +1,11 @@
 import dataclasses
 import math
-from typing import Any, Optional
 from collections.abc import Iterator
-import psycopg.rows
-import pyarrow as pa
+from typing import Any, LiteralString, Optional, cast
+
 import psycopg
+import pyarrow as pa
+from dlt.common.normalizers.naming.snake_case import NamingConvention
 from psycopg import sql
 from psycopg.adapt import Loader
 
@@ -21,8 +22,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 )
 from posthog.temporal.data_imports.pipelines.sql_database.settings import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.warehouse.models import IncrementalFieldType
-
-from dlt.common.normalizers.naming.snake_case import NamingConvention
+from posthog.warehouse.types import PartitionSettings
 
 
 class JsonAsStringLoader(Loader):
@@ -39,10 +39,15 @@ def _build_query(
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
+    add_limit: Optional[bool] = False,
 ) -> sql.Composed:
     query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema, table_name))
 
     if not is_incremental:
+        if add_limit:
+            query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 100")
+            return sql.SQL(query_with_limit).format()
+
         return query
 
     if incremental_field is None or incremental_field_type is None:
@@ -59,6 +64,10 @@ def _build_query(
         incremental_field=sql.Identifier(incremental_field),
         last_value=sql.Literal(db_incremental_field_last_value),
     )
+
+    if add_limit:
+        query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 100")
+        return sql.SQL(query_with_limit).format()
 
     return query
 
@@ -86,14 +95,13 @@ def _get_primary_keys(cursor: psycopg.Cursor, schema: str, table_name: str) -> l
     return None
 
 
-def _get_table_chunk_size(cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger) -> int:
+def _get_table_chunk_size(
+    cursor: psycopg.Cursor, inner_query: sql.Composed, schema: str, table_name: str, logger: FilteringBoundLogger
+) -> int:
     try:
         query = sql.SQL("""
-            SELECT SUM(pg_column_size(t.*)) / COUNT(t.*) FROM (
-                SELECT * FROM {}
-                LIMIT 100
-            ) as t
-        """).format(sql.Identifier(schema, table_name))
+            SELECT SUM(pg_column_size(t.*)) / COUNT(t.*) FROM ({}) as t
+        """).format(inner_query)
 
         cursor.execute(query)
         row = cursor.fetchone()
@@ -128,7 +136,7 @@ class TableStructureRow:
     numeric_scale: Optional[int]
 
 
-def _get_partition_settings(cursor: psycopg.Cursor, schema: str, table_name: str) -> tuple[int, int] | None:
+def _get_partition_settings(cursor: psycopg.Cursor, schema: str, table_name: str) -> PartitionSettings | None:
     query = sql.SQL("""
         SELECT
             CASE WHEN count(*) = 0 OR pg_table_size({schema_table_name_literal}) = 0 THEN NULL
@@ -157,9 +165,9 @@ def _get_partition_settings(cursor: psycopg.Cursor, schema: str, table_name: str
     partition_count = math.floor(total_rows / partition_size)
 
     if partition_count == 0:
-        return 1, partition_size
+        return PartitionSettings(partition_count=1, partition_size=partition_size)
 
-    return partition_count, partition_size
+    return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
 
 
 def _get_table_structure(cursor: psycopg.Cursor, schema: str, table_name: str) -> list[TableStructureRow]:
@@ -275,9 +283,19 @@ def postgres_source(
         sslkey="/tmp/no.txt",
     ) as connection:
         with connection.cursor() as cursor:
+            inner_query = _build_query(
+                schema,
+                table_name,
+                is_incremental,
+                incremental_field,
+                incremental_field_type,
+                db_incremental_field_last_value,
+                add_limit=True,
+            )
+
             primary_keys = _get_primary_keys(cursor, schema, table_name)
             table_structure = _get_table_structure(cursor, schema, table_name)
-            chunk_size = _get_table_chunk_size(cursor, schema, table_name, logger)
+            chunk_size = _get_table_chunk_size(cursor, inner_query, schema, table_name, logger)
             partition_settings = _get_partition_settings(cursor, schema, table_name) if is_incremental else None
 
             # Falback on checking for an `id` field on the table
@@ -332,6 +350,6 @@ def postgres_source(
         name=name,
         items=get_rows(chunk_size),
         primary_keys=primary_keys,
-        partition_count=partition_settings[0] if partition_settings else None,
-        partition_size=partition_settings[1] if partition_settings else None,
+        partition_count=partition_settings.partition_count if partition_settings else None,
+        partition_size=partition_settings.partition_size if partition_settings else None,
     )

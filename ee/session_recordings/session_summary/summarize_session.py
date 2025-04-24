@@ -133,4 +133,4 @@ class ReplaySummarizer:
         # TODO Make the output streamable (the main reason behind using YAML
         # to keep it partially parsable to avoid waiting for the LLM to finish)
 
-        return {"content": session_summary.data, "timings": timer.get_all_timings()}
+        return {"content": session_summary.data, "timings_header": timer.to_header_string()}

@@ -29,7 +29,7 @@ export async function extractHeatmapDataStep(
     const acks: Promise<void>[] = []
 
     try {
-        const team = await runner.hub.teamManager.fetchTeam(teamId)
+        const team = await runner.hub.teamManager.getTeam(teamId)
 
         if (team?.heatmaps_opt_in !== false) {
             const heatmapEvents = extractScrollDepthHeatmapData(event) ?? []

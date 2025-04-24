@@ -49,6 +49,7 @@ export function TaxonomicPropertyFilter({
     propertyGroupType,
     orFiltering,
     addText = 'Add filter',
+    size = 'medium',
     hasRowOperator,
     metadataSource,
     propertyAllowList,
@@ -57,6 +58,7 @@ export function TaxonomicPropertyFilter({
     allowRelativeDateOptions,
     exactMatchFeatureFlagCohortOperators,
     hideBehavioralCohorts,
+    addFilterDocLink,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -219,6 +221,8 @@ export function TaxonomicPropertyFilter({
                                 data-attr={'property-select-toggle-' + index}
                                 sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
                                 onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
+                                size={size}
+                                tooltipDocLink={addFilterDocLink}
                             >
                                 {filter?.type === 'cohort' ? (
                                     filter.cohort_name || `Cohort #${filter?.value}`

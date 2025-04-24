@@ -11,7 +11,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.hogql.constants import MAX_SELECT_COHORT_CALCULATION_LIMIT
 from posthog.hogql.hogql import HogQLContext
 from posthog.models.action import Action
-from posthog.models.cohort import Cohort, get_and_update_pending_version
+from posthog.models.cohort import Cohort
 from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
 from posthog.models.cohort.util import format_filter_query
 from posthog.models.filters import Filter
@@ -1493,20 +1493,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         self.assertCountEqual([r[0] for r in results_team1], [person2_team1.uuid])
         self.assertCountEqual([r[0] for r in results_team2], [person1_team2.uuid])
-
-    def test_increment_cohort(self):
-        cohort1 = Cohort.objects.create(
-            team=self.team,
-            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
-            name="cohort1",
-            pending_version=None,
-        )
-        new_version = get_and_update_pending_version(cohort1)
-        assert new_version == 1
-        new_version = get_and_update_pending_version(cohort1)
-        assert new_version == 2
-        new_version = get_and_update_pending_version(cohort1)
-        assert new_version == 3
 
     def test_cohortpeople_action_all_events(self):
         # Create an action that matches all events (no specific event defined)

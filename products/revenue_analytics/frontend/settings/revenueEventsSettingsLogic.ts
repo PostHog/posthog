@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, path, reducers, selectors } from 'ke
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -13,7 +14,7 @@ import {
     RevenueTrackingConfig,
     RevenueTrackingEventItem,
 } from '~/queries/schema/schema-general'
-import { Region } from '~/types'
+import { ExternalDataSource, Region } from '~/types'
 
 import type { revenueEventsSettingsLogicType } from './revenueEventsSettingsLogicType'
 
@@ -28,8 +29,15 @@ const createEmptyConfig = (region: Region | null | undefined): RevenueTrackingCo
 export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
     path(['scenes', 'data-management', 'revenue', 'revenueEventsSettingsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeam', 'currentTeamId'], preflightLogic, ['preflight']],
-        actions: [teamLogic, ['updateCurrentTeam']],
+        values: [
+            teamLogic,
+            ['currentTeam', 'currentTeamId'],
+            preflightLogic,
+            ['preflight'],
+            dataWarehouseSettingsLogic,
+            ['dataWarehouseSources'],
+        ],
+        actions: [teamLogic, ['updateCurrentTeam'], dataWarehouseSettingsLogic, ['updateSource']],
     })),
     actions({
         updateBaseCurrency: (baseCurrency: CurrencyCode) => ({ baseCurrency }),
@@ -169,6 +177,13 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                     return 'No changes to save'
                 }
                 return null
+            },
+        ],
+
+        enabledDataWarehouseSources: [
+            (s) => [s.dataWarehouseSources],
+            (dataWarehouseSources: ExternalDataSource[]): ExternalDataSource[] => {
+                return dataWarehouseSources?.filter((source) => source.revenue_analytics_enabled) ?? []
             },
         ],
 
