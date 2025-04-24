@@ -284,7 +284,7 @@ export class CyclotronJobQueue {
 
     private async startKafkaConsumer() {
         const groupId = `cdp-cyclotron-${this.queue}-consumer`
-        const topic = `cdp-cyclotron-${this.queue}`
+        const topic = `cdp_cyclotron_${this.queue}`
 
         // NOTE: As there is only ever one consumer per process we use the KAFKA_CONSUMER_ vars as with any other consumer
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true })
