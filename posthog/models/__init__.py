@@ -57,6 +57,7 @@ from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
+from .message_template import MessageTemplate
 from .messaging import MessagingRecord
 from .notebook import Notebook
 from .organization import Organization, OrganizationMembership
@@ -141,6 +142,7 @@ __all__ = [
     "InstanceSetting",
     "Integration",
     "InviteExpiredException",
+    "MessageTemplate",
     "MessagingRecord",
     "Notebook",
     "MigrationStatus",

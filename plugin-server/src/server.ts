@@ -8,8 +8,9 @@ import { Counter } from 'prom-client'
 
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
-import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-plugins-worker.consumer'
-import { CdpCyclotronWorker, CdpCyclotronWorkerFetch } from './cdp/consumers/cdp-cyclotron-worker.consumer'
+import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
+import { CdpCyclotronWorkerFetch } from './cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
+import { CdpCyclotronWorkerPlugins } from './cdp/consumers/cdp-cyclotron-worker-plugins.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpProcessedEventsConsumer } from './cdp/consumers/cdp-processed-events.consumer'
 import { defaultConfig } from './config/config'
@@ -251,36 +252,28 @@ export class PluginServer {
             }
 
             if (capabilities.cdpCyclotronWorker) {
-                if (!hub.CYCLOTRON_DATABASE_URL) {
-                    logger.error('💥', 'Cyclotron database URL not set.')
-                } else {
-                    serviceLoaders.push(async () => {
-                        const worker = new CdpCyclotronWorker(hub)
-                        await worker.start()
-                        return worker.service
-                    })
-
-                    if (process.env.EXPERIMENTAL_CDP_FETCH_WORKER) {
-                        serviceLoaders.push(async () => {
-                            const workerFetch = new CdpCyclotronWorkerFetch(hub)
-                            await workerFetch.start()
-                            return workerFetch.service
-                        })
-                    }
-                }
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronWorker(hub)
+                    await worker.start()
+                    return worker.service
+                })
             }
 
             if (capabilities.cdpCyclotronWorkerPlugins) {
                 await initPlugins()
-                if (!hub.CYCLOTRON_DATABASE_URL) {
-                    logger.error('💥', 'Cyclotron database URL not set.')
-                } else {
-                    serviceLoaders.push(async () => {
-                        const worker = new CdpCyclotronWorkerPlugins(hub)
-                        await worker.start()
-                        return worker.service
-                    })
-                }
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronWorkerPlugins(hub)
+                    await worker.start()
+                    return worker.service
+                })
+            }
+
+            if (capabilities.cdpCyclotronWorkerFetch) {
+                serviceLoaders.push(async () => {
+                    const worker = new CdpCyclotronWorkerFetch(hub)
+                    await worker.start()
+                    return worker.service
+                })
             }
 
             const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))

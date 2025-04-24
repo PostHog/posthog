@@ -8,9 +8,9 @@ import {
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
-import { LemonInput, LemonInputProps } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonInput, LemonInputPropsText } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { forwardRef, useEffect, useMemo, useRef } from 'react'
+import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
@@ -73,6 +73,7 @@ export function TaxonomicFilter({
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
     const { activeTab } = useValues(logic)
+    const [refReady, setRefReady] = useState(false)
 
     useEffect(() => {
         if (groupType !== TaxonomicFilterGroupType.HogQLExpression) {
@@ -80,12 +81,17 @@ export function TaxonomicFilter({
         }
     }, [groupType])
 
+    const taxonomicFilterRef = useRef<HTMLInputElement | null>(null)
+    useEffect(() => {
+        if (taxonomicFilterRef.current) {
+            setRefReady(true)
+        }
+    }, [taxonomicFilterRef.current])
+
     const style = {
         ...(width ? { width } : {}),
         ...(height ? { height } : {}),
     }
-
-    const taxonomicFilterRef = useRef<HTMLInputElement | null>(null)
 
     return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
@@ -105,12 +111,14 @@ export function TaxonomicFilter({
                         <TaxonomicFilterSearchInput searchInputRef={searchInputRef} onClose={onClose} />
                     </div>
                 ) : null}
-                <InfiniteSelectResults
-                    focusInput={focusInput}
-                    taxonomicFilterLogicProps={taxonomicFilterLogicProps}
-                    popupAnchorElement={taxonomicFilterRef.current}
-                    useVerticalLayout={useVerticalLayout}
-                />
+                {refReady && (
+                    <InfiniteSelectResults
+                        focusInput={focusInput}
+                        taxonomicFilterLogicProps={taxonomicFilterLogicProps}
+                        popupAnchorElement={taxonomicFilterRef.current}
+                        useVerticalLayout={useVerticalLayout}
+                    />
+                )}
             </div>
         </BindLogic>
     )
@@ -121,10 +129,22 @@ export const TaxonomicFilterSearchInput = forwardRef<
     {
         searchInputRef: React.Ref<HTMLInputElement> | null
         onClose: TaxonomicFilterProps['onClose']
-    } & Pick<LemonInputProps, 'onClick' | 'size' | 'prefix' | 'fullWidth'>
->(function UniversalSearchInput({ searchInputRef, onClose, ...props }, ref): JSX.Element {
+    } & Pick<LemonInputPropsText, 'onClick' | 'size' | 'prefix' | 'fullWidth' | 'onChange'>
+>(function UniversalSearchInput({ searchInputRef, onClose, onChange, ...props }, ref): JSX.Element {
     const { searchQuery, searchPlaceholder } = useValues(taxonomicFilterLogic)
-    const { setSearchQuery, moveUp, moveDown, tabLeft, tabRight, selectSelected } = useActions(taxonomicFilterLogic)
+    const {
+        setSearchQuery: setTaxonomicSearchQuery,
+        moveUp,
+        moveDown,
+        tabLeft,
+        tabRight,
+        selectSelected,
+    } = useActions(taxonomicFilterLogic)
+
+    const _onChange = (query: string): void => {
+        setTaxonomicSearchQuery(query)
+        onChange?.(query)
+    }
 
     return (
         <LemonInput
@@ -168,7 +188,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
                         selectSelected()
                         break
                     case 'Escape':
-                        setSearchQuery('')
+                        _onChange('')
                         onClose?.()
                         break
                     default:
@@ -179,7 +199,7 @@ export const TaxonomicFilterSearchInput = forwardRef<
                 }
             }}
             inputRef={searchInputRef}
-            onChange={setSearchQuery}
+            onChange={_onChange}
         />
     )
 })

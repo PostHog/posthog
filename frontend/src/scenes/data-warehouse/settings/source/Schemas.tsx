@@ -319,20 +319,28 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                         <More
                                             overlay={
                                                 <>
-                                                    <LemonButton
-                                                        type="tertiary"
-                                                        size="xsmall"
-                                                        fullWidth
-                                                        key={`reload-data-warehouse-schema-${schema.id}`}
-                                                        id="data-warehouse-schema-reload"
-                                                        onClick={() => {
-                                                            reloadSchema(schema)
-                                                        }}
+                                                    <Tooltip
+                                                        title={
+                                                            schema.incremental
+                                                                ? 'Sync incremental data since the last run.'
+                                                                : 'Sync all data.'
+                                                        }
                                                     >
-                                                        Reload
-                                                    </LemonButton>
+                                                        <LemonButton
+                                                            type="tertiary"
+                                                            size="xsmall"
+                                                            fullWidth
+                                                            key={`reload-data-warehouse-schema-${schema.id}`}
+                                                            id="data-warehouse-schema-reload"
+                                                            onClick={() => {
+                                                                reloadSchema(schema)
+                                                            }}
+                                                        >
+                                                            Sync now
+                                                        </LemonButton>
+                                                    </Tooltip>
                                                     {schema.incremental && (
-                                                        <Tooltip title="Completely resync incrementally loaded data. Only recommended if there is an issue with data quality in previously imported data">
+                                                        <Tooltip title="Completely resync incrementally loaded data. Only recommended if there is an issue with data quality in previously imported data.">
                                                             <LemonButton
                                                                 type="tertiary"
                                                                 size="xsmall"
@@ -344,7 +352,7 @@ export const SchemaTable = ({ schemas, isLoading }: SchemaTableProps): JSX.Eleme
                                                                 }}
                                                                 status="danger"
                                                             >
-                                                                Resync
+                                                                Delete table and resync
                                                             </LemonButton>
                                                         </Tooltip>
                                                     )}

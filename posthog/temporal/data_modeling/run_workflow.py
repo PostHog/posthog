@@ -23,6 +23,7 @@ from deltalake import DeltaTable
 from django.conf import settings
 from dlt.common.libs.deltalake import get_delta_tables
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
@@ -36,7 +37,6 @@ from posthog.warehouse.data_load.create_table import create_table_from_saved_que
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseTable
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.util import database_sync_to_async
-from posthog.clickhouse.client.connection import Workload
 
 logger = structlog.get_logger()
 
@@ -838,6 +838,7 @@ class RunWorkflow(PostHogWorkflow):
             build_dag_activity,
             build_dag_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
+            heartbeat_timeout=dt.timedelta(minutes=1),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=10),
                 maximum_interval=dt.timedelta(seconds=60),
@@ -864,6 +865,7 @@ class RunWorkflow(PostHogWorkflow):
             run_dag_activity,
             run_model_activity_inputs,
             start_to_close_timeout=dt.timedelta(hours=1),
+            heartbeat_timeout=dt.timedelta(minutes=1),
             retry_policy=temporalio.common.RetryPolicy(
                 maximum_attempts=1,
             ),

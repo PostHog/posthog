@@ -587,7 +587,7 @@ def property_to_expr(
     )
 
 
-def action_to_expr(action: Action) -> ast.Expr:
+def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:
     steps = action.steps
 
     if len(steps) == 0:
@@ -655,19 +655,34 @@ def action_to_expr(action: Action) -> ast.Expr:
 
         if step.url:
             if step.url_matching == "exact":
-                expr = parse_expr(
-                    "properties.$current_url = {url}",
-                    {"url": ast.Constant(value=step.url)},
+                expr = ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(
+                        chain=[events_alias, "properties", "$current_url"]
+                        if events_alias
+                        else ["properties", "$current_url"]
+                    ),
+                    right=ast.Constant(value=step.url),
                 )
             elif step.url_matching == "regex":
-                expr = parse_expr(
-                    "properties.$current_url =~ {regex}",
-                    {"regex": ast.Constant(value=step.url)},
+                expr = ast.CompareOperation(
+                    op=ast.CompareOperationOp.Regex,
+                    left=ast.Field(
+                        chain=[events_alias, "properties", "$current_url"]
+                        if events_alias
+                        else ["properties", "$current_url"]
+                    ),
+                    right=ast.Constant(value=step.url),
                 )
             else:
-                expr = parse_expr(
-                    "properties.$current_url like {url}",
-                    {"url": ast.Constant(value=f"%{step.url}%")},
+                expr = ast.CompareOperation(
+                    op=ast.CompareOperationOp.Like,
+                    left=ast.Field(
+                        chain=[events_alias, "properties", "$current_url"]
+                        if events_alias
+                        else ["properties", "$current_url"]
+                    ),
+                    right=ast.Constant(value=f"%{step.url}%"),
                 )
             exprs.append(expr)
 
