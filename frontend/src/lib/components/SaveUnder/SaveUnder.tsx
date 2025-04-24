@@ -1,12 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { FolderSelect } from 'lib/components/FolderSelect/FolderSelect'
 import { saveUnderLogic, SaveUnderLogicProps } from 'lib/components/SaveUnder/saveUnderLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { FolderSelect } from '~/layout/panel-layout/ProjectTree/FolderSelect'
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 
 const defaultPath = 'Unfiled'
