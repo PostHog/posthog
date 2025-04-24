@@ -18,19 +18,20 @@ export interface FolderSelectProps {
     className?: string
 }
 
+function getAllFolderIds(path?: string): string[] {
+    if (!path) {
+        return []
+    }
+    const splits = splitPath(path)
+    return splits.map((_, i) => 'project-folder/' + joinPath(splits.slice(0, i + 1)))
+}
+
 /** Input component for selecting a folder */
 export function FolderSelect({ value, onChange, className }: FolderSelectProps): JSX.Element {
     const { projectTreeOnlyFolders, treeTableKeys } = useValues(projectTreeLogic)
     const { createFolder, loadFolderIfNotLoaded } = useActions(projectTreeLogic)
 
     const treeRef = useRef<LemonTreeRef>(null)
-    const getAllFolders = (path?: string): string[] => {
-        if (!path) {
-            return []
-        }
-        const splits = splitPath(path)
-        return splits.map((_, i) => 'project-folder/' + joinPath(splits.slice(0, i + 1)))
-    }
 
     const [expandedFolders, setExpandedFolders] = useState<string[]>([])
     const [touchedFolders, setTouchedFolders] = useState<string[]>([])
@@ -39,7 +40,7 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
         if (!value) {
             return
         }
-        const allFolders = getAllFolders(value)
+        const allFolders = getAllFolderIds(value)
         const newExpandedFolders = allFolders.filter((folder) => !expandedFolders.includes(folder))
         if (newExpandedFolders.length > 0) {
             setExpandedFolders([...expandedFolders, ...newExpandedFolders])
