@@ -1,8 +1,11 @@
+from typing import cast
+
+from posthog.caching.utils import staleness_threshold_map, ThresholdMode
 from posthog.hogql import ast
 from posthog.hogql.visitor import clear_locations
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.utils import UUIDT
-from posthog.schema import HogQLASTQuery, HogQLPropertyFilter, HogQLQuery, HogQLFilters
+from posthog.schema import HogQLASTQuery, HogQLPropertyFilter, HogQLQuery, HogQLFilters, CachedHogQLQueryResponse
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -10,7 +13,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     _create_event,
 )
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, UTC
 from unittest.mock import patch
 
 
@@ -137,13 +140,13 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(HogQLQuery(query="select count(event) from events"))
 
         fixed_now = datetime(2023, 1, 1, 12, 0, 0, tzinfo=UTC)
-        expected_target_age = fixed_now + timedelta(hours=2)
+        expected_target_age = fixed_now + staleness_threshold_map[ThresholdMode.DEFAULT]["day"]
 
         with patch("posthog.hogql_queries.query_runner.datetime") as mock_datetime:
             mock_datetime.now.return_value = fixed_now
             mock_datetime.timezone.utc = UTC
 
-            response = runner.run()
+            response = cast(CachedHogQLQueryResponse, runner.run())
 
             self.assertIsNotNone(response.cache_target_age)
             self.assertEqual(response.cache_target_age, expected_target_age)
