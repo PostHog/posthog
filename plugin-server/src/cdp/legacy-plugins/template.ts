@@ -4,31 +4,33 @@ import { ProcessedPluginEvent } from '@posthog/plugin-scaffold';
 import { HogFunctionMappingTemplate } from '~/src/cdp/templates/types';
 import { destinations } from "@segment/action-destinations/dist/destinations"
 
-const translateFilters = (subscribe: string): HogFunctionFilterEvent[] => {
+const translateFilters = (subscribe: string): { events: HogFunctionFilterEvent[] } => {
     let mapped = subscribe
         .replaceAll('type = "page"', 'event = "$pageview"')
         .replaceAll('type = "screen"', 'event = "$screen"')
-        .replaceAll('type = "identify"', 'event = "$identify"')
+        .replaceAll('type = "identify"', `event in ('$identify', '$set')`)
         .replaceAll('type = "group"', 'event = "$groupidentify"')
-        .replaceAll('type = "track"', 'true')
+        .replaceAll('type = "track"', `event not in ('$pageview', '$screen', '$alias', '$identify', '$groupidentify')`)
         .replaceAll('type = "alias"', 'event = "$alias"')
         .replaceAll(`"`, `'`)
 
-    return [
-        {
-            "id": null,
-            "name": "All events",
-            "type": "events",
-            "order": 0,
-            "properties": [
-                {
-                    "key": mapped,
-                    "type": "hogql",
-                    "value": null
-                }
-            ]
-        }
-    ]
+    return {
+        events: [
+            {
+                "id": null,
+                "name": "All events",
+                "type": "events",
+                "order": 0,
+                "properties": [
+                    {
+                        "key": mapped,
+                        "type": "hogql",
+                        "value": null
+                    }
+                ]
+            }
+        ]
+    }
 }
 
 const translateInputs = (defaultVal: any) => {
@@ -141,7 +143,7 @@ const translateInputs = (defaultVal: any) => {
             modifiedVal = modifiedVal.replaceAll('integrations.Actions Amplitude.session_id', '')
         }
         if (modifiedVal.includes('event.userId')) {
-            modifiedVal = modifiedVal.replaceAll('event.userId', 'event.distinct_id')
+            modifiedVal = modifiedVal.replaceAll('event.userId', 'person.id')
         }
         if (modifiedVal.includes('event.messageId')) {
             modifiedVal = modifiedVal.replaceAll('event.messageId', 'event.uuid')
@@ -195,12 +197,12 @@ const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): 
         key,
         label: field.label,
         type: field.choices ? 'choice'
-            : field.type === 'object' ? 'dictionary'
+            : field.type === 'object' ? typeof field.default !== 'undefined' && ('@path' in field.default) ? 'string' : 'dictionary'
             : ['number', 'integer', 'datetime'].includes(field.type) ? 'string'
             : typeof field.default === 'object' && '@path' in field.default ? 'string'
             : field.type ?? 'string',
         description: field.description,
-        default: field.type !== 'object' ? translateInputs(field.default) : Object.fromEntries(Object.entries(field.properties ?? {}).map(([key, _]) => {
+        default: field.type !== 'object' || typeof field.default !== 'undefined' && ('@path' in field.default) ? translateInputs(field.default) : Object.fromEntries(Object.entries(field.properties ?? {}).map(([key, _]) => {
             const defaultVal = field.default as Record<string, object> ?? {}
             return [key, translateInputs(defaultVal[key])]
         })),
@@ -218,13 +220,27 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations).filter(([_, des
         ): Promise<void> =>  {
             logger.warn('config', config)
             destination.actions[config.internal_partner_action as keyof typeof destination.actions].perform(async (endpoint, options) => {
-                await fetch('http://localhost:2080/e352fab0-49d7-456f-90e7-9678245bd507', {
+                logger.warn('endpoint', endpoint)
+                logger.warn('options', options)
+                let headers: Record<string, string> = {
+                    'endpoint': endpoint,
+                    ...options?.headers
+                }
+
+                let body: string | URLSearchParams = ''
+
+                if (options?.json) {
+                    body = JSON.stringify(options.json)
+                    headers['Content-Type'] = 'application/json'
+                } else if (options?.body && options.body instanceof URLSearchParams) {
+                    body = options.body
+                    headers['Content-Type'] = 'application/x-www-form-urlencoded'
+                }
+
+                await fetch(endpoint, {
                     method: options?.method ?? "POST",
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'endpoint': endpoint
-                    },
-                    body: JSON.stringify(options?.json),
+                    headers,
+                    body
                 })
                 return Promise.resolve({} as any)
             }, {
@@ -249,9 +265,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations).filter(([_, des
                 .map((preset) => ({
                     name: preset.name,
                     include_by_default: true,
-                    filters: {
-                        events: translateFilters(preset.subscribe)
-                    },
+                    filters: translateFilters(preset.subscribe),
                     inputs_schema: [
                         ...(preset.partnerAction in destination.actions ? translateInputsSchema(destination.actions[preset.partnerAction as keyof typeof destination.actions].fields) : []),
                         {
