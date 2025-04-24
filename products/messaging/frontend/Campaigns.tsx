@@ -35,6 +35,7 @@ const Campaign = ({ campaignId }: { campaignId: string }): JSX.Element => {
                     displayOptions={{
                         showPersonsCount: false,
                         showExpectedVolume: true,
+                        canEditSource: false,
                     }}
                 />
             )}
@@ -49,7 +50,7 @@ export function Campaigns(): JSX.Element {
         <Campaign campaignId={campaignId} />
     ) : (
         <>
-            <MessagingTabs key="tabs" />
+            <MessagingTabs key="campaigns-tabs" />
             <PageHeader
                 caption="Create automated messaging campaigns triggered by events"
                 buttons={

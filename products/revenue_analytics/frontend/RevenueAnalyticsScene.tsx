@@ -1,17 +1,23 @@
 import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonDivider, Link, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { PipelineStage, ProductKey } from '~/types'
+import { PipelineStage, ProductKey, SidePanelTab } from '~/types'
 
 import { RevenueAnalyticsFilters } from './RevenueAnalyticsFilters'
 import { REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
+import { revenueEventsSettingsLogic } from './settings/revenueEventsSettingsLogic'
 import { GrossRevenueTile } from './tiles/GrossRevenueTile'
 import { OverviewTile } from './tiles/OverviewTile'
 import { RevenueGrowthRateTile } from './tiles/RevenueGrowthRateTile'
@@ -22,8 +28,54 @@ export const scene: SceneExport = {
     logic: revenueAnalyticsLogic,
 }
 
+const PRODUCT_NAME = 'Revenue Analytics'
+const PRODUCT_KEY = ProductKey.REVENUE_ANALYTICS
+const PRODUCT_DESCRIPTION = 'Track and analyze your revenue metrics to understand your business performance and growth.'
+const PRODUCT_THING_NAME = 'revenue'
+
 export function RevenueAnalyticsScene(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]) {
+        return (
+            <ProductIntroduction
+                isEmpty
+                productName={PRODUCT_NAME}
+                productKey={PRODUCT_KEY}
+                thingName={PRODUCT_THING_NAME}
+                description={PRODUCT_DESCRIPTION}
+                titleOverride="Revenue Analytics is in opt-in beta"
+                actionElementOverride={
+                    <LemonButton
+                        type="primary"
+                        icon={<IconPlus />}
+                        onClick={() => {
+                            openSidePanel(SidePanelTab.FeaturePreviews, FEATURE_FLAGS.REVENUE_ANALYTICS)
+                        }}
+                        data-attr="activate-revenue-analytics"
+                    >
+                        Activate Revenue Analytics
+                    </LemonButton>
+                }
+            />
+        )
+    }
+
+    return (
+        <BindLogic logic={revenueEventsSettingsLogic} props={{}}>
+            <BindLogic logic={revenueAnalyticsLogic} props={{}}>
+                <BindLogic logic={dataNodeCollectionLogic} props={{ key: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
+                    <RevenueAnalyticsSceneContent />
+                </BindLogic>
+            </BindLogic>
+        </BindLogic>
+    )
+}
+
+export function RevenueAnalyticsSceneContent(): JSX.Element {
     const { hasRevenueTables } = useValues(revenueAnalyticsLogic)
+    const { mobileLayout } = useValues(navigationLogic)
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
 
     if (hasRevenueTables === null) {
@@ -34,11 +86,11 @@ export function RevenueAnalyticsScene(): JSX.Element {
         return (
             <ProductIntroduction
                 isEmpty
-                productName="Revenue Analytics"
-                productKey={ProductKey.REVENUE_ANALYTICS}
+                productName={PRODUCT_NAME}
+                productKey={PRODUCT_KEY}
+                thingName={PRODUCT_THING_NAME} // Not used because we're overriding the title, but required prop
+                description={PRODUCT_DESCRIPTION}
                 titleOverride="Connect your first revenue source"
-                thingName="revenue" // Not used because we're overriding the title, but required prop
-                description="Track and analyze your revenue metrics to understand your business performance and growth."
                 actionElementOverride={
                     <div className="flex flex-col gap-1">
                         <LemonButton
@@ -68,14 +120,27 @@ export function RevenueAnalyticsScene(): JSX.Element {
     }
 
     return (
-        <BindLogic logic={revenueAnalyticsLogic} props={{}}>
-            <BindLogic logic={dataNodeCollectionLogic} props={{ key: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
-                <div className="flex flex-col gap-2">
-                    <RevenueAnalyticsFilters />
-                    <RevenueAnalyticsTables />
-                </div>
-            </BindLogic>
-        </BindLogic>
+        <div>
+            <LemonBanner
+                type="info"
+                dismissKey="revenue-analytics-beta"
+                className="mb-2"
+                action={{ children: 'Send feedback', id: 'revenue-analytics-feedback-button' }}
+            >
+                Revenue Analytics is in beta. Please let us know what you'd like to see here and/or report any issues
+                directly to us!
+            </LemonBanner>
+            <div
+                className={cn(
+                    'sticky z-20 bg-primary border-b py-2',
+                    mobileLayout ? 'top-[var(--breadcrumbs-height-full)]' : 'top-[var(--breadcrumbs-height-compact)]'
+                )}
+            >
+                <RevenueAnalyticsFilters />
+            </div>
+
+            <RevenueAnalyticsTables />
+        </div>
     )
 }
 

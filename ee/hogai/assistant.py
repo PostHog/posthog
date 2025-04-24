@@ -9,21 +9,21 @@ import structlog
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables.config import RunnableConfig
-from langgraph.graph.state import CompiledStateGraph
 from langgraph.errors import GraphRecursionError
+from langgraph.graph.state import CompiledStateGraph
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel
 
 from ee.hogai.graph import (
     AssistantGraph,
-    InsightsAssistantGraph,
     FunnelGeneratorNode,
+    InsightsAssistantGraph,
     MemoryInitializerNode,
+    QueryExecutorNode,
     RetentionGeneratorNode,
     SchemaGeneratorNode,
     SQLGeneratorNode,
     TrendsGeneratorNode,
-    QueryExecutorNode,
 )
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
@@ -468,8 +468,8 @@ class Assistant:
     def _lock_conversation(self):
         try:
             self._conversation.status = Conversation.Status.IN_PROGRESS
-            self._conversation.save()
+            self._conversation.save(update_fields=["status"])
             yield
         finally:
             self._conversation.status = Conversation.Status.IDLE
-            self._conversation.save()
+            self._conversation.save(update_fields=["status", "updated_at"])

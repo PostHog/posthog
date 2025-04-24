@@ -221,14 +221,20 @@ export const elementsLogic = kea<elementsLogicType>([
             (heatmapElements, inspectElements, actionElements, actionsListElements): ElementMap => {
                 const elementMap = new Map<HTMLElement, ElementWithMetadata>()
 
-                ;[...inspectElements, ...heatmapElements, ...actionElements, ...actionsListElements].forEach((e) => {
+                const addElements = (e: ElementWithMetadata): void => {
                     const elementWithMetadata: ElementWithMetadata = { ...e }
                     if (elementMap.get(e.element)) {
                         elementMap.set(e.element, { ...elementMap.get(e.element), ...elementWithMetadata })
                     } else {
                         elementMap.set(e.element, elementWithMetadata)
                     }
-                })
+                }
+
+                inspectElements.forEach(addElements)
+                heatmapElements.forEach(addElements)
+                actionElements.forEach(addElements)
+                actionsListElements.forEach(addElements)
+
                 return elementMap
             },
         ],
@@ -309,14 +315,21 @@ export const elementsLogic = kea<elementsLogicType>([
         elementsToDisplay: [
             (s) => [s.elementsToDisplayRaw],
             (elementsToDisplayRaw) => {
-                return elementsToDisplayRaw
-                    .filter(({ rect }) => rect && (rect.width !== 0 || rect.height !== 0))
-                    .map((element) => ({
-                        ...element,
-                        // being able to hover over elements might rely on their original z-index
-                        // so we copy it over to the toolbar element
-                        apparentZIndex: getMaxZIndex(element.element),
-                    }))
+                const result: ElementWithMetadata[] = []
+                elementsToDisplayRaw.forEach((element) => {
+                    const { rect, visible } = element
+                    // visible when undefined is ignored
+                    if (rect && rect.width > 0 && rect.height > 0 && visible !== false) {
+                        result.push({
+                            ...element,
+                            // being able to hover over elements might rely on their original z-index
+                            // so we copy it over to the toolbar element
+                            apparentZIndex: getMaxZIndex(element.element),
+                        })
+                    }
+                })
+
+                return result
             },
         ],
 

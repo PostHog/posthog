@@ -12,7 +12,7 @@ import {
     mockProducer,
 } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, PipelineEvent, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
@@ -115,7 +115,7 @@ describe('IngestionConsumer', () => {
         hub.kafkaProducer = mockProducer
         team = await getFirstTeam(hub)
         const team2Id = await createTeam(hub.db.postgres, team.organization_id)
-        team2 = (await hub.db.fetchTeam(team2Id)) as Team
+        team2 = (await getTeam(hub, team2Id))!
     })
 
     afterEach(async () => {
@@ -163,8 +163,7 @@ describe('IngestionConsumer', () => {
             }
             messages[0].headers = [
                 {
-                    key: 'kafka-consumer-breadcrumbs',
-                    value: JSON.stringify([existingBreadcrumb]),
+                    'kafka-consumer-breadcrumbs': Buffer.from(JSON.stringify([existingBreadcrumb])),
                 },
             ]
             await ingester.handleKafkaBatch(messages)
@@ -173,11 +172,14 @@ describe('IngestionConsumer', () => {
             expect(producedMessages.length).toBe(1)
 
             const headers = producedMessages[0].headers || []
-            const breadcrumbHeader = headers.find((h) => h.key === 'kafka-consumer-breadcrumbs')
+            const breadcrumbHeader = headers.find((h) => 'kafka-consumer-breadcrumbs' in h)
 
             expect(breadcrumbHeader).toBeDefined()
 
-            const parsedBreadcrumbs = parseJSON(breadcrumbHeader?.value.toString() || '')
+            const value = breadcrumbHeader?.['kafka-consumer-breadcrumbs'] as Buffer
+            expect(value).toBeInstanceOf(Buffer)
+
+            const parsedBreadcrumbs = parseJSON(value.toString())
             expect(Array.isArray(parsedBreadcrumbs)).toBe(true)
             expect(parsedBreadcrumbs.length).toBe(2)
 

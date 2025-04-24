@@ -520,6 +520,12 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehousePersonPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingIssueFilter"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingIssuePropertyFilter"
                 }
             ]
         },
@@ -4647,10 +4653,7 @@
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
-                    "items": {
-                        "$ref": "#/definitions/WebActiveHoursHeatMapResult"
-                    },
-                    "type": "array"
+                    "$ref": "#/definitions/WebActiveHoursHeatMapStructuredResult"
                 },
                 "timezone": {
                     "type": "string"
@@ -6314,10 +6317,7 @@
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
                                 },
                                 "results": {
-                                    "items": {
-                                        "$ref": "#/definitions/WebActiveHoursHeatMapResult"
-                                    },
-                                    "type": "array"
+                                    "$ref": "#/definitions/WebActiveHoursHeatMapStructuredResult"
                                 },
                                 "timings": {
                                     "description": "Measured timings for different parts of the query generation process",
@@ -7145,6 +7145,9 @@
                 "name": {
                     "type": "string"
                 },
+                "row_count": {
+                    "type": "number"
+                },
                 "type": {
                     "const": "batch_export",
                     "type": "string"
@@ -7170,6 +7173,9 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "row_count": {
+                    "type": "number"
                 },
                 "schema": {
                     "$ref": "#/definitions/DatabaseSchemaSchema"
@@ -7250,6 +7256,9 @@
                 "query": {
                     "$ref": "#/definitions/HogQLQuery"
                 },
+                "row_count": {
+                    "type": "number"
+                },
                 "type": {
                     "const": "managed_view",
                     "type": "string"
@@ -7279,6 +7288,9 @@
                 "query": {
                     "$ref": "#/definitions/HogQLQuery"
                 },
+                "row_count": {
+                    "type": "number"
+                },
                 "status": {
                     "type": "string"
                 },
@@ -7304,6 +7316,9 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "row_count": {
+                    "type": "number"
                 },
                 "type": {
                     "const": "posthog",
@@ -7428,6 +7443,9 @@
                 "name": {
                     "type": "string"
                 },
+                "row_count": {
+                    "type": "number"
+                },
                 "type": {
                     "enum": ["posthog", "data_warehouse", "view", "batch_export", "materialized_view", "managed_view"],
                     "type": "string"
@@ -7454,6 +7472,9 @@
                 "query": {
                     "$ref": "#/definitions/HogQLQuery"
                 },
+                "row_count": {
+                    "type": "number"
+                },
                 "type": {
                     "const": "view",
                     "type": "string"
@@ -7466,6 +7487,7 @@
             "enum": [
                 "integer",
                 "float",
+                "decimal",
                 "string",
                 "datetime",
                 "date",
@@ -7762,6 +7784,52 @@
                 }
             },
             "required": ["type", "id"],
+            "type": "object"
+        },
+        "ErrorTrackingIssueFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "error_tracking_issue",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
+        "ErrorTrackingIssuePropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "error_tracking_issue_property",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
             "type": "object"
         },
         "ErrorTrackingQuery": {
@@ -12306,7 +12374,9 @@
                 "group",
                 "hogql",
                 "data_warehouse",
-                "data_warehouse_person_property"
+                "data_warehouse_person_property",
+                "error_tracking_issue",
+                "error_tracking_issue_property"
             ],
             "type": "string"
         },
@@ -13663,10 +13733,7 @@
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {
-                            "items": {
-                                "$ref": "#/definitions/WebActiveHoursHeatMapResult"
-                            },
-                            "type": "array"
+                            "$ref": "#/definitions/WebActiveHoursHeatMapStructuredResult"
                         },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
@@ -14314,10 +14381,7 @@
                             "description": "Query status indicates whether next to the provided data, a query is still running."
                         },
                         "results": {
-                            "items": {
-                                "$ref": "#/definitions/WebActiveHoursHeatMapResult"
-                            },
-                            "type": "array"
+                            "$ref": "#/definitions/WebActiveHoursHeatMapStructuredResult"
                         },
                         "timings": {
                             "description": "Measured timings for different parts of the query generation process",
@@ -16130,9 +16194,12 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQueryResponse"
+                },
+                "revenueSources": {
+                    "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind"],
+            "required": ["kind", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsOverviewQueryResponse>": {
@@ -16150,9 +16217,12 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQueryResponse"
+                },
+                "revenueSources": {
+                    "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind"],
+            "required": ["kind", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsBaseQuery<RevenueAnalyticsTopCustomersQueryResponse>": {
@@ -16170,9 +16240,12 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsTopCustomersQueryResponse"
+                },
+                "revenueSources": {
+                    "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind"],
+            "required": ["kind", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsGrowthRateQuery": {
@@ -16191,9 +16264,12 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsGrowthRateQueryResponse"
+                },
+                "revenueSources": {
+                    "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind"],
+            "required": ["kind", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsGrowthRateQueryResponse": {
@@ -16266,9 +16342,12 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsOverviewQueryResponse"
+                },
+                "revenueSources": {
+                    "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["kind"],
+            "required": ["kind", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsOverviewQueryResponse": {
@@ -16330,9 +16409,12 @@
                 },
                 "response": {
                     "$ref": "#/definitions/RevenueAnalyticsTopCustomersQueryResponse"
+                },
+                "revenueSources": {
+                    "$ref": "#/definitions/RevenueSources"
                 }
             },
-            "required": ["groupBy", "kind"],
+            "required": ["groupBy", "kind", "revenueSources"],
             "type": "object"
         },
         "RevenueAnalyticsTopCustomersQueryResponse": {
@@ -16526,6 +16608,25 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "RevenueSources": {
+            "additionalProperties": false,
+            "properties": {
+                "dataWarehouseSources": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "events": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["dataWarehouseSources", "events"],
             "type": "object"
         },
         "RevenueTrackingConfig": {
@@ -17411,6 +17512,8 @@
                 "hogql_expression",
                 "notebooks",
                 "log_entries",
+                "error_tracking_issues",
+                "error_tracking_issue_properties",
                 "replay"
             ],
             "type": "string"
@@ -18212,6 +18315,48 @@
             },
             "type": "object"
         },
+        "WebActiveHoursHeatMapDayAndHourResult": {
+            "additionalProperties": false,
+            "properties": {
+                "day": {
+                    "$ref": "#/definitions/integer"
+                },
+                "hour": {
+                    "$ref": "#/definitions/integer"
+                },
+                "total": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["day", "hour", "total"],
+            "type": "object"
+        },
+        "WebActiveHoursHeatMapDayResult": {
+            "additionalProperties": false,
+            "properties": {
+                "day": {
+                    "$ref": "#/definitions/integer"
+                },
+                "total": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["day", "total"],
+            "type": "object"
+        },
+        "WebActiveHoursHeatMapHourResult": {
+            "additionalProperties": false,
+            "properties": {
+                "hour": {
+                    "$ref": "#/definitions/integer"
+                },
+                "total": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["hour", "total"],
+            "type": "object"
+        },
         "WebActiveHoursHeatMapQuery": {
             "additionalProperties": false,
             "properties": {
@@ -18303,10 +18448,7 @@
                     "description": "Query status indicates whether next to the provided data, a query is still running."
                 },
                 "results": {
-                    "items": {
-                        "$ref": "#/definitions/WebActiveHoursHeatMapResult"
-                    },
-                    "type": "array"
+                    "$ref": "#/definitions/WebActiveHoursHeatMapStructuredResult"
                 },
                 "timings": {
                     "description": "Measured timings for different parts of the query generation process",
@@ -18319,20 +18461,32 @@
             "required": ["results"],
             "type": "object"
         },
-        "WebActiveHoursHeatMapResult": {
+        "WebActiveHoursHeatMapStructuredResult": {
             "additionalProperties": false,
             "properties": {
-                "day": {
-                    "$ref": "#/definitions/integer"
+                "dayAndHours": {
+                    "items": {
+                        "$ref": "#/definitions/WebActiveHoursHeatMapDayAndHourResult"
+                    },
+                    "type": "array"
                 },
-                "hour": {
-                    "$ref": "#/definitions/integer"
+                "days": {
+                    "items": {
+                        "$ref": "#/definitions/WebActiveHoursHeatMapDayResult"
+                    },
+                    "type": "array"
+                },
+                "hours": {
+                    "items": {
+                        "$ref": "#/definitions/WebActiveHoursHeatMapHourResult"
+                    },
+                    "type": "array"
                 },
                 "total": {
                     "$ref": "#/definitions/integer"
                 }
             },
-            "required": ["day", "hour", "total"],
+            "required": ["dayAndHours", "days", "hours", "total"],
             "type": "object"
         },
         "WebAnalyticsConversionGoal": {
