@@ -4,7 +4,7 @@ import { DateTime } from 'luxon'
 import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { DB } from '../../../utils/db/db'
-import { TransactionClient } from '../../../utils/db/postgres'
+import { PostgresUse, TransactionClient } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
 import { personMethodCallsPerBatchHistogram } from './metrics'
 import { PersonsStore } from './persons-store'
@@ -81,6 +81,10 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         for (const method of ALL_METHODS) {
             this.methodCounts.set(method, 0)
         }
+    }
+
+    async inTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T> {
+        return await this.db.postgres.transaction(PostgresUse.COMMON_WRITE, description, transaction)
     }
 
     async fetchForChecking(teamId: Team['id'], distinctId: string): Promise<InternalPerson | null> {

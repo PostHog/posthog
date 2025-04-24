@@ -7,6 +7,13 @@ import { TransactionClient } from '../../../utils/db/postgres'
 
 export interface PersonsStoreForDistinctIdBatch {
     /**
+     * Executes a function within a transaction
+     * @param description - Description of the transaction for logging
+     * @param transaction - Function to execute within the transaction, receives a transaction client
+     */
+    inTransaction<T>(description: string, transaction: (tx: TransactionClient) => Promise<T>): Promise<T>
+
+    /**
      * Fetches a person by team ID and distinct ID for checking existence
      * Uses read replica when available
      */

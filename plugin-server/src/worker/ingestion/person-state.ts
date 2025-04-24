@@ -4,10 +4,9 @@ import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { ONE_HOUR } from '../../config/constants'
-import { TopicMessage } from '../../kafka/producer'
 import { InternalPerson, Person, PropertyUpdateOperation, Team } from '../../types'
 import { DB } from '../../utils/db/db'
-import { PostgresUse, TransactionClient } from '../../utils/db/postgres'
+import { TransactionClient } from '../../utils/db/postgres'
 import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
@@ -539,22 +538,18 @@ export class PersonState {
                 }
             })()
 
-            return await this.db.postgres.transaction(
-                PostgresUse.COMMON_WRITE,
-                'mergeDistinctIds-OneExists',
-                async (tx) => {
-                    // See comment above about `distinctIdVersion`
-                    const insertedDistinctId = await this.personStore.addPersonlessDistinctIdForMerge(
-                        this.team.id,
-                        distinctIdToAdd,
-                        tx
-                    )
-                    const distinctIdVersion = insertedDistinctId ? 0 : 1
+            return await this.personStore.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
+                // See comment above about `distinctIdVersion`
+                const insertedDistinctId = await this.personStore.addPersonlessDistinctIdForMerge(
+                    this.team.id,
+                    distinctIdToAdd,
+                    tx
+                )
+                const distinctIdVersion = insertedDistinctId ? 0 : 1
 
-                    await this.personStore.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion, tx)
-                    return [existingPerson, Promise.resolve()]
-                }
-            )
+                await this.personStore.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion, tx)
+                return [existingPerson, Promise.resolve()]
+            })
         } else if (otherPerson && mergeIntoPerson) {
             // Both Distinct IDs point at an existing Person
 
@@ -575,72 +570,68 @@ export class PersonState {
             let distinctId1 = mergeIntoDistinctId
             let distinctId2 = otherPersonDistinctId
 
-            return await this.db.postgres.transaction(
-                PostgresUse.COMMON_WRITE,
-                'mergeDistinctIds-NeitherExist',
-                async (tx) => {
-                    // See comment above about `distinctIdVersion`
-                    const insertedDistinctId1 = await this.personStore.addPersonlessDistinctIdForMerge(
-                        this.team.id,
-                        distinctId1,
-                        tx
-                    )
+            return await this.personStore.inTransaction('mergeDistinctIds-NeitherExist', async (tx) => {
+                // See comment above about `distinctIdVersion`
+                const insertedDistinctId1 = await this.personStore.addPersonlessDistinctIdForMerge(
+                    this.team.id,
+                    distinctId1,
+                    tx
+                )
 
-                    // See comment above about `distinctIdVersion`
-                    const insertedDistinctId2 = await this.personStore.addPersonlessDistinctIdForMerge(
-                        this.team.id,
-                        distinctId2,
-                        tx
-                    )
+                // See comment above about `distinctIdVersion`
+                const insertedDistinctId2 = await this.personStore.addPersonlessDistinctIdForMerge(
+                    this.team.id,
+                    distinctId2,
+                    tx
+                )
 
-                    // `createPerson` uses the first Distinct ID provided to generate the Person
-                    // UUID. That means the first Distinct ID definitely doesn't need an override,
-                    // and can always use version 0. Below, we exhaust all of the options to decide
-                    // whether we can optimize away an override by doing a swap, or whether we
-                    // need to actually write an override. (But mostly we're being verbose for
-                    // documentation purposes)
-                    let distinctId2Version = 0
-                    if (insertedDistinctId1 && insertedDistinctId2) {
-                        // We were the first to insert both (neither was used for Personless), so we
-                        // can use either as the primary Person UUID and create no overrides.
-                    } else if (insertedDistinctId1 && !insertedDistinctId2) {
-                        // We created 1, but 2 was already used for Personless. Let's swap so
-                        // that 2 can be the primary Person UUID and no override is needed.
-                        ;[distinctId1, distinctId2] = [distinctId2, distinctId1]
-                    } else if (!insertedDistinctId1 && insertedDistinctId2) {
-                        // We created 2, but 1 was already used for Personless, so we want to
-                        // use 1 as the primary Person UUID so that no override is needed.
-                    } else if (!insertedDistinctId1 && !insertedDistinctId2) {
-                        // Both were used in Personless mode, so there is no more-correct choice of
-                        // primary Person UUID to make here, and we need to drop an override by
-                        // using version = 1 for Distinct ID 2.
-                        distinctId2Version = 1
-                    }
-
-                    // The first Distinct ID is used to create the new Person's UUID, and so it
-                    // never needs an override.
-                    const distinctId1Version = 0
-
-                    return [
-                        await this.createPerson(
-                            // TODO: in this case we could skip the properties updates later
-                            timestamp,
-                            this.eventProperties['$set'] || {},
-                            this.eventProperties['$set_once'] || {},
-                            teamId,
-                            null,
-                            true,
-                            this.event.uuid,
-                            [
-                                { distinctId: distinctId1, version: distinctId1Version },
-                                { distinctId: distinctId2, version: distinctId2Version },
-                            ],
-                            tx
-                        ),
-                        Promise.resolve(),
-                    ]
+                // `createPerson` uses the first Distinct ID provided to generate the Person
+                // UUID. That means the first Distinct ID definitely doesn't need an override,
+                // and can always use version 0. Below, we exhaust all of the options to decide
+                // whether we can optimize away an override by doing a swap, or whether we
+                // need to actually write an override. (But mostly we're being verbose for
+                // documentation purposes)
+                let distinctId2Version = 0
+                if (insertedDistinctId1 && insertedDistinctId2) {
+                    // We were the first to insert both (neither was used for Personless), so we
+                    // can use either as the primary Person UUID and create no overrides.
+                } else if (insertedDistinctId1 && !insertedDistinctId2) {
+                    // We created 1, but 2 was already used for Personless. Let's swap so
+                    // that 2 can be the primary Person UUID and no override is needed.
+                    ;[distinctId1, distinctId2] = [distinctId2, distinctId1]
+                } else if (!insertedDistinctId1 && insertedDistinctId2) {
+                    // We created 2, but 1 was already used for Personless, so we want to
+                    // use 1 as the primary Person UUID so that no override is needed.
+                } else if (!insertedDistinctId1 && !insertedDistinctId2) {
+                    // Both were used in Personless mode, so there is no more-correct choice of
+                    // primary Person UUID to make here, and we need to drop an override by
+                    // using version = 1 for Distinct ID 2.
+                    distinctId2Version = 1
                 }
-            )
+
+                // The first Distinct ID is used to create the new Person's UUID, and so it
+                // never needs an override.
+                const distinctId1Version = 0
+
+                return [
+                    await this.createPerson(
+                        // TODO: in this case we could skip the properties updates later
+                        timestamp,
+                        this.eventProperties['$set'] || {},
+                        this.eventProperties['$set_once'] || {},
+                        teamId,
+                        null,
+                        true,
+                        this.event.uuid,
+                        [
+                            { distinctId: distinctId1, version: distinctId1Version },
+                            { distinctId: distinctId2, version: distinctId2Version },
+                        ],
+                        tx
+                    ),
+                    Promise.resolve(),
+                ]
+            })
         }
     }
 
@@ -722,53 +713,49 @@ export class PersonState {
             })
             .inc()
 
-        const [mergedPerson, kafkaMessages]: [InternalPerson, TopicMessage[]] = await this.db.postgres.transaction(
-            PostgresUse.COMMON_WRITE,
-            'mergePeople',
-            async (tx) => {
-                const [person, updatePersonMessages] = await this.db.updatePersonDeprecated(
-                    mergeInto,
-                    {
-                        created_at: createdAt,
-                        properties: properties,
-                        is_identified: true,
+        const [mergedPerson, kafkaMessages] = await this.personStore.inTransaction('mergePeople', async (tx) => {
+            const [person, updatePersonMessages] = await this.personStore.updatePersonDeprecated(
+                mergeInto,
+                {
+                    created_at: createdAt,
+                    properties: properties,
+                    is_identified: true,
 
-                        // By using the max version between the two Persons, we ensure that if
-                        // this Person is later split, we can use `this_person.version + 1` for
-                        // any split-off Persons and know that *that* version will be higher than
-                        // any previously deleted Person, and so the new Person row will "win" and
-                        // "undelete" the Person.
-                        //
-                        // For example:
-                        //  - Merge Person_1(version:7) into Person_2(version:2)
-                        //      - Person_1 is deleted
-                        //      - Person_2 attains version 8 via this code below
-                        //  - Person_2 is later split, which attempts to re-create Person_1 by using
-                        //    its `distinct_id` to generate the deterministic Person UUID.
-                        //    That new Person_1 will have a version _at least_ as high as 8, and
-                        //    so any previously existing rows in CH or otherwise from
-                        //    Person_1(version:7) will "lose" to this new Person_1.
-                        version: Math.max(mergeInto.version, otherPerson.version) + 1,
-                    },
-                    tx
-                )
+                    // By using the max version between the two Persons, we ensure that if
+                    // this Person is later split, we can use `this_person.version + 1` for
+                    // any split-off Persons and know that *that* version will be higher than
+                    // any previously deleted Person, and so the new Person row will "win" and
+                    // "undelete" the Person.
+                    //
+                    // For example:
+                    //  - Merge Person_1(version:7) into Person_2(version:2)
+                    //      - Person_1 is deleted
+                    //      - Person_2 attains version 8 via this code below
+                    //  - Person_2 is later split, which attempts to re-create Person_1 by using
+                    //    its `distinct_id` to generate the deterministic Person UUID.
+                    //    That new Person_1 will have a version _at least_ as high as 8, and
+                    //    so any previously existing rows in CH or otherwise from
+                    //    Person_1(version:7) will "lose" to this new Person_1.
+                    version: Math.max(mergeInto.version, otherPerson.version) + 1,
+                },
+                tx
+            )
 
-                // Merge the distinct IDs
-                // TODO: Doesn't this table need to add updates to CH too?
-                await this.personStore.updateCohortsAndFeatureFlagsForMerge(
-                    otherPerson.team_id,
-                    otherPerson.id,
-                    mergeInto.id,
-                    tx
-                )
+            // Merge the distinct IDs
+            // TODO: Doesn't this table need to add updates to CH too?
+            await this.personStore.updateCohortsAndFeatureFlagsForMerge(
+                otherPerson.team_id,
+                otherPerson.id,
+                mergeInto.id,
+                tx
+            )
 
-                const distinctIdMessages = await this.personStore.moveDistinctIds(otherPerson, mergeInto, tx)
+            const distinctIdMessages = await this.personStore.moveDistinctIds(otherPerson, mergeInto, tx)
 
-                const deletePersonMessages = await this.personStore.deletePerson(otherPerson, tx)
+            const deletePersonMessages = await this.personStore.deletePerson(otherPerson, tx)
 
-                return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
-            }
-        )
+            return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
+        })
 
         mergeTxnSuccessCounter
             .labels({
