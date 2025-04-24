@@ -11,6 +11,11 @@ from posthog.models.utils import UUIDModel
 
 
 class Conversation(UUIDModel):
+    class Meta:
+        indexes = [
+            models.Index(fields=["updated_at"]),
+        ]
+
     class Status(models.TextChoices):
         IDLE = "idle", "Idle"
         IN_PROGRESS = "in_progress", "In progress"
