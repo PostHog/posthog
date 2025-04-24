@@ -17,6 +17,7 @@ pub fn stl_map() -> HashMap<String, NativeFunction> {
     stl().iter().map(|(a, b)| (a.to_string(), *b)).collect()
 }
 
+// NOTE - if you make changes to this, be sure to re-run `bin/dump_hogvm_stl`
 pub const fn stl() -> &'static [(&'static str, NativeFunction)] {
     &[
         ("toString", |vm, args| {

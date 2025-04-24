@@ -26,9 +26,14 @@ from typing import Any
 import pymssql
 import pytest
 import pytz
+import structlog
 
+from posthog.temporal.data_imports.pipelines.mssql.mssql import (
+    _get_table_average_row_size,
+)
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
+from posthog.warehouse.types import IncrementalFieldType
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
@@ -135,40 +140,42 @@ def mssql_source_table(
     with mssql_connection.cursor() as cursor:
         full_table_name = f"[{mssql_config['schema']}].[{MSSQL_TABLE_NAME}]"
 
-        # Create test table
-        cursor.execute(f"""
-            IF NOT EXISTS (
-                SELECT *
-                FROM sys.tables t
-                JOIN sys.schemas s ON t.schema_id = s.schema_id
-                WHERE s.name = '{mssql_config['schema']}'
-                AND t.name = '{MSSQL_TABLE_NAME}'
-            )
-            BEGIN
-                CREATE TABLE {full_table_name} (
-                    uid INTEGER PRIMARY KEY,
-                    name NVARCHAR(255),
-                    email NVARCHAR(255),
-                    created_at DATETIME2 DEFAULT GETUTCDATE(),
-                    big_int BIGINT,
-                    json_data JSON,
-                    active BIT,
-                    decimal_data DECIMAL(10, 2),
-                    price MONEY,
-                    float_data FLOAT
+        try:
+            # Create test table
+            cursor.execute(f"""
+                IF NOT EXISTS (
+                    SELECT *
+                    FROM sys.tables t
+                    JOIN sys.schemas s ON t.schema_id = s.schema_id
+                    WHERE s.name = '{mssql_config['schema']}'
+                    AND t.name = '{MSSQL_TABLE_NAME}'
                 )
-            END
-        """)
-        mssql_connection.commit()
+                BEGIN
+                    CREATE TABLE {full_table_name} (
+                        uid INTEGER PRIMARY KEY,
+                        name NVARCHAR(255),
+                        email NVARCHAR(255),
+                        created_at DATETIME2 DEFAULT GETUTCDATE(),
+                        big_int BIGINT,
+                        json_data JSON,
+                        active BIT,
+                        decimal_data DECIMAL(10, 2),
+                        price MONEY,
+                        float_data FLOAT
+                    )
+                END
+            """)
+            mssql_connection.commit()
 
-        # Insert test data
-        _insert_test_data(cursor=cursor, table_name=full_table_name, data=TEST_DATA)
+            # Insert test data
+            _insert_test_data(cursor=cursor, table_name=full_table_name, data=TEST_DATA)
 
-        yield cursor
+            yield cursor
 
-        # Cleanup
-        cursor.execute(f"DROP TABLE IF EXISTS {full_table_name}")
-        mssql_connection.commit()
+        finally:
+            # Cleanup
+            cursor.execute(f"DROP TABLE IF EXISTS {full_table_name}")
+            mssql_connection.commit()
 
 
 @pytest.fixture
@@ -432,3 +439,140 @@ async def test_mssql_source_incremental_using_created_at_column(
     assert sorted(res.results, key=operator.itemgetter(0)) == sorted(
         TEST_DATA + NEW_TEST_DATA, key=operator.itemgetter(0)
     )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@SKIP_IF_MISSING_MSSQL_CREDENTIALS
+async def test_mssql_get_table_average_row_size(
+    mssql_source_table: pymssql.Cursor,
+    mssql_config: dict[str, Any],
+):
+    """Test that the average row size is calculated correctly.
+
+    Here we use a table with a variety of column types and data to ensure the queries to calculate the average row size
+    are correct.
+    We don't assert the average row size here as it's hard to determine and is likely to be flaky.  We do this instead
+    in another test below.
+    """
+    average_row_size = _get_table_average_row_size(
+        cursor=mssql_source_table,
+        schema=mssql_config["schema"],
+        table_name=MSSQL_TABLE_NAME,
+        is_incremental=False,
+        incremental_field=None,
+        incremental_field_type=None,
+        db_incremental_field_last_value=None,
+        logger=structlog.get_logger(),
+    )
+
+    # Just assert that we do calculate a value and don't return None
+    assert isinstance(average_row_size, int)
+    # sanity check that the average row size is not too big or too small
+    assert average_row_size > 0
+    assert average_row_size < 1000
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@SKIP_IF_MISSING_MSSQL_CREDENTIALS
+async def test_mssql_get_table_average_row_size_with_incremental_field(
+    mssql_source_table: pymssql.Cursor,
+    mssql_config: dict[str, Any],
+):
+    """Test that the average row size is calculated correctly for an incremental sync.
+
+    Here we use a table with a variety of column types and data to ensure the queries to calculate the average row size
+    are correct.
+    We don't assert the average row size here as it's hard to determine and is likely to be flaky.  We do this instead
+    in another test below.
+    """
+    average_row_size = _get_table_average_row_size(
+        cursor=mssql_source_table,
+        schema=mssql_config["schema"],
+        table_name=MSSQL_TABLE_NAME,
+        is_incremental=True,
+        incremental_field="created_at",
+        incremental_field_type=IncrementalFieldType.DateTime,
+        db_incremental_field_last_value=None,
+        logger=structlog.get_logger(),
+    )
+
+    # Just assert that we do calculate a value and don't return None
+    assert isinstance(average_row_size, int)
+    # sanity check that the average row size is not too big or too small
+    assert average_row_size > 0
+    assert average_row_size < 1000
+
+
+@pytest.fixture
+def mssql_source_table_known_row_size(
+    mssql_connection: pymssql.Connection, mssql_config: dict[str, Any]
+) -> Generator[pymssql.Cursor, None, None]:
+    """Create a MS SQL Server table with deterministic row size and clean it up after the test."""
+    with mssql_connection.cursor() as cursor:
+        full_table_name = f"[{mssql_config['schema']}].[{MSSQL_TABLE_NAME}]"
+
+        try:
+            # Create test table
+            cursor.execute(f"""
+                IF NOT EXISTS (
+                    SELECT *
+                    FROM sys.tables t
+                    JOIN sys.schemas s ON t.schema_id = s.schema_id
+                    WHERE s.name = '{mssql_config['schema']}'
+                    AND t.name = '{MSSQL_TABLE_NAME}'
+                )
+                BEGIN
+                    CREATE TABLE {full_table_name} (
+                        name NVARCHAR(255)
+                    )
+                END
+            """)
+            mssql_connection.commit()
+
+            # Insert test data
+            data = [
+                ("0123456789",),
+                ("acbcdefghi",),
+                ("9876543210",),
+            ]
+            for row in data:
+                cursor.execute(
+                    f"INSERT INTO {full_table_name} (name) VALUES (%s)",
+                    row,
+                )
+            cursor.connection.commit()
+
+            yield cursor
+
+        finally:
+            # Cleanup
+            cursor.execute(f"DROP TABLE IF EXISTS {full_table_name}")
+            mssql_connection.commit()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@SKIP_IF_MISSING_MSSQL_CREDENTIALS
+async def test_mssql_get_table_average_row_size_calculates_correct_average_row_size(
+    mssql_source_table_known_row_size: pymssql.Cursor,
+    mssql_config: dict[str, Any],
+):
+    """Test that the average row size is calculated correctly.
+
+    To do this, we test using a table with a known row size so we can assert the average row size is correct.
+    """
+    average_row_size = _get_table_average_row_size(
+        cursor=mssql_source_table_known_row_size,
+        schema=mssql_config["schema"],
+        table_name=MSSQL_TABLE_NAME,
+        is_incremental=False,
+        incremental_field=None,
+        incremental_field_type=None,
+        db_incremental_field_last_value=None,
+        logger=structlog.get_logger(),
+    )
+
+    # each character in column uses 2 bytes
+    assert average_row_size == 20
