@@ -53,7 +53,7 @@ export function IntegrationChoice({
             : kind == 'linkedin-ads'
             ? 'LinkedIn Ads'
             : kind == 'email'
-            ? 'Email'
+            ? 'Mailjet'
             : capitalizeFirstLetter(kind)
 
     function uploadKey(kind: string): void {
@@ -115,7 +115,7 @@ export function IntegrationChoice({
                           items: [
                               {
                                   onClick: showIntegrationSetupModal,
-                                  label: 'Configure sender domain',
+                                  label: 'Configure Mailjet API key',
                               },
                           ],
                       }

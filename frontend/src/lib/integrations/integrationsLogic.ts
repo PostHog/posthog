@@ -49,12 +49,9 @@ export const integrationsLogic = kea<integrationsLogicType>([
             key,
             callback,
         }),
-        newEmailSenderDomain: (domain: string, callback?: (dnsRecords: object) => void) => ({
-            domain,
-            callback,
-        }),
-        verifyEmailSenderDomain: (domain: string, callback?: (integration: IntegrationType) => void) => ({
-            domain,
+        newMailjetKey: (apiKey: string, secretKey: string, callback?: (integration: IntegrationType) => void) => ({
+            apiKey,
+            secretKey,
             callback,
         }),
         deleteIntegration: (id: number) => ({ id }),
@@ -105,11 +102,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         throw e
                     }
                 },
-                newEmailSenderDomain: async ({ domain, callback }) => {
-                    try {
-                    } catch (e) {}
-                },
-                verifyEmailSenderDomain: async ({ domain, callback }) => {
+                newMailjetKey: async ({ apiKey, secretKey, callback }) => {
                     try {
                         const response = await api.integrations.create({
                             kind: 'email',
