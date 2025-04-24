@@ -3087,6 +3087,10 @@ class RetentionValue(BaseModel):
     label: Optional[str] = None
 
 
+class RevenueAnalyticsEventItem(RootModel[RevenueTrackingEventItem]):
+    root: RevenueTrackingEventItem
+
+
 class RevenueAnalyticsGrowthRateQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
