@@ -83,10 +83,11 @@ export function valueToXCoordinate(
 /**
  * Creates appropriately spaced tick values for experiment charts
  *
- * @param maxAbsValue The maximum absolute value to cover
+ * @param maxAbsValue The maximum absolute value to cover (typically the chart bound)
+ * @param tickRangeFactor How much of the chart to cover (default 0.9 to not get to close to the edge of the chart)
  * @returns Array of nicely rounded tick values
  */
-export function getNiceTickValues(maxAbsValue: number): number[] {
+export function getNiceTickValues(maxAbsValue: number, tickRangeFactor: number = 0.9): number[] {
     // Round up maxAbsValue to ensure we cover all values
     maxAbsValue = Math.ceil(maxAbsValue * 10) / 10
 
@@ -105,17 +106,18 @@ export function getNiceTickValues(maxAbsValue: number): number[] {
         baseUnit = 2 * power
     }
 
-    // Calculate how many baseUnits we need to exceed maxAbsValue
-    const unitsNeeded = Math.ceil(maxAbsValue / baseUnit)
-
-    // Determine appropriate number of decimal places based on magnitude
+    const maxAllowedValue = maxAbsValue * tickRangeFactor
+    const unitsNeeded = Math.ceil(maxAllowedValue / baseUnit)
     const decimalPlaces = Math.max(0, -magnitude + 1)
 
     const ticks: number[] = []
     for (let i = -unitsNeeded; i <= unitsNeeded; i++) {
         // Round each tick value to avoid floating point precision issues
         const tickValue = Number((baseUnit * i).toFixed(decimalPlaces))
-        ticks.push(tickValue)
+        // Only include ticks within the allowed range
+        if (Math.abs(tickValue) <= maxAllowedValue) {
+            ticks.push(tickValue)
+        }
     }
     return ticks
 }
