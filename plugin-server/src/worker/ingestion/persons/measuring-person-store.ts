@@ -27,11 +27,11 @@ export class MeasuringPersonsStore implements PersonsStore {
     constructor(private db: DB) {}
 
     forBatch(): PersonsStoreForBatch {
-        return new MeasuringBatchPersonsStore(this.db)
+        return new MeasuringPersonsStoreForBatch(this.db)
     }
 }
 
-export class MeasuringBatchPersonsStore implements PersonsStoreForBatch {
+export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
     private distinctIdStores: Map<string, MeasuringPersonsStoreForDistinctIdBatch>
 
     constructor(private db: DB) {
