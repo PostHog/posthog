@@ -116,4 +116,6 @@ export abstract class CdpConsumerBase {
         await this.hogFunctionManager.stop()
         logger.info('👍', `${this.name} - stopped!`)
     }
+
+    public abstract isHealthy(): boolean
 }
