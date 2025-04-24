@@ -147,7 +147,7 @@ def _get_improved_elements_chain_elements(elements_chain: str, current_elements:
     """
     raw_updated_elements = []
     raw_element_blocks = re.findall(
-        r"(?:^|;)(a|button|form|input|select|textarea|label)\.?(.*?)(?:$|;)", elements_chain
+        r"(?:^|;)(a|button|form|input|select|textarea|label)\.?(.*?)(?=;|$)", elements_chain
     )
     for element, context in raw_element_blocks:
         element_type = re.findall(r'(?::|\")attr__type="\"?(.*?)\"?"', context)
