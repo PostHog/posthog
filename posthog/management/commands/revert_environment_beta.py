@@ -22,7 +22,7 @@ class Command(BaseCommand):
             self.stdout.write("No organization IDs provided. Exiting.")
             return
 
-        organization_ids = [int(org_id.strip()) for org_id in organization_ids_input.split(",") if org_id.strip()]
+        organization_ids = [org_id.strip() for org_id in organization_ids_input.split(",") if org_id.strip()]
 
         if not organization_ids:
             self.stdout.write("No valid organization IDs provided. Exiting.")
@@ -120,7 +120,6 @@ class Command(BaseCommand):
             logger.exception(f"Organization with ID {organization_id} does not exist")
         except Exception as e:
             logger.exception(f"Error during environment beta reversion: {str(e)}")
-            raise
 
     # def duplicate_resources(self, team: Team, old_project_id: int, new_project_id: int):
     #     """
