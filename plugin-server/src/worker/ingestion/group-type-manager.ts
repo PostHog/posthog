@@ -3,7 +3,7 @@ import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
 import { LazyLoader } from '../../utils/lazy-loader'
 import { captureTeamEvent } from '../../utils/posthog'
-import { TeamManager } from './team-manager'
+import { TeamManager } from '../../utils/team-manager'
 
 /** How many unique group types to allow per team */
 export const MAX_GROUP_TYPES_PER_TEAM = 5
@@ -121,7 +121,7 @@ export class GroupTypeManager {
     }
 
     private async captureGroupTypeInsert(teamId: TeamId, groupType: string, groupTypeIndex: GroupTypeIndex) {
-        const team: Team | null = await this.teamManager.fetchTeam(teamId)
+        const team: Team | null = await this.teamManager.getTeam(teamId)
 
         if (!team) {
             return

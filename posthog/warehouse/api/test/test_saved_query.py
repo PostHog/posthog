@@ -78,6 +78,22 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(response.status_code, 400, response.content)
 
+    def test_create_using_placeholders(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "test_1",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select * from events where {filters}",
+                },
+            },
+        )
+        assert response.status_code == 400
+
+        response_json = response.json()
+        assert "Variables like {filters} are not allowed in views" in response_json["detail"]
+
     def test_delete(self):
         query_name = "test_query"
         saved_query = DataWarehouseSavedQuery.objects.create(team=self.team, name=query_name)

@@ -1517,6 +1517,8 @@ class PropertyFilterType(StrEnum):
     HOGQL = "hogql"
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
+    ERROR_TRACKING_ISSUE = "error_tracking_issue"
+    ERROR_TRACKING_ISSUE_PROPERTY = "error_tracking_issue_property"
 
 
 class PropertyMathType(StrEnum):
@@ -1723,6 +1725,14 @@ class RevenueCurrencyPropertyConfig(BaseModel):
     static: Optional[CurrencyCode] = None
 
 
+class RevenueSources(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dataWarehouseSources: list[str]
+    events: list[str]
+
+
 class RevenueTrackingEventItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1872,6 +1882,8 @@ class TaxonomicFilterGroupType(StrEnum):
     HOGQL_EXPRESSION = "hogql_expression"
     NOTEBOOKS = "notebooks"
     LOG_ENTRIES = "log_entries"
+    ERROR_TRACKING_ISSUES = "error_tracking_issues"
+    ERROR_TRACKING_ISSUE_PROPERTIES = "error_tracking_issue_properties"
     REPLAY = "replay"
 
 
@@ -2632,6 +2644,7 @@ class DatabaseSchemaPostHogTable(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
+    row_count: Optional[float] = None
     type: Literal["posthog"] = "posthog"
 
 
@@ -2642,6 +2655,7 @@ class DatabaseSchemaTableCommon(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
+    row_count: Optional[float] = None
     type: Type1
 
 
@@ -2666,6 +2680,28 @@ class ErrorTrackingIssueAssignee(BaseModel):
     )
     id: Union[str, int]
     type: Type2
+
+
+class ErrorTrackingIssueFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["error_tracking_issue"] = "error_tracking_issue"
+    value: Optional[Union[str, float, list[Union[str, float]]]] = None
+
+
+class ErrorTrackingIssuePropertyFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str
+    label: Optional[str] = None
+    operator: PropertyOperator
+    type: Literal["error_tracking_issue_property"] = "error_tracking_issue_property"
+    value: Optional[Union[str, float, list[Union[str, float]]]] = None
 
 
 class ErrorTrackingRelationalIssue(BaseModel):
@@ -3049,6 +3085,10 @@ class RetentionValue(BaseModel):
     )
     count: int
     label: Optional[str] = None
+
+
+class RevenueAnalyticsEventItem(RootModel[RevenueTrackingEventItem]):
+    root: RevenueTrackingEventItem
 
 
 class RevenueAnalyticsGrowthRateQueryResponse(BaseModel):
@@ -5227,6 +5267,8 @@ class DashboardFilter(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = None
@@ -5550,6 +5592,8 @@ class DataWarehouseNode(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -5593,6 +5637,8 @@ class DataWarehouseNode(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -5608,6 +5654,7 @@ class DatabaseSchemaBatchExportTable(BaseModel):
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
+    row_count: Optional[float] = None
     type: Literal["batch_export"] = "batch_export"
 
 
@@ -5619,6 +5666,7 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     format: str
     id: str
     name: str
+    row_count: Optional[float] = None
     schema_: Optional[DatabaseSchemaSchema] = Field(default=None, alias="schema")
     source: Optional[DatabaseSchemaSource] = None
     type: Literal["data_warehouse"] = "data_warehouse"
@@ -5647,6 +5695,8 @@ class EntityNode(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -5688,6 +5738,8 @@ class EntityNode(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -5779,6 +5831,8 @@ class EventsNode(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -5822,6 +5876,8 @@ class EventsNode(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -5878,6 +5934,8 @@ class ExperimentDataWarehouseNode(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -5919,6 +5977,8 @@ class ExperimentDataWarehouseNode(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -5949,6 +6009,8 @@ class ExperimentEventExposureConfig(BaseModel):
             EmptyPropertyFilter,
             DataWarehousePropertyFilter,
             DataWarehousePersonPropertyFilter,
+            ErrorTrackingIssueFilter,
+            ErrorTrackingIssuePropertyFilter,
         ]
     ]
 
@@ -6021,6 +6083,8 @@ class FunnelExclusionActionsNode(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -6065,6 +6129,8 @@ class FunnelExclusionActionsNode(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -6094,6 +6160,8 @@ class FunnelExclusionEventsNode(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -6139,6 +6207,8 @@ class FunnelExclusionEventsNode(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -6232,6 +6302,8 @@ class HogQLFilters(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = None
@@ -6364,6 +6436,8 @@ class PersonsNode(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -6393,6 +6467,8 @@ class PersonsNode(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -6423,6 +6499,8 @@ class PropertyGroupFilterValue(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ],
         ]
     ]
@@ -7390,6 +7468,8 @@ class RetentionEntity(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="filters on the event")
@@ -7457,6 +7537,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsGrowthRateQueryResponse(BaseModel
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[RevenueAnalyticsGrowthRateQueryResponse] = None
+    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
@@ -7469,6 +7550,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsOverviewQueryResponse(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
+    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseModel):
@@ -7481,6 +7563,7 @@ class RevenueAnalyticsBaseQueryRevenueAnalyticsTopCustomersQueryResponse(BaseMod
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
+    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsGrowthRateQuery(BaseModel):
@@ -7493,6 +7576,7 @@ class RevenueAnalyticsGrowthRateQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[RevenueAnalyticsGrowthRateQueryResponse] = None
+    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsOverviewQuery(BaseModel):
@@ -7505,6 +7589,7 @@ class RevenueAnalyticsOverviewQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[RevenueAnalyticsOverviewQueryResponse] = None
+    revenueSources: RevenueSources
 
 
 class RevenueAnalyticsTopCustomersQuery(BaseModel):
@@ -7518,6 +7603,7 @@ class RevenueAnalyticsTopCustomersQuery(BaseModel):
         default=None, description="Modifiers used when performing the query"
     )
     response: Optional[RevenueAnalyticsTopCustomersQueryResponse] = None
+    revenueSources: RevenueSources
 
 
 class RevenueExampleDataWarehouseTablesQuery(BaseModel):
@@ -7629,6 +7715,8 @@ class TracesQuery(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -7881,6 +7969,8 @@ class ActionsNode(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(
@@ -7923,6 +8013,8 @@ class ActionsNode(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
@@ -8395,6 +8487,8 @@ class RecordingsQuery(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = None
@@ -8424,6 +8518,8 @@ class RecordingsQuery(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = None
@@ -8509,6 +8605,8 @@ class StickinessQuery(BaseModel):
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -8576,6 +8674,8 @@ class TrendsQuery(BaseModel):
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -8711,6 +8811,7 @@ class DatabaseSchemaManagedViewTable(BaseModel):
     id: str
     name: str
     query: HogQLQuery
+    row_count: Optional[float] = None
     type: Literal["managed_view"] = "managed_view"
 
 
@@ -8723,6 +8824,7 @@ class DatabaseSchemaMaterializedViewTable(BaseModel):
     last_run_at: Optional[str] = None
     name: str
     query: HogQLQuery
+    row_count: Optional[float] = None
     status: Optional[str] = None
     type: Literal["materialized_view"] = "materialized_view"
 
@@ -8735,6 +8837,7 @@ class DatabaseSchemaViewTable(BaseModel):
     id: str
     name: str
     query: HogQLQuery
+    row_count: Optional[float] = None
     type: Literal["view"] = "view"
 
 
@@ -8877,6 +8980,8 @@ class FunnelsQuery(BaseModel):
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -8921,6 +9026,8 @@ class InsightsQueryBaseFunnelsQueryResponse(BaseModel):
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -8962,6 +9069,8 @@ class InsightsQueryBaseLifecycleQueryResponse(BaseModel):
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9003,6 +9112,8 @@ class InsightsQueryBasePathsQueryResponse(BaseModel):
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9044,6 +9155,8 @@ class InsightsQueryBaseRetentionQueryResponse(BaseModel):
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9085,6 +9198,8 @@ class InsightsQueryBaseTrendsQueryResponse(BaseModel):
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9133,6 +9248,8 @@ class LifecycleQuery(BaseModel):
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9260,6 +9377,8 @@ class RetentionQuery(BaseModel):
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9485,6 +9604,8 @@ class PathsQuery(BaseModel):
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ]
             ],
             PropertyGroupFilter,
@@ -9780,6 +9901,8 @@ class FunnelCorrelationActorsQuery(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = None
@@ -9893,6 +10016,8 @@ class EventsQuery(BaseModel):
                     EmptyPropertyFilter,
                     DataWarehousePropertyFilter,
                     DataWarehousePersonPropertyFilter,
+                    ErrorTrackingIssueFilter,
+                    ErrorTrackingIssuePropertyFilter,
                 ],
             ]
         ]
@@ -9925,6 +10050,8 @@ class EventsQuery(BaseModel):
                 EmptyPropertyFilter,
                 DataWarehousePropertyFilter,
                 DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                ErrorTrackingIssuePropertyFilter,
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
