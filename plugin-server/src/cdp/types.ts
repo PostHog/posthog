@@ -290,7 +290,7 @@ export type HogFunctionTypeType =
     | 'alert'
     | 'broadcast'
 
-export type HogFunctionKind = 'messaging_campaign' | null
+export type HogFunctionKind = 'messaging_campaign'
 
 export interface HogFunctionMappingType {
     inputs_schema?: HogFunctionInputSchemaType[]
@@ -301,7 +301,7 @@ export interface HogFunctionMappingType {
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
-    kind?: HogFunctionKind
+    kind?: HogFunctionKind | null
     team_id: number
     name: string
     enabled: boolean
