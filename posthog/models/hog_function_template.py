@@ -243,6 +243,17 @@ class HogFunctionTemplate(UUIDModel):
             "id": dataclass_template.id,
             "hog": dataclass_template.hog,
             "inputs_schema": dataclass_template.inputs_schema,
+            "status": dataclass_template.status,
+            "mappings": [dataclasses.asdict(m) for m in dataclass_template.mappings]
+            if dataclass_template.mappings
+            else None,
+            "mapping_templates": [dataclasses.asdict(mt) for mt in dataclass_template.mapping_templates]
+            if dataclass_template.mapping_templates
+            else None,
+            "sub_templates": [dataclasses.asdict(st) for st in dataclass_template.sub_templates]
+            if dataclass_template.sub_templates
+            else None,
+            "filters": dataclass_template.filters,
         }
         content_for_hash = json.dumps(template_dict, sort_keys=True)
         version = cls.generate_version_from_content(content_for_hash)

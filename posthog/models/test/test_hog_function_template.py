@@ -84,7 +84,7 @@ class TestHogFunctionTemplate(TestCase):
         self.assertIsNotNone(survey_sub_template_dto)
         self.assertEqual(survey_sub_template_dto.name, "Post to Slack on survey response")
 
-    def test_get_template(self):
+    def test_get_template_by_id_and_version(self):
         """Test retrieving templates by ID and version"""
         # Create two versions of the same template
         template1 = self._create_template(
@@ -118,52 +118,31 @@ class TestHogFunctionTemplate(TestCase):
         nonexistent_template = HogFunctionTemplate.get_template("non-existent-template")
         self.assertIsNone(nonexistent_template)
 
-    def test_get_latest_templates_excludes_deprecated(self):
-        """Test that get_latest_templates filters out deprecated templates"""
-        # Create active template
+    def test_get_latest_templates(self):
+        """Test the get_latest_templates method with various filters and options"""
+        # Create template with various statuses
         self._create_template(
             template_id="active-template",
             version="1.0.0",
             name="Active Template",
-            description="Active version",
             status="stable",
         )
 
-        # Create deprecated template
         self._create_template(
             template_id="deprecated-template",
             version="1.0.0",
             name="Deprecated Template",
-            description="Deprecated version",
             status="deprecated",
         )
 
-        # Get latest templates excluding deprecated (default behavior)
-        latest_templates = HogFunctionTemplate.get_latest_templates()
-        template_ids = [template.template_id for template in latest_templates]
-
-        # Check that only active template is included
-        self.assertIn("active-template", template_ids)
-        self.assertNotIn("deprecated-template", template_ids)
-
-        # Get all templates including deprecated
-        all_templates = HogFunctionTemplate.get_latest_templates(include_deprecated=True)
-        all_template_ids = [template.template_id for template in all_templates]
-
-        # Check that both templates are included
-        self.assertIn("active-template", all_template_ids)
-        self.assertIn("deprecated-template", all_template_ids)
-
-    def test_get_latest_templates_multiple_versions(self):
-        """Test that get_latest_templates correctly retrieves the latest version of each template"""
+        # Create templates with multiple versions
         import time
 
-        # Create first versions
+        # First versions
         self._create_template(
             template_id="template-a",
             version="1.0.0",
             name="Template A v1",
-            description="First version of Template A",
             status="alpha",
         )
 
@@ -171,19 +150,17 @@ class TestHogFunctionTemplate(TestCase):
             template_id="template-b",
             version="1.0.0",
             name="Template B v1",
-            description="First version of Template B",
             status="alpha",
         )
 
         # Ensure created_at timestamps will be different
         time.sleep(0.001)
 
-        # Create second versions
+        # Second versions
         self._create_template(
             template_id="template-a",
             version="2.0.0",
             name="Template A v2",
-            description="Second version of Template A",
             hog="return modified_event",
             inputs_schema={"updated": True},
             status="beta",
@@ -193,46 +170,273 @@ class TestHogFunctionTemplate(TestCase):
             template_id="template-b",
             version="2.0.0",
             name="Template B v2",
-            description="Second version of Template B",
             hog="return modified_event",
             inputs_schema={"updated": True},
             status="beta",
         )
-
-        # Get latest templates
-        latest_templates = HogFunctionTemplate.get_latest_templates()
-
-        # Should have exactly 2 templates (latest version of each)
-        self.assertEqual(len(latest_templates), 2)
-
-        # Convert to dictionary for easier testing
-        templates_dict = {t.template_id: t for t in latest_templates}
-
-        # Check that we have the latest version of each template
-        self.assertEqual(templates_dict["template-a"].version, "2.0.0")
-        self.assertEqual(templates_dict["template-a"].name, "Template A v2")
-
-        self.assertEqual(templates_dict["template-b"].version, "2.0.0")
-        self.assertEqual(templates_dict["template-b"].name, "Template B v2")
-
-        # Filter by type
-        filtered_templates = HogFunctionTemplate.get_latest_templates(template_type="destination")
-        self.assertEqual(len(filtered_templates), 2)
 
         # Create a different type template
         self._create_template(
             template_id="template-c",
             version="1.0.0",
             name="Template C",
-            description="Different type template",
             type="transformation",
             status="stable",
         )
 
-        # Filter by type should now return only the destination templates
-        filtered_templates = HogFunctionTemplate.get_latest_templates(template_type="destination")
-        self.assertEqual(len(filtered_templates), 2)
+        # TEST 1: Excluding deprecated templates (default)
+        latest_templates = HogFunctionTemplate.get_latest_templates()
+        template_ids = [template.template_id for template in latest_templates]
 
-        # No filter should return all three templates (latest versions)
-        all_templates = HogFunctionTemplate.get_latest_templates()
-        self.assertEqual(len(all_templates), 3)
+        # Active templates should be included, deprecated should not
+        self.assertIn("active-template", template_ids)
+        self.assertNotIn("deprecated-template", template_ids)
+
+        # TEST 2: Including deprecated templates
+        all_templates = HogFunctionTemplate.get_latest_templates(include_deprecated=True)
+        all_template_ids = [template.template_id for template in all_templates]
+
+        # Both active and deprecated templates should be included
+        self.assertIn("active-template", all_template_ids)
+        self.assertIn("deprecated-template", all_template_ids)
+
+        # TEST 3: Latest version of each template should be returned
+        # Convert to dictionary for easier testing
+        templates_dict = {t.template_id: t for t in latest_templates}
+
+        # Should have the latest versions
+        self.assertEqual(templates_dict["template-a"].version, "2.0.0")
+        self.assertEqual(templates_dict["template-a"].name, "Template A v2")
+
+        self.assertEqual(templates_dict["template-b"].version, "2.0.0")
+        self.assertEqual(templates_dict["template-b"].name, "Template B v2")
+
+        # TEST 4: Filtering by type
+        destination_templates = HogFunctionTemplate.get_latest_templates(template_type="destination")
+        transformation_templates = HogFunctionTemplate.get_latest_templates(template_type="transformation")
+
+        # Check correct counts by type
+        self.assertEqual(len(destination_templates), 3)  # active, template-a, template-b
+        self.assertEqual(len(transformation_templates), 1)  # template-c
+
+        # Check specific templates
+        destination_ids = [t.template_id for t in destination_templates]
+        self.assertIn("template-a", destination_ids)
+        self.assertIn("template-b", destination_ids)
+        self.assertNotIn("template-c", destination_ids)
+
+        transformation_ids = [t.template_id for t in transformation_templates]
+        self.assertIn("template-c", transformation_ids)
+        self.assertNotIn("template-a", transformation_ids)
+
+    def test_versioning(self):
+        """Test template versioning system including status and related fields"""
+        from posthog.cdp.templates.hog_function_template import (
+            HogFunctionTemplate as HogFunctionTemplateDTO,
+            HogFunctionMapping,
+            HogFunctionSubTemplate,
+            HogFunctionMappingTemplate,
+        )
+
+        # Test 1: Basic version generation
+        # Test empty content
+        empty_version = HogFunctionTemplate.generate_version_from_content("")
+        self.assertEqual(len(empty_version), 8)
+
+        # Test identical content produces identical versions
+        content1 = "return event"
+        content2 = "return event"
+
+        version1 = HogFunctionTemplate.generate_version_from_content(content1)
+        version2 = HogFunctionTemplate.generate_version_from_content(content2)
+
+        self.assertEqual(version1, version2)
+
+        # Test different content produces different versions
+        content3 = "return modified_event"
+        version3 = HogFunctionTemplate.generate_version_from_content(content3)
+
+        self.assertNotEqual(version1, version3)
+
+        # Test 2: Status change creates new version
+        template_alpha = HogFunctionTemplateDTO(
+            id="test-template",
+            name="Test Template",
+            hog="return event",
+            inputs_schema={},
+            status="alpha",
+            type="destination",
+            free=True,
+            category=[],
+        )
+
+        template_beta = HogFunctionTemplateDTO(
+            id="test-template",
+            name="Test Template",
+            hog="return event",
+            inputs_schema={},
+            status="beta",
+            type="destination",
+            free=True,
+            category=[],
+        )
+
+        db_template_alpha = HogFunctionTemplate.create_from_dataclass(template_alpha)
+        db_template_beta = HogFunctionTemplate.create_from_dataclass(template_beta)
+
+        self.assertNotEqual(db_template_alpha.version, db_template_beta.version)
+
+        # Test 3: Changes to related fields create new versions
+        base_template = HogFunctionTemplateDTO(
+            id="advanced-template",
+            name="Advanced Template",
+            hog="return event",
+            inputs_schema={},
+            status="stable",
+            type="destination",
+            free=True,
+            category=[],
+        )
+
+        # Create template with mappings
+        template_with_mappings = HogFunctionTemplateDTO(
+            id="advanced-template",
+            name="Advanced Template",
+            hog="return event",
+            inputs_schema={},
+            status="stable",
+            type="destination",
+            free=True,
+            category=[],
+            mappings=[HogFunctionMapping(filters={"event": "$pageview"})],
+        )
+
+        # Create template with sub_templates
+        template_with_subtemplates = HogFunctionTemplateDTO(
+            id="advanced-template",
+            name="Advanced Template",
+            hog="return event",
+            inputs_schema={},
+            status="stable",
+            type="destination",
+            free=True,
+            category=[],
+            sub_templates=[HogFunctionSubTemplate(id="sub1", name="Sub Template 1")],
+        )
+
+        # Create template with filters
+        template_with_filters = HogFunctionTemplateDTO(
+            id="advanced-template",
+            name="Advanced Template",
+            hog="return event",
+            inputs_schema={},
+            status="stable",
+            type="destination",
+            free=True,
+            category=[],
+            filters={"events": [{"id": "$pageview"}]},
+        )
+
+        # Create template with mapping_templates
+        template_with_mapping_templates = HogFunctionTemplateDTO(
+            id="advanced-template",
+            name="Advanced Template",
+            hog="return event",
+            inputs_schema={},
+            status="stable",
+            type="destination",
+            free=True,
+            category=[],
+            mapping_templates=[HogFunctionMappingTemplate(name="Mapping Template 1")],
+        )
+
+        # Create database versions of templates
+        db_base = HogFunctionTemplate.create_from_dataclass(base_template)
+        db_mappings = HogFunctionTemplate.create_from_dataclass(template_with_mappings)
+        db_subtemplates = HogFunctionTemplate.create_from_dataclass(template_with_subtemplates)
+        db_filters = HogFunctionTemplate.create_from_dataclass(template_with_filters)
+        db_mapping_templates = HogFunctionTemplate.create_from_dataclass(template_with_mapping_templates)
+
+        # All versions should be different
+        versions = [
+            db_base.version,
+            db_mappings.version,
+            db_subtemplates.version,
+            db_filters.version,
+            db_mapping_templates.version,
+        ]
+
+        # Check that all versions are unique
+        self.assertEqual(len(versions), len(set(versions)), "Each template should have a unique version hash")
+
+        # Explicitly check each pair to make failures more informative
+        self.assertNotEqual(db_base.version, db_mappings.version, "Adding mappings should change version")
+        self.assertNotEqual(db_base.version, db_subtemplates.version, "Adding sub_templates should change version")
+        self.assertNotEqual(db_base.version, db_filters.version, "Adding filters should change version")
+        self.assertNotEqual(
+            db_base.version, db_mapping_templates.version, "Adding mapping_templates should change version"
+        )
+
+    def test_dataclass_conversion_roundtrip(self):
+        """Test converting between database model and dataclass representation"""
+        from posthog.cdp.templates.hog_function_template import (
+            HogFunctionMapping,
+            HogFunctionSubTemplate,
+        )
+
+        # Create a complex template with mappings and sub-templates
+        template = HogFunctionTemplate.objects.create(
+            template_id="complex-template",
+            version="1.0.0",
+            name="Complex Template",
+            description="Template with sub-templates and mappings",
+            hog="return event",
+            inputs_schema={"key": "value"},
+            type="destination",
+            status="stable",
+            category=["Integration", "Analytics"],
+            free=True,
+            sub_templates=[{"id": "sub1", "name": "Sub Template 1", "description": "First sub-template"}],
+            mappings=[{"filters": {"event": "$pageview"}, "inputs": {"message": "Page viewed"}}],
+        )
+
+        # Convert to dataclass
+        dataclass_template = template.to_dataclass()
+
+        # Verify fields were converted correctly
+        self.assertEqual(dataclass_template.id, "complex-template")
+        self.assertEqual(dataclass_template.name, "Complex Template")
+        self.assertEqual(dataclass_template.description, "Template with sub-templates and mappings")
+        self.assertEqual(dataclass_template.inputs_schema, {"key": "value"})
+        self.assertEqual(dataclass_template.category, ["Integration", "Analytics"])
+        self.assertEqual(dataclass_template.free, True)
+
+        # Verify sub-templates were converted to proper objects
+        self.assertEqual(len(dataclass_template.sub_templates), 1)
+        self.assertIsInstance(dataclass_template.sub_templates[0], HogFunctionSubTemplate)
+        self.assertEqual(dataclass_template.sub_templates[0].id, "sub1")
+
+        # Verify mappings were converted to proper objects
+        self.assertEqual(len(dataclass_template.mappings), 1)
+        self.assertIsInstance(dataclass_template.mappings[0], HogFunctionMapping)
+        self.assertEqual(dataclass_template.mappings[0].filters, {"event": "$pageview"})
+        self.assertEqual(dataclass_template.mappings[0].inputs, {"message": "Page viewed"})
+
+        # Convert back to database model
+        new_template = HogFunctionTemplate.create_from_dataclass(dataclass_template)
+
+        # Verify fields were preserved through the roundtrip
+        self.assertEqual(new_template.template_id, template.template_id)
+        self.assertEqual(new_template.name, template.name)
+        self.assertEqual(new_template.description, template.description)
+        self.assertEqual(new_template.type, template.type)
+        self.assertEqual(new_template.category, template.category)
+
+        # Verify sub-templates were preserved
+        self.assertEqual(len(new_template.sub_templates), 1)
+        self.assertEqual(new_template.sub_templates[0]["id"], "sub1")
+
+        # Verify mappings were preserved
+        self.assertEqual(len(new_template.mappings), 1)
+        self.assertEqual(new_template.mappings[0]["filters"], {"event": "$pageview"})
+        self.assertEqual(new_template.mappings[0]["inputs"], {"message": "Page viewed"})
