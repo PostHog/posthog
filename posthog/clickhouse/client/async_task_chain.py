@@ -95,7 +95,6 @@ def execute_task_chain() -> None:
         if parallelism <= 1 or len(tasks_signatures) <= 1:
             # Sequential execution (original logic or single task)
             final_task = chain(*tasks_signatures)
-            is_parallel = False
         else:
             # Parallel execution: Chain groups of tasks
             # Chunk signatures into groups of size parallelism
@@ -104,17 +103,12 @@ def execute_task_chain() -> None:
             grouped_tasks = [group(chunk) for chunk in chunks]
             # Chain the groups
             final_task = chain(*grouped_tasks)
-            is_parallel = True
 
         result = final_task.apply_async()
 
         for args in task_chain:
             args[2].task_id = result.id
-            labels = ["chained", *(args[2].labels or [])]
-
-            if is_parallel:
-                labels.append(f"parallel-{parallelism}")
-
+            labels = ["chained", f"parallel-{parallelism}", *(args[2].labels or [])]
             args[2].labels = labels
             args[1].store_query_status(args[2])
 
