@@ -31,6 +31,11 @@ class Role(UUIDModel):
         choices=OrganizationResourceAccess.AccessLevel.choices,
     )
 
+    members = models.ManyToManyField(
+        "posthog.User",
+        through="ee.RoleMembership",
+    )
+
 
 class RoleMembership(UUIDModel):
     class Meta:
