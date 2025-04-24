@@ -715,7 +715,13 @@ export interface ToolbarProps extends ToolbarParams {
 
 export type PathCleaningFilter = { alias?: string; regex?: string }
 
-export type PropertyFilterValue = string | number | bigint | (string | number | bigint)[] | null
+export type PropertyFilterValue =
+    | string
+    | number
+    | bigint
+    | (string | number | bigint)[]
+    // | ErrorTrackingIssueAssignee - TODO - @david
+    | null
 
 /** Sync with plugin-server/src/types.ts */
 export enum PropertyOperator {
@@ -835,6 +841,8 @@ export enum PropertyFilterType {
     HogQL = 'hogql',
     DataWarehouse = 'data_warehouse',
     DataWarehousePersonProperty = 'data_warehouse_person_property',
+    ErrorTrackingIssue = 'error_tracking_issue',
+    ErrorTrackingIssueProperty = 'error_tracking_issue_property',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -870,6 +878,16 @@ export interface DataWarehousePropertyFilter extends BasePropertyFilter {
 
 export interface DataWarehousePersonPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.DataWarehousePersonProperty
+    operator: PropertyOperator
+}
+
+export interface ErrorTrackingIssueFilter extends BasePropertyFilter {
+    type: PropertyFilterType.ErrorTrackingIssue
+    operator: PropertyOperator
+}
+
+export interface ErrorTrackingIssuePropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.ErrorTrackingIssueProperty
     operator: PropertyOperator
 }
 
@@ -935,6 +953,8 @@ export type AnyPropertyFilter =
     | EmptyPropertyFilter
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
+    | ErrorTrackingIssueFilter
+    | ErrorTrackingIssuePropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -3449,6 +3469,7 @@ export enum PropertyDefinitionType {
     Session = 'session',
     LogEntry = 'log_entry',
     Meta = 'meta',
+    // Resource = 'resource', - TODO @david
 }
 
 export interface PropertyDefinition {
