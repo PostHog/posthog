@@ -3697,7 +3697,7 @@ interface BreadcrumbBase {
     /** Whether to show a custom popover */
     popover?: Pick<PopoverProps, 'overlay' | 'matchWidth'>
 }
-interface LinkBreadcrumb extends BreadcrumbBase {
+export interface LinkBreadcrumb extends BreadcrumbBase {
     /** Name to display. */
     name: string | JSX.Element | null | undefined
     symbol?: never
@@ -3707,7 +3707,7 @@ interface LinkBreadcrumb extends BreadcrumbBase {
     tag?: string | null
     onRename?: never
 }
-interface RenamableBreadcrumb extends BreadcrumbBase {
+export interface RenamableBreadcrumb extends BreadcrumbBase {
     /** Name to display. */
     name: string | JSX.Element | null | undefined
     symbol?: never
@@ -3717,13 +3717,23 @@ interface RenamableBreadcrumb extends BreadcrumbBase {
     /** When this is true, the name is always in edit mode, and `onRename` runs on every input change. */
     forceEditMode?: boolean
 }
-interface SymbolBreadcrumb extends BreadcrumbBase {
+export interface SymbolBreadcrumb extends BreadcrumbBase {
     name?: never
     /** Symbol, e.g. a lettermark or a profile picture. */
     symbol: React.ReactElement
     path?: never
 }
-export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb
+export interface ProjectTreeBreadcrumb extends BreadcrumbBase {
+    /** Last part of path */
+    name: string
+    /** Rest of the path. */
+    path?: string
+    type: string
+    ref?: string
+    symbol?: never
+    onRename?: never
+}
+export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb | ProjectTreeBreadcrumb
 
 export enum GraphType {
     Bar = 'bar',
@@ -5017,7 +5027,7 @@ export type HogFunctionKind = 'messaging_campaign' | null
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
-    kind?: HogFunctionKind
+    kind?: HogFunctionKind | null
     icon_url?: string
     name: string
     description: string

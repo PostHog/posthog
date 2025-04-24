@@ -124,6 +124,9 @@ pub struct Config {
 
     #[envconfig(default = "out")]
     pub filter_mode: String, // in/out - in means drop all teams not in the list, out means drop all teams in the list
+
+    #[envconfig(default = "false")]
+    pub auto_assignment_enabled: bool, // Comma seperated list of users to either filter in (process) or filter out (ignore)
 }
 
 impl Config {
