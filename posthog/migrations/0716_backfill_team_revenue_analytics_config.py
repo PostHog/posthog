@@ -18,7 +18,7 @@ def backfill_revenue_analytics_config(apps, schema_editor):
                 team=team,
                 defaults={
                     "base_currency": team.revenue_tracking_config.get("baseCurrency", "USD"),
-                    "events": team.revenue_tracking_config.get("events", []),
+                    "_events": team.revenue_tracking_config.get("events", []),
                 },
             )
             logger.info("revenue_config_migrated", team_id=team.id)

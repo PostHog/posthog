@@ -19,7 +19,7 @@ assert len(CURRENCY_CODE_CHOICES) == 152
 class TeamRevenueAnalyticsConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
     base_currency = models.CharField(max_length=3, choices=CURRENCY_CODE_CHOICES, default=CurrencyCode.USD.value)
-    _events = models.JSONField(default=list, name="events", db_column="events")
+    _events = models.JSONField(default=list, db_column="events")
 
     @property
     def events(self) -> list[RevenueAnalyticsEventItem]:
@@ -38,4 +38,4 @@ class TeamRevenueAnalyticsConfig(models.Model):
 @receiver(post_save, sender=Team)
 def create_team_revenue_analytics_config(sender, instance, created, **kwargs):
     if created:
-        TeamRevenueAnalyticsConfig.objects.create(team=instance)
+        TeamRevenueAnalyticsConfig.objects.get_or_create(team=instance)

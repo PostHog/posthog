@@ -695,8 +695,8 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         s2 = str(uuid7("2023-12-02"))
 
         self.team.revenue_analytics_config.events = [
-            {"eventName": "purchase1", "revenueProperty": "revenue"},
-            {"eventName": "purchase2", "revenueProperty": "revenue"},
+            RevenueAnalyticsEventItem(eventName="purchase1", revenueProperty="revenue"),
+            RevenueAnalyticsEventItem(eventName="purchase2", revenueProperty="revenue"),
         ]
         self.team.revenue_analytics_config.save()
 
@@ -751,7 +751,9 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_revenue_conversion_event(self):
         s1 = str(uuid7("2023-12-02"))
 
-        self.team.revenue_analytics_config.events = [{"eventName": "purchase", "revenueProperty": "revenue"}]
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(eventName="purchase", revenueProperty="revenue")
+        ]
         self.team.revenue_analytics_config.save()
 
         self._create_events(
@@ -785,8 +787,8 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         s2 = str(uuid7("2023-12-02"))
 
         self.team.revenue_analytics_config.events = [
-            {"eventName": "purchase1", "revenueProperty": "revenue"},
-            {"eventName": "purchase2", "revenueProperty": "revenue"},
+            RevenueAnalyticsEventItem(eventName="purchase1", revenueProperty="revenue"),
+            RevenueAnalyticsEventItem(eventName="purchase2", revenueProperty="revenue"),
         ]
         self.team.revenue_analytics_config.save()
 
@@ -830,7 +832,9 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_no_revenue_when_event_conversion_goal_set_but_include_revenue_disabled(self):
         s1 = str(uuid7("2023-12-01"))
 
-        self.team.revenue_analytics_config.events = [{"eventName": "purchase", "revenueProperty": "revenue"}]
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(eventName="purchase", revenueProperty="revenue")
+        ]
         self.team.revenue_analytics_config.save()
 
         self._create_events(
@@ -849,7 +853,9 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_no_revenue_when_action_conversion_goal_set_but_include_revenue_disabled(self):
         s1 = str(uuid7("2023-12-01"))
 
-        self.team.revenue_analytics_config.events = [{"eventName": "purchase", "revenueProperty": "revenue"}]
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(eventName="purchase", revenueProperty="revenue")
+        ]
         self.team.revenue_analytics_config.save()
 
         action = Action.objects.create(
