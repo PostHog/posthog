@@ -33,6 +33,13 @@ class TestMessageSetupViewSet(APIBaseTest):
                     "recordHostname": "mailjet._domainkey.example.com",
                     "recordValue": "v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBA...",
                     "status": "pending",
+                },
+                {
+                    "type": "spf",
+                    "recordType": "TXT",
+                    "recordHostname": "@",
+                    "recordValue": "v=spf1 include:spf.mailjet.com ~all",
+                    "status": "pending",
                 }
             ],
         }
