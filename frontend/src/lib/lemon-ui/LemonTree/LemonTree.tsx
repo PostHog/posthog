@@ -16,6 +16,8 @@ import {
     useState,
 } from 'react'
 
+import { escapePath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '../../ui/ContextMenu/ContextMenu'
 import { SideAction } from '../LemonButton'
 import { Spinner } from '../Spinner/Spinner'
@@ -921,10 +923,13 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         const focusElementFromId = useCallback((id: string) => {
             // Timeout to ensure the element is rendered
             setTimeout(() => {
-                // find the element in the tree by item.id
-                const element = containerRef.current?.querySelector(`[data-id="${id}"]`) as HTMLElement
+                // Escape the ID for use in CSS selector
+                const escapedIdForSelector = CSS.escape(id)
+                // Now use the escaped ID in your query
+                const element = containerRef.current?.querySelector(`[data-id=${escapedIdForSelector}]`) as HTMLElement
+                // Focus the element
                 focusElement(element)
-            }, 50)
+            }, 100)
         }, [])
 
         // Update handleKeyDown to use native focus
@@ -1350,13 +1355,20 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             onItemNameChange={(item, name) => {
                                 onItemNameChange?.(item, name)
 
+                                // Allow / to be used in the name
+                                const escapedName = escapePath(name)
+                                // Split the path into an array
+                                const paths = splitPath(item.id)
+
                                 // Note: For project tree, we have ids like `project-folder/Unfiled/new name \/ test \/ 2`, the last part is the name
                                 // so we need to build a new id with the new name and pass it to focusElementFromId
-                                const newId = item.id.includes('/')
-                                    ? // grab everything before the last / and add the new name
-                                      item.id.split('/').slice(0, -1).join('/') + '/' + name
-                                    : // if the id does not include a /, we can just use the new name
-                                      name
+                                const newId =
+                                    paths.length > 1
+                                        ? // grab everything before the last / and add the new name
+                                          paths.slice(0, -1).join('/') + '/' + escapedName
+                                        : // if the id does not include a /, we can just use the new name
+                                          name
+
                                 if (newId) {
                                     focusElementFromId(newId)
                                 }
