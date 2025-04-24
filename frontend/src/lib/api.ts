@@ -3145,9 +3145,6 @@ const api = {
         ): Promise<MessageTemplate> {
             return await new ApiRequest().messagingTemplate(templateId).update({ data })
         },
-        async createEmailSenderDomain(data: Partial<EmailSenderDomain>): Promise<EmailSenderDomain> {
-            return await new ApiRequest().messagingEmailSenderDomains().create({ data })
-        },
     },
 
     queryURL: (): string => {

@@ -19,7 +19,6 @@ type IntegrationCredentials = Partial<
                 label: string
                 type: 'password' | 'text'
                 required: boolean
-                placeholder?: string
             }>
             helpText?: ReactNode
             createFn: (credentials: Record<string, string>, callback: (integration: any) => void) => void
@@ -29,14 +28,17 @@ type IntegrationCredentials = Partial<
 
 const INTEGRATION_CREDENTIALS: IntegrationCredentials = {
     email: {
-        fields: [{ key: 'domain', label: 'Domain', placeholder: 'example.com', type: 'text', required: true }],
+        fields: [
+            { key: 'apiKey', label: 'API key', type: 'text', required: true },
+            { key: 'secretKey', label: 'Secret key', type: 'password', required: true },
+        ],
         helpText: (
             <>
-                Need help setting up your email sender domain? Check out our{' '}
-                <Link to="https://posthog.com/docs/messaging/email-sending-domains" target="_blank">
-                    documentation
-                </Link>
-                .
+                Log in or sign up for Mailjet and get your API key and secret key on the{' '}
+                <Link to="https://app.mailjet.com/account/apikeys" target="_blank">
+                    API Key Management
+                </Link>{' '}
+                page
             </>
         ),
         createFn: (credentials, callback) => {
