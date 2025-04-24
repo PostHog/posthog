@@ -36,6 +36,7 @@ export function MetricsChartLayout({
     const valueToX = (value: number): number => valueToXCoordinate(value, chartBound, viewBoxWidth, horizontalPadding)
 
     const metricTitlePanelWidth = '20%'
+    const metricTitlePanelHeight = Math.max(chartSvgHeight, 80)
 
     return (
         <div className="rounded bg-[var(--bg-table)]">
@@ -54,7 +55,7 @@ export function MetricsChartLayout({
                 <div
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
-                        height: `${Math.max(chartSvgHeight, 80)}px`,
+                        height: `${metricTitlePanelHeight}px`,
                         borderRight: '1px solid var(--border-primary)',
                     }}
                     className="p-2"
