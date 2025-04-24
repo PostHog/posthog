@@ -1,7 +1,7 @@
 import { IconEllipsis, IconGear } from '@posthog/icons'
 import { IconOpenSidebar } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonMenu } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import {
     authorizedUrlListLogic,
@@ -13,12 +13,10 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
@@ -28,7 +26,6 @@ import { urls } from 'scenes/urls'
 import { NotebookNodeType, ReplayTab, ReplayTabs } from '~/types'
 import { ProductKey } from '~/types'
 
-import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
 import { sessionReplaySceneLogic } from './sessionReplaySceneLogic'
@@ -38,15 +35,9 @@ function Header(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
-    const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
 
     // NB this relies on `updateSearchParams` being the only prop needed to pick the correct "Recent" tab list logic
     const { filters } = useValues(sessionRecordingsPlaylistLogic({ updateSearchParams: true }))
-
-    const newPlaylistHandler = useAsyncHandler(async () => {
-        await createPlaylist({}, true)
-        reportRecordingPlaylistCreated('new')
-    })
 
     return (
         <PageHeader
@@ -72,17 +63,6 @@ function Header(): JSX.Element {
                                 type="secondary"
                             />
                         </>
-                    )}
-
-                    {tab === ReplayTabs.Playlists && (
-                        <LemonButton
-                            type="primary"
-                            onClick={(e) => newPlaylistHandler.onEvent?.(e)}
-                            data-attr="save-recordings-playlist-button"
-                            loading={newPlaylistHandler.loading}
-                        >
-                            New collection
-                        </LemonButton>
                     )}
                 </>
             }
@@ -222,10 +202,10 @@ const ReplayPageTabs: ReplayTab[] = [
         key: ReplayTabs.Home,
     },
     {
-        label: 'Playlists',
+        label: 'Collections',
         tooltipDocLink: 'https://posthog.com/docs/session-replay/how-to-watch-recordings',
         key: ReplayTabs.Playlists,
-        tooltip: 'View & create playlists',
+        tooltip: 'View & create collections',
     },
     {
         label: 'Figure out what to watch',

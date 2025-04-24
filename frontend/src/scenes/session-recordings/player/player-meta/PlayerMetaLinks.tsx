@@ -25,7 +25,7 @@ function PinToPlaylistButton(): JSX.Element {
     const nodeLogic = useNotebookNode()
 
     const tooltip = logicProps.pinned ? 'Remove from collection' : 'Add to collection'
-    const description = 'Add to collection'
+    const description = logicProps.pinned ? 'Remove from collection' : 'Add to collection'
 
     return logicProps.setPinned && !logicProps.pinned ? (
         <LemonButton

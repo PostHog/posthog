@@ -54,7 +54,7 @@ export function PlaylistPopoverButton({
                                     className="deprecated-space-y-1"
                                 >
                                     <LemonField name="name">
-                                        <LemonInput placeholder="Playlist name" fullWidth />
+                                        <LemonInput placeholder="Collection name" fullWidth />
                                     </LemonField>
                                     <div className="flex items-center gap-2 justify-end">
                                         <LemonButton
@@ -73,13 +73,13 @@ export function PlaylistPopoverButton({
                                 <>
                                     <LemonInput
                                         type="search"
-                                        placeholder="Search playlists..."
+                                        placeholder="Search collections..."
                                         value={searchQuery}
                                         onChange={setSearchQuery}
                                         fullWidth
                                     />
                                     <LemonButton fullWidth icon={<IconPlus />} onClick={() => setNewFormShowing(true)}>
-                                        New list
+                                        New collection
                                     </LemonButton>
                                 </>
                             )}
