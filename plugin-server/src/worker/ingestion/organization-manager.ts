@@ -50,6 +50,10 @@ export class OrganizationManager {
     }
 
     public async hasAvailableFeature(teamId: TeamId, feature: string, team?: Team): Promise<boolean> {
+        if (defaultConfig.USE_LAZY_TEAM_MANAGER && this.teamManagerLazy) {
+            return await this.teamManagerLazy.hasAvailableFeature(teamId, feature)
+        }
+
         const result = await this._hasAvailableFeature(teamId, feature, team)
 
         try {
