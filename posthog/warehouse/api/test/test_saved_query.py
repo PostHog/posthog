@@ -635,3 +635,50 @@ class TestSavedQuery(APIBaseTest):
 
             # Verify get_columns was called
             mock_get_columns.assert_called_once()
+
+    def test_create_with_activity_log(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+        self.assertEqual(saved_query["name"], "event_view")
+        self.assertEqual(saved_query["query"]["kind"], "HogQLQuery")
+        self.assertEqual(saved_query["query"]["query"], "select event as event from events LIMIT 100")
+
+        with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
+            mock_get_columns.return_value = {}
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select event as event from events LIMIT 10",
+                    },
+                    "current_query": saved_query["query"]["query"],
+                },
+            )
+
+            self.assertEqual(response.status_code, 200, response.content)
+
+            # this should fail because the activity log has changed
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select event as event from events LIMIT 1",
+                    },
+                    "current_query": saved_query["query"]["query"],
+                },
+            )
+
+            self.assertEqual(response.status_code, 400, response.content)
+            self.assertEqual(response.json()["detail"], "The query was modified by someone else.")

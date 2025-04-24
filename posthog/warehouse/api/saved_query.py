@@ -7,10 +7,12 @@ from django.db import transaction
 from django.db.models import Q
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
-
+from loginas.utils import is_impersonated_session
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
+from posthog.models import Team
+from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
 from posthog.hogql.errors import ExposedHogQLError
@@ -36,7 +38,7 @@ from posthog.warehouse.data_load.saved_query_service import (
     delete_saved_query_schedule,
 )
 import uuid
-
+import hashlib
 
 logger = structlog.get_logger(__name__)
 
@@ -45,6 +47,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
     sync_frequency = serializers.SerializerMethodField()
+    current_query = serializers.CharField(write_only=True, required=False)
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -60,6 +63,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "status",
             "last_run_at",
             "latest_error",
+            "current_query",
         ]
         read_only_fields = ["id", "created_by", "created_at", "columns", "status", "last_run_at", "latest_error"]
 
@@ -124,24 +128,58 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 # closer together.
                 logger.exception("Failed to create model path when creating view %s", view.name)
 
+            team = Team.objects.get(id=view.team_id)
+
+            changes = changes_between("DataWarehouseSavedQuery", previous=None, current=view)
+
+            activity_log = log_activity(
+                organization_id=team.organization_id,
+                team_id=team.id,
+                user=view.created_by,
+                was_impersonated=is_impersonated_session(self.context["request"]),
+                item_id=view.id,
+                scope="DataWarehouseSavedQuery",
+                activity="created",
+                detail=Detail(name=view.name, changes=changes),
+            )
+            # Add the activity log to context so the serializer can use it
+            self.context["activity_logs"] = {str(view.id): activity_log.id}
+
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
+        try:
+            before_update = DataWarehouseSavedQuery.objects.get(pk=instance.id)
+        except DataWarehouseSavedQuery.DoesNotExist:
+            before_update = None
+
         sync_frequency = self.context["request"].data.get("sync_frequency", None)
         was_sync_frequency_updated = False
 
         with transaction.atomic():
+            locked_instance = DataWarehouseSavedQuery.objects.select_for_update().get(pk=instance.pk)
+
+            # Get latest activity log for this model
+            current_query = self.context["request"].data.get("current_query", None)
+            latest_query = locked_instance.query["query"]
+
+            if (
+                hashlib.sha1(current_query.encode("utf-8")).hexdigest()
+                != hashlib.sha1(latest_query.encode("utf-8")).hexdigest()
+            ):
+                raise serializers.ValidationError("The query was modified by someone else.")
+
             if sync_frequency == "never":
-                delete_saved_query_schedule(str(instance.id))
-                instance.sync_frequency_interval = None
+                delete_saved_query_schedule(str(locked_instance.id))
+                locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
             elif sync_frequency:
                 sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
                 was_sync_frequency_updated = True
-                instance.sync_frequency_interval = sync_frequency_interval
+                locked_instance.sync_frequency_interval = sync_frequency_interval
 
-            view: DataWarehouseSavedQuery = super().update(instance, validated_data)
+            view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
 
             # Only update columns and status if the query has changed
             if "query" in validated_data:
@@ -174,6 +212,22 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 DataWarehouseModelPath.objects.update_from_saved_query(view)
             except Exception:
                 logger.exception("Failed to update model path when updating view %s", view.name)
+
+            team = Team.objects.get(id=view.team_id)
+
+            changes = changes_between("DataWarehouseSavedQuery", previous=before_update, current=view)
+            activity_log = log_activity(
+                organization_id=team.organization_id,
+                team_id=team.id,
+                user=view.created_by,
+                was_impersonated=is_impersonated_session(self.context["request"]),
+                item_id=view.id,
+                scope="DataWarehouseSavedQuery",
+                activity="updated",
+                detail=Detail(name=view.name, changes=changes),
+            )
+            # Add the activity log to context so the serializer can use it
+            self.context["activity_logs"] = {str(view.id): activity_log.id}
 
         if was_sync_frequency_updated:
             schedule_exists = saved_query_workflow_exists(str(instance.id))
