@@ -37,6 +37,7 @@ from .error_tracking import (
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
     ErrorTrackingIssueAssignment,
+    ErrorTrackingAssignmentRule,
 )
 from .event.event import Event
 from .event_buffer import EventBuffer
@@ -57,6 +58,7 @@ from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
+from .message_template import MessageTemplate
 from .messaging import MessagingRecord
 from .notebook import Notebook
 from .organization import Organization, OrganizationMembership
@@ -82,7 +84,7 @@ from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
 from .tag import Tag
 from .tagged_item import TaggedItem
-from .team import Team
+from .team import Team, TeamRevenueAnalyticsConfig
 from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
@@ -120,6 +122,7 @@ __all__ = [
     "ErrorTrackingStackFrame",
     "ErrorTrackingSymbolSet",
     "ErrorTrackingIssueAssignment",
+    "ErrorTrackingAssignmentRule",
     "Event",
     "EventBuffer",
     "EventDefinition",
@@ -141,6 +144,7 @@ __all__ = [
     "InstanceSetting",
     "Integration",
     "InviteExpiredException",
+    "MessageTemplate",
     "MessagingRecord",
     "Notebook",
     "MigrationStatus",
@@ -175,6 +179,7 @@ __all__ = [
     "Tag",
     "TaggedItem",
     "Team",
+    "TeamRevenueAnalyticsConfig",
     "Text",
     "UploadedMedia",
     "User",

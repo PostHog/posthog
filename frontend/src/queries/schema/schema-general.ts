@@ -1829,6 +1829,15 @@ export type CachedRevenueExampleDataWarehouseTablesQueryResponse =
  */
 export interface RevenueAnalyticsBaseQuery<R extends Record<string, any>> extends DataNode<R> {
     dateRange?: DateRange
+    revenueSources: RevenueSources
+}
+
+export interface RevenueSources {
+    // These represent the IDs we're interested in from the data warehouse sources
+    dataWarehouseSources: string[]
+
+    // This is a list of strings that represent the event names we're interested in
+    events: string[]
 }
 
 export interface RevenueAnalyticsOverviewQuery
@@ -2342,6 +2351,7 @@ export interface DatabaseSchemaTableCommon {
     id: string
     name: string
     fields: Record<string, DatabaseSchemaField>
+    row_count?: number
 }
 
 export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
@@ -2396,6 +2406,7 @@ export interface DatabaseSchemaQuery extends DataNode<DatabaseSchemaQueryRespons
 export type DatabaseSerializedFieldType =
     | 'integer'
     | 'float'
+    | 'decimal'
     | 'string'
     | 'datetime'
     | 'date'
@@ -2872,6 +2883,10 @@ export interface RevenueTrackingEventItem {
     revenueCurrencyProperty: RevenueCurrencyPropertyConfig
 }
 
+// TODO: Remove the above once we've migrated all the revenue tracking config
+// to the new schema and promote this type to the interface
+export type RevenueAnalyticsEventItem = RevenueTrackingEventItem
+
 export interface RevenueTrackingConfig {
     /**
      * @default 'USD'
@@ -2907,14 +2922,32 @@ export interface WebActiveHoursHeatMapQuery extends WebAnalyticsQueryBase<WebAct
     kind: NodeKind.WebActiveHoursHeatMapQuery
 }
 
-export interface WebActiveHoursHeatMapQueryResponse extends AnalyticsQueryResponseBase<WebActiveHoursHeatMapResult[]> {
+export interface WebActiveHoursHeatMapQueryResponse
+    extends AnalyticsQueryResponseBase<WebActiveHoursHeatMapStructuredResult> {
     hasMore?: boolean
     limit?: integer
 }
 
-export interface WebActiveHoursHeatMapResult {
+export interface WebActiveHoursHeatMapDayAndHourResult {
     day: integer
     hour: integer
+    total: integer
+}
+
+export interface WebActiveHoursHeatMapDayResult {
+    day: integer
+    total: integer
+}
+
+export interface WebActiveHoursHeatMapHourResult {
+    hour: integer
+    total: integer
+}
+
+export interface WebActiveHoursHeatMapStructuredResult {
+    dayAndHours: WebActiveHoursHeatMapDayAndHourResult[]
+    days: WebActiveHoursHeatMapDayResult[]
+    hours: WebActiveHoursHeatMapHourResult[]
     total: integer
 }
 
