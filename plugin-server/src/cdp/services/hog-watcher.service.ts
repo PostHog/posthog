@@ -5,7 +5,6 @@ import { now } from '../../utils/now'
 import { UUIDT } from '../../utils/utils'
 import { CdpRedis } from '../redis'
 import { HogFunctionInvocationResult, HogFunctionType } from '../types'
-import { HogFunctionManagerService } from './hog-function-manager.service'
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-watcher' : '@posthog/hog-watcher'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/tokens`
@@ -135,42 +134,7 @@ export class HogWatcherService {
                 pipeline.del(`${REDIS_KEY_DISABLED}/${id}`)
             }
         })
-
-        // Track the state change in metrics if it's disabled
-        if (state === HogWatcherState.disabledForPeriod || state === HogWatcherState.disabledIndefinitely) {
-            await this._trackFunctionDisabled(id, state)
-        }
-
         await this.onStateChange(id, state)
-    }
-
-    private async _trackFunctionDisabled(id: HogFunctionType['id'], state: HogWatcherState): Promise<void> {
-        try {
-            // Try to get the function type from HogFunctionManager
-            const hogFunctionManager = new HogFunctionManagerService(this.hub)
-            const hogFunction = await hogFunctionManager.getHogFunction(id)
-
-            hogTransformationDisabled
-                .labels({
-                    state:
-                        state === HogWatcherState.disabledIndefinitely
-                            ? 'disabled_indefinitely'
-                            : 'disabled_for_period',
-                    kind: hogFunction?.type || 'unknown',
-                })
-                .inc()
-        } catch (e) {
-            // Fallback to just tracking state if we can't get the function type
-            hogTransformationDisabled
-                .labels({
-                    state:
-                        state === HogWatcherState.disabledIndefinitely
-                            ? 'disabled_indefinitely'
-                            : 'disabled_for_period',
-                    kind: 'unknown',
-                })
-                .inc()
-        }
     }
 
     public async observeResults(results: HogFunctionInvocationResult[]): Promise<void> {
