@@ -172,12 +172,12 @@ def sync_execute(
             settings["use_hedged_requests"] = "0"
         start_time = perf_counter()
         try:
+            QUERY_STARTED_COUNTER.labels(
+                team_id=str(tags.get("team_id", "0")),
+                access_method=tags.get("access_method", "other"),
+                chargeable=str(tags.get("chargeable", "0")),
+            ).inc()
             with sync_client or get_client_from_pool(workload, team_id, readonly) as client:
-                QUERY_STARTED_COUNTER.labels(
-                    team_id=str(tags.get("team_id", "0")),
-                    access_method=tags.get("access_method", "other"),
-                    chargeable=str(tags.get("chargeable", "0")),
-                ).inc()
                 result = client.execute(
                     prepared_sql,
                     params=prepared_args,
