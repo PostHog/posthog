@@ -963,9 +963,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const includeRevenue = !(conversionGoal && 'actionId' in conversionGoal)
 
                 const revenueEventsSeries: EventsNode[] =
-                    includeRevenue && currentTeam?.revenue_tracking_config
+                    includeRevenue && currentTeam?.revenue_analytics_config
                         ? ([
-                              ...currentTeam.revenue_tracking_config.events.map((e) => ({
+                              ...currentTeam.revenue_analytics_config.events.map((e) => ({
                                   name: e.eventName,
                                   event: e.eventName,
                                   custom_name: e.eventName,
