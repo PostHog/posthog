@@ -519,9 +519,9 @@ class ErrorTrackingQueryRunner(QueryRunner):
                 queryset.filter(assignment__user_id=self.query.assignee.id)
                 if self.query.assignee.type == "user"
                 else (
-                    queryset.filter(assignment__role_id=self.query.assignee.id)
+                    queryset.filter(assignment__role_id=str(self.query.assignee.id))
                     if self.query.assignee.type == "role"
-                    else queryset.filter(assignment__user_group_id=self.query.assignee.id)
+                    else queryset.filter(assignment__user_group_id=str(self.query.assignee.id))
                 )
             )
 
