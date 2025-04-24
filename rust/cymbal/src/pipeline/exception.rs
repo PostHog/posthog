@@ -215,7 +215,10 @@ pub async fn do_exception_handling(
 
         if matches!(issue.status, IssueStatus::Suppressed) {
             to_drop.push((index, issue.id));
-        } else if issue.eligible_for_assignment && !assignment_rule_futs.contains_key(&issue.id) {
+        } else if issue.eligible_for_assignment
+            && !assignment_rule_futs.contains_key(&issue.id)
+            && context.config.auto_assignment_enabled
+        {
             assignment_rule_futs.insert(
                 issue.id,
                 (
