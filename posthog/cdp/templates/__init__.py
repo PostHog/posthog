@@ -1,6 +1,3 @@
-from posthog.cdp.templates.hog_function_template import derive_sub_templates
-from .webhook.template_webhook import template as webhook
-from .webhook.template_webhook_mappings import template as webhook_mappings
 from .slack.template_slack import template as slack
 from .hubspot.template_hubspot import template_event as hubspot_event, template as hubspot, TemplateHubspotMigrator
 from .braze.template_braze import template as braze
@@ -68,8 +65,6 @@ HOG_FUNCTION_TEMPLATES = [
     blank_site_destination,
     blank_site_app,
     slack,
-    webhook,
-    webhook_mappings,
     activecampaign,
     airtable,
     attio,
