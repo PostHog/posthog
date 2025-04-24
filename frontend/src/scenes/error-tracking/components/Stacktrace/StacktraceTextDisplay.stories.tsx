@@ -33,16 +33,16 @@ const meta: Meta = {
 export default meta
 
 // Text stacktrace
-export function TextDisplayFullLoading(): JSX.Element {
-    const props = defaultBaseProps(
-        'python_resolved',
-        {
-            loading: true,
-        },
-        true
-    )
-    return <StacktraceTextDisplay {...props} />
-}
+// export function TextDisplayFullLoading(): JSX.Element {
+//     const props = defaultBaseProps(
+//         'python_resolved',
+//         {
+//             loading: true,
+//         },
+//         true
+//     )
+//     return <StacktraceTextDisplay {...props} />
+// }
 
 export function TextDisplayPropertiesLoading(): JSX.Element {
     const props = defaultBaseProps(

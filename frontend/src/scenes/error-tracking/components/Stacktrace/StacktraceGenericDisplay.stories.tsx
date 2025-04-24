@@ -33,16 +33,16 @@ const meta: Meta = {
 export default meta
 
 // Generic stacktrace
-export function GenericDisplayFullLoading(): JSX.Element {
-    const props = defaultBaseProps(
-        'javascript_empty',
-        {
-            loading: true,
-        },
-        true
-    )
-    return <StacktraceGenericDisplay {...props} />
-}
+// export function GenericDisplayFullLoading(): JSX.Element {
+//     const props = defaultBaseProps(
+//         'javascript_empty',
+//         {
+//             loading: true,
+//         },
+//         true
+//     )
+//     return <StacktraceGenericDisplay {...props} />
+// }
 
 export function GenericDisplayPropertiesLoading(): JSX.Element {
     const props = defaultBaseProps(
