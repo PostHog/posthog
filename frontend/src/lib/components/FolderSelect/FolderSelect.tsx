@@ -18,7 +18,7 @@ export interface FolderSelectProps {
     className?: string
 }
 
-/** Select dialog to choose a folder */
+/** Input component for selecting a folder */
 export function FolderSelect({ value, onChange, className }: FolderSelectProps): JSX.Element {
     const { projectTreeOnlyFolders, treeTableKeys } = useValues(projectTreeLogic)
     const { createFolder, loadFolderIfNotLoaded } = useActions(projectTreeLogic)
@@ -32,8 +32,8 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
         return splits.map((_, i) => 'project-folder/' + joinPath(splits.slice(0, i + 1)))
     }
 
-    const [expandedFolders, setExpandedFolders] = useState<string[]>(() => [])
-    const [touchedFolders, setTouchedFolders] = useState<string[]>(() => [])
+    const [expandedFolders, setExpandedFolders] = useState<string[]>([])
+    const [touchedFolders, setTouchedFolders] = useState<string[]>([])
 
     useEffect(() => {
         if (!value) {
