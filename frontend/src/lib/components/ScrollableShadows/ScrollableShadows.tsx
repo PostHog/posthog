@@ -17,10 +17,12 @@ export type ScrollableShadowsProps = {
     onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void
     onBlur?: () => void
     styledScrollbars?: boolean
+    style?: React.CSSProperties
+    innerStyle?: React.CSSProperties
 }
 
 export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShadowsProps>(function ScrollableShadows(
-    { children, direction, className, innerClassName, scrollRef, styledScrollbars = false, ...props },
+    { children, direction, className, innerClassName, scrollRef, styledScrollbars = false, innerStyle, ...props },
     ref
 ) {
     const {
@@ -48,6 +50,8 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
         >
             <div
                 className={clsx('ScrollableShadows__inner', styledScrollbars && 'styled-scrollbars', innerClassName)}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={innerStyle}
                 ref={(refValue) => {
                     scrollRefScrollable.current = refValue
                     if (scrollRef) {
