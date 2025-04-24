@@ -1,4 +1,4 @@
-import { kea, path, props, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
@@ -13,50 +13,49 @@ export type ErrorTrackingAssignmentRule = {
     filters: UniversalFiltersGroup
 }
 
-const DEFAULT_ASSIGNMENT_RULE = {
-    id: 'new',
-    assignee: null,
-    filters: { type: FilterLogicalOperator.Or, values: [] },
-}
-
 export const errorTrackingAutoAssignmentLogic = kea<errorTrackingAutoAssignmentLogicType>([
     path(['scenes', 'error-tracking', 'errorTrackingAutoAssignmentLogic']),
-    props({} as { newRuleIfNone: boolean }),
+    props({} as { startWithNewEditableRule: boolean }),
 
-    loaders(({ props, values }) => ({
+    actions({
+        addRule: true,
+        setRuleEditable: (id: ErrorTrackingAssignmentRule['id']) => ({ id }),
+        unsetRuleEditable: (id: ErrorTrackingAssignmentRule['id']) => ({ id }),
+        updateLocalRule: (rule: ErrorTrackingAssignmentRule) => ({ rule }),
+        _setLocalRules: (rules: ErrorTrackingAssignmentRule[]) => ({ rules }),
+    }),
+
+    reducers({
+        localRules: [[] as ErrorTrackingAssignmentRule[], { _setLocalRules: (_, { rules }) => rules }],
+        initialLoadComplete: [
+            false,
+            {
+                loadRules: () => false,
+                loadRulesSuccess: () => true,
+                loadRulesFailure: () => true,
+            },
+        ],
+    }),
+
+    loaders(({ values }) => ({
         assignmentRules: [
-            [DEFAULT_ASSIGNMENT_RULE] as ErrorTrackingAssignmentRule[],
+            [] as ErrorTrackingAssignmentRule[],
             {
                 loadRules: async () => {
                     const { results: rules } = await api.errorTracking.assignmentRules()
-                    if (rules.length === 0 && props.newRuleIfNone) {
-                        return [DEFAULT_ASSIGNMENT_RULE]
-                    }
                     return rules
                 },
-                addRule: async () => {
-                    return [
-                        ...values.assignmentRules,
-                        {
-                            id: 'new',
-                            assignee: null,
-                            filters: { type: FilterLogicalOperator.Or, values: [] },
-                        },
-                    ]
-                },
-                saveRule: async (rule) => {
+                saveRule: async (id) => {
+                    const rule = values.localRules.find((r) => r.id === id)
                     const newValues = [...values.assignmentRules]
-                    if (rule.id === 'new') {
-                        const newRule = await api.errorTracking.createAssignmentRule(rule)
-                        return newValues.map((r) => (rule.id === r.id ? newRule : r))
+                    if (rule) {
+                        if (rule.id === 'new') {
+                            const newRule = await api.errorTracking.createAssignmentRule(rule)
+                            return newValues.map((r) => (rule.id === r.id ? newRule : r))
+                        }
+                        await api.errorTracking.updateAssignmentRule(rule)
                     }
-                    await api.errorTracking.updateAssignmentRule(rule)
-
                     return newValues
-                },
-                updateRule: async (rule) => {
-                    const newValues = [...values.assignmentRules]
-                    return newValues.map((r) => (rule.id === r.id ? rule : r))
                 },
                 deleteRule: async (id) => {
                     if (id != 'new') {
@@ -69,18 +68,64 @@ export const errorTrackingAutoAssignmentLogic = kea<errorTrackingAutoAssignmentL
         ],
     })),
 
-    reducers({
-        loadingAllRules: [
-            true,
-            {
-                loadRules: () => true,
-                loadRulesSuccess: () => false,
-                loadRulesFailure: () => false,
-            },
-        ],
-    }),
+    listeners(({ props, values, actions }) => ({
+        loadRulesSuccess: ({ assignmentRules }) => {
+            if (assignmentRules.length === 0 && props.startWithNewEditableRule) {
+                actions._setLocalRules([
+                    {
+                        id: 'new',
+                        assignee: null,
+                        filters: { type: FilterLogicalOperator.Or, values: [] },
+                    },
+                ])
+            }
+        },
+        addRule: () => {
+            actions._setLocalRules([
+                ...values.localRules,
+                {
+                    id: 'new',
+                    assignee: null,
+                    filters: { type: FilterLogicalOperator.Or, values: [] },
+                },
+            ])
+        },
+        saveRule: (id) => {
+            const localRules = [...values.localRules]
+            const newEditingRules = localRules.filter((v) => v.id !== id)
+            actions._setLocalRules(newEditingRules)
+        },
+        setRuleEditable: ({ id }) => {
+            const rule = values.assignmentRules.find((r) => r.id === id)
+            if (rule) {
+                actions._setLocalRules([...values.localRules, rule])
+            }
+        },
+        unsetRuleEditable: ({ id }) => {
+            const newLocalRules = [...values.localRules]
+            const index = newLocalRules.findIndex((r) => r.id === id)
+            if (index >= 0) {
+                newLocalRules.splice(index, 1)
+                actions._setLocalRules(newLocalRules)
+            }
+        },
+        updateLocalRule: ({ rule }) => {
+            const newEditingRules = [...values.localRules]
+            const index = newEditingRules.findIndex((r) => r.id === rule.id)
+
+            if (index >= 0) {
+                newEditingRules.splice(index, 1, rule)
+                actions._setLocalRules(newEditingRules)
+            }
+        },
+    })),
 
     selectors({
-        hasNewRule: [(s) => [s.assignmentRules], (assignmentRules) => assignmentRules.some(({ id }) => id === 'new')],
+        allRules: [
+            (s) => [s.localRules, s.assignmentRules],
+            (localRules, assignmentRules): ErrorTrackingAssignmentRule[] =>
+                Array.from(new Map([...localRules, ...assignmentRules].map((item) => [item.id, item])).values()),
+        ],
+        hasNewRule: [(s) => [s.allRules], (allRules): boolean => allRules.some((r) => r.id === 'new')],
     }),
 ])
