@@ -1,5 +1,5 @@
 // eslint-disable-next-line simple-import-sort/imports
-import { getProducedKafkaMessages, getProducedKafkaMessagesForTopic } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { CdpCyclotronWorker } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpCyclotronWorkerFetch } from '../../src/cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
@@ -17,20 +17,15 @@ import { forSnapshot } from '~/tests/helpers/snapshots'
 
 jest.mock('../../src/utils/fetch', () => {
     return {
-        trackedFetch: jest.fn(() =>
-            Promise.resolve({
-                status: 200,
-                text: () => Promise.resolve(JSON.stringify({ success: true })),
-                headers: new Headers({ 'Content-Type': 'application/json' }),
-                json: () => Promise.resolve({ success: true }),
-            })
-        ),
+        trackedFetch: jest.fn(() => Promise.resolve({ status: 200, body: { success: true } })),
     }
 })
 
 const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
-describe('CDP Consumer loop', () => {
+const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
+
+describe.each([['cyclotron' as const], ['kafka' as const]])('CDP Consumer loop: %s', (mode) => {
     jest.setTimeout(10000)
 
     describe('e2e fetch call', () => {
@@ -49,20 +44,23 @@ describe('CDP Consumer loop', () => {
         }
 
         beforeEach(async () => {
+            console.log(ActualKafkaProducerWrapper)
+
             await resetTestDatabase()
             hub = await createHub()
             team = await getFirstTeam(hub)
+            mockProducerObserver.resetKafkaProducer()
 
             hub.CDP_FETCH_RETRIES = 2
             hub.CDP_FETCH_BACKOFF_BASE_MS = 100 // fast backoff
+            hub.CYCLOTRON_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
+            hub.CDP_CYCLOTRON_DELIVERY_MODE = mode
 
             fnFetchNoFilters = await insertHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
-
-            hub.CYCLOTRON_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
 
             eventsConsumer = new CdpEventsConsumer(hub)
             await eventsConsumer.start()
@@ -87,7 +85,14 @@ describe('CDP Consumer loop', () => {
                 } as any,
             })
 
-            mockFetch.mockClear()
+            mockFetch.mockResolvedValue({
+                status: 200,
+                text: () => Promise.resolve(JSON.stringify({ success: true })),
+                headers: new Headers({ 'Content-Type': 'application/json' }),
+                json: () => Promise.resolve({ success: true }),
+            })
+
+            expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(0)
         })
 
         afterEach(async () => {
@@ -98,8 +103,8 @@ describe('CDP Consumer loop', () => {
             ]
 
             await Promise.all(stoppers)
-
             await closeHub(hub)
+            mockProducerObserver.resetKafkaProducer()
         })
 
         afterAll(() => {
@@ -115,8 +120,10 @@ describe('CDP Consumer loop', () => {
             expect(invocations).toHaveLength(1)
 
             await waitForExpect(() => {
-                expect(getProducedKafkaMessages()).toHaveLength(7)
+                expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(7)
             }, 5000)
+
+            expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(7)
 
             expect(mockFetch).toHaveBeenCalledTimes(1)
 
@@ -134,8 +141,8 @@ describe('CDP Consumer loop', () => {
                 ]
             `)
 
-            const logMessages = getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
-            const metricsMessages = getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+            const logMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+            const metricsMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
 
             expect(metricsMessages).toMatchObject([
                 {
@@ -226,23 +233,28 @@ describe('CDP Consumer loop', () => {
             expect(invocations).toHaveLength(1)
 
             await waitForExpect(() => {
-                expect(getProducedKafkaMessages().length).toBeGreaterThan(10)
+                expect(mockProducerObserver.getProducedKafkaMessages().length).toBeGreaterThan(10)
             }, 5000)
 
-            const logMessages = getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+            const logMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
 
             // Ignore the last message as it is non-deterministic
-            expect(forSnapshot(logMessages.map((m) => m.value.message).slice(0, -1))).toMatchInlineSnapshot(`
-                [
-                  "Executing function",
-                  "Suspending function due to async function call 'fetch'. Payload: 2031 bytes. Event: <REPLACED-UUID-0>",
-                  "Fetch failed after 2 attempts",
-                  "Fetch failure of kind timeout with status (none) and message FetchError: Test error",
-                  "Fetch failure of kind timeout with status (none) and message FetchError: Test error",
-                  "Resuming function",
-                  "Fetch response:, {"status":503,"body":{"event":{"uuid":"<REPLACED-UUID-0>","event":"$pageview","elements_chain":"","distinct_id":"distinct_id","url":"http://localhost:8000/events/1","properties":{"$current_url":"https://posthog.com","$lib_version":"1.0.0"},"timestamp":"2024-09-03T09:00:00Z"},"groups":{},"nested":{"foo":"http://localhost:8000/events/1"},"person":{"id":"uuid","name":"test","url":"http://localhost:8000/persons/1","properties":{"email":"test@posthog.com","first_name":"Pumpkin"}},"event_url":"http://localhost:8000/events/1-test"}}",
-                ]
-            `)
+            expect(
+                forSnapshot(
+                    logMessages
+                        .slice(0, -1)
+                        .sort((a, b) => (a.value.timestamp as string).localeCompare(b.value.timestamp as string))
+                        .map((m) => m.value.message)
+                )
+            ).toEqual([
+                'Executing function',
+                "Suspending function due to async function call 'fetch'. Payload: 2031 bytes. Event: <REPLACED-UUID-0>",
+                'Fetch failed after 2 attempts',
+                'Fetch failure of kind timeout with status (none) and message FetchError: Test error',
+                'Fetch failure of kind timeout with status (none) and message FetchError: Test error',
+                'Resuming function',
+                'Fetch response:, {"status":503,"body":{"event":{"uuid":"<REPLACED-UUID-0>","event":"$pageview","elements_chain":"","distinct_id":"distinct_id","url":"http://localhost:8000/events/1","properties":{"$current_url":"https://posthog.com","$lib_version":"1.0.0"},"timestamp":"2024-09-03T09:00:00Z"},"groups":{},"nested":{"foo":"http://localhost:8000/events/1"},"person":{"id":"uuid","name":"test","url":"http://localhost:8000/persons/1","properties":{"email":"test@posthog.com","first_name":"Pumpkin"}},"event_url":"http://localhost:8000/events/1-test"}}',
+            ])
         })
     })
 })

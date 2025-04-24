@@ -1,9 +1,5 @@
 // eslint-disable-next-line simple-import-sort/imports
-import {
-    getProducedKafkaMessages,
-    getProducedKafkaMessagesForTopic,
-    mockProducer,
-} from '../../../tests/helpers/mocks/producer.mock'
+import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
 import { HogWatcherState } from '../services/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
@@ -248,7 +244,9 @@ describe.each([
                 )
 
                 // Still verify the metric for the filtered function
-                expect(getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')).toMatchObject([
+                expect(
+                    mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                ).toMatchObject([
                     {
                         key: expect.any(String),
                         topic: 'clickhouse_app_metrics2_test',
@@ -275,9 +273,9 @@ describe.each([
                 const invocations = await processor.processBatch([globals])
 
                 expect(invocations).toHaveLength(0)
-                expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+                expect(mockProducerObserver.queueMessagesSpy).toHaveBeenCalledTimes(1)
 
-                expect(getProducedKafkaMessages()).toMatchObject([
+                expect(mockProducerObserver.getProducedKafkaMessages()).toMatchObject([
                     {
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
@@ -330,7 +328,7 @@ describe.each([
                     ...HOG_FILTERS_EXAMPLES.broken_filters,
                 })
                 await processor.processBatch([globals])
-                expect(getProducedKafkaMessages()).toMatchObject([
+                expect(mockProducerObserver.getProducedKafkaMessages()).toMatchObject([
                     {
                         key: expect.any(String),
                         topic: 'clickhouse_app_metrics2_test',

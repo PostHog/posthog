@@ -1,11 +1,11 @@
+import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+
 import { ConsoleLogsIngester } from '../../../../../src/main/ingestion-queues/session-recording/services/console-logs-ingester'
 import { OffsetHighWaterMarker } from '../../../../../src/main/ingestion-queues/session-recording/services/offset-high-water-marker'
 import { IncomingRecordingMessage } from '../../../../../src/main/ingestion-queues/session-recording/types'
 import { logger } from '../../../../../src/utils/logger'
 
 jest.mock('../../../../../src/utils/logger')
-
-import { getParsedQueuedMessages, mockProducer } from '../../../../helpers/mocks/producer.mock'
 
 const makeIncomingMessage = (
     data: Record<string, unknown>[],
@@ -53,7 +53,7 @@ describe('console log ingester', () => {
             )
             expect(jest.mocked(logger.debug).mock.calls).toEqual([])
 
-            expect(getParsedQueuedMessages()).toEqual([
+            expect(mockProducerObserver.getProducedKafkaMessagesForTopic('log_entries_test')).toEqual([
                 {
                     topic: 'log_entries_test',
                     messages: [
@@ -96,7 +96,7 @@ describe('console log ingester', () => {
             )
             expect(jest.mocked(logger.debug).mock.calls).toEqual([])
             expect(jest.mocked(mockProducer.queueMessages)).toHaveBeenCalledTimes(1)
-            expect(getParsedQueuedMessages()).toEqual([
+            expect(mockProducerObserver.getParsedQueuedMessages()).toEqual([
                 {
                     topic: 'log_entries_test',
                     messages: [
@@ -146,7 +146,7 @@ describe('console log ingester', () => {
                 )
             )
             expect(jest.mocked(logger.debug).mock.calls).toEqual([])
-            expect(getParsedQueuedMessages()).toEqual([
+            expect(mockProducerObserver.getParsedQueuedMessages()).toEqual([
                 {
                     topic: 'log_entries_test',
                     messages: [

@@ -1,5 +1,5 @@
 // eslint-disable-next-line simple-import-sort/imports
-import { getParsedQueuedMessages, mockProducer } from '../helpers/mocks/producer.mock'
+import { mockProducer, mockProducerObserver } from '../helpers/mocks/producer.mock'
 
 import { ConsoleExtension } from '@posthog/plugin-scaffold'
 import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
@@ -41,7 +41,7 @@ describe('console extension', () => {
                     await (console[typeMethod](...args) as unknown as Promise<void>)
 
                     expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-                    expect(getParsedQueuedMessages()[0]).toEqual({
+                    expect(mockProducerObserver.getParsedQueuedMessages()[0]).toEqual({
                         topic: KAFKA_PLUGIN_LOG_ENTRIES,
                         messages: [
                             {

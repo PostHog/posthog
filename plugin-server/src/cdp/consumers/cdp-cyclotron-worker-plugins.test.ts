@@ -1,7 +1,7 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { getProducedKafkaMessages } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
@@ -203,7 +203,7 @@ describe('CdpCyclotronWorkerPlugins', () => {
                 },
             ])
 
-            expect(forSnapshot(getProducedKafkaMessages())).toMatchSnapshot()
+            expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
         })
     })
 })

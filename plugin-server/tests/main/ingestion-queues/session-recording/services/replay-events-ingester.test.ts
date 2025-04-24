@@ -10,7 +10,7 @@ import { castTimestampOrNow } from '../../../../../src/utils/utils'
 
 jest.mock('../../../../../src/utils/logger')
 
-import { getParsedQueuedMessages, mockProducer } from '../../../../helpers/mocks/producer.mock'
+import { mockProducer, mockProducerObserver } from '../../../../helpers/mocks/producer.mock'
 
 const makeIncomingMessage = (
     source: string | null,
@@ -57,7 +57,7 @@ describe('replay events ingester', () => {
 
         expect(jest.mocked(logger.debug).mock.calls).toEqual([])
         expect(jest.mocked(mockProducer.queueMessages)).toHaveBeenCalledTimes(1)
-        const topicMessages = getParsedQueuedMessages()
+        const topicMessages = mockProducerObserver.getParsedQueuedMessages()
         expect(topicMessages).toHaveLength(1)
         expect(topicMessages[0].topic).toEqual('clickhouse_ingestion_warnings_test')
         const value = topicMessages[0].messages[0].value!
@@ -83,7 +83,7 @@ describe('replay events ingester', () => {
         expect(jest.mocked(logger.debug).mock.calls).toEqual([])
         expect(jest.mocked(mockProducer.queueMessages).mock.calls).toHaveLength(1)
         expect(jest.mocked(mockProducer.queueMessages).mock.calls[0]).toHaveLength(1)
-        const topicMessages = getParsedQueuedMessages()
+        const topicMessages = mockProducerObserver.getParsedQueuedMessages()
         expect(topicMessages).toHaveLength(1)
         expect(topicMessages[0].topic).toEqual('clickhouse_session_replay_events_test')
         // call.value is a Buffer convert it to a string
@@ -117,7 +117,7 @@ describe('replay events ingester', () => {
 
         expect(jest.mocked(logger.debug).mock.calls).toEqual([])
         expect(jest.mocked(mockProducer.queueMessages).mock.calls).toHaveLength(1)
-        const topicMessages = getParsedQueuedMessages()
+        const topicMessages = mockProducerObserver.getParsedQueuedMessages()
         expect(topicMessages).toHaveLength(1)
         expect(topicMessages[0].topic).toEqual('clickhouse_session_replay_events_test')
         const value = topicMessages[0].messages[0].value!
@@ -159,7 +159,7 @@ describe('replay events ingester', () => {
 
         expect(jest.mocked(logger.debug).mock.calls).toEqual([])
         expect(jest.mocked(mockProducer.queueMessages)).toHaveBeenCalledTimes(1)
-        const topicMessages = getParsedQueuedMessages()
+        const topicMessages = mockProducerObserver.getParsedQueuedMessages()
         expect(topicMessages).toHaveLength(1)
         expect(topicMessages[0].topic).toEqual('clickhouse_session_replay_events_test')
         const value = topicMessages[0].messages[0].value!
