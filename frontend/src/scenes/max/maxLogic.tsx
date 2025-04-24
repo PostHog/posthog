@@ -4,7 +4,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { uuid } from 'lib/utils'
+import { objectsEqual, uuid } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import posthog from 'posthog-js'
 import { projectLogic } from 'scenes/projectLogic'
@@ -67,7 +67,7 @@ export const maxLogic = kea<maxLogicType>([
             projectLogic,
             ['currentProject'],
             maxGlobalLogic,
-            ['dataProcessingAccepted', 'toolMap', 'tools', 'headlineMap', 'descriptionMap'],
+            ['dataProcessingAccepted', 'toolMap', 'tools'],
             maxSettingsLogic,
             ['coreMemory'],
             // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
@@ -443,38 +443,41 @@ export const maxLogic = kea<maxLogicType>([
                 return undefined
             },
         ],
+        toolHeadlines: [(s) => [s.tools], (tools) => tools.map((tool) => tool.introOverride?.headline).filter(Boolean)],
+        toolDescriptions: [
+            (s) => [s.tools],
+            (tools) => tools.map((tool) => tool.introOverride?.description).filter(Boolean),
+        ],
         headline: [
-            (s) => [s.conversation, s.tools, s.headlineMap],
-            (conversation, tools, headlineMap) => {
+            (s) => [s.conversation, s.toolHeadlines],
+            (conversation, toolHeadlines) => {
                 if (process.env.STORYBOOK) {
                     return HEADLINES[0] // Preventing UI snapshots from being different every time
                 }
 
-                if (tools.length > 0 && headlineMap[tools[0].name]) {
-                    return headlineMap[tools[0].name]
-                }
-
-                return HEADLINES[
-                    parseInt((conversation?.id || uuid()).split('-').at(-1) as string, 16) % HEADLINES.length
-                ]
+                return toolHeadlines.length > 0
+                    ? toolHeadlines[0]
+                    : HEADLINES[
+                          parseInt((conversation?.id || uuid()).split('-').at(-1) as string, 16) % HEADLINES.length
+                      ]
             },
+            // It's important we use a deep equality check for inputs, because we want to avoid needless re-renders
+            { equalityCheck: objectsEqual },
         ],
         description: [
-            (s) => [s.tools, s.descriptionMap],
-            (tools, descriptionMap) => {
-                let descriptionAddon = <>Ask&nbsp;me about your product and your&nbsp;users.</>
-                if (tools.length > 0 && descriptionMap[tools[0].name]) {
-                    descriptionAddon = <>{descriptionMap[tools[0].name]}</>
-                }
-
+            (s) => [s.toolDescriptions],
+            (toolDescriptions) => {
                 return (
                     <>
-                        I'm Max, here to help you build a successful&nbsp;product.
-                        <br />
-                        {descriptionAddon}
+                        I'm Max, here to help you build a&nbsp;successful&nbsp;product.{' '}
+                        {toolDescriptions.length > 0
+                            ? toolDescriptions[0]
+                            : 'Ask me about your product and your users.'}
                     </>
                 )
             },
+            // It's important we use a deep equality check for inputs, because we want to avoid needless re-renders
+            { equalityCheck: objectsEqual },
         ],
     }),
     afterMount(({ actions, values }) => {

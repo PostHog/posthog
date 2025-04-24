@@ -13,7 +13,14 @@ export interface ToolDefinition {
     displayName: string
     /** Contextual data to be included for use by the LLM */
     context: Record<string, any>
-    /** When in context, the tool can add items to the pool of Max's suggested questions */
+    /** Optional: If this tool is the main one of the page, you can override Max's default intro headline and description when it's mounted. */
+    introOverride?: {
+        /** The default is something like "How can I help you build?" - stick true to this question form. */
+        headline: string
+        /** The default is "Ask me about your product and your users." */
+        description: string
+    }
+    /** Optional: When in context, the tool can add items to the pool of Max's suggested questions */
     suggestions?: string[] // TODO: Suggestions aren't used yet, pending a refactor of maxLogic's allSuggestions
     /** The callback function that will be executed with the LLM's tool call output */
     callback: (toolOutput: any) => void
@@ -29,10 +36,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
         registerTool: (tool: ToolDefinition) => ({ tool }),
         deregisterTool: (key: string) => ({ key }),
-        registerHeadline: (toolName: AssistantContextualTool, headline: string) => ({ toolName, headline }),
-        deregisterHeadline: (toolName: AssistantContextualTool) => ({ toolName }),
-        registerDescription: (toolName: AssistantContextualTool, description: string) => ({ toolName, description }),
-        deregisterDescription: (toolName: AssistantContextualTool) => ({ toolName }),
     }),
     reducers({
         toolMap: [
@@ -45,28 +48,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 deregisterTool: (state, { key }) => {
                     const newState = { ...state }
                     delete newState[key]
-                    return newState
-                },
-            },
-        ],
-        headlineMap: [
-            {} as Record<AssistantContextualTool, string>,
-            {
-                registerHeadline: (state, { toolName, headline }) => ({ ...state, [toolName]: headline }),
-                deregisterHeadline: (state, { toolName }) => {
-                    const newState = { ...state }
-                    delete newState[toolName]
-                    return newState
-                },
-            },
-        ],
-        descriptionMap: [
-            {} as Record<AssistantContextualTool, string>,
-            {
-                registerDescription: (state, { toolName, description }) => ({ ...state, [toolName]: description }),
-                deregisterDescription: (state, { toolName }) => {
-                    const newState = { ...state }
-                    delete newState[toolName]
                     return newState
                 },
             },
