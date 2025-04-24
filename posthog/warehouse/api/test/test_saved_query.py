@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery
+from posthog.warehouse.models.version_control import Content
 
 
 class TestSavedQuery(APIBaseTest):
@@ -635,3 +636,42 @@ class TestSavedQuery(APIBaseTest):
 
             # Verify get_columns was called
             mock_get_columns.assert_called_once()
+
+    def test_next_version(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+        versions = saved_query["versions"]
+        self.assertEqual(
+            versions[0]["content_hash"], Content.get_content_hash("select event as event from events LIMIT 100")
+        )
+
+    def test_next_version_existing_content(self):
+        content_hash = Content.get_content_hash("select event as event from events LIMIT 100")
+        Content.objects.create(
+            team_id=self.team.id, content_hash=content_hash, content="select event as event from events LIMIT 100"
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+
+        contents = Content.objects.filter(team_id=self.team.id, content_hash=content_hash)
+        self.assertEqual(len(contents), 1)

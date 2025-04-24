@@ -22,6 +22,7 @@ from posthog.warehouse.models.util import (
 from posthog.hogql.database.s3_table import S3Table
 from posthog.warehouse.util import database_sync_to_async
 from dlt.common.normalizers.naming.snake_case import NamingConvention
+from posthog.warehouse.models.version_control.version import Version
 
 
 def validate_saved_query_name(value):
@@ -77,13 +78,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     # The name of the view at the time of soft deletion
     deleted_name = models.CharField(max_length=128, default=None, null=True, blank=True)
 
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["team", "name"],
-                name="posthog_datawarehouse_saved_query_unique_name",
-            )
-        ]
+    versions = models.ManyToManyField(Version, blank=True, through="posthog.DataWarehouseSavedQueryVersion")
 
     @property
     def name_chain(self) -> list[str]:

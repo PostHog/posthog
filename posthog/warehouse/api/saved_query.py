@@ -35,6 +35,9 @@ from posthog.warehouse.data_load.saved_query_service import (
     sync_saved_query_workflow,
     delete_saved_query_schedule,
 )
+from posthog.warehouse.models.version_control import Version, Content
+from posthog.warehouse.models.datawarehouse_saved_query_version import DataWarehouseSavedQueryVersion
+from posthog.warehouse.api.version import VersionSerializer
 import uuid
 
 
@@ -45,6 +48,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
     sync_frequency = serializers.SerializerMethodField()
+    versions = VersionSerializer(read_only=True, many=True)
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -60,8 +64,18 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "status",
             "last_run_at",
             "latest_error",
+            "versions",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "columns", "status", "last_run_at", "latest_error"]
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "columns",
+            "status",
+            "last_run_at",
+            "latest_error",
+            "versions",
+        ]
 
     def get_columns(self, view: DataWarehouseSavedQuery) -> list[SerializedField]:
         team_id = self.context["team_id"]
@@ -115,7 +129,9 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(str(err))
 
         with transaction.atomic():
+            version = self.next_version(validated_data)
             view.save()
+            DataWarehouseSavedQueryVersion.objects.create(saved_query=view, version=version)
             try:
                 DataWarehouseModelPath.objects.create_from_saved_query(view)
             except Exception:
@@ -125,6 +141,29 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 logger.exception("Failed to create model path when creating view %s", view.name)
 
         return view
+
+    def next_version(self, validated_data: Any) -> Version:
+        try:
+            content_hash = Content.get_content_hash(validated_data["query"]["query"])
+        except Exception:
+            raise serializers.ValidationError("Invalid query")
+
+        # Does content hash exist?
+        content = Content.objects.filter(team_id=self.context["team_id"], content_hash=content_hash).first()
+        if content:
+            version = Version.objects.create(
+                team_id=self.context["team_id"], content_hash=content_hash, created_by=self.context["request"].user
+            )
+        else:
+            # Create new content
+            content = Content.objects.create(
+                team_id=self.context["team_id"], content_hash=content_hash, content=validated_data["query"]["query"]
+            )
+            version = Version.objects.create(
+                team_id=self.context["team_id"], content_hash=content_hash, created_by=self.context["request"].user
+            )
+
+        return version
 
     def update(self, instance: Any, validated_data: Any) -> Any:
         sync_frequency = self.context["request"].data.get("sync_frequency", None)
