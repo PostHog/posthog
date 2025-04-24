@@ -11,7 +11,7 @@ class MessageSetupViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @action(methods=["POST"], detail=False)
     def email(self, request, **kwargs):
-        """Request a messaging account with a specified email domain."""
+        """Create a new sender domain."""
 
         domain = request.data.get("domain")
 
@@ -24,7 +24,7 @@ class MessageSetupViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @action(methods=["POST"], detail=False, url_path="email/verify")
     def email_verify(self, request, **kwargs):
-        """Verify the email domain for messaging setup."""
+        """Verify the sender domain has the correct SPF and DKIM records."""
 
         domain = request.data.get("domain")
 
