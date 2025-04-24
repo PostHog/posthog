@@ -613,6 +613,7 @@ exports[`segment templates template 3 matches expected format 1`] = `
         {
           "default": "logEventV2",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -1074,6 +1075,7 @@ exports[`segment templates template 3 matches expected format 1`] = `
         {
           "default": "logPurchase",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -1543,6 +1545,7 @@ exports[`segment templates template 3 matches expected format 1`] = `
         {
           "default": "logEventV2",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -2012,6 +2015,7 @@ exports[`segment templates template 3 matches expected format 1`] = `
         {
           "default": "logEventV2",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -2305,6 +2309,7 @@ exports[`segment templates template 3 matches expected format 1`] = `
         {
           "default": "identifyUser",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -2560,6 +2565,7 @@ exports[`segment templates template 5 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -2685,6 +2691,7 @@ exports[`segment templates template 5 matches expected format 1`] = `
         {
           "default": "trackPurchase",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -2998,6 +3005,7 @@ exports[`segment templates template 5 matches expected format 1`] = `
         {
           "default": "updateUserProfile",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -3106,6 +3114,7 @@ exports[`segment templates template 6 matches expected format 1`] = `
         {
           "default": "userDelete",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -3165,6 +3174,7 @@ exports[`segment templates template 6 matches expected format 1`] = `
         {
           "default": "userUpload",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -3474,6 +3484,7 @@ exports[`segment templates template 10 matches expected format 1`] = `
         {
           "default": "createUpdatePerson",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -3569,6 +3580,7 @@ exports[`segment templates template 10 matches expected format 1`] = `
         {
           "default": "createUpdateDevice",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -3672,6 +3684,7 @@ exports[`segment templates template 10 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -3767,6 +3780,7 @@ exports[`segment templates template 10 matches expected format 1`] = `
         {
           "default": "trackPageView",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -3862,6 +3876,7 @@ exports[`segment templates template 10 matches expected format 1`] = `
         {
           "default": "trackScreenView",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -3966,6 +3981,7 @@ exports[`segment templates template 10 matches expected format 1`] = `
         {
           "default": "createUpdateObject",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -4104,6 +4120,7 @@ exports[`segment templates template 10 matches expected format 1`] = `
         {
           "default": "reportDeliveryEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -4564,6 +4581,7 @@ exports[`segment templates template 17 matches expected format 1`] = `
         {
           "default": "trackEventV2",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -4641,6 +4659,7 @@ exports[`segment templates template 17 matches expected format 1`] = `
         {
           "default": "identifyUserV2",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -4732,6 +4751,7 @@ exports[`segment templates template 18 matches expected format 1`] = `
         {
           "default": "sendEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -4773,6 +4793,7 @@ exports[`segment templates template 18 matches expected format 1`] = `
         {
           "default": "sendEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -4814,6 +4835,7 @@ exports[`segment templates template 18 matches expected format 1`] = `
         {
           "default": "sendEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -4855,6 +4877,7 @@ exports[`segment templates template 18 matches expected format 1`] = `
         {
           "default": "sendEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -5090,6 +5113,7 @@ exports[`segment templates template 22 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -5149,6 +5173,7 @@ exports[`segment templates template 22 matches expected format 1`] = `
         {
           "default": "identifyUser",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -5280,6 +5305,7 @@ exports[`segment templates template 23 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -5339,6 +5365,7 @@ exports[`segment templates template 23 matches expected format 1`] = `
         {
           "default": "aliasUser",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -5957,6 +5984,7 @@ exports[`segment templates template 26 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -6449,6 +6477,7 @@ exports[`segment templates template 26 matches expected format 1`] = `
         {
           "default": "trackPurchase",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -6910,6 +6939,7 @@ exports[`segment templates template 26 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -7371,6 +7401,7 @@ exports[`segment templates template 26 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -7439,6 +7470,7 @@ exports[`segment templates template 26 matches expected format 1`] = `
         {
           "default": "identifyUser",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -7498,6 +7530,7 @@ exports[`segment templates template 26 matches expected format 1`] = `
         {
           "default": "groupIdentifyUser",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -7602,6 +7635,7 @@ exports[`segment templates template 27 matches expected format 1`] = `
         {
           "default": "sendEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -7897,6 +7931,7 @@ exports[`segment templates template 30 matches expected format 1`] = `
         {
           "default": "createUpdatePerson",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -8001,6 +8036,7 @@ exports[`segment templates template 30 matches expected format 1`] = `
         {
           "default": "createUpdateOrganization",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -8168,6 +8204,7 @@ exports[`segment templates template 30 matches expected format 1`] = `
         {
           "default": "createUpdateActivity",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -8334,6 +8371,7 @@ exports[`segment templates template 32 matches expected format 1`] = `
         {
           "default": "group",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -8420,6 +8458,7 @@ exports[`segment templates template 32 matches expected format 1`] = `
         {
           "default": "identify",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -8560,6 +8599,7 @@ exports[`segment templates template 32 matches expected format 1`] = `
         {
           "default": "page",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -8655,6 +8695,7 @@ exports[`segment templates template 32 matches expected format 1`] = `
         {
           "default": "track",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -9354,6 +9395,7 @@ exports[`segment templates template 36 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -9877,6 +9919,7 @@ exports[`segment templates template 36 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -10400,6 +10443,7 @@ exports[`segment templates template 36 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -10923,6 +10967,7 @@ exports[`segment templates template 36 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -11446,6 +11491,7 @@ exports[`segment templates template 36 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -11969,6 +12015,7 @@ exports[`segment templates template 36 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -12492,6 +12539,7 @@ exports[`segment templates template 36 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -13015,6 +13063,7 @@ exports[`segment templates template 36 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -13538,6 +13587,7 @@ exports[`segment templates template 36 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -14061,6 +14111,7 @@ exports[`segment templates template 36 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -14584,6 +14635,7 @@ exports[`segment templates template 36 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -15107,6 +15159,7 @@ exports[`segment templates template 36 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -15630,6 +15683,7 @@ exports[`segment templates template 36 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -16153,6 +16207,7 @@ exports[`segment templates template 36 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -16521,6 +16576,7 @@ exports[`segment templates template 38 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -16818,6 +16874,7 @@ exports[`segment templates template 38 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -17115,6 +17172,7 @@ exports[`segment templates template 38 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -17412,6 +17470,7 @@ exports[`segment templates template 38 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -17709,6 +17768,7 @@ exports[`segment templates template 38 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -18006,6 +18066,7 @@ exports[`segment templates template 38 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -18303,6 +18364,7 @@ exports[`segment templates template 38 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -18600,6 +18662,7 @@ exports[`segment templates template 38 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -18897,6 +18960,7 @@ exports[`segment templates template 38 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -19194,6 +19258,7 @@ exports[`segment templates template 38 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -19491,6 +19556,7 @@ exports[`segment templates template 38 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -19788,6 +19854,7 @@ exports[`segment templates template 38 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -20085,6 +20152,7 @@ exports[`segment templates template 38 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -20382,6 +20450,7 @@ exports[`segment templates template 38 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -20679,6 +20748,7 @@ exports[`segment templates template 38 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -20987,6 +21057,7 @@ exports[`segment templates template 42 matches expected format 1`] = `
         {
           "default": "trackOrderPlaced",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -21126,6 +21197,7 @@ exports[`segment templates template 43 matches expected format 1`] = `
         {
           "default": "addCustomEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -21220,6 +21292,7 @@ exports[`segment templates template 43 matches expected format 1`] = `
         {
           "default": "addCustomEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -21314,6 +21387,7 @@ exports[`segment templates template 43 matches expected format 1`] = `
         {
           "default": "addCustomEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -21451,6 +21525,7 @@ exports[`segment templates template 43 matches expected format 1`] = `
         {
           "default": "upsertCustomer",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -21522,6 +21597,7 @@ exports[`segment templates template 43 matches expected format 1`] = `
         {
           "default": "assignCustomerToGroup",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -21990,6 +22066,7 @@ exports[`segment templates template 53 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -22076,6 +22153,7 @@ exports[`segment templates template 53 matches expected format 1`] = `
         {
           "default": "identifyUser",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -22162,6 +22240,7 @@ exports[`segment templates template 53 matches expected format 1`] = `
         {
           "default": "pageVisit",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -22230,6 +22309,7 @@ exports[`segment templates template 53 matches expected format 1`] = `
         {
           "default": "syncAudience",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -22398,6 +22478,7 @@ exports[`segment templates template 54 matches expected format 1`] = `
         {
           "default": "submitTrackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -22520,6 +22601,7 @@ exports[`segment templates template 54 matches expected format 1`] = `
         {
           "default": "submitIdentifyEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -22606,6 +22688,7 @@ exports[`segment templates template 54 matches expected format 1`] = `
         {
           "default": "submitPageEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -22728,6 +22811,7 @@ exports[`segment templates template 54 matches expected format 1`] = `
         {
           "default": "submitScreenEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -22905,6 +22989,7 @@ exports[`segment templates template 55 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -23027,6 +23112,7 @@ exports[`segment templates template 55 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -23149,6 +23235,7 @@ exports[`segment templates template 55 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -23217,6 +23304,7 @@ exports[`segment templates template 55 matches expected format 1`] = `
         {
           "default": "identifyUser",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -23294,6 +23382,7 @@ exports[`segment templates template 55 matches expected format 1`] = `
         {
           "default": "groupIdentifyUser",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -23434,6 +23523,7 @@ exports[`segment templates template 56 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -23538,6 +23628,7 @@ exports[`segment templates template 56 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -23642,6 +23733,7 @@ exports[`segment templates template 56 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -24033,6 +24125,7 @@ exports[`segment templates template 59 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -24309,6 +24402,7 @@ exports[`segment templates template 59 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -24585,6 +24679,7 @@ exports[`segment templates template 59 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -24861,6 +24956,7 @@ exports[`segment templates template 59 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -25137,6 +25233,7 @@ exports[`segment templates template 59 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -25413,6 +25510,7 @@ exports[`segment templates template 59 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -25689,6 +25787,7 @@ exports[`segment templates template 59 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -25965,6 +26064,7 @@ exports[`segment templates template 59 matches expected format 1`] = `
         {
           "default": "reportConversionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -26128,6 +26228,7 @@ exports[`segment templates template 60 matches expected format 1`] = `
         {
           "default": "productClickedEvents",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -26289,6 +26390,7 @@ exports[`segment templates template 60 matches expected format 1`] = `
         {
           "default": "conversionEvents",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -26450,6 +26552,7 @@ exports[`segment templates template 60 matches expected format 1`] = `
         {
           "default": "conversionEvents",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -26568,6 +26671,7 @@ exports[`segment templates template 60 matches expected format 1`] = `
         {
           "default": "productViewedEvents",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -26689,6 +26793,7 @@ exports[`segment templates template 60 matches expected format 1`] = `
         {
           "default": "productListFilteredEvents",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -26838,6 +26943,7 @@ exports[`segment templates template 61 matches expected format 1`] = `
         {
           "default": "forwardTrackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -26933,6 +27039,7 @@ exports[`segment templates template 61 matches expected format 1`] = `
         {
           "default": "forwardIdentifyEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -27037,6 +27144,7 @@ exports[`segment templates template 61 matches expected format 1`] = `
         {
           "default": "forwardGroupEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -27132,6 +27240,7 @@ exports[`segment templates template 62 matches expected format 1`] = `
         {
           "default": "sendUserProfiles",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -27191,6 +27300,7 @@ exports[`segment templates template 62 matches expected format 1`] = `
         {
           "default": "sendAccountProfiles",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -27277,6 +27387,7 @@ exports[`segment templates template 62 matches expected format 1`] = `
         {
           "default": "sendEvents",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -27363,6 +27474,7 @@ exports[`segment templates template 63 matches expected format 1`] = `
         {
           "default": "sendEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -27422,6 +27534,7 @@ exports[`segment templates template 63 matches expected format 1`] = `
         {
           "default": "identifyUser",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -27645,6 +27758,7 @@ Last-Modified: 06.28.2023 16.15.37
         {
           "default": "receiveEvents",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -27749,6 +27863,7 @@ Last-Modified: 06.28.2023 16.15.37
         {
           "default": "receiveEvents",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -27897,6 +28012,7 @@ exports[`segment templates template 66 matches expected format 1`] = `
         {
           "default": "track",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -27992,6 +28108,7 @@ exports[`segment templates template 66 matches expected format 1`] = `
         {
           "default": "page",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -28069,6 +28186,7 @@ exports[`segment templates template 66 matches expected format 1`] = `
         {
           "default": "identify",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -28155,6 +28273,7 @@ exports[`segment templates template 66 matches expected format 1`] = `
         {
           "default": "group",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -28365,6 +28484,7 @@ exports[`segment templates template 67 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -28530,6 +28650,7 @@ exports[`segment templates template 67 matches expected format 1`] = `
         {
           "default": "identifyUser",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -28704,6 +28825,7 @@ exports[`segment templates template 67 matches expected format 1`] = `
         {
           "default": "trackPageView",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -28772,6 +28894,7 @@ exports[`segment templates template 67 matches expected format 1`] = `
         {
           "default": "aliasUser",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -28858,6 +28981,7 @@ exports[`segment templates template 67 matches expected format 1`] = `
         {
           "default": "createUpdateObject",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -28965,6 +29089,7 @@ exports[`segment templates template 68 matches expected format 1`] = `
         {
           "default": "trackEvents",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -29131,6 +29256,7 @@ exports[`segment templates template 70 matches expected format 1`] = `
         {
           "default": "upsertCustomAudiences",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -29388,6 +29514,7 @@ exports[`segment templates template 71 matches expected format 1`] = `
         {
           "default": "updateUserProfile",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -29555,6 +29682,7 @@ exports[`segment templates template 72 matches expected format 1`] = `
         {
           "default": "insiderAudiences",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -29712,6 +29840,7 @@ exports[`segment templates template 73 matches expected format 1`] = `
         {
           "default": "track",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -29842,6 +29971,7 @@ exports[`segment templates template 73 matches expected format 1`] = `
         {
           "default": "track",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -29937,6 +30067,7 @@ exports[`segment templates template 73 matches expected format 1`] = `
         {
           "default": "page",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -30195,6 +30326,7 @@ exports[`segment templates template 74 matches expected format 1`] = `
         {
           "default": "track",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -30426,6 +30558,7 @@ exports[`segment templates template 74 matches expected format 1`] = `
         {
           "default": "identify",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -30648,6 +30781,7 @@ exports[`segment templates template 74 matches expected format 1`] = `
         {
           "default": "group",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -30861,6 +30995,7 @@ exports[`segment templates template 74 matches expected format 1`] = `
         {
           "default": "page",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -31215,6 +31350,7 @@ exports[`segment templates template 76 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -31480,6 +31616,7 @@ exports[`segment templates template 76 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -31745,6 +31882,7 @@ exports[`segment templates template 76 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -32010,6 +32148,7 @@ exports[`segment templates template 76 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -32275,6 +32414,7 @@ exports[`segment templates template 76 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -32540,6 +32680,7 @@ exports[`segment templates template 76 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -32805,6 +32946,7 @@ exports[`segment templates template 76 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -33070,6 +33212,7 @@ exports[`segment templates template 76 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -33335,6 +33478,7 @@ exports[`segment templates template 76 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -33600,6 +33744,7 @@ exports[`segment templates template 76 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -33865,6 +34010,7 @@ exports[`segment templates template 76 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -34130,6 +34276,7 @@ exports[`segment templates template 76 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -34395,6 +34542,7 @@ exports[`segment templates template 76 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -34660,6 +34808,7 @@ exports[`segment templates template 76 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -34925,6 +35074,7 @@ exports[`segment templates template 76 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -35093,6 +35243,7 @@ exports[`segment templates template 77 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -35188,6 +35339,7 @@ exports[`segment templates template 77 matches expected format 1`] = `
         {
           "default": "updateUser",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -35254,6 +35406,7 @@ exports[`segment templates template 77 matches expected format 1`] = `
         {
           "default": "updateCart",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -35374,6 +35527,7 @@ exports[`segment templates template 77 matches expected format 1`] = `
         {
           "default": "trackPurchase",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -35701,6 +35855,7 @@ exports[`segment templates template 79 matches expected format 1`] = `
         {
           "default": "sendRevxPing",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -36021,6 +36176,7 @@ exports[`segment templates template 80 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -36143,6 +36299,7 @@ exports[`segment templates template 80 matches expected format 1`] = `
         {
           "default": "identifyUser",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -36202,6 +36359,7 @@ exports[`segment templates template 80 matches expected format 1`] = `
         {
           "default": "identifyGroup",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -36260,6 +36418,7 @@ exports[`segment templates template 81 matches expected format 1`] = `
         {
           "default": "noop",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -36392,6 +36551,7 @@ exports[`segment templates template 82 matches expected format 1`] = `
         {
           "default": "customEvents",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -36475,6 +36635,7 @@ exports[`segment templates template 82 matches expected format 1`] = `
         {
           "default": "setAttributes",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -36642,6 +36803,7 @@ exports[`segment templates template 84 matches expected format 1`] = `
         {
           "default": "identifyUser",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -36701,6 +36863,7 @@ exports[`segment templates template 84 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -36796,6 +36959,7 @@ exports[`segment templates template 85 matches expected format 1`] = `
         {
           "default": "group",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -36862,6 +37026,7 @@ exports[`segment templates template 85 matches expected format 1`] = `
         {
           "default": "identify",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -36993,6 +37158,7 @@ exports[`segment templates template 86 matches expected format 1`] = `
         {
           "default": "track",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -37079,6 +37245,7 @@ exports[`segment templates template 86 matches expected format 1`] = `
         {
           "default": "identify",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -37147,6 +37314,7 @@ exports[`segment templates template 87 matches expected format 1`] = `
         {
           "default": "postEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -37206,6 +37374,7 @@ exports[`segment templates template 88 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -37238,6 +37407,7 @@ exports[`segment templates template 88 matches expected format 1`] = `
         {
           "default": "identifyUser",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -37546,6 +37716,7 @@ exports[`segment templates template 92 matches expected format 1`] = `
         {
           "default": "submitMeasurements",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -37685,6 +37856,7 @@ exports[`segment templates template 94 matches expected format 1`] = `
         {
           "default": "track",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -37762,6 +37934,7 @@ exports[`segment templates template 94 matches expected format 1`] = `
         {
           "default": "page",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -37839,6 +38012,7 @@ exports[`segment templates template 94 matches expected format 1`] = `
         {
           "default": "screen",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -37907,6 +38081,7 @@ exports[`segment templates template 94 matches expected format 1`] = `
         {
           "default": "identify",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -37984,6 +38159,7 @@ exports[`segment templates template 94 matches expected format 1`] = `
         {
           "default": "group",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -38131,6 +38307,7 @@ exports[`segment templates template 96 matches expected format 1`] = `
         {
           "default": "identifyUser",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -38235,6 +38412,7 @@ exports[`segment templates template 96 matches expected format 1`] = `
         {
           "default": "groupWorkspace",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -38357,6 +38535,7 @@ exports[`segment templates template 97 matches expected format 1`] = `
         {
           "default": "track",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -38452,6 +38631,7 @@ exports[`segment templates template 97 matches expected format 1`] = `
         {
           "default": "page",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -38529,6 +38709,7 @@ exports[`segment templates template 97 matches expected format 1`] = `
         {
           "default": "identify",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -38615,6 +38796,7 @@ exports[`segment templates template 97 matches expected format 1`] = `
         {
           "default": "group",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -38728,6 +38910,7 @@ exports[`segment templates template 98 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -38953,6 +39136,7 @@ exports[`segment templates template 98 matches expected format 1`] = `
         {
           "default": "trackOrder",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -39220,6 +39404,7 @@ exports[`segment templates template 98 matches expected format 1`] = `
         {
           "default": "identifyPlayer",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -39351,6 +39536,7 @@ exports[`segment templates template 99 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -39521,6 +39707,7 @@ exports[`segment templates template 99 matches expected format 1`] = `
         {
           "default": "updateUserProfile",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -39730,6 +39917,7 @@ exports[`segment templates template 100 matches expected format 1`] = `
         {
           "default": "syncAudience",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -39910,6 +40098,7 @@ Last-Modified: 02.01.2024 10.30.43
         {
           "default": "receiveEvents",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -40014,6 +40203,7 @@ Last-Modified: 02.01.2024 10.30.43
         {
           "default": "receiveEvents",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -40220,6 +40410,7 @@ exports[`segment templates template 104 matches expected format 1`] = `
         {
           "default": "trackGoal",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -40297,6 +40488,7 @@ exports[`segment templates template 104 matches expected format 1`] = `
         {
           "default": "trackGoal",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -40374,6 +40566,7 @@ exports[`segment templates template 104 matches expected format 1`] = `
         {
           "default": "trackGoal",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -40433,6 +40626,7 @@ exports[`segment templates template 104 matches expected format 1`] = `
         {
           "default": "trackExposure",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -40674,6 +40868,7 @@ exports[`segment templates template 107 matches expected format 1`] = `
         {
           "default": "customEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -40795,6 +40990,7 @@ exports[`segment templates template 107 matches expected format 1`] = `
         {
           "default": "customEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -40916,6 +41112,7 @@ exports[`segment templates template 107 matches expected format 1`] = `
         {
           "default": "customEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -41037,6 +41234,7 @@ exports[`segment templates template 107 matches expected format 1`] = `
         {
           "default": "customEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -41146,6 +41344,7 @@ exports[`segment templates template 107 matches expected format 1`] = `
         {
           "default": "emailEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -41255,6 +41454,7 @@ exports[`segment templates template 107 matches expected format 1`] = `
         {
           "default": "emailEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -41364,6 +41564,7 @@ exports[`segment templates template 107 matches expected format 1`] = `
         {
           "default": "emailEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -41473,6 +41674,7 @@ exports[`segment templates template 107 matches expected format 1`] = `
         {
           "default": "emailEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -41582,6 +41784,7 @@ exports[`segment templates template 107 matches expected format 1`] = `
         {
           "default": "emailEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -41822,6 +42025,7 @@ exports[`segment templates template 108 matches expected format 1`] = `
         {
           "default": "track",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -42062,6 +42266,7 @@ exports[`segment templates template 108 matches expected format 1`] = `
         {
           "default": "identify",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -42302,6 +42507,7 @@ exports[`segment templates template 108 matches expected format 1`] = `
         {
           "default": "group",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -42493,6 +42699,7 @@ exports[`segment templates template 111 matches expected format 1`] = `
         {
           "default": "logEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -42606,6 +42813,7 @@ exports[`segment templates template 111 matches expected format 1`] = `
         {
           "default": "page",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -42710,6 +42918,7 @@ exports[`segment templates template 111 matches expected format 1`] = `
         {
           "default": "group",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -42805,6 +43014,7 @@ exports[`segment templates template 111 matches expected format 1`] = `
         {
           "default": "identify",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -43026,6 +43236,7 @@ exports[`segment templates template 114 matches expected format 1`] = `
         {
           "default": "track",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -43121,6 +43332,7 @@ exports[`segment templates template 115 matches expected format 1`] = `
         {
           "default": "sendEntireEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -43216,6 +43428,7 @@ exports[`segment templates template 116 matches expected format 1`] = `
         {
           "default": "identify",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -43284,6 +43497,7 @@ exports[`segment templates template 116 matches expected format 1`] = `
         {
           "default": "group",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -43361,6 +43575,7 @@ exports[`segment templates template 116 matches expected format 1`] = `
         {
           "default": "track",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -43510,6 +43725,7 @@ exports[`segment templates template 117 matches expected format 1`] = `
         {
           "default": "sendTrackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -43623,6 +43839,7 @@ exports[`segment templates template 117 matches expected format 1`] = `
         {
           "default": "sendIdentifyEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -43745,6 +43962,7 @@ exports[`segment templates template 117 matches expected format 1`] = `
         {
           "default": "sendGroupEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -43867,6 +44085,7 @@ exports[`segment templates template 117 matches expected format 1`] = `
         {
           "default": "sendPageEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -43989,6 +44208,7 @@ exports[`segment templates template 117 matches expected format 1`] = `
         {
           "default": "sendScreenEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -44153,6 +44373,7 @@ exports[`segment templates template 121 matches expected format 1`] = `
         {
           "default": "send",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -44299,6 +44520,7 @@ exports[`segment templates template 123 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -44394,6 +44616,7 @@ exports[`segment templates template 123 matches expected format 1`] = `
         {
           "default": "identifyUser",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -44740,6 +44963,7 @@ exports[`segment templates template 125 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -45005,6 +45229,7 @@ exports[`segment templates template 125 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -45270,6 +45495,7 @@ exports[`segment templates template 125 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -45535,6 +45761,7 @@ exports[`segment templates template 125 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -45800,6 +46027,7 @@ exports[`segment templates template 125 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -46065,6 +46293,7 @@ exports[`segment templates template 125 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -46330,6 +46559,7 @@ exports[`segment templates template 125 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -46595,6 +46825,7 @@ exports[`segment templates template 125 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -46860,6 +47091,7 @@ exports[`segment templates template 125 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -47125,6 +47357,7 @@ exports[`segment templates template 125 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -47390,6 +47623,7 @@ exports[`segment templates template 125 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -47655,6 +47889,7 @@ exports[`segment templates template 125 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -47920,6 +48155,7 @@ exports[`segment templates template 125 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -48185,6 +48421,7 @@ exports[`segment templates template 125 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -48450,6 +48687,7 @@ exports[`segment templates template 125 matches expected format 1`] = `
         {
           "default": "reportOfflineEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -48751,6 +48989,7 @@ exports[`segment templates template 126 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -49016,6 +49255,7 @@ exports[`segment templates template 126 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -49281,6 +49521,7 @@ exports[`segment templates template 126 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -49546,6 +49787,7 @@ exports[`segment templates template 126 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -49811,6 +50053,7 @@ exports[`segment templates template 126 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -50076,6 +50319,7 @@ exports[`segment templates template 126 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -50341,6 +50585,7 @@ exports[`segment templates template 126 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -50606,6 +50851,7 @@ exports[`segment templates template 126 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -50871,6 +51117,7 @@ exports[`segment templates template 126 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -51136,6 +51383,7 @@ exports[`segment templates template 126 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -51401,6 +51649,7 @@ exports[`segment templates template 126 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -51666,6 +51915,7 @@ exports[`segment templates template 126 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -51931,6 +52181,7 @@ exports[`segment templates template 126 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -52196,6 +52447,7 @@ exports[`segment templates template 126 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -52461,6 +52713,7 @@ exports[`segment templates template 126 matches expected format 1`] = `
         {
           "default": "reportWebEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -52641,6 +52894,7 @@ exports[`segment templates template 128 matches expected format 1`] = `
         {
           "default": "sendSchemaToInspector",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -52849,6 +53103,7 @@ exports[`segment templates template 129 matches expected format 1`] = `
         {
           "default": "forwardEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -52935,6 +53190,7 @@ exports[`segment templates template 130 matches expected format 1`] = `
         {
           "default": "track",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -52994,6 +53250,7 @@ exports[`segment templates template 130 matches expected format 1`] = `
         {
           "default": "page",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -53053,6 +53310,7 @@ exports[`segment templates template 130 matches expected format 1`] = `
         {
           "default": "screen",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -53157,6 +53415,7 @@ exports[`segment templates template 130 matches expected format 1`] = `
         {
           "default": "identify",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -53279,6 +53538,7 @@ exports[`segment templates template 130 matches expected format 1`] = `
         {
           "default": "group",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -53810,6 +54070,7 @@ exports[`segment templates template 133 matches expected format 1`] = `
         {
           "default": "search",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -54060,6 +54321,7 @@ exports[`segment templates template 133 matches expected format 1`] = `
         {
           "default": "purchase",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -54295,6 +54557,7 @@ exports[`segment templates template 133 matches expected format 1`] = `
         {
           "default": "pageView",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -54530,6 +54793,7 @@ exports[`segment templates template 133 matches expected format 1`] = `
         {
           "default": "land",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -54756,6 +55020,7 @@ exports[`segment templates template 133 matches expected format 1`] = `
         {
           "default": "itemPageView",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -54982,6 +55247,7 @@ exports[`segment templates template 133 matches expected format 1`] = `
         {
           "default": "home",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -55220,6 +55486,7 @@ exports[`segment templates template 133 matches expected format 1`] = `
         {
           "default": "addToWishlist",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -55446,6 +55713,7 @@ exports[`segment templates template 133 matches expected format 1`] = `
         {
           "default": "addToCart",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -55946,6 +56214,7 @@ exports[`segment templates template 138 matches expected format 1`] = `
         {
           "default": "track",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -56028,6 +56297,7 @@ exports[`segment templates template 138 matches expected format 1`] = `
         {
           "default": "identify",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -56308,6 +56578,7 @@ exports[`segment templates template 140 matches expected format 1`] = `
         {
           "default": "track",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -56516,6 +56787,7 @@ exports[`segment templates template 140 matches expected format 1`] = `
         {
           "default": "group",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -56742,6 +57014,7 @@ exports[`segment templates template 140 matches expected format 1`] = `
         {
           "default": "identify",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -57101,6 +57374,7 @@ exports[`segment templates template 146 matches expected format 1`] = `
         {
           "default": "saveUser",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -57274,6 +57548,7 @@ exports[`segment templates template 146 matches expected format 1`] = `
         {
           "default": "saveBaseEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -57447,6 +57722,7 @@ exports[`segment templates template 146 matches expected format 1`] = `
         {
           "default": "saveBaseEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -57683,6 +57959,7 @@ exports[`segment templates template 146 matches expected format 1`] = `
         {
           "default": "saveCheckoutEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -57919,6 +58196,7 @@ exports[`segment templates template 146 matches expected format 1`] = `
         {
           "default": "saveCheckoutEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -58155,6 +58433,7 @@ exports[`segment templates template 146 matches expected format 1`] = `
         {
           "default": "saveCheckoutEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -58391,6 +58670,7 @@ exports[`segment templates template 146 matches expected format 1`] = `
         {
           "default": "saveCheckoutEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -58627,6 +58907,7 @@ exports[`segment templates template 146 matches expected format 1`] = `
         {
           "default": "saveCheckoutEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -58863,6 +59144,7 @@ exports[`segment templates template 146 matches expected format 1`] = `
         {
           "default": "saveCheckoutEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -59064,6 +59346,7 @@ exports[`segment templates template 146 matches expected format 1`] = `
         {
           "default": "saveCollectionEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -59262,6 +59545,7 @@ exports[`segment templates template 146 matches expected format 1`] = `
         {
           "default": "saveSearchEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -59422,6 +59706,7 @@ exports[`segment templates template 146 matches expected format 1`] = `
         {
           "default": "saveCartEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -59582,6 +59867,7 @@ exports[`segment templates template 146 matches expected format 1`] = `
         {
           "default": "saveCartEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -59771,6 +60057,7 @@ exports[`segment templates template 146 matches expected format 1`] = `
         {
           "default": "saveProductEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -59973,6 +60260,7 @@ exports[`segment templates template 146 matches expected format 1`] = `
         {
           "default": "saveFormEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -60491,6 +60779,7 @@ exports[`segment templates template 146 matches expected format 1`] = `
         {
           "default": "saveOrder",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -60780,6 +61069,7 @@ exports[`segment templates template 152 matches expected format 1`] = `
         {
           "default": "impression",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -60857,6 +61147,7 @@ exports[`segment templates template 152 matches expected format 1`] = `
         {
           "default": "click",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -60929,6 +61220,7 @@ exports[`segment templates template 152 matches expected format 1`] = `
         {
           "default": "purchase",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -61006,6 +61298,7 @@ exports[`segment templates template 152 matches expected format 1`] = `
         {
           "default": "impression",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -61083,6 +61376,7 @@ exports[`segment templates template 152 matches expected format 1`] = `
         {
           "default": "click",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -61324,6 +61618,7 @@ exports[`segment templates template 154 matches expected format 1`] = `
         {
           "default": "standardEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -61494,6 +61789,7 @@ exports[`segment templates template 154 matches expected format 1`] = `
         {
           "default": "standardEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -61664,6 +61960,7 @@ exports[`segment templates template 154 matches expected format 1`] = `
         {
           "default": "standardEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -61834,6 +62131,7 @@ exports[`segment templates template 154 matches expected format 1`] = `
         {
           "default": "standardEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -62004,6 +62302,7 @@ exports[`segment templates template 154 matches expected format 1`] = `
         {
           "default": "standardEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -62174,6 +62473,7 @@ exports[`segment templates template 154 matches expected format 1`] = `
         {
           "default": "standardEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -62344,6 +62644,7 @@ exports[`segment templates template 154 matches expected format 1`] = `
         {
           "default": "standardEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -62514,6 +62815,7 @@ exports[`segment templates template 154 matches expected format 1`] = `
         {
           "default": "standardEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -62843,6 +63145,7 @@ exports[`segment templates template 159 matches expected format 1`] = `
         {
           "default": "addDetailView",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -62929,6 +63232,7 @@ exports[`segment templates template 159 matches expected format 1`] = `
         {
           "default": "addDetailView",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -63010,6 +63314,7 @@ exports[`segment templates template 159 matches expected format 1`] = `
         {
           "default": "addCartAddition",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -63069,6 +63374,7 @@ exports[`segment templates template 159 matches expected format 1`] = `
         {
           "default": "deleteCartAddition",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -63151,6 +63457,7 @@ exports[`segment templates template 159 matches expected format 1`] = `
         {
           "default": "addPurchase",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -63228,6 +63535,7 @@ exports[`segment templates template 159 matches expected format 1`] = `
         {
           "default": "addBookmark",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -63287,6 +63595,7 @@ exports[`segment templates template 159 matches expected format 1`] = `
         {
           "default": "deleteBookmark",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -63364,6 +63673,7 @@ exports[`segment templates template 159 matches expected format 1`] = `
         {
           "default": "addBookmark",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -63459,6 +63769,7 @@ exports[`segment templates template 159 matches expected format 1`] = `
         {
           "default": "setViewPortion",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -63557,6 +63868,7 @@ exports[`segment templates template 159 matches expected format 1`] = `
         {
           "default": "setViewPortionFromWatchTime",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -63655,6 +63967,7 @@ exports[`segment templates template 159 matches expected format 1`] = `
         {
           "default": "setViewPortionFromWatchTime",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -63750,6 +64063,7 @@ exports[`segment templates template 159 matches expected format 1`] = `
         {
           "default": "setViewPortion",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -63836,6 +64150,7 @@ exports[`segment templates template 159 matches expected format 1`] = `
         {
           "default": "addDetailView",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -63886,6 +64201,7 @@ exports[`segment templates template 159 matches expected format 1`] = `
         {
           "default": "mergeUsers",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -64083,6 +64399,7 @@ exports[`segment templates template 162 matches expected format 1`] = `
         {
           "default": "syncAudience",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -64201,6 +64518,7 @@ exports[`segment templates template 162 matches expected format 1`] = `
         {
           "default": "syncAudience",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -64319,6 +64637,7 @@ exports[`segment templates template 162 matches expected format 1`] = `
         {
           "default": "syncAudience",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -64530,6 +64849,7 @@ exports[`segment templates template 165 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -64580,6 +64900,7 @@ exports[`segment templates template 165 matches expected format 1`] = `
         {
           "default": "identifyUser",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -64639,6 +64960,7 @@ exports[`segment templates template 165 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -64805,6 +65127,7 @@ exports[`segment templates template 167 matches expected format 1`] = `
         {
           "default": "identify",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -64864,6 +65187,7 @@ exports[`segment templates template 167 matches expected format 1`] = `
         {
           "default": "trackEvent",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,
@@ -64972,6 +65296,7 @@ exports[`segment templates template 168 matches expected format 1`] = `
         {
           "default": "customEvents",
           "description": "The partner action to use",
+          "hidden": true,
           "key": "internal_partner_action",
           "label": "Partner Action",
           "required": true,

@@ -319,6 +319,7 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations).filter(([_, des
                         {
                             key: 'internal_partner_action',
                             label: 'Partner Action',
+                            hidden: true,
                             type: 'string',
                             default: preset.partnerAction,
                             description: 'The partner action to use',
