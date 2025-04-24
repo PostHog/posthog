@@ -33,27 +33,14 @@ export function SaveUnderModal(): JSX.Element {
                 </>
             }
         >
-            <div className="deprecated-space-y-2 w-192 max-w-full">
-                <Form logic={saveUnderLogic} formKey="saveUnder">
-                    <LemonField name="name">
+            <div className="w-192 max-w-full">
+                <Form logic={saveUnderLogic} formKey="saveUnder" className="deprecated-space-y-2">
+                    <LemonField name="name" label="Name">
                         <LemonInput data-attr="save-under-name" type="text" fullWidth placeholder="Name" />
                     </LemonField>
-                    <div className="text-secondary">This insight is referenced</div>
-                    {/*<div className="min-h-[420px]">*/}
-                    {/*    <AutoSizer>*/}
-                    {/*        {({ height, width }) => (*/}
-                    {/*            <List*/}
-                    {/*                width={width}*/}
-                    {/*                height={height}*/}
-                    {/*                rowCount={orderedDashboards.length}*/}
-                    {/*                overscanRowCount={100}*/}
-                    {/*                rowHeight={40}*/}
-                    {/*                rowRenderer={renderItem}*/}
-                    {/*                scrollToIndex={scrollIndex}*/}
-                    {/*            />*/}
-                    {/*        )}*/}
-                    {/*    </AutoSizer>*/}
-                    {/*</div>*/}
+                    <LemonField name="folder" label="Folder">
+                        <LemonInput data-attr="save-under-folder" type="text" fullWidth placeholder="Folder" />
+                    </LemonField>
                 </Form>
             </div>
         </LemonModal>
@@ -62,14 +49,14 @@ export function SaveUnderModal(): JSX.Element {
 
 export function SaveUnder(props: SaveUnderLogicProps): JSX.Element {
     const { openModal } = useActions(saveUnderLogic(props))
-    const { path, objectRef } = props
-    const pathParts = splitPath(path)
+    const { folder, objectRef } = props
+    const pathParts = splitPath(folder)
 
     return (
         <BindLogic logic={saveUnderLogic} props={props}>
             <div className="text-xs font-normal text-center mr-1">
                 <div className="text-muted">{!objectRef ? 'Save' : 'Saved'} under</div>
-                <Tooltip title={path}>
+                <Tooltip title={folder}>
                     <div className="underline cursor-pointer" onClick={openModal}>
                         {pathParts.length > 0 ? pathParts[pathParts.length - 1] || 'Unfiled' : 'Unfiled'}
                     </div>

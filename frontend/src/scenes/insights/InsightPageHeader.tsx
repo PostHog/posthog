@@ -187,10 +187,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         {/* For new insights, show where we're saving them */}
                         {!insight.short_id ? (
                             <SaveUnder
-                                path="Unfiled/Insights"
+                                folder="Unfiled/Insights"
                                 type="insight"
+                                name={insight.name || ''}
                                 objectRef={null}
                                 onSave={() => {
+                                    // console.log({name,folder})
                                     saveInsight()
                                 }}
                             />
