@@ -434,3 +434,91 @@ class TestHogFunctionTemplate(TestCase):
         self.assertEqual(len(new_template.mappings), 1)
         self.assertEqual(new_template.mappings[0]["filters"], {"event": "$pageview"})
         self.assertEqual(new_template.mappings[0]["inputs"], {"message": "Page viewed"})
+
+    def test_sync_template_idempotency(self):
+        """Test that syncing the same template multiple times works correctly"""
+        from posthog.cdp.templates.hog_function_template import HogFunctionTemplate as HogFunctionTemplateDTO
+        import threading
+        import queue
+
+        # Create a simple test template DTO
+        template_dto = HogFunctionTemplateDTO(
+            id="sync-test-template",
+            name="Sync Test Template",
+            hog="return event",
+            inputs_schema={"key": "value"},
+            status="stable",
+            type="destination",
+            free=True,
+            category=[],
+        )
+
+        # First, create the template directly to make sure it works
+        initial_template = HogFunctionTemplate.create_from_dataclass(template_dto)
+        self.assertIsNotNone(initial_template)
+
+        # Verify the template was saved
+        initial_count = HogFunctionTemplate.objects.filter(template_id="sync-test-template").count()
+        self.assertEqual(initial_count, 1, "Template should be created successfully before threading test")
+
+        # Create 5 threads that all try to create the same template at the same time
+        results = queue.Queue()
+
+        def create_template():
+            try:
+                template = HogFunctionTemplate.create_from_dataclass(template_dto)
+                template_id = str(template.id)
+                # Check immediately if our template is found
+                count = HogFunctionTemplate.objects.filter(id=template.id).count()
+                results.put(f"{template_id}:{count}")
+            except Exception as e:
+                results.put(f"Error: {str(e)}")
+
+        threads = []
+        for _ in range(5):
+            thread = threading.Thread(target=create_template)
+            threads.append(thread)
+            thread.start()
+
+        # Wait for all threads to complete
+        for thread in threads:
+            thread.join()
+
+        # All threads should successfully complete
+        result_ids = []
+        thread_counts = []
+        for _ in range(5):
+            if not results.empty():
+                result = results.get()
+                if result.startswith("Error:"):
+                    self.fail(f"Thread had error: {result}")
+                else:
+                    parts = result.split(":")
+                    result_ids.append(parts[0])
+                    thread_counts.append(int(parts[1]))
+
+        # All results should be valid IDs (no errors)
+        self.assertEqual(len(result_ids), 5)
+
+        # All results should point to the same template
+        self.assertEqual(len(set(result_ids)), 1, "All results should reference the same template ID")
+
+        # All threads should see their template in the database
+        for count in thread_counts:
+            self.assertEqual(count, 1, "Each thread should be able to see its template")
+
+        # Check there's only one template with this ID in the database
+        # Use a separate transaction to ensure we see the latest database state
+        from django.db import transaction
+
+        with transaction.atomic():
+            templates = HogFunctionTemplate.objects.filter(template_id="sync-test-template")
+            final_count = templates.count()
+
+        self.assertEqual(final_count, 1, f"Should have exactly one template, got {final_count}")
+
+        # Creating the same template again should not add a duplicate
+        HogFunctionTemplate.create_from_dataclass(template_dto)
+        with transaction.atomic():
+            templates = HogFunctionTemplate.objects.filter(template_id="sync-test-template")
+            self.assertEqual(templates.count(), 1)
