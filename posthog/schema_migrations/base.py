@@ -14,18 +14,18 @@ class SchemaMigration(ABC):
 
     targets: dict[NodeKind, int] = {}
 
-    def __call__(self, doc: dict) -> dict:
+    def __call__(self, query: dict) -> dict:
         """Apply if version matches, otherwise return untouched."""
-        if not self.should_run(doc):
-            return doc
-        doc = self.transform(doc)
-        doc["v"] = self.targets[doc["kind"]] + 1  # bump version
-        return doc
+        if not self.should_run(query):
+            return query
+        query = self.transform(query)
+        query["v"] = self.targets[query["kind"]] + 1  # bump version
+        return query
 
-    def should_run(self, doc: dict) -> bool:
-        kind = doc.get("kind")
-        return kind in self.targets and doc.get("v", 1) == self.targets[kind]
+    def should_run(self, query: dict) -> bool:
+        kind = query.get("kind")
+        return kind in self.targets and query.get("v", 1) == self.targets[kind]
 
     @abstractmethod
-    def transform(self, doc: dict) -> dict:
+    def transform(self, query: dict) -> dict:
         raise NotImplementedError
