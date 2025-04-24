@@ -485,13 +485,7 @@ class ErrorTrackingQueryRunner(QueryRunner):
             if assignment_user_id or assignment_user_group_id or assignment_role_id:
                 result["assignee"] = {
                     "id": assignment_user_id or str(assignment_user_group_id) or str(assignment_role_id),
-                    "type": (
-                        "user"
-                        if assignment_user_id
-                        else "user_group"
-                        if assignment_user_group_id
-                        else assignment_role_id
-                    ),
+                    "type": ("user" if assignment_user_id else "user_group" if assignment_user_group_id else "role"),
                 }
 
             results[issue["id"]] = result
