@@ -1113,7 +1113,11 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         loadFolderIfNotLoaded: ({ folderId }) => {
             if (values.folderStates[folderId] !== 'loaded' && values.folderStates[folderId] !== 'loading') {
                 const folder = findInProjectTree(folderId, values.projectTree)
-                folder && actions.loadFolder(folder.record?.path)
+                if (folder) {
+                    actions.loadFolder(folder.record?.path)
+                } else if (folderId.startsWith('project-folder/')) {
+                    actions.loadFolder(folderId.slice('project-folder/'.length))
+                }
             }
         },
         rename: ({ item }) => {
