@@ -8,6 +8,20 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 
+class AsyncIterator:
+    def __init__(self, items):
+        self.items = items
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self.items)
+        except StopIteration:
+            raise StopAsyncIteration
+
+
 @pytest.fixture
 def mock_recording() -> MagicMock:
     recording = MagicMock(spec=SessionRecording)
@@ -121,3 +135,33 @@ class TestReplaySummarizer:
                     events_to_ignore=["$feature_flag_called"],
                     extra_fields=[],
                 )
+
+    @pytest.mark.asyncio
+    async def test_stream_recording_summary_asgi(
+        self,
+        summarizer: ReplaySummarizer,
+        mock_raw_metadata: dict[str, Any],
+        mock_raw_events: list[list[Any]],
+        mock_events_columns: list[str],
+        mock_valid_llm_yaml_response: str,
+    ):
+        """Test the ASGI streaming path."""
+        with (
+            patch("posthog.settings.SERVER_GATEWAY_INTERFACE", "ASGI"),
+            patch(
+                "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
+                return_value=mock_raw_metadata,
+            ),
+            patch(
+                "ee.session_recordings.session_summary.summarize_session.get_session_events",
+                return_value=(mock_events_columns[:-2], mock_raw_events),
+            ),
+            patch(
+                "ee.session_recordings.session_summary.summarize_session.stream_llm_session_summary",
+                return_value=AsyncIterator(iter([mock_valid_llm_yaml_response])),
+            ),
+        ):
+            async_gen = summarizer.stream_recording_summary()
+            results = [chunk async for chunk in async_gen]
+            assert len(results) == 1
+            assert results[0] == mock_valid_llm_yaml_response
