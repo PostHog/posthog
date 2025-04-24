@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework import status
 from rest_framework import viewsets
+from products.messaging.backend.providers.mailjet import MailjetProvider
 
 
 class MessageSetupViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -12,72 +13,24 @@ class MessageSetupViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def email(self, request, **kwargs):
         """Request a messaging account with a specified email domain."""
 
-        #  Steps:
-        # 1. Create a new API key for project: https://dev.mailjet.com/email/reference/settings/api-key-configuration/#v3_post_apikey
-        # 2. Store the API key in the integration for the project
-        # 3. Use the project's API key to create a sender for the domain from request body, using *@yourdomain.com for the email: https://dev.mailjet.com/email/reference/sender-addresses-and-domains/sender/#v3_post_sender
-        # 4. Do a GET on /dns/{domain_ID or domain_name} to retrieve the values you need for the DNS record.
-
-        email_domain = request.data.get("email_domain")
-
-        if not email_domain:
-            return Response({"error": "email_domain is required"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # TODO: Implement actual account request logic
-        return Response(
-            {
-                "status": "pending",
-                "dnsRecords": [
-                    {
-                        "type": "dkim",
-                        "recordType": "TXT",
-                        "recordHostname": "dkim_record_name",
-                        "recordValue": "dkim_record_value",
-                        "status": "pending",
-                    },
-                    {
-                        "type": "spf",
-                        "recordType": "TXT",
-                        "recordHostname": "@",
-                        "recordValue": "spf_record_value",
-                        "status": "pending",
-                    },
-                ],
-            }
-        )
-
-    @action(methods=["POST"], detail=False, url_path="email/verify")
-    def verify_email(self, request, **kwargs):
-        """Verify the email domain for messaging setup."""
-
-        # Do a GET on /dns/{domain_ID or domain_name} to retrieve the values you need for the DNS record.
-        # This endpoint also returns the current status of the DKIM and SPF records.
-
-        domain = request.query_params.get("domain")
+        domain = request.data.get("domain")
 
         if not domain:
             return Response({"error": "Domain parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # TODO: Implement actual domain verification logic
+        mailjet = MailjetProvider()
+        setup_result = mailjet.setup_email_domain(domain)
+        return Response(setup_result)
 
-        return Response(
-            {
-                "status": "pending",  # pending, verified
-                "dnsRecords": [
-                    {
-                        "type": "dkim",
-                        "recordType": "TXT",
-                        "recordHostname": "dkim_record_name",
-                        "recordValue": "dkim_record_value",
-                        "status": "pending",
-                    },
-                    {
-                        "type": "spf",
-                        "recordType": "TXT",
-                        "recordHostname": "@",
-                        "recordValue": "spf_record_value",
-                        "status": "pending",
-                    },
-                ],
-            }
-        )
+    @action(methods=["POST"], detail=False, url_path="email/verify")
+    def email_verify(self, request, **kwargs):
+        """Verify the email domain for messaging setup."""
+
+        domain = request.data.get("domain")
+
+        if not domain:
+            return Response({"error": "Domain parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        mailjet = MailjetProvider()
+        verification_result = mailjet.verify_email_domain(domain)
+        return Response(verification_result)
