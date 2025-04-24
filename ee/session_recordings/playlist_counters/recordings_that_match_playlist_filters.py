@@ -339,7 +339,9 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             playlist = SessionRecordingPlaylist.objects.get(id=playlist_id)
             redis_client = get_client()
 
-            existing_value = redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}")
+            existing_value = redis_client.getex(
+                f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}", THIRTY_SIX_HOURS_IN_SECONDS
+            )
             if existing_value:
                 existing_value = json.loads(existing_value)
             else:
