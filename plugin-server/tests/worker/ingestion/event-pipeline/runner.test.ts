@@ -1,6 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
+import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
+
 import { KafkaProducerWrapper, TopicMessage } from '../../../../src/kafka/producer'
 import {
     ClickHouseTimestamp,
@@ -147,7 +149,12 @@ describe('EventPipelineRunner', () => {
             eventsToDropByToken: createEventsToDropByToken('drop_token:drop_id,drop_token_all:*'),
         }
 
-        runner = new TestEventPipelineRunner(hub, pluginEvent)
+        const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(
+            hub.db,
+            team.api_token,
+            pluginEvent.distinct_id
+        )
+        runner = new TestEventPipelineRunner(hub, pluginEvent, undefined, undefined, personsStore)
 
         jest.mocked(populateTeamDataStep).mockResolvedValue({
             eventWithTeam: pluginEvent,
@@ -378,7 +385,12 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                runner = new TestEventPipelineRunner(hub, heatmapEvent)
+                const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(
+                    hub.db,
+                    team.api_token,
+                    heatmapEvent.distinct_id
+                )
+                runner = new TestEventPipelineRunner(hub, heatmapEvent, undefined, undefined, personsStore)
 
                 jest.mocked(populateTeamDataStep).mockResolvedValue({
                     eventWithTeam: heatmapEvent,
@@ -425,7 +437,12 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                runner = new TestEventPipelineRunner(hub, exceptionEvent)
+                const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(
+                    hub.db,
+                    team.api_token,
+                    exceptionEvent.distinct_id
+                )
+                runner = new TestEventPipelineRunner(hub, exceptionEvent, undefined, undefined, personsStore)
 
                 jest.mocked(populateTeamDataStep).mockResolvedValue({
                     eventWithTeam: exceptionEvent,

@@ -1,6 +1,9 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
+import { TopicMessage } from '~/src/kafka/producer'
+import { MeasuringPersonsStoreForDistinctIdBatch } from '~/src/worker/ingestion/persons/measuring-person-store'
+
 import { Database, Hub, InternalPerson, Team } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { closeHub, createHub } from '../../../src/utils/db/hub'
@@ -80,13 +83,19 @@ describe('PersonState.update()', () => {
             ...event,
         }
 
+        const personsStore = new MeasuringPersonsStoreForDistinctIdBatch(
+            customHub ? customHub.db : hub.db,
+            team.api_token,
+            event.distinct_id!
+        )
         return new PersonState(
             fullEvent as any,
             team,
             event.distinct_id!,
             timestampParam,
             processPerson,
-            customHub ? customHub.db : hub.db
+            customHub ? customHub.db : hub.db,
+            personsStore
         )
     }
 
@@ -790,7 +799,7 @@ describe('PersonState.update()', () => {
         })
 
         it('updating with cached person data shortcuts to update directly', async () => {
-            const personInitial = await hub.db.createPerson(
+            const [personInitial, kafkaMessages] = await hub.db.createPerson(
                 timestamp,
                 { b: 3, c: 4 },
                 {},
@@ -801,6 +810,7 @@ describe('PersonState.update()', () => {
                 newUserUuid,
                 [{ distinctId: newUserDistinctId }]
             )
+            await hub.db.kafkaProducer.queueMessages(kafkaMessages)
 
             const personS = personState({
                 event: '$pageview',
@@ -1442,20 +1452,22 @@ describe('PersonState.update()', () => {
             ])
 
             // Fake the race by assuming createPerson was called before the addDistinctId creation above
-            jest.spyOn(hub.db, 'addDistinctId').mockImplementation(async (person, distinctId) => {
-                await hub.db.createPerson(
-                    timestamp,
-                    {},
-                    {},
-                    {},
-                    teamId,
-                    null,
-                    false,
-                    uuidFromDistinctId(teamId, distinctId),
-                    [{ distinctId }]
-                )
-                await hub.db.addDistinctId(person, distinctId, 0) // this throws
-            })
+            jest.spyOn(hub.db, 'addDistinctId').mockImplementation(
+                async (person, distinctId): Promise<TopicMessage[]> => {
+                    await hub.db.createPerson(
+                        timestamp,
+                        {},
+                        {},
+                        {},
+                        teamId,
+                        null,
+                        false,
+                        uuidFromDistinctId(teamId, distinctId),
+                        [{ distinctId }]
+                    )
+                    return await hub.db.addDistinctId(person, distinctId, 0) // this throws
+                }
+            )
 
             const [person, kafkaAcks] = await personState({
                 event: '$identify',
@@ -1678,7 +1690,7 @@ describe('PersonState.update()', () => {
 
     describe('foreign key updates in other tables', () => {
         it('handles feature flag hash key overrides with no conflicts', async () => {
-            const anonPerson = await hub.db.createPerson(
+            const [anonPerson, kafkaMessagesAnon] = await hub.db.createPerson(
                 timestamp.minus({ hours: 1 }),
                 {},
                 {},
@@ -1689,7 +1701,9 @@ describe('PersonState.update()', () => {
                 uuidFromDistinctId(teamId, 'anonymous_id'),
                 [{ distinctId: 'anonymous_id' }]
             )
-            const identifiedPerson = await hub.db.createPerson(
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesAnon)
+
+            const [identifiedPerson, kafkaMessagesIdentified] = await hub.db.createPerson(
                 timestamp,
                 {},
                 {},
@@ -1700,6 +1714,7 @@ describe('PersonState.update()', () => {
                 uuidFromDistinctId(teamId, 'new_distinct_id'),
                 [{ distinctId: 'new_distinct_id' }]
             )
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesIdentified)
 
             // existing overrides
             await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
@@ -1755,7 +1770,7 @@ describe('PersonState.update()', () => {
         })
 
         it('handles feature flag hash key overrides with some conflicts handled gracefully', async () => {
-            const anonPerson = await hub.db.createPerson(
+            const [anonPerson, kafkaMessagesAnon] = await hub.db.createPerson(
                 timestamp.minus({ hours: 1 }),
                 {},
                 {},
@@ -1766,7 +1781,9 @@ describe('PersonState.update()', () => {
                 uuidFromDistinctId(teamId, 'anonymous_id'),
                 [{ distinctId: 'anonymous_id' }]
             )
-            const identifiedPerson = await hub.db.createPerson(
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesAnon)
+
+            const [identifiedPerson, kafkaMessagesIdentified] = await hub.db.createPerson(
                 timestamp,
                 {},
                 {},
@@ -1777,6 +1794,7 @@ describe('PersonState.update()', () => {
                 uuidFromDistinctId(teamId, 'new_distinct_id'),
                 [{ distinctId: 'new_distinct_id' }]
             )
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesIdentified)
 
             // existing overrides for both anonPerson and identifiedPerson
             // which implies a clash when they are merged
@@ -1840,7 +1858,7 @@ describe('PersonState.update()', () => {
         })
 
         it('handles feature flag hash key overrides with no old overrides but existing new person overrides', async () => {
-            const anonPerson = await hub.db.createPerson(
+            const [anonPerson, kafkaMessagesAnon] = await hub.db.createPerson(
                 timestamp.minus({ hours: 1 }),
                 {},
                 {},
@@ -1851,7 +1869,9 @@ describe('PersonState.update()', () => {
                 uuidFromDistinctId(teamId, 'anonymous_id'),
                 [{ distinctId: 'anonymous_id' }]
             )
-            const identifiedPerson = await hub.db.createPerson(
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesAnon)
+
+            const [identifiedPerson, kafkaMessagesIdentified] = await hub.db.createPerson(
                 timestamp,
                 {},
                 {},
@@ -1862,7 +1882,7 @@ describe('PersonState.update()', () => {
                 uuidFromDistinctId(teamId, 'new_distinct_id'),
                 [{ distinctId: 'new_distinct_id' }]
             )
-
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesIdentified)
             await insertRow(hub.db.postgres, 'posthog_featureflaghashkeyoverride', {
                 team_id: teamId,
                 person_id: identifiedPerson.id,
@@ -1954,7 +1974,7 @@ describe('PersonState.update()', () => {
         })
 
         it(`postgres and clickhouse get updated`, async () => {
-            const first: InternalPerson = await hub.db.createPerson(
+            const [first, kafkaMessagesFirst] = await hub.db.createPerson(
                 timestamp,
                 {},
                 {},
@@ -1965,7 +1985,9 @@ describe('PersonState.update()', () => {
                 firstUserUuid,
                 [{ distinctId: firstUserDistinctId }]
             )
-            const second: InternalPerson = await hub.db.createPerson(
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesFirst)
+
+            const [second, kafkaMessagesSecond] = await hub.db.createPerson(
                 timestamp,
                 {},
                 {},
@@ -1976,7 +1998,7 @@ describe('PersonState.update()', () => {
                 secondUserUuid,
                 [{ distinctId: secondUserDistinctId }]
             )
-
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesSecond)
             const state: PersonState = personState({}, hub)
             jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
             const [person, kafkaAcks] = await state.mergePeople({
@@ -2037,7 +2059,7 @@ describe('PersonState.update()', () => {
         })
 
         it(`throws if postgres unavailable`, async () => {
-            const first: InternalPerson = await hub.db.createPerson(
+            const [first, kafkaMessagesFirst] = await hub.db.createPerson(
                 timestamp,
                 {},
                 {},
@@ -2048,7 +2070,9 @@ describe('PersonState.update()', () => {
                 firstUserUuid,
                 [{ distinctId: firstUserDistinctId }]
             )
-            const second: InternalPerson = await hub.db.createPerson(
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesFirst)
+
+            const [second, kafkaMessagesSecond] = await hub.db.createPerson(
                 timestamp,
                 {},
                 {},
@@ -2059,7 +2083,7 @@ describe('PersonState.update()', () => {
                 secondUserUuid,
                 [{ distinctId: secondUserDistinctId }]
             )
-
+            await hub.db.kafkaProducer.queueMessages(kafkaMessagesSecond)
             const state: PersonState = personState({}, hub)
             // break postgres
             const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))

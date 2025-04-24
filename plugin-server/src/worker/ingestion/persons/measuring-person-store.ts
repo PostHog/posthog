@@ -53,12 +53,12 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         this.distinctIdStores = new Map()
     }
 
-    forDistinctID(teamId: number, distinctId: string): PersonsStoreForDistinctIdBatch {
-        const key = `${teamId}:${distinctId}`
+    forDistinctID(token: string, distinctId: string): PersonsStoreForDistinctIdBatch {
+        const key = `${token}:${distinctId}`
         if (!this.distinctIdStores.has(key)) {
-            this.distinctIdStores.set(key, new MeasuringPersonsStoreForDistinctIdBatch(this.db, teamId, distinctId))
+            this.distinctIdStores.set(key, new MeasuringPersonsStoreForDistinctIdBatch(this.db, token, distinctId))
         } else {
-            logger.warn('⚠️', 'Reusing existing persons store for distinct ID in batch', { teamId, distinctId })
+            logger.warn('⚠️', 'Reusing existing persons store for distinct ID in batch', { token, distinctId })
         }
         return this.distinctIdStores.get(key)!
     }
@@ -76,22 +76,22 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
 export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForDistinctIdBatch {
     private methodCounts: Map<MethodName, number>
 
-    constructor(private db: DB, private teamId: number, private distinctId: string) {
+    constructor(private db: DB, private token: string, private distinctId: string) {
         this.methodCounts = new Map()
         for (const method of ALL_METHODS) {
             this.methodCounts.set(method, 0)
         }
     }
 
-    async fetchForChecking(): Promise<InternalPerson | null> {
+    async fetchForChecking(teamId: Team['id'], distinctId: string): Promise<InternalPerson | null> {
         this.incrementCount('fetchForChecking')
-        const person = await this.db.fetchPerson(this.teamId, this.distinctId, { useReadReplica: true })
+        const person = await this.db.fetchPerson(teamId, distinctId, { useReadReplica: true })
         return person ?? null
     }
 
-    async fetchForUpdate(): Promise<InternalPerson | null> {
+    async fetchForUpdate(teamId: Team['id'], distinctId: string): Promise<InternalPerson | null> {
         this.incrementCount('fetchForUpdate')
-        const person = await this.db.fetchPerson(this.teamId, this.distinctId)
+        const person = await this.db.fetchPerson(teamId, distinctId, { useReadReplica: false })
         return person ?? null
     }
 
@@ -100,7 +100,7 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         properties: Properties,
         propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
         propertiesLastOperation: PropertiesLastOperation,
-        teamId: number,
+        teamId: Team['id'],
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
@@ -175,13 +175,13 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
         await this.db.updateCohortsAndFeatureFlagsForMerge(teamID, sourcePersonID, targetPersonID, tx)
     }
 
-    async addPersonlessDistinctId(teamId: number, distinctId: string): Promise<boolean> {
+    async addPersonlessDistinctId(teamId: Team['id'], distinctId: string): Promise<boolean> {
         this.incrementCount('addPersonlessDistinctId')
         return await this.db.addPersonlessDistinctId(teamId, distinctId)
     }
 
     async addPersonlessDistinctIdForMerge(
-        teamId: number,
+        teamId: Team['id'],
         distinctId: string,
         tx?: TransactionClient
     ): Promise<boolean> {

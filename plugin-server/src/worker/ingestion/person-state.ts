@@ -13,6 +13,7 @@ import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
 import { promiseRetry } from '../../utils/retries'
 import { uuidFromDistinctId } from './person-uuid'
+import { PersonsStoreForDistinctIdBatch } from './persons/persons-store-for-distinct-id-batch'
 import { captureIngestionWarning } from './utils'
 
 export const mergeFinalFailuresCounter = new Counter({
@@ -109,7 +110,8 @@ export class PersonState {
         private distinctId: string,
         private timestamp: DateTime,
         private processPerson: boolean, // $process_person_profile flag from the event
-        private db: DB
+        private db: DB,
+        private personStore: PersonsStoreForDistinctIdBatch
     ) {
         this.eventProperties = event.properties!
 
@@ -120,7 +122,7 @@ export class PersonState {
 
     async update(): Promise<[Person, Promise<void>]> {
         if (!this.processPerson) {
-            let existingPerson = await this.db.fetchPerson(this.team.id, this.distinctId, { useReadReplica: true })
+            let existingPerson = await this.personStore.fetchForChecking(this.team.id, this.distinctId)
 
             if (!existingPerson) {
                 // See the comment in `mergeDistinctIds`. We are inserting a row into `posthog_personlessdistinctid`
@@ -130,7 +132,7 @@ export class PersonState {
 
                 const personlessDistinctIdCacheKey = `${this.team.id}|${this.distinctId}`
                 if (!PERSONLESS_DISTINCT_ID_INSERTED_CACHE.get(personlessDistinctIdCacheKey)) {
-                    const personIsMerged = await this.db.addPersonlessDistinctId(this.team.id, this.distinctId)
+                    const personIsMerged = await this.personStore.addPersonlessDistinctId(this.team.id, this.distinctId)
 
                     // We know the row is in PG now, and so future events for this Distinct ID can
                     // skip the PG I/O.
@@ -141,9 +143,7 @@ export class PersonState {
                         // has been updated by a merge (either since we called `fetchPerson` above, plus
                         // replication lag). We need to check `fetchPerson` again (this time using the leader)
                         // so that we properly associate this event with the Person we got merged into.
-                        existingPerson = await this.db.fetchPerson(this.team.id, this.distinctId, {
-                            useReadReplica: false,
-                        })
+                        existingPerson = await this.personStore.fetchForUpdate(this.team.id, this.distinctId)
                     }
                 }
             }
@@ -205,7 +205,7 @@ export class PersonState {
 
     async handleUpdate(): Promise<[InternalPerson, Promise<void>]> {
         // There are various reasons why update can fail:
-        // - anothe thread created the person during a race
+        // - another thread created the person during a race
         // - the person might have been merged between start of processing and now
         // we simply and stupidly start from scratch
         return await promiseRetry(() => this.updateProperties(), 'update_person')
@@ -223,7 +223,7 @@ export class PersonState {
      * @returns [Person, boolean that indicates if properties were already handled or not]
      */
     private async createOrGetPerson(): Promise<[InternalPerson, boolean]> {
-        let person = await this.db.fetchPerson(this.team.id, this.distinctId)
+        let person = await this.personStore.fetchForUpdate(this.team.id, this.distinctId)
         if (person) {
             return [person, false]
         }
@@ -277,7 +277,7 @@ export class PersonState {
             propertiesLastUpdatedAt[key] = createdAt
         })
 
-        const [person, kafkaMessages] = await this.db.createPerson(
+        const [person, kafkaMessages] = await this.personStore.createPerson(
             createdAt,
             props,
             propertiesLastUpdatedAt,
@@ -306,7 +306,7 @@ export class PersonState {
         }
 
         if (Object.keys(update).length > 0) {
-            const [updatedPerson, kafkaMessages] = await this.db.updatePersonDeprecated(person, update)
+            const [updatedPerson, kafkaMessages] = await this.personStore.updatePersonDeprecated(person, update)
             const kafkaAck = this.db.kafkaProducer.queueMessages(kafkaMessages)
             return [updatedPerson, kafkaAck]
         }
@@ -501,8 +501,8 @@ export class PersonState {
     ): Promise<[InternalPerson, Promise<void>]> {
         this.updateIsIdentified = true
 
-        const otherPerson = await this.db.fetchPerson(teamId, otherPersonDistinctId)
-        const mergeIntoPerson = await this.db.fetchPerson(teamId, mergeIntoDistinctId)
+        const otherPerson = await this.personStore.fetchForUpdate(teamId, otherPersonDistinctId)
+        const mergeIntoPerson = await this.personStore.fetchForUpdate(teamId, mergeIntoDistinctId)
 
         // A note about the `distinctIdVersion` logic you'll find below:
         //
@@ -544,14 +544,14 @@ export class PersonState {
                 'mergeDistinctIds-OneExists',
                 async (tx) => {
                     // See comment above about `distinctIdVersion`
-                    const insertedDistinctId = await this.db.addPersonlessDistinctIdForMerge(
+                    const insertedDistinctId = await this.personStore.addPersonlessDistinctIdForMerge(
                         this.team.id,
                         distinctIdToAdd,
                         tx
                     )
                     const distinctIdVersion = insertedDistinctId ? 0 : 1
 
-                    await this.db.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion, tx)
+                    await this.personStore.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion, tx)
                     return [existingPerson, Promise.resolve()]
                 }
             )
@@ -580,14 +580,14 @@ export class PersonState {
                 'mergeDistinctIds-NeitherExist',
                 async (tx) => {
                     // See comment above about `distinctIdVersion`
-                    const insertedDistinctId1 = await this.db.addPersonlessDistinctIdForMerge(
+                    const insertedDistinctId1 = await this.personStore.addPersonlessDistinctIdForMerge(
                         this.team.id,
                         distinctId1,
                         tx
                     )
 
                     // See comment above about `distinctIdVersion`
-                    const insertedDistinctId2 = await this.db.addPersonlessDistinctIdForMerge(
+                    const insertedDistinctId2 = await this.personStore.addPersonlessDistinctIdForMerge(
                         this.team.id,
                         distinctId2,
                         tx
@@ -755,16 +755,16 @@ export class PersonState {
 
                 // Merge the distinct IDs
                 // TODO: Doesn't this table need to add updates to CH too?
-                await this.db.updateCohortsAndFeatureFlagsForMerge(
+                await this.personStore.updateCohortsAndFeatureFlagsForMerge(
                     otherPerson.team_id,
                     otherPerson.id,
                     mergeInto.id,
                     tx
                 )
 
-                const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, tx)
+                const distinctIdMessages = await this.personStore.moveDistinctIds(otherPerson, mergeInto, tx)
 
-                const deletePersonMessages = await this.db.deletePerson(otherPerson, tx)
+                const deletePersonMessages = await this.personStore.deletePerson(otherPerson, tx)
 
                 return [person, [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]]
             }
@@ -789,7 +789,7 @@ export class PersonState {
         version: number,
         tx?: TransactionClient
     ): Promise<void> {
-        const kafkaMessages = await this.db.addDistinctId(person, distinctId, version, tx)
+        const kafkaMessages = await this.personStore.addDistinctId(person, distinctId, version, tx)
         await this.db.kafkaProducer.queueMessages(kafkaMessages)
     }
 }
