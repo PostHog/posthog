@@ -284,12 +284,13 @@ export const InlineEditField = ({
     const inputRef = useRef<HTMLInputElement>(null)
 
     useEffect(() => {
-        setTimeout(() => {
+        const timeout = setTimeout(() => {
             if (inputRef.current) {
                 inputRef.current.focus()
                 inputRef.current.select()
             }
         }, 100)
+        return () => clearTimeout(timeout)
     }, [])
 
     function onSubmit(e: React.FormEvent<HTMLFormElement>): void {
