@@ -12,6 +12,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SaveUnder } from 'lib/components/SaveUnder/SaveUnder'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
@@ -182,6 +183,19 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 <AddToDashboard insight={insight} setOpenModal={setAddToDashboardModalOpenModal} />
                             </>
                         )}
+
+                        {/* For new insights, show where we're saving them */}
+                        {!insight.short_id ? (
+                            <SaveUnder
+                                path="Unfiled/Insights"
+                                type="insight"
+                                objectRef={null}
+                                onSave={() => {
+                                    saveInsight()
+                                }}
+                            />
+                        ) : null}
+
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (
                                 <AccessControlledLemonButton
