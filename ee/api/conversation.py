@@ -47,8 +47,7 @@ class ConversationSerializer(serializers.ModelSerializer):
 
     def get_messages(self, conversation: Conversation):
         graph: CompiledStateGraph = self.context["assistant_graph"]
-        config = {"configurable": {"thread_id": str(conversation.id)}}
-        snapshot = graph.get_state(config)
+        snapshot = graph.get_state({"configurable": {"thread_id": str(conversation.id)}})
         try:
             state = AssistantState.model_validate(snapshot.values)
             return state.model_dump()["messages"]
