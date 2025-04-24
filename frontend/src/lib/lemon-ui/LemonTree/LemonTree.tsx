@@ -691,7 +691,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
         const [typeAheadBuffer, setTypeAheadBuffer] = useState<string>('')
 
         // Add new state for type-ahead
-
         function collectAllFolderIds(items: TreeDataItem[] | TreeDataItem, allIds: string[]): void {
             if (items instanceof Array) {
                 items.forEach((item) => {
@@ -1351,11 +1350,14 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             onItemNameChange={(item, name) => {
                                 onItemNameChange?.(item, name)
 
-                                // Note: in project tree we have ids like `project/123/my-name`, the last part is the name
+                                // Note: For project tree, we have ids like `project-folder/Unfiled/new name \/ test \/ 2`, the last part is the name
                                 // so we need to build a new id with the new name and pass it to focusElementFromId
+                                // since split() method only splits on the exact character you specify (in this case /), not on escaped versions of it (\/).
                                 const newId = item.id.includes('/')
-                                    ? item.id.split('/').slice(0, -1).join('/') + '/' + name
-                                    : name
+                                    ? // if the id includes a /, we need to build a new id with the new name
+                                      item.id.split('/').slice(0, -1).join('/') + '/' + name
+                                    : // if the id does not include a /, we can just use the new name
+                                      name
                                 if (newId) {
                                     focusElementFromId(newId)
                                 }
