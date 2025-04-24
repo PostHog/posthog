@@ -7779,7 +7779,7 @@
                     ]
                 },
                 "type": {
-                    "enum": ["user_group", "user"],
+                    "enum": ["user_group", "user", "role"],
                     "type": "string"
                 }
             },
