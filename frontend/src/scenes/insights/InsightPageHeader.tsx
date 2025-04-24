@@ -192,7 +192,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 name={insight.name || ''}
                                 objectRef={null}
                                 onSave={() => {
-                                    // console.log({name,folder})
+                                    // Save as normally. The "lastNewOperation" system will move it to the right folder.
                                     saveInsight()
                                 }}
                             />
