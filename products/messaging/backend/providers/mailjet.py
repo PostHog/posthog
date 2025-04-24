@@ -85,7 +85,7 @@ class MailjetProvider:
 
         return overall_status, formatted_dns_records
 
-    def _create_sender_domain(self, domain: str) -> MailjetResponse:
+    def _create_sender_domain(self, domain: str) -> dict:
         """
         Create a new sender domain
 
@@ -113,7 +113,7 @@ class MailjetProvider:
             logger.exception(f"Mailjet API error creating sender domain: {e}")
             raise
 
-    def _get_domain_dns_records(self, domain: str) -> MailjetResponse:
+    def _get_domain_dns_records(self, domain: str) -> dict:
         """
         Get DNS records for a domain (DKIM and SPF verification status)
 
@@ -129,7 +129,7 @@ class MailjetProvider:
             logger.exception(f"Mailjet API error fetching DNS records: {e}")
             raise
 
-    def _check_domain_dns_records(self, domain: str) -> MailjetResponse:
+    def _check_domain_dns_records(self, domain: str) -> dict:
         """
         Trigger a check for the current status of DKIM and SPF records for a domain
 
