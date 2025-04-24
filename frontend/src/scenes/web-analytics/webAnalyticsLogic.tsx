@@ -1846,6 +1846,28 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           properties: webAnalyticsFilters,
                                           dateRange,
                                       },
+                                      docs: {
+                                          url: 'https://posthog.com/docs/web-analytics/dashboard#active-hours',
+                                          title: 'Active hours',
+                                          description: (
+                                              <>
+                                                  <div>
+                                                      <p>
+                                                          Active hours displays a heatmap showing the number of unique
+                                                          users who performed any pageview event, broken down by hour of
+                                                          the day and day of the week.
+                                                      </p>
+                                                      <p>
+                                                          Note: It is expected that selecting a time range longer than 7
+                                                          days will include additional occurrences of weekdays and
+                                                          hours, potentially increasing the user counts in those
+                                                          buckets. The recommendation is to select 7 closed days or
+                                                          multiple of 7 closed day ranges.
+                                                      </p>
+                                                  </div>
+                                              </>
+                                          ),
+                                      },
                                       insightProps: createInsightProps(TileId.ACTIVE_HOURS, ActiveHoursTab.NORMAL),
                                   },
                               ],
