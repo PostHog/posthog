@@ -189,8 +189,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             <SaveUnder
                                 defaultFolder="Unfiled/Insights"
                                 type="insight"
-                                name={insight.name || ''}
-                                objectRef={null}
                                 onSave={() => {
                                     // Save as normally. The "lastNewOperation" system will move it to the right folder.
                                     saveInsight()

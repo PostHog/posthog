@@ -7,7 +7,6 @@ import type { saveUnderLogicType } from './saveUnderLogicType'
 
 export interface SaveUnderLogicProps {
     type: string
-    name: string
     defaultFolder?: string
     objectRef?: string | null
     onSave?: (folder: string) => void
@@ -16,7 +15,7 @@ export interface SaveUnderLogicProps {
 export const saveUnderLogic = kea<saveUnderLogicType>([
     path(['lib', 'components', 'SaveUnder', 'saveUnderLogic']),
     props({} as SaveUnderLogicProps),
-    key((props) => `${props.type}`),
+    key((props) => props.type),
     connect(() => ({
         values: [projectTreeLogic, ['lastNewOperation']],
         actions: [projectTreeLogic, ['setLastNewOperation']],
@@ -51,7 +50,7 @@ export const saveUnderLogic = kea<saveUnderLogicType>([
             submit: (formValues) => {
                 if (props.onSave) {
                     actions.setLastNewOperation(values.lastNewOperation?.objectType || 'unknown', formValues.folder)
-                    props.onSave(formValues.folder || props.defaultFolder)
+                    props.onSave(formValues.folder || props.defaultFolder || 'Unfiled')
                 }
             },
         },
