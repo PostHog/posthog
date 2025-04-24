@@ -5,6 +5,10 @@ from posthog.models.hog_function_template import HogFunctionTemplate
 
 
 class TestHogFunctionTemplate(TestCase):
+    def setUp(self):
+        # Clean the database before every test
+        HogFunctionTemplate.objects.all().delete()
+
     def test_import_slack_template(self):
         """Test importing the real Slack template"""
         # Create a database template from the Slack template
@@ -22,6 +26,8 @@ class TestHogFunctionTemplate(TestCase):
         # Verify version is generated correctly
         self.assertIsNotNone(db_template.version)
         self.assertEqual(len(db_template.version), 8)  # SHA hash truncated to 8 chars
+
+        HogFunctionTemplate.objects.all().delete()
 
         # Verify the version is deterministic by creating another instance
         db_template2 = HogFunctionTemplate.create_from_dataclass(slack_template)
