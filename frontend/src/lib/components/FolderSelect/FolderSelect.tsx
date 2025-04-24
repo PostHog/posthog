@@ -52,7 +52,7 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
             const newTouchedFolders = allFolders.filter((folder) => !touchedFolders.includes(folder))
             setTouchedFolders([...touchedFolders, ...newTouchedFolders])
         }
-    }, [value])
+    }, [value, expandedFolders, touchedFolders])
 
     return (
         <div className={clsx('bg-[white] p-2 border rounded-[var(--radius)] overflow-y-scroll', className)}>
@@ -68,7 +68,7 @@ export function FolderSelect({ value, onChange, className }: FolderSelectProps):
                 showFolderActiveState={true}
                 checkedItemCount={0}
                 onFolderClick={(folder) => {
-                    if (folder && folder?.id) {
+                    if (folder?.id) {
                         if (!touchedFolders.includes(folder?.id)) {
                             loadFolderIfNotLoaded(folder?.id)
                             setTouchedFolders([...touchedFolders, folder?.id])

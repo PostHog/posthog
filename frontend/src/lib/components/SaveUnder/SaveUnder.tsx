@@ -19,9 +19,7 @@ export function SaveUnderModal(): JSX.Element {
 
     return (
         <LemonModal
-            onClose={() => {
-                closeModal()
-            }}
+            onClose={closeModal}
             isOpen={isOpen}
             title="Select a folder to save in"
             footer={
@@ -51,7 +49,7 @@ export function SaveUnderModal(): JSX.Element {
             }
         >
             <div className="w-192 max-w-full">
-                <Form logic={saveUnderLogic} formKey="form" className="deprecated-space-y-2">
+                <Form logic={saveUnderLogic} formKey="form">
                     <LemonField name="folder">
                         <FolderSelect className="h-[60vh] min-h-[200px]" />
                     </LemonField>

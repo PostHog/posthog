@@ -30,7 +30,6 @@ export const saveUnderLogic = kea<saveUnderLogicType>([
             {
                 openModal: () => true,
                 closeModal: () => false,
-                save: () => false,
             },
         ],
     }),
