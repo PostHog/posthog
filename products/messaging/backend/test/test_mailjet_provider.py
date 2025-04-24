@@ -43,8 +43,8 @@ class TestMailjetProvider(TestCase):
         self.assertEqual(status, "pending")
         self.assertEqual(len(records), 2)
 
-        dkim_record = next(r for r in records if r["type"] == "dkim")
-        spf_record = next(r for r in records if r["type"] == "spf")
+        dkim_record = next((r for r in records if r["type"] == "dkim"), None)
+        spf_record = next((r for r in records if r["type"] == "spf"), None)
 
         self.assertEqual(dkim_record["recordType"], "TXT")
         self.assertEqual(dkim_record["recordHostname"], self.mock_dns_response["DKIMRecordName"])
