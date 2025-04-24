@@ -40,9 +40,6 @@ const translateInputs = (defaultVal: any) => {
         if (modifiedVal.includes('event.traits')) {
             modifiedVal = modifiedVal.replaceAll('event.traits', 'person.properties')
         }
-        if (modifiedVal.includes('context.app.version')) {
-            modifiedVal = modifiedVal.replaceAll('context.app.version', 'properties.$app_version')
-        }
         if (modifiedVal.includes('context.device.type')) {
             modifiedVal = modifiedVal.replaceAll('context.device.type', 'properties.$device_type')
         }
@@ -60,6 +57,18 @@ const translateInputs = (defaultVal: any) => {
         }
         if (modifiedVal.includes('context.device.model')) {
             modifiedVal = modifiedVal.replaceAll('context.device.model', 'properties.$device_model')
+        }
+        if (modifiedVal.includes('context.device.name')) {
+            modifiedVal = modifiedVal.replaceAll('context.device.name', 'properties.$device_name')
+        }
+        if (modifiedVal.includes('context.network.bluetooth')) {
+            modifiedVal = modifiedVal.replaceAll('context.network.bluetooth', '')
+        }
+        if (modifiedVal.includes('context.network.cellular')) {
+            modifiedVal = modifiedVal.replaceAll('context.network.cellular', '')
+        }
+        if (modifiedVal.includes('context.network.wifi')) {
+            modifiedVal = modifiedVal.replaceAll('context.network.wifi', '')
         }
         if (modifiedVal.includes('context.network.carrier')) {
             modifiedVal = modifiedVal.replaceAll('context.network.carrier', '')
@@ -112,6 +121,27 @@ const translateInputs = (defaultVal: any) => {
         if (modifiedVal.includes('context.userAgentData.platformVersion')) {
             modifiedVal = modifiedVal.replaceAll('context.userAgentData.platformVersion', '')
         }
+        if (modifiedVal.includes('context.userAgentData.wow64')) {
+            modifiedVal = modifiedVal.replaceAll('context.userAgentData.wow64', '')
+        }
+        if (modifiedVal.includes('context.userAgentData.mobile')) {
+            modifiedVal = modifiedVal.replaceAll('context.userAgentData.mobile', '')
+        }
+        if (modifiedVal.includes('context.userAgentData.bitness')) {
+            modifiedVal = modifiedVal.replaceAll('context.userAgentData.bitness', '')
+        }
+        if (modifiedVal.includes('context.userAgentData.platform')) {
+            modifiedVal = modifiedVal.replaceAll('context.userAgentData.platform', '')
+        }
+        if (modifiedVal.includes('context.userAgentData.architecture')) {
+            modifiedVal = modifiedVal.replaceAll('context.userAgentData.architecture', '')
+        }
+        if (modifiedVal.includes('context.userAgentData.uaFullVersion')) {
+            modifiedVal = modifiedVal.replaceAll('context.userAgentData.uaFullVersion', '')
+        }
+        if (modifiedVal.includes('context.groupId')) {
+            modifiedVal = modifiedVal.replaceAll('context.groupId', '')
+        }
         if (modifiedVal.includes('context.userAgent')) {
             modifiedVal = modifiedVal.replaceAll('context.userAgent', 'properties.$raw_user_agent')
         }
@@ -133,6 +163,21 @@ const translateInputs = (defaultVal: any) => {
         if (modifiedVal.includes('context.campaign.content')) {
             modifiedVal = modifiedVal.replaceAll('context.campaign.content', 'properties.utm_content')
         }
+        if (modifiedVal.includes('context.app.namespace')) {
+            modifiedVal = modifiedVal.replaceAll('context.app.namespace', 'event.properties.$app_namespace')
+        }
+        if (modifiedVal.includes('context.app.name')) {
+            modifiedVal = modifiedVal.replaceAll('context.app.name', 'event.properties.$app_name')
+        }
+        if (modifiedVal.includes('context.app.build')) {
+            modifiedVal = modifiedVal.replaceAll('context.app.build', 'event.properties.$app_build')
+        }
+        if (modifiedVal.includes('context.app.platform')) {
+            modifiedVal = modifiedVal.replaceAll('context.app.platform', '')
+        }
+        if (modifiedVal.includes('context.app.version')) {
+            modifiedVal = modifiedVal.replaceAll('context.app.version', 'event.properties.$app_version')
+        }
         if (modifiedVal.includes('event.anonymousId')) {
             modifiedVal = modifiedVal.replaceAll('event.anonymousId', 'event.distinct_id')
         }
@@ -147,6 +192,9 @@ const translateInputs = (defaultVal: any) => {
         }
         if (modifiedVal.includes('event.messageId')) {
             modifiedVal = modifiedVal.replaceAll('event.messageId', 'event.uuid')
+        }
+        if (modifiedVal.includes('integrations.')) {
+            modifiedVal = modifiedVal.replaceAll(/integrations\.[^}]+/g, '')
         }
 
         if (modifiedVal.endsWith('.')) return ''
@@ -253,8 +301,8 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations).filter(([_, des
             status: 'beta',
             type: 'destination',
             id: destination.slug?.replace('actions-', 'plugin-segment-') ?? `plugin-segment-${destination.name.replace('Actions ', '').replaceAll(' ', '-').toLowerCase()}`,
-            name: destination.name.replace('Actions ', ''),
-            description: `Send event data to ${destination.name.replace('Actions ', '')}`,
+            name: destination.name.replace(' (Actions)', '').replace('Actions ', ''),
+            description: `Send event data to ${destination.name.replace(' (Actions)', '').replace('Actions ', '')}`,
             icon_url: `https://img.logo.dev/${destination.slug?.split('-')[1]}.com?token=pk_NiEhY0r4ToO7w_3DQvOALw`,
             category: [],
             inputs_schema: translateInputsSchema(destination.authentication?.fields),
