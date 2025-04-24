@@ -136,21 +136,6 @@ class TestEnrichRawSessionSummary:
         )
 
     @pytest.fixture
-    def mock_events_columns(self) -> list[str]:
-        return [
-            "event",
-            "timestamp",
-            "elements_chain_href",
-            "elements_chain_texts",
-            "elements_chain_elements",
-            "$window_id",
-            "$current_url",
-            "$event_type",
-            "event_index",
-            "event_id",
-        ]
-
-    @pytest.fixture
     def mock_url_mapping_reversed(self) -> dict[str, str]:
         return {
             "url_1": "http://localhost:8010/login",
