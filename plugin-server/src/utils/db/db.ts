@@ -550,7 +550,7 @@ export class DB {
         uuid: string,
         distinctIds?: { distinctId: string; version?: number }[],
         tx?: TransactionClient
-    ): Promise<InternalPerson> {
+    ): Promise<[InternalPerson, TopicMessage[]]> {
         distinctIds ||= []
 
         for (const distinctId of distinctIds) {
@@ -633,8 +633,7 @@ export class DB {
             })
         }
 
-        await this.kafkaProducer.queueMessages(kafkaMessages)
-        return person
+        return [person, kafkaMessages]
     }
 
     // Currently in use, but there are various problems with this function

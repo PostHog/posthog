@@ -277,7 +277,7 @@ export class PersonState {
             propertiesLastUpdatedAt[key] = createdAt
         })
 
-        return await this.db.createPerson(
+        const [person, kafkaMessages] = await this.db.createPerson(
             createdAt,
             props,
             propertiesLastUpdatedAt,
@@ -289,6 +289,9 @@ export class PersonState {
             distinctIds,
             tx
         )
+
+        await this.db.kafkaProducer.queueMessages(kafkaMessages)
+        return person
     }
 
     private async updatePersonProperties(person: InternalPerson): Promise<[InternalPerson, Promise<void>]> {
