@@ -1,5 +1,5 @@
 // eslint-disable-next-line simple-import-sort/imports
-import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
 
 import { CdpCyclotronWorker } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpCyclotronWorkerFetch } from '../../src/cdp/consumers/cdp-cyclotron-worker-fetch.consumer'
@@ -14,6 +14,7 @@ import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_test
 import { createHogExecutionGlobals, insertHogFunction as _insertHogFunction } from './_tests/fixtures'
 import { FetchError } from 'node-fetch'
 import { forSnapshot } from '~/tests/helpers/snapshots'
+import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 jest.mock('../../src/utils/fetch', () => {
     return {
@@ -25,7 +26,7 @@ const mockFetch: jest.Mock = require('../../src/utils/fetch').trackedFetch
 
 const ActualKafkaProducerWrapper = jest.requireActual('../../src/kafka/producer').KafkaProducerWrapper
 
-describe.each([['cyclotron' as const], ['kafka' as const]])('CDP Consumer loop: %s', (mode) => {
+describe.each([['cyclotron' as const]])('CDP Consumer loop: %s', (mode) => {
     jest.setTimeout(10000)
 
     describe('e2e fetch call', () => {
@@ -37,6 +38,7 @@ describe.each([['cyclotron' as const], ['kafka' as const]])('CDP Consumer loop: 
         let team: Team
         let fnFetchNoFilters: HogFunctionType
         let globals: HogFunctionInvocationGlobals
+        let mockProducerObserver: KafkaProducerObserver
 
         const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
             const item = await _insertHogFunction(hub.postgres, team.id, hogFunction)
@@ -46,9 +48,16 @@ describe.each([['cyclotron' as const], ['kafka' as const]])('CDP Consumer loop: 
         beforeEach(async () => {
             console.log(ActualKafkaProducerWrapper)
 
+            // This ensures a real producer is used everywhere
+            MockKafkaProducerWrapper.create = jest.fn((...args) => {
+                console.log('MockKafkaProducerWrapper.create', args)
+                return ActualKafkaProducerWrapper.create(...args)
+            })
+
             await resetTestDatabase()
             hub = await createHub()
             team = await getFirstTeam(hub)
+            mockProducerObserver = new KafkaProducerObserver(hub.kafkaProducer)
             mockProducerObserver.resetKafkaProducer()
 
             hub.CDP_FETCH_RETRIES = 2

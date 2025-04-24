@@ -18,9 +18,10 @@ jest.mock('../../../src/kafka/producer', () => {
         flush: jest.fn().mockReturnValue(Promise.resolve()),
     }
 
-    const MockKafkaProducer = {
-        create: jest.fn(() => Promise.resolve(mockKafkaProducer)),
+    class MockKafkaProducer {
+        static create = jest.fn(() => Promise.resolve(mockKafkaProducer))
     }
+
     return {
         KafkaProducerWrapper: MockKafkaProducer,
         _producer: mockKafkaProducer,
@@ -28,4 +29,6 @@ jest.mock('../../../src/kafka/producer', () => {
 })
 
 export const mockProducer = require('../../../src/kafka/producer')._producer as KafkaProducerWrapper
+export const MockKafkaProducerWrapper = require('../../../src/kafka/producer')
+    .KafkaProducerWrapper as typeof KafkaProducerWrapper
 export const mockProducerObserver = new KafkaProducerObserver(mockProducer)
