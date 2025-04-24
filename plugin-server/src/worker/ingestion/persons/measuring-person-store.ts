@@ -5,6 +5,7 @@ import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { DB } from '../../../utils/db/db'
 import { TransactionClient } from '../../../utils/db/postgres'
+import { logger } from '../../../utils/logger'
 import { PersonsStore } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 import { PersonsStoreForDistinctIdBatch } from './persons-store-for-distinct-id-batch'
@@ -31,10 +32,20 @@ export class MeasuringPersonsStore implements PersonsStore {
 }
 
 export class MeasuringBatchPersonsStore implements PersonsStoreForBatch {
-    constructor(private db: DB) {}
+    private distinctIdStores: Map<string, MeasuringPersonsStoreForDistinctIdBatch>
+
+    constructor(private db: DB) {
+        this.distinctIdStores = new Map()
+    }
 
     forDistinctID(teamId: number, distinctId: string): PersonsStoreForDistinctIdBatch {
-        return new MeasuringPersonsStoreForDistinctIdBatch(this.db, teamId, distinctId)
+        const key = `${teamId}:${distinctId}`
+        if (!this.distinctIdStores.has(key)) {
+            this.distinctIdStores.set(key, new MeasuringPersonsStoreForDistinctIdBatch(this.db, teamId, distinctId))
+        } else {
+            logger.warn('⚠️', 'Reusing existing persons store for distinct ID in batch', { teamId, distinctId })
+        }
+        return this.distinctIdStores.get(key)!
     }
 
     async reportBatch(): Promise<void> {
