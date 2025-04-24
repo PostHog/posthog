@@ -83,8 +83,8 @@ class Command(BaseCommand):
                     new_project_id = team.id
 
                     with transaction.atomic():
-                        existing_project = Project.objects.filter(id=new_project_id).first()
-                        if existing_project:
+                        does_project_with_same_id_exist = Project.objects.filter(id=new_project_id).exists()
+                        if does_project_with_same_id_exist:
                             logger.warning(
                                 f"Project with ID {new_project_id} already exists. "
                                 f"Using default ID generation for new project."
