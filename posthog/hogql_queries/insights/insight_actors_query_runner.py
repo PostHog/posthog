@@ -1,8 +1,9 @@
-from typing import cast, Optional
+from typing import cast, Optional, Any
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
@@ -11,6 +12,7 @@ from posthog.hogql_queries.insights.retention_query_runner import RetentionQuery
 from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
+from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
     FunnelCorrelationActorsQuery,
@@ -23,12 +25,32 @@ from posthog.schema import (
     FunnelsQuery,
     LifecycleQuery,
     StickinessActorsQuery,
+    HogQLQueryModifiers,
 )
 from posthog.types import InsightActorsQueryNode
 
 
 class InsightActorsQueryRunner(QueryRunner):
     query: InsightActorsQueryNode
+
+    def __init__(
+        self,
+        query: InsightActorsQueryNode | dict[str, Any],
+        team: Team,
+        timings: Optional[HogQLTimings] = None,
+        modifiers: Optional[HogQLQueryModifiers] = None,
+        limit_context: Optional[LimitContext] = None,
+        query_id: Optional[str] = None,
+    ):
+        super().__init__(
+            query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            query_id=query_id,
+            extract_modifiers=lambda query: query.source.modifiers if hasattr(query.source, "modifiers") else None,
+        )
 
     @cached_property
     def source_runner(self) -> QueryRunner:

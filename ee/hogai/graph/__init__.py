@@ -9,7 +9,7 @@ from .schema_generator.nodes import SchemaGeneratorNode
 from .sql.nodes import SQLGeneratorNode
 from .taxonomy_agent.nodes import TaxonomyAgentPlannerNode
 from .trends.nodes import TrendsGeneratorNode
-from .graph import AssistantGraph
+from .graph import AssistantGraph, InsightsAssistantGraph
 
 __all__ = [
     "FunnelGeneratorNode",
@@ -25,4 +25,5 @@ __all__ = [
     "TaxonomyAgentPlannerNode",
     "TrendsGeneratorNode",
     "AssistantGraph",
+    "InsightsAssistantGraph",
 ]

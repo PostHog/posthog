@@ -10,3 +10,11 @@ size, unnecessary pod churn on deployments, slow pip installs, slow IDE
 performance, slow tooling performance it would be preferable to reduce the
 interface between the web app and the temporal workers to the gRPC interface
 rather than a Python object interface.
+
+## Running locally
+
+The easiest way to get this to work locally is by running `mprocs`. You'll be missing some environment variables to make sure Temporal can properly connect with the S3/Airbyte instances we use to run the jobs locally. Reach out to `#team-data-warehouse` in Slack to get those creds, add them to `.env`, and you're good to go.
+
+## UI
+
+You can access Temporal's UI at http://localhost:8081

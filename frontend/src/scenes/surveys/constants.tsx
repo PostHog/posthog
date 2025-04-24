@@ -374,3 +374,11 @@ export const QUESTION_TYPE_ICON_MAP = {
     [SurveyQuestionType.SingleChoice]: <IconListView className="text-muted" />,
     [SurveyQuestionType.MultipleChoice]: <IconGridView className="text-muted" />,
 }
+
+export const SURVEY_TYPE_LABEL_MAP = {
+    [SurveyType.API]: 'API',
+    [SurveyType.Widget]: 'Feedback Button',
+    [SurveyType.Popover]: 'Popover',
+    [SurveyType.FullScreen]: 'Full Screen',
+    [SurveyType.Email]: 'Email',
+}

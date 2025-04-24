@@ -407,9 +407,6 @@
                       "$entry_mc_cid",
                       "$entry_igshid",
                       "$entry_ttclid",
-                      "$entry_epik",
-                      "$entry_qclid",
-                      "$entry_sccid",
                       "$entry__kx",
                       "$entry_irclid",
                       "$pageview_count",
@@ -534,6 +531,7 @@
           },
           "id": "events",
           "name": "events",
+          "row_count": null,
           "type": "posthog"
       },
       "groups": {
@@ -591,6 +589,7 @@
           },
           "id": "groups",
           "name": "groups",
+          "row_count": null,
           "type": "posthog"
       },
       "persons": {
@@ -672,6 +671,7 @@
           },
           "id": "persons",
           "name": "persons",
+          "row_count": null,
           "type": "posthog"
       },
       "sessions": {
@@ -1006,36 +1006,6 @@
                   "table": null,
                   "type": "string"
               },
-              "$entry_epik": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "`$entry_epik`",
-                  "id": null,
-                  "name": "$entry_epik",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "$entry_qclid": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "`$entry_qclid`",
-                  "id": null,
-                  "name": "$entry_qclid",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "$entry_sccid": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "`$entry_sccid`",
-                  "id": null,
-                  "name": "$entry_sccid",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
               "$entry__kx": {
                   "chain": null,
                   "fields": null,
@@ -1169,6 +1139,7 @@
           },
           "id": "sessions",
           "name": "sessions",
+          "row_count": null,
           "type": "posthog"
       },
       "query_log": {
@@ -1316,6 +1287,7 @@
           },
           "id": "query_log",
           "name": "query_log",
+          "row_count": null,
           "type": "posthog"
       }
   }
@@ -1709,9 +1681,6 @@
                       "$entry_mc_cid",
                       "$entry_igshid",
                       "$entry_ttclid",
-                      "$entry_epik",
-                      "$entry_qclid",
-                      "$entry_sccid",
                       "$entry__kx",
                       "$entry_irclid",
                       "$pageview_count",
@@ -1811,6 +1780,7 @@
           },
           "id": "events",
           "name": "events",
+          "row_count": null,
           "type": "posthog"
       },
       "groups": {
@@ -1868,6 +1838,7 @@
           },
           "id": "groups",
           "name": "groups",
+          "row_count": null,
           "type": "posthog"
       },
       "persons": {
@@ -1949,6 +1920,7 @@
           },
           "id": "persons",
           "name": "persons",
+          "row_count": null,
           "type": "posthog"
       },
       "sessions": {
@@ -2283,36 +2255,6 @@
                   "table": null,
                   "type": "string"
               },
-              "$entry_epik": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "`$entry_epik`",
-                  "id": null,
-                  "name": "$entry_epik",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "$entry_qclid": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "`$entry_qclid`",
-                  "id": null,
-                  "name": "$entry_qclid",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
-              "$entry_sccid": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "`$entry_sccid`",
-                  "id": null,
-                  "name": "$entry_sccid",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
               "$entry__kx": {
                   "chain": null,
                   "fields": null,
@@ -2446,6 +2388,7 @@
           },
           "id": "sessions",
           "name": "sessions",
+          "row_count": null,
           "type": "posthog"
       },
       "query_log": {
@@ -2593,6 +2536,7 @@
           },
           "id": "query_log",
           "name": "query_log",
+          "row_count": null,
           "type": "posthog"
       }
   }

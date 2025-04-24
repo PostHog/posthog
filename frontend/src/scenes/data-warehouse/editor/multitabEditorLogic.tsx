@@ -9,6 +9,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { removeUndefinedAndNull } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import isEqual from 'lodash.isequal'
 import { editor, Uri } from 'monaco-editor'
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -138,9 +139,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         setLastRunQuery: (lastRunQuery: DataVisualizationNode | null) => ({ lastRunQuery }),
         setSuggestedQueryInput: (suggestedQueryInput: string) => ({ suggestedQueryInput }),
         _setSuggestedQueryInput: (suggestedQueryInput: string) => ({ suggestedQueryInput }),
-        onAcceptSuggestedQueryInput: true,
+        onAcceptSuggestedQueryInput: (shouldRunQuery?: boolean) => ({ shouldRunQuery }),
         onRejectSuggestedQueryInput: true,
         setResponse: (response: Record<string, any> | null) => ({ response, currentTab: values.activeModelUri }),
+        shareTab: true,
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -287,6 +289,43 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ],
     })),
     listeners(({ values, props, actions, asyncActions }) => ({
+        shareTab: () => {
+            const currentTab = values.activeModelUri
+            if (!currentTab) {
+                return
+            }
+
+            if (currentTab.insight) {
+                const currentUrl = new URL(window.location.href)
+                const shareUrl = new URL(currentUrl.origin + currentUrl.pathname)
+                shareUrl.searchParams.set('open_insight', currentTab.insight.short_id)
+
+                if (currentTab.insight.query?.kind === NodeKind.DataVisualizationNode) {
+                    const query = (currentTab.insight.query as DataVisualizationNode).source.query
+                    if (values.queryInput !== query) {
+                        shareUrl.searchParams.set('open_query', values.queryInput)
+                    }
+                }
+
+                void copyToClipboard(shareUrl.toString(), 'share link')
+            } else if (currentTab.view) {
+                const currentUrl = new URL(window.location.href)
+                const shareUrl = new URL(currentUrl.origin + currentUrl.pathname)
+                shareUrl.searchParams.set('open_view', currentTab.view.id)
+
+                if (values.queryInput != currentTab.view.query.query) {
+                    shareUrl.searchParams.set('open_query', values.queryInput)
+                }
+
+                void copyToClipboard(shareUrl.toString(), 'share link')
+            } else {
+                const currentUrl = new URL(window.location.href)
+                const shareUrl = new URL(currentUrl.origin + currentUrl.pathname)
+                shareUrl.searchParams.set('open_query', values.queryInput)
+
+                void copyToClipboard(shareUrl.toString(), 'share link')
+            }
+        },
         setSuggestedQueryInput: ({ suggestedQueryInput }) => {
             if (values.queryInput) {
                 actions._setSuggestedQueryInput(suggestedQueryInput)
@@ -294,28 +333,72 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 actions.setQueryInput(suggestedQueryInput)
             }
         },
-        onAcceptSuggestedQueryInput: () => {
+        onAcceptSuggestedQueryInput: ({ shouldRunQuery }) => {
             actions.reportAIQueryAccepted()
             actions.setQueryInput(values.suggestedQueryInput)
-            // CLUDGE: suggestedQueryInput purges monaco model so we need to re-create it
-            if (props.monaco && values.activeModelUri) {
-                const newModel = props.monaco.editor.createModel(
-                    values.suggestedQueryInput,
-                    'hogQL',
-                    values.activeModelUri.uri
-                )
-                props.editor?.setModel(newModel)
+
+            if (shouldRunQuery) {
+                actions.runQuery(values.suggestedQueryInput)
             }
+
+            // Re-create the model to prevent it from being purged
+            if (props.monaco && values.activeModelUri) {
+                const existingModel = props.monaco.editor.getModel(values.activeModelUri.uri)
+                if (!existingModel) {
+                    const newModel = props.monaco.editor.createModel(
+                        values.suggestedQueryInput,
+                        'hogQL',
+                        values.activeModelUri.uri
+                    )
+
+                    const mountedCodeEditorLogic =
+                        codeEditorLogic.findMounted() ||
+                        codeEditorLogic({
+                            key: props.key,
+                            query: values.suggestedQueryInput,
+                            language: 'hogQL',
+                        })
+
+                    initModel(newModel, mountedCodeEditorLogic)
+                    props.editor?.setModel(newModel)
+                } else {
+                    props.editor?.setModel(existingModel)
+                }
+            }
+
             actions.setSuggestedQueryInput('')
+            actions.updateState(true)
         },
         onRejectSuggestedQueryInput: () => {
             actions.reportAIQueryRejected()
-            actions.setSuggestedQueryInput('')
-            // CLUDGE: suggestedQueryInput purges monaco model so we need to re-create it
+
+            // Re-create the model to prevent it from being purged
             if (props.monaco && values.activeModelUri) {
-                const newModel = props.monaco.editor.createModel(values.queryInput, 'hogQL', values.activeModelUri.uri)
-                props.editor?.setModel(newModel)
+                const existingModel = props.monaco.editor.getModel(values.activeModelUri.uri)
+                if (!existingModel) {
+                    const newModel = props.monaco.editor.createModel(
+                        values.queryInput,
+                        'hogQL',
+                        values.activeModelUri.uri
+                    )
+
+                    const mountedCodeEditorLogic =
+                        codeEditorLogic.findMounted() ||
+                        codeEditorLogic({
+                            key: props.key,
+                            query: values.queryInput,
+                            language: 'hogQL',
+                        })
+
+                    initModel(newModel, mountedCodeEditorLogic)
+                    props.editor?.setModel(newModel)
+                } else {
+                    props.editor?.setModel(existingModel)
+                }
             }
+
+            actions.setSuggestedQueryInput('')
+            actions.updateState(true)
         },
         editView: ({ query, view }) => {
             const maybeExistingTab = values.allTabs.find((tab) => tab.view?.id === view.id)
@@ -859,6 +942,25 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
     })),
     subscriptions(({ props, actions, values }) => ({
+        showLegacyFilters: (showLegacyFilters: boolean) => {
+            if (showLegacyFilters) {
+                actions.setSourceQuery({
+                    ...values.sourceQuery,
+                    source: {
+                        ...values.sourceQuery.source,
+                        filters: {},
+                    },
+                })
+            } else {
+                actions.setSourceQuery({
+                    ...values.sourceQuery,
+                    source: {
+                        ...values.sourceQuery.source,
+                        filters: undefined,
+                    },
+                })
+            }
+        },
         activeModelUri: (activeModelUri) => {
             if (props.monaco) {
                 const _model = props.monaco.editor.getModel(activeModelUri.uri)
@@ -944,12 +1046,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
         showLegacyFilters: [
-            (s) => [s.sourceQuery],
-            (sourceQuery) => {
-                return (
-                    sourceQuery.source.query.indexOf('{filters}') !== -1 ||
-                    sourceQuery.source.query.indexOf('{filters.') !== -1
-                )
+            (s) => [s.queryInput],
+            (queryInput) => {
+                return queryInput.indexOf('{filters}') !== -1 || queryInput.indexOf('{filters.') !== -1
             },
         ],
         dataLogicKey: [
@@ -985,12 +1084,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             let tabAdded = false
 
             const createQueryTab = async (): Promise<void> => {
-                if (searchParams.open_query) {
-                    // Open query string
-                    actions.createTab(searchParams.open_query)
-                    tabAdded = true
-                    router.actions.replace(router.values.location.pathname)
-                } else if (searchParams.open_view) {
+                if (searchParams.open_view) {
                     // Open view
                     const viewId = searchParams.open_view
                     const view = values.dataWarehouseSavedQueries.find((n) => n.id === viewId)
@@ -999,7 +1093,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         return
                     }
 
-                    actions.editView(view.query.query, view)
+                    const queryToOpen = searchParams.open_query ? searchParams.open_query : view.query.query
+
+                    actions.editView(queryToOpen, view)
                     tabAdded = true
                     router.actions.replace(router.values.location.pathname)
                 } else if (searchParams.open_insight) {
@@ -1024,10 +1120,16 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         query = (insight.query as DataVisualizationNode).source.query
                     }
 
-                    actions.editInsight(query, insight)
+                    const queryToOpen = searchParams.open_query ? searchParams.open_query : query
 
-                    // Only run the query if the results aren't already cached locally
-                    if (insight.query?.kind === NodeKind.DataVisualizationNode && insight.query) {
+                    actions.editInsight(queryToOpen, insight)
+
+                    // Only run the query if the results aren't already cached locally and we're not using the open_query search param
+                    if (
+                        insight.query?.kind === NodeKind.DataVisualizationNode &&
+                        insight.query &&
+                        !searchParams.open_query
+                    ) {
                         dataNodeLogic({
                             key: values.dataLogicKey,
                             query: (insight.query as DataVisualizationNode).source,
@@ -1045,6 +1147,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         actions.runQuery()
                     }
 
+                    tabAdded = true
+                    router.actions.replace(router.values.location.pathname)
+                } else if (searchParams.open_query) {
+                    // Open query string
+                    actions.createTab(searchParams.open_query)
                     tabAdded = true
                     router.actions.replace(router.values.location.pathname)
                 }

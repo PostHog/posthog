@@ -34,4 +34,19 @@
             color: var(--accent-hover);
         }
     }
+
+    // Tooltips are inverted, so links are too
+    .Tooltip & {
+        color: var(--accent-inverted);
+
+        &:not(:disabled) {
+            &:hover {
+                color: var(--accent-hover-inverted);
+            }
+
+            &:active {
+                color: var(--accent-active-inverted);
+            }
+        }
+    }
 }

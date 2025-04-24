@@ -471,3 +471,33 @@ class TestProductIntent(BaseTest):
 
         Survey.objects.create(team=self.team, name="Survey Test")
         assert self.product_intent.has_activated_surveys() is False
+
+    @freeze_time("2024-06-15T12:00:00Z")
+    def test_check_and_update_activation_skips_if_already_activated(self):
+        # First activate it
+        Insight.objects.create(
+            team=self.team, query={"kind": "DataVisualizationNode", "source": {"query": "SELECT * FROM custom_table"}}
+        )
+        self.product_intent.check_and_update_activation()
+        initial_activated_at = self.product_intent.activated_at
+        initial_last_checked = self.product_intent.activation_last_checked_at
+
+        # Move time forward and check again
+        with freeze_time("2024-06-16T12:00:00Z"):
+            result = self.product_intent.check_and_update_activation()
+            self.product_intent.refresh_from_db()
+
+            assert result is True  # Returns True for already activated
+            assert self.product_intent.activated_at == initial_activated_at  # Activation time unchanged
+            assert self.product_intent.activation_last_checked_at == initial_last_checked  # Last checked unchanged
+
+    @freeze_time("2024-06-15T12:00:00Z")
+    def test_check_and_update_activation_updates_last_checked_for_non_activated(self):
+        initial_last_checked = self.product_intent.activation_last_checked_at
+        result = self.product_intent.check_and_update_activation()
+        self.product_intent.refresh_from_db()
+
+        assert result is False  # Not activated
+        assert self.product_intent.activated_at is None  # Still not activated
+        assert self.product_intent.activation_last_checked_at == datetime(2024, 6, 15, 12, 0, 0, tzinfo=UTC)
+        assert self.product_intent.activation_last_checked_at != initial_last_checked

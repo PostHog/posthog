@@ -376,6 +376,34 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         ...propertyTaxonomicGroupProps(),
                     },
                     {
+                        name: 'Issues',
+                        searchPlaceholder: 'issues',
+                        type: TaxonomicFilterGroupType.ErrorTrackingIssues,
+                        options: Object.entries(
+                            CORE_FILTER_DEFINITIONS_BY_GROUP[TaxonomicFilterGroupType.ErrorTrackingIssues]
+                        ).map(([key, { label }]) => ({
+                            value: key,
+                            name: label,
+                        })),
+                        getName: (option) => option.name,
+                        getValue: (option) => option.value,
+                        getPopoverHeader: () => 'Issues',
+                    },
+                    {
+                        name: 'Issue properties',
+                        searchPlaceholder: 'issue properties',
+                        type: TaxonomicFilterGroupType.ErrorTrackingIssueProperties,
+                        options: Object.entries(
+                            CORE_FILTER_DEFINITIONS_BY_GROUP[TaxonomicFilterGroupType.ErrorTrackingIssueProperties]
+                        ).map(([key, { label }]) => ({
+                            value: key,
+                            name: label,
+                        })),
+                        getName: (option) => option.name,
+                        getValue: (option) => option.value,
+                        getPopoverHeader: () => 'Issue properties',
+                    },
+                    {
                         name: 'Numerical event properties',
                         searchPlaceholder: 'numerical event properties',
                         type: TaxonomicFilterGroupType.NumericalEventProperties,
@@ -701,12 +729,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     posthog.captureException(e, { posthog_feature: 'taxonomic_filter_swapped_in_query' })
                 }
                 props.onChange?.(group, value, item, originalQuery)
+            } else if (group.type === TaxonomicFilterGroupType.HogQLExpression && value) {
+                props.onChange?.(group, value, item, originalQuery)
             } else if (props.onEnter) {
                 // If the user pressed enter on a group with no item selected, we want to pass the original query
                 props.onEnter(values.searchQuery)
                 return
-            } else if (group.type === TaxonomicFilterGroupType.HogQLExpression) {
-                props.onChange?.(group, value, item, originalQuery)
             }
             actions.setSearchQuery('')
         },
