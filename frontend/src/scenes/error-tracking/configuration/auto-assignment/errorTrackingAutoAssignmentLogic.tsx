@@ -51,7 +51,7 @@ export const errorTrackingAutoAssignmentLogic = kea<errorTrackingAutoAssignmentL
                     if (rule) {
                         if (rule.id === 'new') {
                             const newRule = await api.errorTracking.createAssignmentRule(rule)
-                            return newValues.map((r) => (rule.id === r.id ? newRule : r))
+                            return [...newValues, newRule]
                         }
                         await api.errorTracking.updateAssignmentRule(rule)
                     }
@@ -90,7 +90,12 @@ export const errorTrackingAutoAssignmentLogic = kea<errorTrackingAutoAssignmentL
                 },
             ])
         },
-        saveRule: (id) => {
+        saveRuleSuccess: ({ payload: id }) => {
+            const localRules = [...values.localRules]
+            const newEditingRules = localRules.filter((v) => v.id !== id)
+            actions._setLocalRules(newEditingRules)
+        },
+        deleteRuleSuccess: ({ payload: id }) => {
             const localRules = [...values.localRules]
             const newEditingRules = localRules.filter((v) => v.id !== id)
             actions._setLocalRules(newEditingRules)

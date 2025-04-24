@@ -248,14 +248,14 @@ export const selectorOperatorMap: Record<string, string> = {
 }
 
 export const cohortOperatorMap: Record<string, string> = {
-    in: 'user in',
-    not_in: 'user not in',
+    in: '∋ user in',
+    not_in: '∌ user not in',
 }
 
 export const stickinessOperatorMap: Record<string, string> = {
-    exact: 'Exactly',
-    gte: 'At least',
-    lte: 'At most (but at least once)',
+    exact: '= Exactly',
+    gte: '≥ At least',
+    lte: '≤ At most (but at least once)',
 }
 
 export const cleanedPathOperatorMap: Record<string, string> = {
@@ -263,9 +263,9 @@ export const cleanedPathOperatorMap: Record<string, string> = {
 }
 
 export const assigneeOperatorMap: Record<string, string> = {
-    exact: 'is',
-    is_not: 'is not',
-    is_not_set: 'is not set',
+    exact: '= is',
+    is_not: '≠ is not',
+    is_not_set: '✕ is not set',
 }
 
 export const allOperatorsMapping: Record<string, string> = {

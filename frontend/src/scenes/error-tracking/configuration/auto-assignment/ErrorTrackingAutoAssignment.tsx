@@ -1,10 +1,14 @@
 import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonDivider, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonDialog, LemonDivider, LemonSelect, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useEffect } from 'react'
-import { AssigneeLabelDisplay, AssigneeResolver } from 'scenes/error-tracking/components/Assignee/AssigneeDisplay'
+import {
+    AssigneeIconDisplay,
+    AssigneeLabelDisplay,
+    AssigneeResolver,
+} from 'scenes/error-tracking/components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from 'scenes/error-tracking/components/Assignee/AssigneeSelect'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
@@ -37,7 +41,7 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
                 return (
                     <LemonCard key={rule.id} hoverEffect={false} className="flex flex-col p-0">
                         <div className="flex gap-2 justify-between px-2 py-3">
-                            <div className="flex gap-2 items-center">
+                            <div className="flex gap-1 items-center">
                                 <div>Assign to</div>
                                 <RuleAssignee
                                     assignee={rule.assignee}
@@ -56,7 +60,23 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
                             </div>
                             <RuleActions
                                 onClickSave={() => saveRule(rule.id)}
-                                onClickDelete={rule.id === 'new' ? undefined : () => deleteRule(rule.id)}
+                                onClickDelete={
+                                    rule.id === 'new'
+                                        ? undefined
+                                        : () =>
+                                              LemonDialog.open({
+                                                  title: 'Delete rule',
+                                                  description: 'Are you sure you want to delete your assignment rule?',
+                                                  primaryButton: {
+                                                      status: 'danger',
+                                                      children: 'Remove',
+                                                      onClick: () => deleteRule(rule.id),
+                                                  },
+                                                  secondaryButton: {
+                                                      children: 'Cancel',
+                                                  },
+                                              })
+                                }
                                 onClickEdit={() => setRuleEditable(rule.id)}
                                 onClickCancel={() => unsetRuleEditable(rule.id)}
                                 editable={editable}
@@ -65,6 +85,7 @@ export function ErrorTrackingAutoAssignment(): JSX.Element {
                         <LemonDivider className="my-0" />
                         <div className="p-2">
                             <PropertyFilters
+                                editable={editable}
                                 propertyFilters={(rule.filters.values as AnyPropertyFilter[]) ?? []}
                                 taxonomicGroupTypes={[TaxonomicFilterGroupType.ErrorTrackingIssues]}
                                 onChange={(properties: AnyPropertyFilter[]) =>
@@ -112,7 +133,12 @@ const RuleAssignee = ({
         </AssigneeSelect>
     ) : (
         <AssigneeResolver assignee={assignee}>
-            {({ assignee }) => <AssigneeLabelDisplay assignee={assignee} />}
+            {({ assignee }) => (
+                <>
+                    <AssigneeIconDisplay assignee={assignee} />
+                    <AssigneeLabelDisplay assignee={assignee} />
+                </>
+            )}
         </AssigneeResolver>
     )
 }
@@ -137,7 +163,7 @@ const RuleOperator = ({
             ]}
         />
     ) : (
-        <>{operator}</>
+        <span className="font-semibold">{operator === FilterLogicalOperator.And ? 'all' : 'any'}</span>
     )
 }
 

@@ -8,7 +8,11 @@ import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 import { useEffect } from 'react'
-import { AssigneeLabelDisplay } from 'scenes/error-tracking/components/Assignee/AssigneeDisplay'
+import {
+    AssigneeIconDisplay,
+    AssigneeLabelDisplay,
+    AssigneeResolver,
+} from 'scenes/error-tracking/components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from 'scenes/error-tracking/components/Assignee/AssigneeSelect'
 
 import {
@@ -34,6 +38,7 @@ export interface PropertyValueProps {
     additionalPropertiesFilter?: { key: string; values: string | string[] }[]
     groupTypeIndex?: GroupTypeIndex
     size?: LemonButtonProps['size']
+    editable?: boolean
 }
 
 export function PropertyValue({
@@ -51,6 +56,7 @@ export function PropertyValue({
     inputClassName = undefined,
     additionalPropertiesFilter = [],
     groupTypeIndex = undefined,
+    editable = true,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
@@ -93,7 +99,7 @@ export function PropertyValue({
     }
 
     if (isAssigneeProperty) {
-        return (
+        return editable ? (
             <AssigneeSelect assignee={value as ErrorTrackingIssueAssignee} onChange={setValue}>
                 {(displayAssignee) => (
                     <LemonButton fullWidth type="secondary" size={size}>
@@ -101,7 +107,24 @@ export function PropertyValue({
                     </LemonButton>
                 )}
             </AssigneeSelect>
+        ) : (
+            <AssigneeResolver assignee={value as ErrorTrackingIssueAssignee}>
+                {({ assignee }) => (
+                    <>
+                        <AssigneeIconDisplay assignee={assignee} />
+                        <AssigneeLabelDisplay assignee={assignee} />
+                    </>
+                )}
+            </AssigneeResolver>
         )
+    }
+
+    const formattedValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
+        (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
+    )
+
+    if (!editable) {
+        return <>{formattedValues.join(' or ')}</>
     }
 
     if (isDurationProperty) {
@@ -151,10 +174,6 @@ export function PropertyValue({
             />
         )
     }
-
-    const formattedValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
-        (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
-    )
 
     return (
         <LemonInputSelect
