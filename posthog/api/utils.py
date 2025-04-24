@@ -538,6 +538,15 @@ class ServerTimingsGathered:
             new_length = current_length + len(timing_str) + (2 if result else 0)
 
             if new_length > 10000:
+                """
+                The server timings can grow to arbitrary length - in the case that caused us problems over 33,000 characters
+                AWS ALBs have limits on size for both each individual header and for all headers on a request
+                If we exceed that limit then the ALB returns a 502 with no other explanation
+                leading to confusion and distraction
+                So, we limit here to 10k characters to avoid that issue
+                The timings header is a debug signal we don't rely on for functionality
+                so not receiving all timings is not the worse thing in the world
+                """
                 capture_exception(
                     Exception(f"Server timing header exceeded 10k limit with {len(timings)} timings"),
                     properties={"timings": timings},

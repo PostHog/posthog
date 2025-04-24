@@ -311,7 +311,7 @@ export function OutputPane(): JSX.Element {
 
     return (
         <div className="OutputPane flex flex-col w-full flex-1 bg-white">
-            <div className="flex flex-row justify-between align-center w-full h-[50px]">
+            <div className="flex flex-row justify-between align-center w-full h-[50px] overflow-y-auto">
                 <div className="flex h-[50px] gap-2 ml-4">
                     {[
                         {
@@ -411,13 +411,13 @@ export function OutputPane(): JSX.Element {
                     )}
                     {activeTab === OutputTab.Results && (
                         <LemonButton
-                            disabledReason={!hasColumns ? 'No results to visualize' : undefined}
+                            disabledReason={!hasColumns && !editingInsight ? 'No results to visualize' : undefined}
                             type="secondary"
                             onClick={() => setActiveTab(OutputTab.Visualization)}
-                            id="sql-editor-create-insight"
+                            id={`sql-editor-${editingInsight ? 'view' : 'create'}-insight`}
                             icon={<IconGraph />}
                         >
-                            Create insight
+                            {editingInsight ? 'View insight' : 'Create insight'}
                         </LemonButton>
                     )}
                     {activeTab === OutputTab.Results && exportContext && (
