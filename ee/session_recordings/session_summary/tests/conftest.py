@@ -100,7 +100,7 @@ def mock_raw_metadata() -> dict[str, Any]:
 
 
 @pytest.fixture
-def mock_events_columns(self) -> list[str]:
+def mock_events_columns() -> list[str]:
     return [
         "event",
         "timestamp",
