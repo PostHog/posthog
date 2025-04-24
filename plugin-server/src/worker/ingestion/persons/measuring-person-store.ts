@@ -114,7 +114,7 @@ export class MeasuringPersonsStore implements PersonsStore {
         return new MeasuringPersonsStoreForDistinctID(this.db, teamId, distinctId)
     }
 
-    async reportMetrics(): Promise<void> {
+    async reportBatch(): Promise<void> {
         // Will be implemented later
     }
 }

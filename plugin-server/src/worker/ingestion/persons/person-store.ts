@@ -9,7 +9,7 @@ export interface PersonsStore {
     forDistinctID(teamId: number, distinctId: string): PersonsStoreForDistinctID
 
     /**
-     * Reports metrics about person operations
+     * Reports metrics about person operations in batch
      */
-    reportMetrics(): Promise<void>
+    reportBatch(): Promise<void>
 }
