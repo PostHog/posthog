@@ -1,6 +1,7 @@
-from typing import Optional, cast
+from typing import Literal, Optional, cast
 
 from django.db.models.functions.comparison import Coalesce
+from pydantic import BaseModel
 
 from posthog.constants import (
     AUTOCAPTURE_EVENT,
