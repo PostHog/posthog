@@ -316,6 +316,38 @@ def try_to_store_error_count(playlist_short_id: str | None) -> None:
         pass
 
 
+def should_skip_task(existing_value: dict[str, Any], playlist_filters: dict[str, Any]) -> bool:
+    # if we have results from the last hour we don't need to run the query
+    if existing_value.get("refreshed_at"):
+        last_refreshed_at = datetime.fromisoformat(existing_value["refreshed_at"])
+        seconds_since_refresh = int((datetime.now() - last_refreshed_at).total_seconds())
+
+        if seconds_since_refresh <= settings.PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS:
+            REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="cooldown").inc()
+            return True
+
+    # don't retry for a while if we're getting errors
+    if existing_value.get("errored_at"):
+        last_errored_at = datetime.fromisoformat(existing_value["errored_at"])
+        seconds_since_refresh = int((datetime.now() - last_errored_at).total_seconds())
+
+        if seconds_since_refresh <= settings.PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS:
+            REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="error_cooldown").inc()
+            return True
+
+    # don't keep retrying if we keep getting errors
+    if existing_value.get("error_count", 0) >= 5:
+        REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="max_error_cooldown").inc()
+        return True
+
+    # if this is the default filters, then we shouldn't have allowed this to be created - we can skip it
+    if playlist_filters == DEFAULT_RECORDING_FILTERS:
+        REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="default_filters").inc()
+        return True
+
+    return False
+
+
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
@@ -347,32 +379,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             else:
                 existing_value = {}
 
-            # if we have results from the last hour we don't need to run the query
-            if existing_value.get("refreshed_at"):
-                last_refreshed_at = datetime.fromisoformat(existing_value["refreshed_at"])
-                seconds_since_refresh = int((datetime.now() - last_refreshed_at).total_seconds())
-
-                if seconds_since_refresh <= settings.PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS:
-                    REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="cooldown").inc()
-                    return
-
-            # don't retry for a while if we're getting errors
-            if existing_value.get("errored_at"):
-                last_errored_at = datetime.fromisoformat(existing_value["errored_at"])
-                seconds_since_refresh = int((datetime.now() - last_errored_at).total_seconds())
-
-                if seconds_since_refresh <= settings.PLAYLIST_COUNTER_PROCESSING_COOLDOWN_SECONDS:
-                    REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="error_cooldown").inc()
-                    return
-
-            # don't keep retrying if we keep getting errors
-            if existing_value.get("error_count", 0) >= 5:
-                REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="max_error_cooldown").inc()
-                return
-
-            # if this is the default filters, then we shouldn't have allowed this to be created - we can skip it
-            if playlist.filters == DEFAULT_RECORDING_FILTERS:
-                REPLAY_TEAM_PLAYLIST_COUNT_SKIPPED.labels(reason="default_filters").inc()
+            if should_skip_task(existing_value, playlist.filters):
                 return
 
             query = convert_filters_to_recordings_query(playlist)
