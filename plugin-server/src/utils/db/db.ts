@@ -4,6 +4,7 @@ import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
 import { DateTime } from 'luxon'
 import { QueryResult } from 'pg'
+import { Histogram } from 'prom-client'
 
 import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import { KafkaProducerWrapper, TopicMessage } from '../../kafka/producer'
@@ -134,6 +135,15 @@ export const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'ETIMEDOUT',
     'query_wait_timeout', // Waiting on PG bouncer to give us a slot
 ]
+
+// for fetchPerson properties JSONB size observation
+const EIGHT_MEGABYTE_PROPS_BLOB = 8388608
+const fetchPersonPropsSize = new Histogram({
+    name: 'fetchperson_properties_size',
+    help: 'histogram of person properties JSONB bytes retrieved in fetchPerson',
+    // 1kb, 8kb (TOAST threshold), 64kb, 512kb, 1mb, 2mb, 8mb, 16mb, 64mb
+    buckets: [1024, 8196, 65536, 524288, 1048576, 2097152, 8388608, 16777216, 67108864],
+})
 
 /** The recommended way of accessing the database. */
 export class DB {
@@ -534,9 +544,90 @@ export class DB {
             'fetchPerson'
         )
 
+        // this may need to be sampled to not add drag to fetchPerson exec times.
+        // the row deserialization drills down into the client library, but we could
+        // implement RawPerson hydration here if we query for rows of a more basic type
         if (rows.length > 0) {
+            // recursively estimate the properties Record<string, any> size.
+            // expensive, but hopefully cheaper than JSON.stringify + length check
+            const estimatedPropsBytes = this.estimateObjectSize(rows[0].properties || {})
+            fetchPersonPropsSize.observe(estimatedPropsBytes)
+
+            // if larger than some arbitrary threshold (start conservative, adjust as we observe)
+            // we should log the team and disinct_id associated with the properties
+            if (estimatedPropsBytes >= EIGHT_MEGABYTE_PROPS_BLOB) {
+                logger.warn('⚠️', 'fetchPerson: large properties record detected', {
+                    teamId: teamId,
+                    distinctId: distinctId,
+                    estimated_bytes: estimatedPropsBytes,
+                })
+            }
+
             return this.toPerson(rows[0])
         }
+    }
+
+    private estimateObjectSize(obj: Record<string, any>): number {
+        let totalBytes = 0
+
+        // Iterate through all properties
+        for (const key in obj) {
+            if (obj.hasOwnProperty(key)) {
+                // Add bytes for the key string
+                totalBytes += key.length * 2 // Unicode characters in JS are 2 bytes
+
+                const value = obj[key]
+                const type = typeof value
+
+                // Estimate size based on value type
+                if (value === null || value === undefined) {
+                    totalBytes += 4 // Rough estimate for null/undefined
+                } else if (type === 'boolean') {
+                    totalBytes += 4 // Rough estimate for boolean
+                } else if (type === 'number') {
+                    totalBytes += 8 // Rough estimate for number (typically 8 bytes)
+                } else if (type === 'string') {
+                    totalBytes += value.length * 2 // Unicode characters in JS are 2 bytes
+                } else if (type === 'object') {
+                    if (Array.isArray(value)) {
+                        // For arrays, recursively calculate size
+                        totalBytes += 4 // Array overhead
+                        for (const item of value) {
+                            if (typeof item === 'object' && item !== null) {
+                                totalBytes += this.estimateObjectSize(item)
+                            } else {
+                                // Add the appropriate size for primitive values
+                                totalBytes += this.estimatePrimitiveSize(item)
+                            }
+                        }
+                    } else {
+                        // For nested objects, recurse
+                        totalBytes += this.estimateObjectSize(value)
+                    }
+                }
+
+                // Add a few bytes for property overhead
+                totalBytes += 8
+            }
+        }
+
+        return totalBytes
+    }
+
+    private estimatePrimitiveSize(value: any): number {
+        const type = typeof value
+
+        if (value === null || value === undefined) {
+            return 4
+        } else if (type === 'boolean') {
+            return 4
+        } else if (type === 'number') {
+            return 8
+        } else if (type === 'string') {
+            return value.length * 2
+        }
+
+        return 0
     }
 
     public async createPerson(
