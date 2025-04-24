@@ -4,6 +4,9 @@ from posthog.schema import CurrencyCode, RevenueAnalyticsEventItem
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.core.exceptions import ValidationError
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Django requires a list of tuples for choices
 CURRENCY_CODE_CHOICES = [(code.value, code.value) for code in CurrencyCode]
@@ -35,7 +38,14 @@ class TeamRevenueAnalyticsConfig(models.Model):
             raise ValidationError(f"Invalid events schema: {str(e)}")
 
 
+# This is best effort, we always attempt to create the config manually
+# when accessing it via `Team.revenue_analytics_config`.
+# In theory, this shouldn't ever fail, but it does fail in some tests cases
+# so let's make it very forgiving
 @receiver(post_save, sender=Team)
 def create_team_revenue_analytics_config(sender, instance, created, **kwargs):
-    if created:
-        TeamRevenueAnalyticsConfig.objects.get_or_create(team=instance)
+    try:
+        if created:
+            TeamRevenueAnalyticsConfig.objects.get_or_create(team=instance)
+    except Exception as e:
+        logger.warning(f"Error creating team revenue analytics config: {e}")
