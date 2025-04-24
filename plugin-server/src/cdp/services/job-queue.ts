@@ -343,6 +343,10 @@ export class CyclotronJobQueue {
             .labels({ queue: this.queue })
             .set(messages.length / this.hub.CDP_CYCLOTRON_BATCH_SIZE)
 
+        if (messages.length === 0) {
+            return
+        }
+
         const invocations: HogFunctionInvocation[] = []
         const hogFunctionIds = new Set<string>()
 
