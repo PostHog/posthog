@@ -158,8 +158,13 @@ class DeltaTableHelper:
             predicate_ops = [f"source.{c} = target.{c}" for c in normalized_primary_keys]
 
             if use_partitioning:
-                self.merge_partitioned_delta_table(delta_table, data, predicate_ops)
+                # We are testing concurrent merges with a subset of teams.
+                # TODO: Do all merges concurrently and remove the sequential method.
+                if str(self._job.team.id) in settings.CONCURRENT_MERGES_TEAM_IDS:
+                    self.merge_partitioned_delta_table(delta_table, data, predicate_ops)
 
+                else:
+                    self.merge_partitioned_delta_table_sequential(delta_table, data, predicate_ops)
             else:
                 _ = self.merge_delta_table(delta_table, data, predicate_ops)
 
@@ -221,10 +226,10 @@ class DeltaTableHelper:
         predicate_ops: list[str],
         max_workers: int | None = None,
     ) -> None:
-        """Execute merges of data partitions into partitioned delta table.
+        """Execute concurrent merges of data partitions into delta table.
 
         This method orchestrates the execution of multiple merges (one per
-        partition) concurrently. Assuming
+        partition) concurrently.
 
         Arguments:
             delta_table: The delta table we are merging data into.
@@ -235,7 +240,9 @@ class DeltaTableHelper:
                 `concurrent.futures.ThreadPoolExecutor` to decide how many
                 workers to use.
         """
-        logger = self.logger.bind(is_first_sync=str(self._is_first_sync), table_uri=delta_table.table_uri)
+        logger = self.logger.bind(
+            is_first_sync=str(self._is_first_sync), table_uri=delta_table.table_uri, merge_mode="concurrent"
+        )
 
         predicate_ops = predicate_ops.copy()
         predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
@@ -274,6 +281,52 @@ class DeltaTableHelper:
                     raise
                 else:
                     logger.debug("Successfully merged partition %s", partition)
+
+    def merge_partitioned_delta_table_sequential(
+        self,
+        delta_table: deltalake.DeltaTable,
+        data: pa.Table,
+        predicate_ops: list[str],
+    ) -> None:
+        """Execute sequential merges of data partitions into delta table.
+
+        This method executes merges sequentially, thus not taking any advantage
+        of non-blocking merges done to different partitions.
+
+        Arguments:
+            delta_table: The delta table we are merging data into.
+            data: The data we are merging into the delta table.
+            predicate_ops: Merging predicate clauses.
+        """
+        logger = self.logger.bind(
+            is_first_sync=str(self._is_first_sync), table_uri=delta_table.table_uri, merge_mode="sequential"
+        )
+
+        predicate_ops = predicate_ops.copy()
+        predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
+
+        # Group the table by the partition key and merge multiple times with streamed_exec=True for optimised merging
+        unique_partitions = pc.unique(data[PARTITION_KEY])  # type: ignore
+        logger.debug("Running %d optimised merges", len(unique_partitions))
+
+        for partition in unique_partitions:
+            partition_predicate_ops = predicate_ops.copy()
+            partition_predicate_ops.append(f"target.{PARTITION_KEY} = '{partition}'")
+
+            filtered_table = data.filter(pc.equal(data[PARTITION_KEY], partition))
+
+            logger.debug(
+                "Submitting merge for partition '%s'",
+                partition,
+            )
+
+            try:
+                _ = self.merge_delta_table(delta_table, filtered_table, partition_predicate_ops, streamed_exc=True)
+            except Exception as exc:
+                logger.exception("Failed to merge partition %s: %s", partition, exc)
+                raise
+            else:
+                logger.debug("Successfully merged partition %s", partition)
 
     def merge_delta_table(
         self, delta_table: deltalake.DeltaTable, data: pa.Table, predicate_ops: list[str], streamed_exc: bool = False

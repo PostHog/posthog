@@ -21,3 +21,7 @@ OLD_BIGQUERY_SOURCE_TEAM_IDS: list[str] = get_list(os.getenv("OLD_BIGQUERY_SOURC
 # Temporary, using it to maintain existing teams in old MS SQL Server source.
 # After further testing this will be removed and all teams moved to new source.
 OLD_MSSQL_SOURCE_TEAM_IDS: list[str] = get_list(os.getenv("OLD_MSSQL_SOURCE_TEAM_IDS", ""))
+
+# Temporary, using to redirect subset of teams to concurrent delta table merging.
+# TODO: Remove after concurrent merges prove their worth (or not).
+CONCURRENT_MERGES_TEAM_IDS: list[str] = get_list(os.getenv("CONCURRENT_MERGES_TEAM_IDS", ""))
