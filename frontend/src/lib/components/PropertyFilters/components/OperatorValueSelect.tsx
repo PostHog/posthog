@@ -13,7 +13,6 @@ import {
 } from 'lib/utils'
 import { useEffect, useState } from 'react'
 
-import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
 import {
     GroupTypeIndex,
     PropertyDefinition,
@@ -23,13 +22,13 @@ import {
     PropertyType,
 } from '~/types'
 
-import { PropertyValue } from './PropertyValue'
+import { PropertyValue, PropertyValueValue } from './PropertyValue'
 
 export interface OperatorValueSelectProps {
     type?: PropertyFilterType
     propertyKey?: string
     operator?: PropertyOperator | null
-    value?: string | number | bigint | Array<string | number | bigint> | ErrorTrackingIssueAssignee | null
+    value?: PropertyValueValue
     editable: boolean
     placeholder?: string
     endpoint?: string

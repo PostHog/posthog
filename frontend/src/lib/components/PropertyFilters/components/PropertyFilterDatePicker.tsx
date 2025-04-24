@@ -1,5 +1,5 @@
 import { LemonCalendarSelectInput } from '@posthog/lemon-ui'
-import { PropertyValueProps } from 'lib/components/PropertyFilters/components/PropertyValue'
+import { PropertyValueProps, PropertyValueValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { dayjs } from 'lib/dayjs'
 import { isOperatorDate } from 'lib/utils'
 import { useEffect, useState } from 'react'
@@ -7,11 +7,11 @@ import { useEffect, useState } from 'react'
 import { PropertyOperator } from '~/types'
 
 const dayJSMightParse = (
-    candidateDateTimeValue: string | number | bigint | (string | number | bigint)[] | null | undefined
+    candidateDateTimeValue: PropertyValueValue
 ): candidateDateTimeValue is string | number | undefined => ['string', 'number'].includes(typeof candidateDateTimeValue)
 
 const narrowToString = (
-    candidateDateTimeValue: string | number | bigint | (string | number | bigint)[] | null | undefined
+    candidateDateTimeValue: PropertyValueValue
 ): candidateDateTimeValue is string | null | undefined =>
     candidateDateTimeValue == undefined || typeof candidateDateTimeValue === 'string'
 
@@ -19,7 +19,7 @@ interface PropertyFilterDatePickerProps {
     autoFocus: boolean
     operator: PropertyOperator
     setValue: (newValue: PropertyValueProps['value']) => void
-    value: string | number | bigint | (string | number | bigint)[] | null | undefined
+    value: PropertyValueValue
 }
 
 const dateAndTimeFormat = 'YYYY-MM-DD HH:mm:ss'

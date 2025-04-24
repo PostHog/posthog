@@ -23,13 +23,22 @@ import {
 import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
 import { GroupTypeIndex, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
+export type PropertyValueValue =
+    | string
+    | number
+    | bigint
+    | Array<string | number | bigint>
+    | ErrorTrackingIssueAssignee
+    | null
+    | undefined
+
 export interface PropertyValueProps {
     propertyKey: string
     type: PropertyFilterType
     endpoint?: string // Endpoint to fetch options from
     placeholder?: string
     onSet: CallableFunction
-    value?: string | number | bigint | Array<string | number | bigint> | ErrorTrackingIssueAssignee | null
+    value?: PropertyValueValue
     operator: PropertyOperator
     autoFocus?: boolean
     eventNames?: string[]
