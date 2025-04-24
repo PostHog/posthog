@@ -93,17 +93,16 @@ export class HogWatcherService {
             const disabled = res ? res[resIndex + 1][1] : false
             const disabledTemporarily = disabled && res ? res[resIndex + 2][1] !== -1 : false
 
-            return {
-                ...acc,
-                [id]: this.tokensToFunctionState(
-                    tokens,
-                    disabled
-                        ? disabledTemporarily
-                            ? HogWatcherState.disabledForPeriod
-                            : HogWatcherState.disabledIndefinitely
-                        : undefined
-                ),
-            }
+            acc[id] = this.tokensToFunctionState(
+                tokens,
+                disabled
+                    ? disabledTemporarily
+                        ? HogWatcherState.disabledForPeriod
+                        : HogWatcherState.disabledIndefinitely
+                    : undefined
+            )
+
+            return acc
         }, {} as Record<HogFunctionType['id'], HogWatcherFunctionState>)
     }
 

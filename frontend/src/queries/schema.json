@@ -16248,6 +16248,9 @@
             "required": ["kind", "revenueSources"],
             "type": "object"
         },
+        "RevenueAnalyticsEventItem": {
+            "$ref": "#/definitions/RevenueTrackingEventItem"
+        },
         "RevenueAnalyticsGrowthRateQuery": {
             "additionalProperties": false,
             "properties": {
