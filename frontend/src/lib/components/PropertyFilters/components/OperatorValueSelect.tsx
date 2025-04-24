@@ -22,13 +22,13 @@ import {
     PropertyType,
 } from '~/types'
 
-import { PropertyValue, PropertyValueValue } from './PropertyValue'
+import { PropertyValue } from './PropertyValue'
 
 export interface OperatorValueSelectProps {
     type?: PropertyFilterType
     propertyKey?: string
     operator?: PropertyOperator | null
-    value?: PropertyValueValue
+    value?: PropertyFilterValue
     editable: boolean
     placeholder?: string
     endpoint?: string

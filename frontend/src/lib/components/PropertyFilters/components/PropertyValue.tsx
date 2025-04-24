@@ -21,16 +21,7 @@ import {
     propertyDefinitionsModel,
 } from '~/models/propertyDefinitionsModel'
 import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
-import { GroupTypeIndex, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
-
-export type PropertyValueValue =
-    | string
-    | number
-    | bigint
-    | Array<string | number | bigint>
-    | ErrorTrackingIssueAssignee
-    | null
-    | undefined
+import { GroupTypeIndex, PropertyFilterType, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 
 export interface PropertyValueProps {
     propertyKey: string
@@ -38,7 +29,7 @@ export interface PropertyValueProps {
     endpoint?: string // Endpoint to fetch options from
     placeholder?: string
     onSet: CallableFunction
-    value?: PropertyValueValue
+    value?: PropertyFilterValue
     operator: PropertyOperator
     autoFocus?: boolean
     eventNames?: string[]
