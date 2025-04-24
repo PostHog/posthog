@@ -716,13 +716,8 @@ export interface ToolbarProps extends ToolbarParams {
 
 export type PathCleaningFilter = { alias?: string; regex?: string }
 
-export type PropertyFilterValue =
-    | string
-    | number
-    | bigint
-    | (string | number | bigint)[]
-    | ErrorTrackingIssueAssignee
-    | null
+export type PropertyFilterBaseValue = string | number | bigint | ErrorTrackingIssueAssignee
+export type PropertyFilterValue = PropertyFilterBaseValue | PropertyFilterBaseValue[] | null
 
 /** Sync with plugin-server/src/types.ts */
 export enum PropertyOperator {

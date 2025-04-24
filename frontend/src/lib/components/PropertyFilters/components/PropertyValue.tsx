@@ -134,7 +134,12 @@ export function PropertyValue({
     if (isDateTimeProperty) {
         if (!addRelativeDateTimeOptions || operator === PropertyOperator.IsDateExact) {
             return (
-                <PropertyFilterDatePicker autoFocus={autoFocus} operator={operator} value={value} setValue={setValue} />
+                <PropertyFilterDatePicker
+                    autoFocus={autoFocus}
+                    operator={operator}
+                    value={value as string | number | null}
+                    setValue={setValue}
+                />
             )
         }
 

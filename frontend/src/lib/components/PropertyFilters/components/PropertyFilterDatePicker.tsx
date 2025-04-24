@@ -6,20 +6,17 @@ import { useEffect, useState } from 'react'
 
 import { PropertyFilterValue, PropertyOperator } from '~/types'
 
-const dayJSMightParse = (
-    candidateDateTimeValue?: PropertyFilterValue
-): candidateDateTimeValue is string | number | undefined => ['string', 'number'].includes(typeof candidateDateTimeValue)
+const dayJSMightParse = (candidateDateTimeValue: PropertyFilterValue): candidateDateTimeValue is string | number =>
+    ['string', 'number'].includes(typeof candidateDateTimeValue)
 
-const narrowToString = (
-    candidateDateTimeValue?: PropertyFilterValue
-): candidateDateTimeValue is string | null | undefined =>
-    candidateDateTimeValue == undefined || typeof candidateDateTimeValue === 'string'
+const narrowToString = (candidateDateTimeValue?: PropertyFilterValue): candidateDateTimeValue is string | null =>
+    typeof candidateDateTimeValue === 'string'
 
 interface PropertyFilterDatePickerProps {
     autoFocus: boolean
     operator: PropertyOperator
     setValue: (newValue: PropertyValueProps['value']) => void
-    value: PropertyFilterValue
+    value: string | number | null
 }
 
 const dateAndTimeFormat = 'YYYY-MM-DD HH:mm:ss'

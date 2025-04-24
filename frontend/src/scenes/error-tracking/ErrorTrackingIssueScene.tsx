@@ -49,7 +49,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
             <PageHeader
                 buttons={
                     <div className="flex gap-x-2">
-                        {!issueLoading && issue?.status == 'active' && (
+                        {!issueLoading && issue?.status === 'active' && (
                             <AssigneeSelect assignee={issue?.assignee} onChange={updateAssignee}>
                                 {(displayAssignee) => (
                                     <LemonButton

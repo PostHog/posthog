@@ -12333,6 +12333,19 @@
             "required": ["kind"],
             "type": "object"
         },
+        "PropertyFilterBaseValue": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "number"
+                },
+                {
+                    "$ref": "#/definitions/ErrorTrackingIssueAssignee"
+                }
+            ]
+        },
         "PropertyFilterType": {
             "enum": [
                 "meta",
@@ -12356,14 +12369,11 @@
         "PropertyFilterValue": {
             "anyOf": [
                 {
-                    "type": "string"
-                },
-                {
-                    "type": "number"
+                    "$ref": "#/definitions/PropertyFilterBaseValue"
                 },
                 {
                     "items": {
-                        "type": ["string", "number"]
+                        "$ref": "#/definitions/PropertyFilterBaseValue"
                     },
                     "type": "array"
                 },

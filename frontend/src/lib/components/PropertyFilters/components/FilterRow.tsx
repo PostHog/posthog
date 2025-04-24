@@ -75,7 +75,7 @@ export const FilterRow = React.memo(function FilterRow({
                 {disablePopover ? (
                     <>
                         {filterComponent(() => setOpen(false))}
-                        {!!Object.keys(filters[index]).length && editable ? (
+                        {Object.keys(filters[index]).length > 0 && editable ? (
                             <LemonButton
                                 icon={orFiltering ? <IconTrash /> : <IconX />}
                                 onClick={() => onRemove(index)}

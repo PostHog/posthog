@@ -140,6 +140,7 @@ export enum TaxonomicFilterGroupType {
     ErrorTrackingIssues = 'error_tracking_issues',
     // Misc
     Replay = 'replay',
+    Resources = 'resources',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {

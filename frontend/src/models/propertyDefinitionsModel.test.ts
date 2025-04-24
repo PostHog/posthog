@@ -237,7 +237,15 @@ describe('the property definitions model', () => {
                         'event_metadata/distinct_id': partial({ name: 'distinct_id' }),
                         'event_metadata/event': partial({ name: 'event' }),
                         'event_metadata/person_id': partial({ name: 'person_id' }),
-                        'event_metadata/timestamp': partial({ name: 'timestamp' }),
+                        'event_metadata/timestamp': partial({
+                            name: 'timestamp',
+                        }),
+                        'resource/assignee': partial({
+                            description: 'User or role assigned to a resource',
+                            id: 'assignee',
+                            name: 'assignee',
+                            property_type: 'Assignee',
+                        }),
                     },
                 })
         })

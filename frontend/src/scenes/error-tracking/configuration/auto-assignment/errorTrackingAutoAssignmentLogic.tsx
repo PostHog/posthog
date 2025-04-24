@@ -54,6 +54,7 @@ export const errorTrackingAutoAssignmentLogic = kea<errorTrackingAutoAssignmentL
                             return [...newValues, newRule]
                         }
                         await api.errorTracking.updateAssignmentRule(rule)
+                        return newValues.map((r) => (r.id === rule.id ? rule : r))
                     }
                     return newValues
                 },
