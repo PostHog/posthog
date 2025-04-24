@@ -130,7 +130,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                                     this.hogFunctionManager.getHogFunctionsForTeam(clickHouseEvent.team_id, [
                                         'destination',
                                     ]),
-                                    this.hub.teamManager.fetchTeam(clickHouseEvent.team_id),
+                                    this.hub.teamManager.getTeam(clickHouseEvent.team_id),
                                 ])
 
                                 if (!teamHogFunctions.length || !team) {

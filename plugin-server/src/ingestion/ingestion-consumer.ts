@@ -363,7 +363,7 @@ export class IngestionConsumer {
                 return // No teams to process
             }
 
-            const teams = await this.hub.teamManagerLazy.getTeamsByTokens(Array.from(tokensToFetch))
+            const teams = await this.hub.teamManager.getTeamsByTokens(Array.from(tokensToFetch))
 
             const teamIdsArray = Object.values(teams)
                 .map((x) => x?.id)

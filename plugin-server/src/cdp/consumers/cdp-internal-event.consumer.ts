@@ -32,7 +32,7 @@ export class CdpInternalEventsConsumer extends CdpEventsConsumer {
 
                             const [teamHogFunctions, team] = await Promise.all([
                                 this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, ['internal_destination']),
-                                this.hub.teamManager.fetchTeam(event.team_id),
+                                this.hub.teamManager.getTeam(event.team_id),
                             ])
 
                             if (!teamHogFunctions.length || !team) {
