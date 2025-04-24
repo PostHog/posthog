@@ -40,7 +40,7 @@ class TestMessageSetupViewSet(APIBaseTest):
                     "recordHostname": "@",
                     "recordValue": "v=spf1 include:spf.mailjet.com ~all",
                     "status": "pending",
-                }
+                },
             ],
         }
         mock_mailjet.setup_email_domain.return_value = expected_result
