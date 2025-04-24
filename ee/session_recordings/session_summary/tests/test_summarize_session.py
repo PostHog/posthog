@@ -2,10 +2,10 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from ee.session_recordings.session_summary.prompt_data import SessionSummaryPromptData
 from ee.session_recordings.session_summary.summarize_session import ReplaySummarizer
 from posthog.models import Team, User
 from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 
 @pytest.fixture
@@ -36,29 +36,12 @@ def summarizer(
     return ReplaySummarizer(mock_recording, mock_user, mock_team)
 
 
-@pytest.fixture
-def mock_prompt_data(
-    mock_raw_metadata: dict[str, Any],
-    mock_raw_events: list[list[Any]],
-    mock_events_columns: list[str],
-    mock_recording: MagicMock,
-) -> tuple[SessionSummaryPromptData, dict[str, list[Any]]]:
-    prompt_data = SessionSummaryPromptData()
-    # Cut last two columns as they should be calculated by the summarizer
-    columns = mock_events_columns[:-2]
-    events_mapping = prompt_data.load_session_data(
-        mock_raw_events, mock_raw_metadata, columns, mock_recording.session_id
-    )
-    return prompt_data, events_mapping
-
-
 class TestReplaySummarizer:
     def test_summarize_recording_success(
         self,
         summarizer: ReplaySummarizer,
         mock_raw_metadata: dict[str, Any],
         mock_raw_events: list[list[Any]],
-        # mock_prompt_data: tuple[SessionSummaryPromptData, dict[str, list[Any]]],
         mock_events_columns: list[str],
         mock_valid_llm_yaml_response: str,
     ):
@@ -102,20 +85,39 @@ class TestReplaySummarizer:
             assert len(results) == 1
             assert results[0] == mock_valid_llm_yaml_response
 
-    # def test_summarize_recording_no_metadata(self, summarizer: ReplaySummarizer):
-    #     with patch(
-    #         "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
-    #         return_value=None,
-    #     ):
-    #         with pytest.raises(
-    #             ValueError, match=f"No metadata found for session_id {summarizer.recording.session_id}"
-    #         ):
-    #             list(summarizer.summarize_recording())
+    def test_summarize_recording_no_metadata(self, summarizer: ReplaySummarizer):
+        with patch.object(
+            SessionReplayEvents,
+            "get_metadata",
+            return_value=None,
+        ) as mock_get_db_metadata:
+            with pytest.raises(
+                ValueError, match=f"No session metadata found for session_id {summarizer.recording.session_id}"
+            ):
+                list(summarizer.summarize_recording())
+            mock_get_db_metadata.assert_called_once_with(
+                session_id="test_session_id",
+                team=summarizer.team,
+            )
 
-    # def test_summarize_recording_no_events(self, summarizer: ReplaySummarizer, mock_raw_metadata: dict[str, Any]):
-    #     with (
-    #         patch.object(SessionReplayEvents, "get_metadata", return_value=mock_raw_metadata),
-    #         patch.object(SessionReplayEvents, "get_events", return_value=(None, None)),
-    #     ):
-    #         with pytest.raises(ValueError, match=f"no events found for session_id {summarizer.recording.session_id}"):
-    #             summarizer.summarize_recording()
+    def test_summarize_recording_no_events(self, summarizer: ReplaySummarizer, mock_raw_metadata: dict[str, Any]):
+        with (
+            patch(
+                "ee.session_recordings.session_summary.summarize_session.get_session_metadata",
+                return_value=mock_raw_metadata,
+            ),
+            patch.object(
+                SessionReplayEvents,
+                "get_events",
+                return_value=(None, None),
+            ) as mock_get_db_events,
+        ):
+            with pytest.raises(ValueError, match=f"no events found for session_id {summarizer.recording.session_id}"):
+                list(summarizer.summarize_recording())
+                mock_get_db_events.assert_called_once_with(
+                    session_id="test_session_id",
+                    team=summarizer.team,
+                    metadata=mock_raw_metadata,
+                    events_to_ignore=["$feature_flag_called"],
+                    extra_fields=[],
+                )

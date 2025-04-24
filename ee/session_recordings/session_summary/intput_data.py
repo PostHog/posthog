@@ -19,7 +19,7 @@ def get_session_metadata(session_id: str, team: Team, local_path: str | None = N
     else:
         session_metadata = load_session_metadata_from_json(local_path)
     if not session_metadata:
-        raise ValueError(f"no session metadata found for session_id {session_id}")
+        raise ValueError(f"No session metadata found for session_id {session_id}")
     return session_metadata
 
 
