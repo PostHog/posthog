@@ -73,32 +73,32 @@ export const manifest: ProductManifest = {
     },
     treeItemsNew: [
         {
-            path: `Insight - Trends`,
+            path: `Insight/Trends`,
             type: 'insight',
             href: () => urls.insightNew({ type: InsightType.TRENDS }),
         },
         {
-            path: `Insight - Funnels`,
+            path: `Insight/Funnels`,
             type: 'insight',
             href: () => urls.insightNew({ type: InsightType.FUNNELS }),
         },
         {
-            path: `Insight - Retention`,
+            path: `Insight/Retention`,
             type: 'insight',
             href: () => urls.insightNew({ type: InsightType.RETENTION }),
         },
         {
-            path: `Insight - User paths`,
+            path: `Insight/User paths`,
             type: 'insight',
             href: () => urls.insightNew({ type: InsightType.PATHS }),
         },
         {
-            path: `Insight - Stickiness`,
+            path: `Insight/Stickiness`,
             type: 'insight',
             href: () => urls.insightNew({ type: InsightType.STICKINESS }),
         },
         {
-            path: `Insight - Lifecycle`,
+            path: `Insight/Lifecycle`,
             type: 'insight',
             href: () => urls.insightNew({ type: InsightType.LIFECYCLE }),
         },

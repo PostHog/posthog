@@ -44,6 +44,7 @@ import {
     calculateNpsScore,
     createAnswerFilterHogQLExpression,
     getResponseFieldWithId,
+    isSurveyRunning,
     sanitizeHTML,
     sanitizeSurveyAppearance,
     sanitizeSurveyDisplayConditions,
@@ -257,15 +258,23 @@ export const surveyLogic = kea<surveyLogicType>([
                 if (props.id && props.id !== 'new') {
                     try {
                         const survey = await api.surveys.get(props.id)
+                        const currentFilters = values.answerFilters
                         actions.reportSurveyViewed(survey)
                         // Initialize answer filters for all questions - first for index-based, then for id-based
                         actions.setAnswerFilters(
-                            survey.questions.map((question, index) => ({
-                                key: getResponseFieldWithId(index, question?.id).indexBasedKey,
-                                operator: DEFAULT_OPERATORS[question.type].value,
-                                type: PropertyFilterType.Event as const,
-                                value: [],
-                            })),
+                            survey.questions.map((question) => {
+                                const { indexBasedKey, idBasedKey } = getResponseFieldWithId(0, question.id)
+                                const currentFilterForQuestion = currentFilters.find(
+                                    (filter) => filter.key === idBasedKey
+                                )
+                                return {
+                                    key: idBasedKey || indexBasedKey,
+                                    operator:
+                                        currentFilterForQuestion?.operator ?? DEFAULT_OPERATORS[question.type].value,
+                                    type: PropertyFilterType.Event as const,
+                                    value: currentFilterForQuestion?.value ?? [],
+                                }
+                            }),
                             false
                         )
                         return survey
@@ -824,6 +833,7 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         propertyFilters: [
             [] as AnyPropertyFilter[],
+            { persist: true },
             {
                 setPropertyFilters: (_, { propertyFilters }) => propertyFilters,
             },
@@ -1045,6 +1055,7 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         answerFilters: [
             [] as EventPropertyFilter[],
+            { persist: true },
             {
                 setAnswerFilters: (_, { filters }) => filters,
             },
@@ -1096,10 +1107,24 @@ export const surveyLogic = kea<surveyLogicType>([
                 )
             },
         ],
+        defaultAnswerFilters: [
+            (s) => [s.survey],
+            (survey: Survey): EventPropertyFilter[] => {
+                return survey.questions.map((question) => {
+                    const { indexBasedKey, idBasedKey } = getResponseFieldWithId(0, question.id)
+                    return {
+                        key: idBasedKey || indexBasedKey,
+                        operator: DEFAULT_OPERATORS[question.type].value,
+                        type: PropertyFilterType.Event as const,
+                        value: [],
+                    }
+                })
+            },
+        ],
         isSurveyRunning: [
             (s) => [s.survey],
             (survey: Survey): boolean => {
-                return !!(survey.start_date && !survey.end_date)
+                return isSurveyRunning(survey)
             },
         ],
         surveyUsesLimit: [

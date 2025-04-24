@@ -12,7 +12,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_aggregated_one_without_events.1
@@ -28,7 +29,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown
@@ -69,7 +71,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown.1
@@ -110,7 +113,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown_aggregated
@@ -145,7 +149,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown_aggregated.1
@@ -180,7 +185,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort
@@ -205,6 +211,7 @@
 # ---
 # name: TestFormula.test_breakdown_cohort.2
   '''
+  /* cohort_calculation: */
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
@@ -241,11 +248,13 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort.3
   '''
+  /* cohort_calculation: */
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
@@ -282,11 +291,13 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort.4
   '''
+  /* cohort_calculation: */
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
@@ -333,11 +344,13 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown_cohort.5
   '''
+  /* cohort_calculation: */
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(ifNull(greaterOrEquals(row_number, 25), 0), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
@@ -384,7 +397,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown_hogql
@@ -442,7 +456,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown_hogql.1
@@ -500,7 +515,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series
@@ -541,7 +557,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series.1
@@ -582,7 +599,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_formula_with_unique_sessions
@@ -609,7 +627,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_formula_with_unique_sessions.1
@@ -643,7 +662,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_hour_interval_day_level_relative
@@ -670,7 +690,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_hour_interval_day_level_relative.1
@@ -697,7 +718,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_hour_interval_hour_level_relative
@@ -724,7 +746,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_hour_interval_hour_level_relative.1
@@ -751,7 +774,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_session_duration_aggregation
@@ -791,7 +815,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_session_duration_aggregation.1
@@ -818,7 +843,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter
@@ -852,7 +878,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter.1
@@ -879,7 +906,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x
@@ -913,7 +941,8 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x.1
@@ -947,6 +976,7 @@
                        max_ast_elements=4000000,
                        max_expanded_ast_elements=4000000,
                        max_bytes_before_external_group_by=0,
-                       transform_null_in=1
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295
   '''
 # ---

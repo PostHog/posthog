@@ -162,6 +162,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 }
             },
             showChevron: true,
+            tooltip: isLayoutPanelVisible ? 'Close project tree' : 'Open project tree',
         },
         {
             identifier: 'Dashboards',
@@ -172,6 +173,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 handleStaticNavbarItemClick(urls.dashboards(), true)
             },
             tooltip: 'Dashboards',
+            tooltipDocLink: 'https://posthog.com/docs/product-analytics/dashboards',
         },
         {
             identifier: 'Notebooks',
@@ -182,6 +184,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 handleStaticNavbarItemClick(urls.notebooks(), true)
             },
             tooltip: 'Notebooks',
+            tooltipDocLink: 'https://posthog.com/docs/notebooks',
         },
         {
             identifier: 'DataManagement',
@@ -192,6 +195,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 handleStaticNavbarItemClick(urls.eventDefinitions(), true)
             },
             tooltip: 'Data management',
+            tooltipDocLink: 'https://posthog.com/docs/data',
         },
         {
             identifier: 'PersonsManagement',
@@ -202,6 +206,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 handleStaticNavbarItemClick(urls.persons(), true)
             },
             tooltip: featureFlags[FEATURE_FLAGS.B2B_ANALYTICS] ? 'Persons and cohorts' : 'Persons and groups',
+            tooltipDocLink: 'https://posthog.com/docs/data/persons',
         },
         {
             identifier: 'Activity',
@@ -212,6 +217,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                 handleStaticNavbarItemClick(urls.activity(), true)
             },
             tooltip: 'Activity',
+            tooltipDocLink: 'https://posthog.com/docs/data/events',
         },
     ]
 
@@ -286,6 +292,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 iconOnly={isLayoutNavCollapsed}
                                                 tooltip={isLayoutNavCollapsed ? item.tooltip : undefined}
                                                 tooltipPlacement="right"
+                                                tooltipDocLink={item.tooltipDocLink}
                                             >
                                                 <span
                                                     className={`flex text-tertiary group-hover:text-primary ${
@@ -372,6 +379,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                                         isLayoutNavCollapsed ? item.label : undefined
                                                                     }
                                                                     tooltipPlacement="right"
+                                                                    tooltipDocLink={item.tooltipDocLink}
                                                                 >
                                                                     <span
                                                                         className={`flex text-tertiary group-hover:text-primary ${
@@ -533,6 +541,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 tooltipPlacement="right"
                                 className="group"
                                 iconOnly={isLayoutNavCollapsed}
+                                tooltipDocLink="https://posthog.com/docs/toolbar"
                             >
                                 <span
                                     className={`flex text-tertiary group-hover:text-primary ${

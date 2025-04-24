@@ -15,6 +15,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import SerializedField, create_hogql_database, serialize_fields
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
+from posthog.hogql.placeholders import FindPlaceholders
 from posthog.hogql.printer import print_ast
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
@@ -70,7 +71,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
         context = HogQLContext(team_id=team_id, database=database)
 
-        fields = serialize_fields(view.hogql_definition().fields, context, view.name, table_type="external")
+        fields = serialize_fields(view.hogql_definition().fields, context, view.name_chain, table_type="external")
         return [
             SerializedField(
                 key=field.name,
@@ -93,8 +94,8 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
         view = DataWarehouseSavedQuery(**validated_data)
 
-        # The columns will be inferred from the query
         try:
+            # The columns will be inferred from the query
             client_types = self.context["request"].data.get("types", [])
             if len(client_types) == 0:
                 view.columns = view.get_columns()
@@ -145,7 +146,21 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             # Only update columns and status if the query has changed
             if "query" in validated_data:
                 try:
-                    view.columns = view.get_columns()
+                    # The columns will be inferred from the query
+                    client_types = self.context["request"].data.get("types", [])
+                    if len(client_types) == 0:
+                        view.columns = view.get_columns()
+                    else:
+                        columns = {
+                            str(item[0]): {
+                                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                                "clickhouse": item[1],
+                                "valid": True,
+                            }
+                            for item in client_types
+                        }
+                        view.columns = columns
+
                     view.external_tables = view.s3_tables
                     view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 except RecursionError:
@@ -171,6 +186,12 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
         context = HogQLContext(team_id=team_id, enable_select_queries=True)
         select_ast = parse_select(query["query"])
+
+        find_placeholders = FindPlaceholders()
+        find_placeholders.visit(select_ast)
+        if len(find_placeholders.found) > 0:
+            placeholder = find_placeholders.found.pop()
+            raise exceptions.ValidationError(detail=f"Variables like {'{'}{placeholder}{'}'} are not allowed in views")
 
         try:
             print_ast(

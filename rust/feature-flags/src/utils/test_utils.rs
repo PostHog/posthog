@@ -3,7 +3,7 @@ use crate::{
     cohorts::cohort_models::{Cohort, CohortId},
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::flag_models::{
-        FeatureFlag, FeatureFlagRow, FlagFilters, FlagGroupType, TEAM_FLAGS_CACHE_PREFIX,
+        FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
     },
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
@@ -33,7 +33,7 @@ pub async fn insert_new_team_in_redis(
     let token = random_string("phc_", 12);
     let team = Team {
         id,
-        project_id: i64::from(id) - 1,
+        project_id: i64::from(id),
         name: "team".to_string(),
         api_token: token,
         cookieless_server_hash_mode: 0,
@@ -525,7 +525,7 @@ pub fn create_test_flag(
         name: name.or(Some("Test Flag".to_string())),
         key: key.unwrap_or_else(|| "test_flag".to_string()),
         filters: filters.unwrap_or_else(|| FlagFilters {
-            groups: vec![FlagGroupType {
+            groups: vec![FlagPropertyGroup {
                 properties: Some(vec![]),
                 rollout_percentage: Some(100.0),
                 variant: None,

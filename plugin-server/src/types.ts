@@ -16,6 +16,7 @@ import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { VM } from 'vm2'
+import { z } from 'zod'
 
 import { EncryptedFields } from './cdp/encryption-utils'
 import { LegacyOneventCompareService } from './cdp/services/legacy-onevent-compare.service'
@@ -76,6 +77,7 @@ export enum PluginServerMode {
     cdp_internal_events = 'cdp-internal-events',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_cyclotron_worker_plugins = 'cdp-cyclotron-worker-plugins',
+    cdp_cyclotron_worker_fetch = 'cdp-cyclotron-worker-fetch',
     cdp_api = 'cdp-api',
     functional_tests = 'functional-tests',
 }
@@ -111,11 +113,16 @@ export type CdpConfig = {
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
     CDP_CYCLOTRON_COMPRESS_VM_STATE: boolean
+    CDP_CYCLOTRON_USE_BULK_COPY_JOB: boolean
     CDP_REDIS_HOST: string
     CDP_REDIS_PORT: number
     CDP_REDIS_PASSWORD: string
     CDP_EVENT_PROCESSOR_EXECUTE_FIRST_STEP: boolean
     CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN: string
+    CDP_FETCH_TIMEOUT_MS: number
+    CDP_FETCH_RETRIES: number
+    CDP_FETCH_BACKOFF_BASE_MS: number
+    CDP_FETCH_BACKOFF_MAX_MS: number
 }
 
 export type IngestionConsumerConfig = {
@@ -134,7 +141,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     INGESTION_CONCURRENCY: number // number of parallel event ingestion queues per batch
     INGESTION_BATCH_SIZE: number // kafka consumer batch size
     INGESTION_OVERFLOW_ENABLED: boolean // whether or not overflow rerouting is enabled (only used by analytics-ingestion)
-    INGESTION_FORCE_OVERFLOW_TOKENS: string // comma-separated list of tokens to always route to overflow
+    INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: string // comma-separated list of either tokens or token:distinct_id combinations to force events to route to overflow
     INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: boolean // whether or not Kafka message keys should be preserved or discarded when messages are rerouted to overflow
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
     DATABASE_URL: string // Postgres database URL
@@ -227,7 +234,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CRASH_IF_NO_PERSISTENT_JOB_QUEUE: boolean // refuse to start unless there is a properly configured persistent job queue (e.g. graphile)
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
     SITE_URL: string | null
-    FILTER_TRANSFORMATIONS_ENABLED_TEAMS: number[] // comma-separated list of team IDs to enable filter-based transformations for
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
@@ -248,7 +254,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CLOUD_DEPLOYMENT: string | null
     EXTERNAL_REQUEST_TIMEOUT_MS: number
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
-    DROP_EVENTS_BY_TOKEN: string
     SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     RUSTY_HOOK_FOR_TEAMS: string
@@ -344,6 +349,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     CDP_HOG_WATCHER_SAMPLE_RATE: number
     LAZY_TEAM_MANAGER_COMPARISON: boolean
+    USE_LAZY_TEAM_MANAGER: boolean
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -407,6 +413,7 @@ export interface PluginServerCapabilities {
     cdpInternalEvents?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerPlugins?: boolean
+    cdpCyclotronWorkerFetch?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
@@ -738,6 +745,22 @@ export interface RawClickHouseEvent extends BaseEvent {
     group4_created_at?: ClickHouseTimestamp
     person_mode: PersonMode
 }
+
+export type KafkaConsumerBreadcrumb = {
+    topic: string
+    offset: string | number
+    partition: number
+    processed_at: string
+    consumer_id: string
+}
+
+export const KafkaConsumerBreadcrumbSchema = z.object({
+    topic: z.string(),
+    offset: z.union([z.string(), z.number()]),
+    partition: z.number(),
+    processed_at: z.string(),
+    consumer_id: z.string(),
+})
 
 export interface RawKafkaEvent extends RawClickHouseEvent {
     /**

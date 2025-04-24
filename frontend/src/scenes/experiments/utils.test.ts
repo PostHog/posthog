@@ -1,6 +1,7 @@
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 
+import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
 import EXPERIMENT_V3_WITH_ONE_EXPERIMENT_QUERY from '~/mocks/fixtures/api/experiments/_experiment_v3_with_one_metric.json'
 import metricFunnelEventsJson from '~/mocks/fixtures/api/experiments/_metric_funnel_events.json'
 import metricTrendActionJson from '~/mocks/fixtures/api/experiments/_metric_trend_action.json'
@@ -18,25 +19,28 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
     ChartDisplayType,
-    EntityType,
+    Experiment,
     ExperimentMetricMathType,
     FeatureFlagFilters,
     FeatureFlagType,
-    InsightType,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
 } from '~/types'
 
-import { getNiceTickValues } from './MetricsView/MetricsView'
+import { getNiceTickValues } from './MetricsView/utils'
+import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
     filterToMetricConfig,
-    getMinimumDetectableEffect,
     getViewRecordingFilters,
+    isLegacyExperiment,
+    isLegacyExperimentQuery,
+    isLegacySharedMetric,
     metricToFilter,
     metricToQuery,
     percentageDistribution,
@@ -67,96 +71,6 @@ describe('utils', () => {
             expect(percentageDistribution(19)).toEqual([6, 6, 6, 6, 6, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5])
             expect(percentageDistribution(20)).toEqual([5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5])
         })
-    })
-
-    it('Funnel experiment returns correct MDE', async () => {
-        const metricType = InsightType.FUNNELS
-        const trendResults = [
-            {
-                action: {
-                    id: '$pageview',
-                    type: 'events' as EntityType,
-                    order: 0,
-                    name: '$pageview',
-                    custom_name: null,
-                    math: 'total',
-                    math_group_type_index: null,
-                },
-                aggregated_value: 0,
-                label: '$pageview',
-                count: 0,
-                data: [],
-                labels: [],
-                days: [],
-            },
-        ]
-
-        let conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(1)
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 1 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(1)
-
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.01 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(1)
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.99 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(1)
-
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.1 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(5)
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.9 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(5)
-
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.3 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(3)
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.7 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(3)
-
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.2 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(4)
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.8 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(4)
-
-        conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0.5 }
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(5)
-    })
-
-    it('Trend experiment returns correct MDE', async () => {
-        const metricType = InsightType.TRENDS
-        const conversionMetrics = { averageTime: 0, stepRate: 0, totalRate: 0 }
-        const trendResults = [
-            {
-                action: {
-                    id: '$pageview',
-                    type: 'events' as EntityType,
-                    order: 0,
-                    name: '$pageview',
-                    custom_name: null,
-                    math: 'total',
-                    math_group_type_index: null,
-                },
-                aggregated_value: 0,
-                label: '$pageview',
-                count: 0,
-                data: [],
-                labels: [],
-                days: [],
-            },
-        ]
-
-        trendResults[0].count = 0
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(100)
-
-        trendResults[0].count = 200
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(100)
-
-        trendResults[0].count = 201
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(20)
-
-        trendResults[0].count = 1001
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(5)
-
-        trendResults[0].count = 20000
-        expect(getMinimumDetectableEffect(metricType, conversionMetrics, trendResults)).toEqual(5)
     })
 
     it('transforms filters for a winning variant', async () => {
@@ -494,7 +408,7 @@ describe('checkFeatureFlagEligibility', () => {
         can_edit: true,
         tags: [],
         ensure_experience_continuity: null,
-        user_access_level: 'admin',
+        user_access_level: AccessControlLevel.Admin,
         status: 'ACTIVE',
         has_encrypted_payloads: false,
         version: 0,
@@ -681,7 +595,7 @@ describe('metricToFilter', () => {
                     math_property: undefined,
                     math_hogql: undefined,
                     properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
-                    kind: NodeKind.EventsNode,
+                    kind: NodeKind.ActionsNode,
                 },
             ],
             data_warehouse: [],
@@ -709,8 +623,8 @@ describe('metricToFilter', () => {
             actions: [],
             data_warehouse: [
                 {
-                    kind: NodeKind.EventsNode,
-                    id: 'mysql_payments',
+                    kind: NodeKind.ExperimentDataWarehouseNode,
+                    id: undefined,
                     name: 'mysql_payments',
                     type: 'data_warehouse',
                     timestamp_field: 'timestamp',
@@ -719,6 +633,7 @@ describe('metricToFilter', () => {
                     math: ExperimentMetricMathType.TotalCount,
                     math_property: undefined,
                     math_hogql: undefined,
+                    properties: undefined,
                 },
             ],
         })
@@ -768,7 +683,7 @@ describe('filterToMetricConfig', () => {
         const action = {
             id: '8',
             name: 'jan-16-running payment action',
-            kind: 'EventsNode',
+            kind: NodeKind.ActionsNode,
             type: 'actions',
             math: 'total',
             properties: [
@@ -951,5 +866,158 @@ describe('metricToQuery', () => {
 
         const query = metricToQuery(metric as ExperimentMetric, false)
         expect(query).toBeUndefined()
+    })
+})
+
+describe('isLegacyExperimentQuery', () => {
+    it('returns true for ExperimentTrendsQuery', () => {
+        const query = {
+            kind: NodeKind.ExperimentTrendsQuery,
+            count_query: {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+            },
+        }
+        expect(isLegacyExperimentQuery(query)).toBe(true)
+    })
+
+    it('returns true for ExperimentFunnelsQuery', () => {
+        const query = {
+            kind: NodeKind.ExperimentFunnelsQuery,
+            funnels_query: {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+            },
+        }
+        expect(isLegacyExperimentQuery(query)).toBe(true)
+    })
+
+    it('returns false for ExperimentMetric', () => {
+        const query = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: 'test',
+            },
+        }
+        expect(isLegacyExperimentQuery(query)).toBe(false)
+    })
+
+    it('returns false for null/undefined', () => {
+        expect(isLegacyExperimentQuery(null)).toBe(false)
+        expect(isLegacyExperimentQuery(undefined)).toBe(false)
+    })
+
+    it('returns false for non-object values', () => {
+        expect(isLegacyExperimentQuery('string')).toBe(false)
+        expect(isLegacyExperimentQuery(123)).toBe(false)
+    })
+})
+
+describe('hasLegacyMetrics', () => {
+    it('returns true if experiment has legacy metrics', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [
+                {
+                    kind: NodeKind.ExperimentTrendsQuery,
+                    count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                },
+            ],
+            metrics_secondary: [],
+            saved_metrics: [],
+        } as unknown as Experiment
+
+        expect(isLegacyExperiment(experiment)).toBe(true)
+    })
+
+    it('returns true if experiment has legacy secondary metrics', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [],
+            metrics_secondary: [
+                {
+                    kind: NodeKind.ExperimentFunnelsQuery,
+                    funnels_query: { kind: NodeKind.FunnelsQuery, series: [] },
+                },
+            ],
+            saved_metrics: [],
+        } as unknown as Experiment
+
+        expect(isLegacyExperiment(experiment)).toBe(true)
+    })
+
+    it('returns true if experiment has legacy saved metrics', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [],
+            metrics_secondary: [],
+            saved_metrics: [
+                {
+                    kind: NodeKind.ExperimentTrendsQuery,
+                    count_query: { kind: NodeKind.TrendsQuery, series: [] },
+                },
+            ],
+        } as unknown as Experiment
+
+        expect(isLegacyExperiment(experiment)).toBe(true)
+    })
+
+    it('returns false if experiment has no legacy metrics', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [
+                {
+                    kind: NodeKind.ExperimentMetric,
+                    metric_type: ExperimentMetricType.MEAN,
+                    source: { kind: NodeKind.EventsNode, event: 'test' },
+                },
+            ],
+            metrics_secondary: [],
+            saved_metrics: [],
+        } as unknown as Experiment
+
+        expect(isLegacyExperiment(experiment)).toBe(false)
+    })
+
+    it('returns false if experiment has no metrics', () => {
+        const experiment = {
+            ...experimentJson,
+            metrics: [],
+            metrics_secondary: [],
+            saved_metrics: [],
+        } as unknown as Experiment
+
+        expect(isLegacyExperiment(experiment)).toBe(false)
+    })
+})
+
+describe('hasLegacySharedMetrics', () => {
+    it('returns true if shared metrics contain legacy query', () => {
+        const sharedMetric = {
+            query: {
+                kind: NodeKind.ExperimentTrendsQuery,
+                count_query: { kind: NodeKind.TrendsQuery, series: [] },
+            },
+        } as unknown as SharedMetric
+
+        expect(isLegacySharedMetric(sharedMetric)).toBe(true)
+    })
+
+    it('returns false if shared metrics contain no legacy queries', () => {
+        const sharedMetric = {
+            query: {
+                kind: NodeKind.ExperimentMetric,
+                metric_type: ExperimentMetricType.MEAN,
+                source: { kind: NodeKind.EventsNode, event: 'test' },
+            },
+        } as unknown as SharedMetric
+
+        expect(isLegacySharedMetric(sharedMetric)).toBe(false)
+    })
+
+    it('returns false for empty shared metrics array', () => {
+        expect(isLegacySharedMetric({} as SharedMetric)).toBe(false)
     })
 })

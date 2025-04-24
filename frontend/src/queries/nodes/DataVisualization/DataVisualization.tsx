@@ -1,15 +1,12 @@
-import './Components/Chart.scss'
-
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { useCallback, useState } from 'react'
 import { DatabaseTableTreeWithItems } from 'scenes/data-warehouse/external/DataWarehouseTables'
-import { InsightErrorState } from 'scenes/insights/EmptyStates'
+import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
@@ -165,6 +162,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
 
+    const { queryId, pollResponse } = useValues(dataNodeLogic)
+
     const setQuerySource = useCallback(
         (source: HogQLQuery) => props.setQuery?.({ ...props.query, source }),
         [props.setQuery, props.query]
@@ -176,7 +175,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     if (!showEditingUI && (!response || responseLoading)) {
         component = (
             <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
-                <LoadingBar />
+                <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
             </div>
         )
     } else if (visualizationType === ChartDisplayType.ActionsTable) {
@@ -200,7 +199,11 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     }
 
     return (
-        <div className="DataVisualization flex flex-1 gap-2">
+        <div
+            className={clsx('DataVisualization flex flex-1 gap-2', {
+                'h-full': visualizationType !== ChartDisplayType.ActionsTable,
+            })}
+        >
             {!readOnly && showEditingUI && (
                 <div className="max-sm:hidden max-w-xs">
                     <DatabaseTableTreeWithItems inline />

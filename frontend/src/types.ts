@@ -254,7 +254,7 @@ export interface ColumnConfig {
 }
 
 export type WithAccessControl = {
-    user_access_level: 'none' | 'member' | 'admin' | 'viewer' | 'editor'
+    user_access_level: AccessControlLevel
 }
 
 export enum AccessControlResourceType {
@@ -579,6 +579,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_url_trigger_config?: SessionReplayUrlTriggerConfig[]
     session_recording_url_blocklist_config?: SessionReplayUrlTriggerConfig[]
     session_recording_event_trigger_config?: string[]
+    session_recording_trigger_match_type_config?: 'all' | 'any' | null
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -590,6 +591,7 @@ export interface TeamType extends TeamBasicType {
     data_attributes: string[]
     person_display_name_properties: string[]
     has_group_types: boolean
+    group_types: GroupType[]
     primary_dashboard: number // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
     live_events_token: string
@@ -713,7 +715,13 @@ export interface ToolbarProps extends ToolbarParams {
 
 export type PathCleaningFilter = { alias?: string; regex?: string }
 
-export type PropertyFilterValue = string | number | bigint | (string | number | bigint)[] | null
+export type PropertyFilterValue =
+    | string
+    | number
+    | bigint
+    | (string | number | bigint)[]
+    // | ErrorTrackingIssueAssignee - TODO - @david
+    | null
 
 /** Sync with plugin-server/src/types.ts */
 export enum PropertyOperator {
@@ -754,6 +762,13 @@ export enum ReplayTabs {
     Playlists = 'playlists',
     Templates = 'templates',
     Settings = 'settings',
+}
+
+export type ReplayTab = {
+    label: string
+    key: ReplayTabs
+    tooltip?: string
+    tooltipDocLink?: string
 }
 
 export enum ExperimentsTabs {
@@ -826,6 +841,8 @@ export enum PropertyFilterType {
     HogQL = 'hogql',
     DataWarehouse = 'data_warehouse',
     DataWarehousePersonProperty = 'data_warehouse_person_property',
+    ErrorTrackingIssue = 'error_tracking_issue',
+    ErrorTrackingIssueProperty = 'error_tracking_issue_property',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -861,6 +878,16 @@ export interface DataWarehousePropertyFilter extends BasePropertyFilter {
 
 export interface DataWarehousePersonPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.DataWarehousePersonProperty
+    operator: PropertyOperator
+}
+
+export interface ErrorTrackingIssueFilter extends BasePropertyFilter {
+    type: PropertyFilterType.ErrorTrackingIssue
+    operator: PropertyOperator
+}
+
+export interface ErrorTrackingIssuePropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.ErrorTrackingIssueProperty
     operator: PropertyOperator
 }
 
@@ -926,6 +953,8 @@ export type AnyPropertyFilter =
     | EmptyPropertyFilter
     | DataWarehousePropertyFilter
     | DataWarehousePersonPropertyFilter
+    | ErrorTrackingIssueFilter
+    | ErrorTrackingIssuePropertyFilter
 
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
@@ -1907,6 +1936,7 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     text?: TextModel
     deleted?: boolean
     is_cached?: boolean
+    order?: number
 }
 
 export interface DashboardTileBasicType {
@@ -2420,6 +2450,7 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
     decimal_places?: number
+    min_decimal_places?: number
     show_values_on_series?: boolean
     show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
@@ -2967,10 +2998,23 @@ export enum SurveyMatchType {
 
 export enum SurveyType {
     Popover = 'popover',
-    Widget = 'widget',
+    Widget = 'widget', // feedback button survey
     FullScreen = 'full_screen',
     Email = 'email',
     API = 'api',
+}
+
+export enum SurveyPosition {
+    Left = 'left',
+    Center = 'center',
+    Right = 'right',
+    NextToTrigger = 'next_to_trigger',
+}
+
+export enum SurveyWidgetType {
+    Button = 'button',
+    Tab = 'tab',
+    Selector = 'selector',
 }
 
 export type SurveyQuestionDescriptionContentType = 'html' | 'text'
@@ -2992,12 +3036,12 @@ export interface SurveyAppearance {
     thankYouMessageDescriptionContentType?: SurveyQuestionDescriptionContentType
     thankYouMessageCloseButtonText?: string
     autoDisappear?: boolean
-    position?: string
+    position?: SurveyPosition
     zIndex?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
     // widget only
-    widgetType?: 'button' | 'tab' | 'selector'
+    widgetType?: SurveyWidgetType
     widgetSelector?: string
     widgetLabel?: string
     widgetColor?: string
@@ -3425,6 +3469,7 @@ export enum PropertyDefinitionType {
     Session = 'session',
     LogEntry = 'log_entry',
     Meta = 'meta',
+    // Resource = 'resource', - TODO @david
 }
 
 export interface PropertyDefinition {
@@ -3610,6 +3655,7 @@ export interface AppContext {
     persisted_feature_flags?: string[]
     anonymous: boolean
     frontend_apps?: Record<number, FrontendAppConfig>
+    resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
@@ -3657,7 +3703,7 @@ interface BreadcrumbBase {
     /** Whether to show a custom popover */
     popover?: Pick<PopoverProps, 'overlay' | 'matchWidth'>
 }
-interface LinkBreadcrumb extends BreadcrumbBase {
+export interface LinkBreadcrumb extends BreadcrumbBase {
     /** Name to display. */
     name: string | JSX.Element | null | undefined
     symbol?: never
@@ -3667,7 +3713,7 @@ interface LinkBreadcrumb extends BreadcrumbBase {
     tag?: string | null
     onRename?: never
 }
-interface RenamableBreadcrumb extends BreadcrumbBase {
+export interface RenamableBreadcrumb extends BreadcrumbBase {
     /** Name to display. */
     name: string | JSX.Element | null | undefined
     symbol?: never
@@ -3677,13 +3723,23 @@ interface RenamableBreadcrumb extends BreadcrumbBase {
     /** When this is true, the name is always in edit mode, and `onRename` runs on every input change. */
     forceEditMode?: boolean
 }
-interface SymbolBreadcrumb extends BreadcrumbBase {
+export interface SymbolBreadcrumb extends BreadcrumbBase {
     name?: never
     /** Symbol, e.g. a lettermark or a profile picture. */
     symbol: React.ReactElement
     path?: never
 }
-export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb
+export interface ProjectTreeBreadcrumb extends BreadcrumbBase {
+    /** Last part of path */
+    name: string
+    /** Rest of the path. */
+    path?: string
+    type: string
+    ref?: string
+    symbol?: never
+    onRename?: never
+}
+export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb | ProjectTreeBreadcrumb
 
 export enum GraphType {
     Bar = 'bar',
@@ -3922,6 +3978,7 @@ export type IntegrationKind =
     | 'snapchat'
     | 'intercom'
     | 'email'
+    | 'linear'
 
 export interface IntegrationType {
     id: number
@@ -3941,6 +3998,10 @@ export interface SlackChannelType {
     is_ext_shared: boolean
     is_member: boolean
     is_private_without_access?: boolean
+}
+export interface LinearTeamType {
+    id: string
+    name: string
 }
 
 export interface SharingConfigurationType {
@@ -4071,12 +4132,20 @@ export type APIScopeObject =
     | 'user'
     | 'webhook'
 
+export enum AccessControlLevel {
+    None = 'none',
+    Member = 'member',
+    Admin = 'admin',
+    Viewer = 'viewer',
+    Editor = 'editor',
+}
+
 export interface AccessControlTypeBase {
     created_by: UserBasicType | null
     created_at: string
     updated_at: string
     resource: APIScopeObject
-    access_level: string | null // TODO: Change to enum
+    access_level: AccessControlLevel | null
     organization_member?: OrganizationMemberType['id'] | null
     role?: RoleType['id'] | null
 }
@@ -4085,6 +4154,10 @@ export interface AccessControlTypeProject extends AccessControlTypeBase {}
 
 export interface AccessControlTypeMember extends AccessControlTypeBase {
     organization_member: OrganizationMemberType['id']
+}
+
+export interface AccessControlTypeOrganizationAdmins extends AccessControlTypeBase {
+    organization_admin_members: OrganizationMemberType['id'][]
 }
 
 export interface AccessControlTypeRole extends AccessControlTypeBase {
@@ -4099,9 +4172,9 @@ export type AccessControlUpdateType = Pick<AccessControlType, 'access_level' | '
 
 export type AccessControlResponseType = {
     access_controls: AccessControlType[]
-    available_access_levels: string[] // TODO: Change to enum
-    user_access_level: string
-    default_access_level: string
+    available_access_levels: AccessControlLevel[]
+    user_access_level: AccessControlLevel
+    default_access_level: AccessControlLevel
     user_can_edit_access_levels: boolean
 }
 
@@ -4335,6 +4408,7 @@ export interface ExternalDataSource {
     prefix: string
     latest_error: string | null
     last_run_at?: Dayjs
+    revenue_analytics_enabled: boolean
     schemas: ExternalDataSourceSchema[]
     sync_frequency: DataWarehouseSyncInterval
     job_inputs: Record<string, any>
@@ -4959,7 +5033,7 @@ export type HogFunctionKind = 'messaging_campaign' | null
 export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
-    kind?: HogFunctionKind
+    kind?: HogFunctionKind | null
     icon_url?: string
     name: string
     description: string

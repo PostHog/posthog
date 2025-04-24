@@ -5,10 +5,13 @@ use anyhow::{anyhow, Context, Ok, Result};
 use tracing::info;
 
 use crate::utils::auth::load_token;
+use crate::utils::posthog::capture_command_invoked;
 use crate::utils::sourcemaps::{read_pairs, ChunkUpload, SourcePair};
 
 pub fn upload(host: &str, directory: &PathBuf, _build_id: &Option<String>) -> Result<()> {
     let token = load_token().context("While starting upload command")?;
+
+    let capture_handle = capture_command_invoked("sourcemap_upload", Some(&token.env_id));
 
     let url = format!(
         "{}/api/environments/{}/error_tracking/symbol_sets",
@@ -21,6 +24,8 @@ pub fn upload(host: &str, directory: &PathBuf, _build_id: &Option<String>) -> Re
     info!("Found {} chunks to upload", uploads.len());
 
     upload_chunks(&url, &token.token, uploads)?;
+
+    let _ = capture_handle.join();
 
     Ok(())
 }

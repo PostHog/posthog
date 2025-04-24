@@ -39,6 +39,9 @@ CAMPAIGN_PROPERTIES: list[str] = [
     "igshid",  # instagram
     "ttclid",  # tiktok
     "rdt_cid",  # reddit
+    "epik",  # pinterest
+    "qclid",  # quora
+    "sccid",  # snapchat
     "irclid",  # impact
     "_kx",  # klaviyo
 ]
@@ -86,6 +89,9 @@ SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = {
     "igshid",
     "ttclid",
     "rdt_cid",
+    "epik",
+    "qclid",
+    "sccid",
     "irclid",
     "_kx",
 }
@@ -1257,6 +1263,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "rdt_cid": {
             "label": "rdt_cid",
             "description": "Reddit Click ID",
+        },
+        "epik": {
+            "label": "epik",
+            "description": "Pinterest Click ID",
+        },
+        "qclid": {
+            "label": "qclid",
+            "description": "Quora Click ID",
+        },
+        "sccid": {
+            "label": "sccid",
+            "description": "Snapchat Click ID",
         },
         "irclid": {
             "label": "irclid",
