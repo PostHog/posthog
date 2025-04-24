@@ -60,3 +60,42 @@ class TestHogFunctionTemplate(TestCase):
         )
         self.assertIsNotNone(survey_sub_template_dto)
         self.assertEqual(survey_sub_template_dto.name, "Post to Slack on survey response")
+
+    def test_get_template(self):
+        """Test retrieving templates by ID and version"""
+        # Create two versions of the same template
+        template1 = HogFunctionTemplate.objects.create(
+            version="1.0.0",
+            template_id="test-template",
+            name="Test Template V1",
+            description="First version",
+            hog="return event",
+            inputs_schema={},
+            type="destination",
+            status="alpha",
+        )
+
+        template2 = HogFunctionTemplate.objects.create(
+            version="2.0.0",
+            template_id="test-template",
+            name="Test Template V2",
+            description="Second version",
+            hog="return null",
+            inputs_schema={},
+            type="destination",
+            status="beta",
+        )
+
+        # Test getting a specific version
+        retrieved_template = HogFunctionTemplate.get_template("test-template", "1.0.0")
+        self.assertEqual(retrieved_template.id, template1.id)
+        self.assertEqual(retrieved_template.name, "Test Template V1")
+
+        # Test getting the latest version (by created_at)
+        latest_template = HogFunctionTemplate.get_template("test-template")
+        self.assertEqual(latest_template.id, template2.id)
+        self.assertEqual(latest_template.name, "Test Template V2")
+
+        # Test getting a non-existent template
+        nonexistent_template = HogFunctionTemplate.get_template("non-existent-template")
+        self.assertIsNone(nonexistent_template)

@@ -104,7 +104,8 @@ class HogFunctionTemplate(UUIDModel):
                 # Get the latest version by created_at timestamp
                 # Only include active templates (not deprecated)
                 return (
-                    cls.objects.filter(template_id=template_id, status__not_in=["deprecated"])
+                    cls.objects.filter(template_id=template_id)
+                    .exclude(status="deprecated")
                     .order_by("-created_at")
                     .first()
                 )
