@@ -44,6 +44,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "dashboard",
     "insight",
     "notebook",
+    "action",
 )
 
 

@@ -2,6 +2,7 @@ import { IconCheckCircle, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import api from 'lib/api'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
@@ -15,13 +16,22 @@ import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable/typ
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { stripHTTP } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { actionsLogic } from 'scenes/actions/actionsLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { ActionType, AvailableFeature, ChartDisplayType, FilterLogicalOperator, ProductKey, ReplayTabs } from '~/types'
+import {
+    AccessControlResourceType,
+    ActionType,
+    AvailableFeature,
+    ChartDisplayType,
+    FilterLogicalOperator,
+    ProductKey,
+    ReplayTabs,
+} from '~/types'
 
 import { NewActionButton } from '../../actions/NewActionButton'
 import { teamLogic } from '../../teamLogic'
@@ -55,6 +65,10 @@ export function ActionsTable(): JSX.Element {
             },
         }
         return urls.insightNew({ query })
+    }
+
+    if (getAppContext()?.resource_access_control?.[AccessControlResourceType.Action] === 'none') {
+        return <AccessDenied />
     }
 
     const columns: LemonTableColumns<ActionType> = [

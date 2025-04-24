@@ -8,6 +8,7 @@ export interface AccessDeniedProps {
     object?: string
 }
 
+// TODO: improve this component - add pluralization + specific action support like edit, view, etc.
 export function AccessDenied({ object }: AccessDeniedProps): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
 
