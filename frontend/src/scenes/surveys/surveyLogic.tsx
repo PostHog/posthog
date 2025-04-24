@@ -28,10 +28,13 @@ import {
     PropertyOperator,
     RatingSurveyQuestion,
     Survey,
+    SurveyEventName,
+    SurveyEventStats,
     SurveyMatchType,
     SurveyQuestionBase,
     SurveyQuestionBranchingType,
     SurveyQuestionType,
+    SurveyRates,
     SurveySchedule,
     SurveyStats,
 } from '~/types'
@@ -50,6 +53,10 @@ import {
     sanitizeSurveyDisplayConditions,
     validateColor,
 } from './utils'
+
+export type SurveyBaseStatTuple = [string, number, number, string | null, string | null]
+export type SurveyBaseStatsResult = SurveyBaseStatTuple[] | null
+export type DismissedAndSentCountResult = number | null
 
 const DEFAULT_OPERATORS: Record<SurveyQuestionType, { label: string; value: PropertyOperator }> = {
     [SurveyQuestionType.Open]: {
@@ -246,6 +253,8 @@ export const surveyLogic = kea<surveyLogicType>([
         setInterval: (interval: IntervalType) => ({ interval }),
         setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         setFilterSurveyStatsByDistinctId: (filterByDistinctId: boolean) => ({ filterByDistinctId }),
+        setBaseStatsResults: (results: SurveyBaseStatsResult) => ({ results }),
+        setDismissedAndSentCount: (count: DismissedAndSentCountResult) => ({ count }),
     }),
     loaders(({ props, actions, values }) => ({
         responseSummary: {
@@ -344,21 +353,91 @@ export const surveyLogic = kea<surveyLogicType>([
                 return survey
             },
         },
-        surveyUserStats: {
-            loadSurveyUserStats: async (): Promise<SurveyStats | null> => {
-                if (props.id === NEW_SURVEY.id || values.survey.start_date === null) {
+        surveyBaseStats: {
+            loadSurveyBaseStats: async (): Promise<SurveyBaseStatsResult> => {
+                if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
                     return null
                 }
                 const survey: Survey = values.survey as Survey
                 const startDate = getSurveyStartDateForQuery(survey)
                 const endDate = getSurveyEndDateForQuery(survey)
-                const stats = await api.surveys.getSurveyStats({
-                    surveyId: props.id,
-                    dateFrom: startDate,
-                    dateTo: endDate,
-                })
 
-                return stats
+                // if we have answer filters, we need to apply them to the query for the 'survey sent' event only
+                const answerFilterCondition = values.answerFilterHogQLExpression
+                    ? values.answerFilterHogQLExpression.slice(4)
+                    : '1=1' // Use '1=1' for SQL TRUE
+
+                const query: HogQLQuery = {
+                    kind: NodeKind.HogQLQuery,
+                    query: `
+                        SELECT
+                            event as event_name,
+                            count() as total_count,
+                            count(DISTINCT person_id) as unique_persons,
+                            if(count() > 0, min(timestamp), null) as first_seen,
+                            if(count() > 0, max(timestamp), null) as last_seen
+                        FROM events
+                        WHERE team_id = ${teamLogic.values.currentTeamId}
+                            AND event IN ('${SurveyEventName.SHOWN}', '${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
+                            AND properties.$survey_id = '${props.id}'
+                            AND timestamp >= '${startDate}'
+                            AND timestamp <= '${endDate}'
+                            AND {filters} -- Apply property filters here
+                            -- Apply answer filters only to 'survey sent' events
+                            AND (event != '${SurveyEventName.SENT}' OR (${answerFilterCondition}))
+                        GROUP BY event
+                    `,
+                    filters: {
+                        properties: values.propertyFilters,
+                    },
+                }
+
+                const response = await api.query(query)
+                actions.setBaseStatsResults(response.results as SurveyBaseStatsResult)
+                return response.results as SurveyBaseStatsResult
+            },
+        },
+        surveyDismissedAndSentCount: {
+            loadSurveyDismissedAndSentCount: async (): Promise<DismissedAndSentCountResult> => {
+                if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
+                    return null
+                }
+                const survey: Survey = values.survey as Survey
+                const startDate = getSurveyStartDateForQuery(survey)
+                const endDate = getSurveyEndDateForQuery(survey)
+
+                // if we have answer filters, we need to apply them to the query for the 'survey sent' event only
+                const answerFilterCondition =
+                    values.answerFilterHogQLExpression === ''
+                        ? '1=1' // Use '1=1' for SQL TRUE
+                        : values.answerFilterHogQLExpression.substring(4)
+
+                const query: HogQLQuery = {
+                    kind: NodeKind.HogQLQuery,
+                    query: `
+                        SELECT count()
+                        FROM (
+                            SELECT person_id
+                            FROM events
+                            WHERE team_id = ${teamLogic.values.currentTeamId}
+                              AND event IN ('${SurveyEventName.DISMISSED}', '${SurveyEventName.SENT}')
+                              AND properties.$survey_id = '${props.id}'
+                              AND timestamp >= '${startDate}'
+                              AND timestamp <= '${endDate}'
+                              AND {filters} -- Apply property filters here to reduce initial events
+                            GROUP BY person_id
+                            HAVING sum(if(event = '${SurveyEventName.DISMISSED}', 1, 0)) > 0 -- Has at least one dismissed event (matching property filters)
+                              AND sum(if(event = '${SurveyEventName.SENT}' AND (${answerFilterCondition}), 1, 0)) > 0 -- Has at least one sent event matching BOTH property and answer filters
+                        ) AS PersonsWithBothEvents
+                    `,
+                    filters: {
+                        properties: values.propertyFilters, // Property filters applied in WHERE
+                    },
+                }
+                const response = await api.query(query)
+                const count = response.results?.[0]?.[0] ?? 0
+                actions.setDismissedAndSentCount(count)
+                return count as DismissedAndSentCountResult
             },
         },
         surveyRatingResults: {
@@ -388,7 +467,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND properties.$survey_id = '${props.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
-                            ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
+                            ${values.answerFilterHogQLExpression}
                             AND {filters}
                         GROUP BY survey_response
                     `,
@@ -443,7 +522,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND properties.$survey_id = '${survey.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
-                            ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
+                            ${values.answerFilterHogQLExpression}
                             AND {filters}
                         GROUP BY survey_response, survey_iteration
                     `,
@@ -527,7 +606,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND properties.$survey_id = '${props.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
-                            ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
+                            ${values.answerFilterHogQLExpression}
                             AND survey_response != null
                             AND {filters}
                         GROUP BY survey_response
@@ -577,7 +656,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND properties.$survey_id == '${survey.id}'
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
-                            ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
+                            ${values.answerFilterHogQLExpression}
                             AND {filters}
                         GROUP BY choice
                         ORDER BY count() DESC
@@ -646,7 +725,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             AND ${responseCondition}
                             AND timestamp >= '${startDate}'
                             AND timestamp <= '${endDate}'
-                            ${createAnswerFilterHogQLExpression(values.answerFilters, survey)}
+                            ${values.answerFilterHogQLExpression}
                             AND {filters}
                         LIMIT 20
                     `,
@@ -682,8 +761,9 @@ export const surveyLogic = kea<surveyLogicType>([
     })),
     listeners(({ actions, values }) => {
         const reloadAllSurveyResults = debounce((): void => {
-            // Load survey user stats
-            actions.loadSurveyUserStats()
+            // Load survey stats data
+            actions.loadSurveyBaseStats()
+            actions.loadSurveyDismissedAndSentCount()
 
             // Load results for each question
             values.survey.questions.forEach((question, index) => {
@@ -739,7 +819,11 @@ export const surveyLogic = kea<surveyLogicType>([
                 actions.updateSurvey({ archived: true })
             },
             loadSurveySuccess: () => {
-                actions.loadSurveyUserStats()
+                // Trigger stats loading after survey loads
+                if (values.survey.id !== NEW_SURVEY.id && values.survey.start_date) {
+                    actions.loadSurveyBaseStats()
+                    actions.loadSurveyDismissedAndSentCount()
+                }
 
                 if (values.survey.start_date) {
                     activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
@@ -754,7 +838,6 @@ export const surveyLogic = kea<surveyLogicType>([
             resetSurveyResponseLimits: () => {
                 actions.setSurveyValue('responses_limit', null)
             },
-
             resetSurveyAdaptiveSampling: () => {
                 actions.setSurveyValues({
                     response_sampling_interval: null,
@@ -1078,11 +1161,28 @@ export const surveyLogic = kea<surveyLogicType>([
                 setCompareFilter: (_, { compareFilter }) => compareFilter,
             },
         ],
+        surveyBaseStatsInternal: [
+            null as SurveyBaseStatsResult,
+            {
+                setBaseStatsResults: (_, { results }) => results,
+                loadSurveySuccess: () => null,
+                resetSurvey: () => null,
+            },
+        ],
+        surveyDismissedAndSentCountInternal: [
+            null as DismissedAndSentCountResult,
+            {
+                setDismissedAndSentCount: (_, { count }) => count,
+                loadSurveySuccess: () => null,
+                resetSurvey: () => null,
+            },
+        ],
     }),
     selectors({
         isAnyResultsLoading: [
             (s) => [
-                s.surveyUserStatsLoading,
+                s.surveyBaseStatsLoading,
+                s.surveyDismissedAndSentCountLoading,
                 s.surveyRatingResultsReady,
                 s.surveySingleChoiceResultsReady,
                 s.surveyMultipleChoiceResultsReady,
@@ -1090,7 +1190,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 s.surveyRecurringNPSResultsReady,
             ],
             (
-                surveyUserStatsLoading: boolean,
+                surveyBaseStatsLoading: boolean,
+                surveyDismissedAndSentCountLoading: boolean,
                 surveyRatingResultsReady: boolean,
                 surveySingleChoiceResultsReady: boolean,
                 surveyMultipleChoiceResultsReady: boolean,
@@ -1098,7 +1199,8 @@ export const surveyLogic = kea<surveyLogicType>([
                 surveyRecurringNPSResultsReady: boolean
             ) => {
                 return (
-                    surveyUserStatsLoading ||
+                    surveyBaseStatsLoading ||
+                    surveyDismissedAndSentCountLoading ||
                     !surveyRatingResultsReady ||
                     !surveySingleChoiceResultsReady ||
                     !surveyMultipleChoiceResultsReady ||
@@ -1190,12 +1292,18 @@ export const surveyLogic = kea<surveyLogicType>([
             () => [(_, props: SurveyLogicProps) => props.id],
             (id): ProjectTreeRef => ({ type: 'survey', ref: String(id) }),
         ],
+        answerFilterHogQLExpression: [
+            (s) => [s.survey, s.answerFilters],
+            (survey: Survey, answerFilters: EventPropertyFilter[]): string => {
+                return createAnswerFilterHogQLExpression(answerFilters, survey)
+            },
+        ],
         dataTableQuery: [
-            (s) => [s.survey, s.propertyFilters, s.answerFilters],
+            (s) => [s.survey, s.propertyFilters, s.answerFilterHogQLExpression],
             (
                 survey: Survey,
                 propertyFilters: AnyPropertyFilter[],
-                answerFilters: EventPropertyFilter[]
+                answerFilterHogQLExpression: string
             ): DataTableNode | null => {
                 if (survey.id === 'new') {
                     return null
@@ -1203,11 +1311,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 const surveyWithResults = survey
 
                 const where = [`event == 'survey sent'`]
-                const answerFilter = createAnswerFilterHogQLExpression(answerFilters, survey)
 
-                if (answerFilter !== '') {
+                if (answerFilterHogQLExpression !== '') {
                     // skip the 'AND ' prefix
-                    where.push(answerFilter.slice(4))
+                    where.push(answerFilterHogQLExpression.substring(4))
                 }
 
                 return {
@@ -1506,6 +1613,112 @@ export const surveyLogic = kea<surveyLogicType>([
                     return 'week'
                 }
                 return 'month'
+            },
+        ],
+        processedSurveyStats: [
+            (s) => [s.surveyBaseStatsInternal, s.surveyDismissedAndSentCountInternal],
+            (
+                baseStatsResults: SurveyBaseStatsResult,
+                dismissedAndSentCount: DismissedAndSentCountResult
+            ): SurveyStats | null => {
+                if (!baseStatsResults) {
+                    return null
+                }
+
+                const defaultEventStats: Omit<SurveyEventStats, 'first_seen' | 'last_seen'> = {
+                    total_count: 0,
+                    unique_persons: 0,
+                    unique_persons_only_seen: 0,
+                    total_count_only_seen: 0,
+                }
+
+                const stats: SurveyStats = {
+                    [SurveyEventName.SHOWN]: { ...defaultEventStats, first_seen: null, last_seen: null },
+                    [SurveyEventName.DISMISSED]: { ...defaultEventStats, first_seen: null, last_seen: null },
+                    [SurveyEventName.SENT]: { ...defaultEventStats, first_seen: null, last_seen: null },
+                }
+
+                // Process base results
+                baseStatsResults.forEach(([eventName, totalCount, uniquePersons, firstSeen, lastSeen]) => {
+                    const eventStats: SurveyEventStats = {
+                        total_count: totalCount,
+                        unique_persons: uniquePersons,
+                        first_seen: firstSeen ? dayjs(firstSeen).toISOString() : null,
+                        last_seen: lastSeen ? dayjs(lastSeen).toISOString() : null,
+                        unique_persons_only_seen: 0,
+                        total_count_only_seen: 0,
+                    }
+                    if (eventName === SurveyEventName.SHOWN) {
+                        stats[SurveyEventName.SHOWN] = eventStats
+                    } else if (eventName === SurveyEventName.DISMISSED) {
+                        stats[SurveyEventName.DISMISSED] = eventStats
+                    } else if (eventName === SurveyEventName.SENT) {
+                        stats[SurveyEventName.SENT] = eventStats
+                    }
+                })
+
+                // Adjust dismissed unique count
+                const adjustedDismissedUnique = Math.max(
+                    0,
+                    stats[SurveyEventName.DISMISSED].unique_persons - (dismissedAndSentCount ?? 0)
+                )
+                stats[SurveyEventName.DISMISSED].unique_persons = adjustedDismissedUnique
+
+                // Calculate derived 'only_seen' counts
+                const uniqueShown = stats[SurveyEventName.SHOWN].unique_persons
+                const uniqueDismissed = stats[SurveyEventName.DISMISSED].unique_persons
+                const uniqueSent = stats[SurveyEventName.SENT].unique_persons
+
+                const totalShown = stats[SurveyEventName.SHOWN].total_count
+                const totalDismissed = stats[SurveyEventName.DISMISSED].total_count
+                const totalSent = stats[SurveyEventName.SENT].total_count
+
+                stats[SurveyEventName.SHOWN].unique_persons_only_seen = Math.max(
+                    0,
+                    uniqueShown - uniqueDismissed - uniqueSent
+                )
+                stats[SurveyEventName.SHOWN].total_count_only_seen = Math.max(
+                    0,
+                    totalShown - totalDismissed - totalSent
+                )
+
+                return stats
+            },
+        ],
+        surveyRates: [
+            (s) => [s.processedSurveyStats],
+            (stats: SurveyStats | null): SurveyRates => {
+                const defaultRates: SurveyRates = {
+                    response_rate: 0.0,
+                    dismissal_rate: 0.0,
+                    unique_users_response_rate: 0.0,
+                    unique_users_dismissal_rate: 0.0,
+                }
+
+                if (!stats) {
+                    return defaultRates
+                }
+
+                const shownCount = stats[SurveyEventName.SHOWN].total_count
+                if (shownCount > 0) {
+                    const sentCount = stats[SurveyEventName.SENT].total_count
+                    const dismissedCount = stats[SurveyEventName.DISMISSED].total_count
+                    const uniqueUsersShownCount = stats[SurveyEventName.SHOWN].unique_persons
+                    const uniqueUsersSentCount = stats[SurveyEventName.SENT].unique_persons
+                    const uniqueUsersDismissedCount = stats[SurveyEventName.DISMISSED].unique_persons
+
+                    return {
+                        response_rate: parseFloat(((sentCount / shownCount) * 100).toFixed(2)),
+                        dismissal_rate: parseFloat(((dismissedCount / shownCount) * 100).toFixed(2)),
+                        unique_users_response_rate: parseFloat(
+                            ((uniqueUsersSentCount / uniqueUsersShownCount) * 100).toFixed(2)
+                        ),
+                        unique_users_dismissal_rate: parseFloat(
+                            ((uniqueUsersDismissedCount / uniqueUsersShownCount) * 100).toFixed(2)
+                        ),
+                    }
+                }
+                return defaultRates
             },
         ],
     }),

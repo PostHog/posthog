@@ -111,7 +111,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                     </span>
                 </div>
             )}
-            <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white border-b">
+            <div className="flex flex-row justify-start align-center w-full pl-2 pr-2 bg-white dark:bg-black border-b">
                 <RunButton />
                 <LemonDivider vertical />
                 {editingView && (
