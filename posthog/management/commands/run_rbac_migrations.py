@@ -39,15 +39,16 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        if options.get("org_ids"):
-            org_ids_input = options["org_ids"]
+        org_ids_input = options["org_ids"]
+        rollout_date_str = options["rollout_date"]
+
+        if org_ids_input:
             org_ids = [org_id.strip() for org_id in org_ids_input.split(",")]
 
-        elif options.get("rollout_date"):
+        elif rollout_date_str:
             self.stdout.write("Finding organizations that need RBAC migration...")
 
             # Parse rollout date
-            rollout_date_str = options.get("rollout_date")
             try:
                 rollout_date = datetime.strptime(rollout_date_str, "%Y-%m-%d").date()
             except ValueError:
