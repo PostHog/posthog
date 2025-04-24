@@ -1,4 +1,4 @@
-import { IconArrowLeft, IconExternal, IconGear, IconPlus, IconSidePanel } from '@posthog/icons'
+import { IconArrowLeft, IconClockRewind, IconExternal, IconGear, IconPlus, IconSidePanel } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -13,6 +13,8 @@ import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panel
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
+import { ConversationHistory } from './ConversationHistory'
+import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
@@ -64,8 +66,8 @@ export interface MaxInstanceProps {
 }
 
 export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
-    const { threadGrouped } = useValues(maxLogic)
-    const { startNewConversation } = useActions(maxLogic)
+    const { threadGrouped, conversationHistoryVisible, conversation } = useValues(maxLogic)
+    const { startNewConversation, toggleConversationHistory } = useActions(maxLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
 
@@ -76,6 +78,13 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
                 icon={<IconPlus />}
                 onClick={() => startNewConversation()}
                 tooltip="Start a new chat"
+                tooltipPlacement="bottom"
+            />
+            <LemonButton
+                size="small"
+                sideIcon={<IconClockRewind />}
+                onClick={() => toggleConversationHistory()}
+                tooltip="Open chat history"
                 tooltipPlacement="bottom"
             />
             <LemonButton
@@ -95,7 +104,9 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
     return (
         <>
             {sidePanel && (
-                <SidePanelPaneHeader>
+                <SidePanelPaneHeader
+                    title={conversationHistoryVisible ? 'Chat history' : conversation?.title || 'New chat'}
+                >
                     <LemonButton
                         size="small"
                         sideIcon={<IconPlus />}
@@ -103,7 +114,13 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
                         tooltip="Start a new chat"
                         tooltipPlacement="bottom"
                     />
-                    <div className="flex-1" />
+                    <LemonButton
+                        size="small"
+                        sideIcon={<IconClockRewind />}
+                        onClick={() => toggleConversationHistory()}
+                        tooltip="Open chat history"
+                        tooltipPlacement="bottom"
+                    />
                     <LemonButton
                         size="small"
                         sideIcon={<IconExternal />}
@@ -115,11 +132,16 @@ export function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
                 </SidePanelPaneHeader>
             )}
             <PageHeader delimited buttons={headerButtons} />
-            {!threadGrouped.length ? (
-                <div className="@container/max-welcome relative flex flex-col gap-3 px-4 pb-8 items-center grow justify-center">
-                    <Intro />
-                    <QuestionInput />
-                    <QuestionSuggestions />
+            {conversationHistoryVisible ? (
+                <ConversationHistory />
+            ) : !threadGrouped.length ? (
+                <div className="@container/max-welcome relative flex flex-col gap-4 px-4 pb-8 grow">
+                    <div className="flex-1 items-center justify-center flex flex-col gap-3">
+                        <Intro />
+                        <QuestionInput />
+                        <QuestionSuggestions />
+                    </div>
+                    <HistoryPreview />
                 </div>
             ) : (
                 <>

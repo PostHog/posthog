@@ -2,6 +2,7 @@ import { shuffle } from 'd3'
 import { createParser } from 'eventsource-parser'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual, uuid } from 'lib/utils'
@@ -23,7 +24,7 @@ import {
     RootAssistantMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { NodeKind, RefreshType, SuggestedQuestionsQuery } from '~/queries/schema/schema-general'
-import { Conversation, SidePanelTab } from '~/types'
+import { Conversation, ConversationDetail, ConversationStatus, SidePanelTab } from '~/types'
 
 import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
@@ -44,6 +45,8 @@ export type MessageStatus = 'loading' | 'completed' | 'error'
 export type ThreadMessage = RootAssistantMessage & {
     status: MessageStatus
 }
+
+type PartialConversation = Pick<Conversation, 'id'> & Partial<Omit<Conversation, 'id'>>
 
 const FAILURE_MESSAGE: FailureMessage & ThreadMessage = {
     type: AssistantMessageType.Failure,
@@ -75,24 +78,30 @@ export const maxLogic = kea<maxLogicType>([
             ['actions'],
         ],
     })),
+
     actions({
         askMax: (prompt: string, generationAttempt: number = 0) => ({ prompt, generationAttempt }),
         stopGeneration: true,
-        setThreadLoaded: (testOnlyOverride = false) => ({ testOnlyOverride }),
+        completeThreadGeneration: (testOnlyOverride = false) => ({ testOnlyOverride }),
+        setThreadLoading: (isLoading: boolean) => ({ isLoading }),
         addMessage: (message: ThreadMessage) => ({ message }),
         replaceMessage: (index: number, message: ThreadMessage) => ({ index, message }),
+        setThread: (thread: ThreadMessage[]) => ({ thread }),
         setMessageStatus: (index: number, status: MessageStatus) => ({ index, status }),
         setQuestion: (question: string) => ({ question }),
         setVisibleSuggestions: (suggestions: string[]) => ({ suggestions }),
         shuffleVisibleSuggestions: true,
         retryLastMessage: true,
         scrollThreadToBottom: true,
-        setConversation: (conversation: Conversation) => ({ conversation }),
+        setConversation: (conversation: PartialConversation) => ({ conversation }),
         setTraceId: (traceId: string) => ({ traceId }),
         resetThread: true,
         cleanThread: true,
         startNewConversation: true,
+        toggleConversationHistory: (visible?: boolean) => ({ visible }),
+        loadThread: (conversation: ConversationDetail) => ({ conversation }),
     }),
+
     reducers({
         question: [
             '',
@@ -102,13 +111,18 @@ export const maxLogic = kea<maxLogicType>([
                 cleanThread: () => '',
             },
         ],
+
         conversation: [
-            (_, props) => (props.conversationId ? ({ id: props.conversationId } as Conversation) : null),
+            (_, props) =>
+                (props.conversationId
+                    ? { id: props.conversationId, title: 'New chat' }
+                    : null) as PartialConversation | null,
             {
                 setConversation: (_, { conversation }) => conversation,
                 cleanThread: () => null,
             },
         ],
+
         threadRaw: [
             [] as ThreadMessage[],
             {
@@ -128,24 +142,37 @@ export const maxLogic = kea<maxLogicType>([
                 ],
                 resetThread: (state) => state.filter((message) => !isReasoningMessage(message)),
                 cleanThread: () => [] as ThreadMessage[],
+                setThread: (_, { thread }) => thread,
             },
         ],
+
         threadLoading: [
             false,
             {
                 askMax: () => true,
-                setThreadLoaded: (_, { testOnlyOverride }) => testOnlyOverride,
+                completeThreadGeneration: (_, { testOnlyOverride }) => testOnlyOverride,
                 cleanThread: () => false,
+                setThreadLoading: (_, { isLoading }) => isLoading,
             },
         ],
+
         visibleSuggestions: [
             null as string[] | null,
             {
                 setVisibleSuggestions: (_, { suggestions }) => suggestions,
             },
         ],
+
         traceId: [null as string | null, { setTraceId: (_, { traceId }) => traceId, cleanThread: () => null }],
+
+        conversationHistoryVisible: [
+            false,
+            {
+                toggleConversationHistory: (state, { visible }) => visible ?? !state,
+            },
+        ],
     }),
+
     loaders({
         // TODO: Move question suggestions to `maxGlobalLogic`, which will make this logic `maxThreadLogic`
         allSuggestions: [
@@ -162,17 +189,31 @@ export const maxLogic = kea<maxLogicType>([
                 },
             },
         ],
+
+        conversationHistory: [
+            [] as ConversationDetail[],
+            {
+                loadConversationHistory: async () => {
+                    const response = await api.conversations.list()
+                    return response.results
+                },
+            },
+        ],
     }),
+
     listeners(({ actions, values, cache }) => ({
         [maxSettingsLogic.actionTypes.updateCoreMemorySuccess]: () => {
             actions.loadSuggestions({ refresh: 'blocking' })
         },
+
         [maxSettingsLogic.actionTypes.loadCoreMemorySuccess]: () => {
             actions.loadSuggestions({ refresh: 'async_except_on_cache_miss' })
         },
+
         loadSuggestionsSuccess: () => {
             actions.shuffleVisibleSuggestions()
         },
+
         shuffleVisibleSuggestions: () => {
             if (!values.allSuggestions) {
                 throw new Error('No question suggestions to shuffle')
@@ -190,6 +231,7 @@ export const maxLogic = kea<maxLogicType>([
                 allSuggestionsWithoutCurrentlyVisible.slice(0, 3).sort((a, b) => a.length - b.length)
             )
         },
+
         askMax: async ({ prompt, generationAttempt }, breakpoint) => {
             if (generationAttempt === 0) {
                 actions.addMessage({
@@ -309,9 +351,10 @@ export const maxLogic = kea<maxLogicType>([
                 }
             }
 
-            actions.setThreadLoaded()
+            actions.completeThreadGeneration()
             cache.generationController = undefined
         },
+
         stopGeneration: async () => {
             if (!values.conversation?.id) {
                 return
@@ -325,22 +368,26 @@ export const maxLogic = kea<maxLogicType>([
                 lemonToast.error(e?.data?.detail || 'Failed to cancel the generation.')
             }
         },
+
         retryLastMessage: () => {
             const lastMessage = values.threadRaw.filter(isHumanMessage).pop() as HumanMessage | undefined
             if (lastMessage) {
                 actions.askMax(lastMessage.content)
             }
         },
+
         addMessage: (payload) => {
             if (isHumanMessage(payload.message) || isVisualizationMessage(payload.message)) {
                 actions.scrollThreadToBottom()
             }
         },
+
         replaceMessage: (payload) => {
             if (isVisualizationMessage(payload.message)) {
                 actions.scrollThreadToBottom()
             }
         },
+
         scrollThreadToBottom: () => {
             requestAnimationFrame(() => {
                 // On next frame so that the message has been rendered
@@ -358,6 +405,7 @@ export const maxLogic = kea<maxLogicType>([
                 }
             })
         },
+
         startNewConversation: () => {
             if (values.conversation) {
                 if (values.threadLoading) {
@@ -366,7 +414,31 @@ export const maxLogic = kea<maxLogicType>([
                 actions.cleanThread()
             }
         },
+
+        completeThreadGeneration: () => {
+            actions.loadConversationHistory()
+        },
+
+        loadConversationHistorySuccess: ({ conversationHistory }) => {
+            const lookupId = values?.conversation?.id
+            if (lookupId) {
+                const conversation = conversationHistory.find((c) => c.id === lookupId)
+                if (conversation) {
+                    actions.loadThread(conversation)
+                }
+            }
+        },
+
+        loadThread: ({ conversation }) => {
+            actions.setThread(conversation.messages.map((message) => ({ ...message, status: 'completed' })))
+            if (conversation.status === ConversationStatus.Idle) {
+                actions.setThreadLoading(false)
+            } else {
+                actions.setThreadLoading(true)
+            }
+        },
     })),
+
     selectors({
         threadGrouped: [
             (s) => [s.threadRaw, s.threadLoading],
@@ -475,6 +547,7 @@ export const maxLogic = kea<maxLogicType>([
             { equalityCheck: objectsEqual },
         ],
     }),
+
     afterMount(({ actions, values }) => {
         // We only load suggestions on mount if core memory is present
         if (values.coreMemory) {
@@ -490,7 +563,31 @@ export const maxLogic = kea<maxLogicType>([
         ) {
             actions.setQuestion(sidePanelStateLogic.values.selectedTabOptions)
         }
+        // Load conversation history on mount
+        actions.loadConversationHistory()
     }),
+
+    urlToAction(({ actions, values }) => ({
+        /**
+         * When the URL contains a conversation ID, we want to make that conversation the active one.
+         */
+        '*': (_, search, hashParams) => {
+            if (hashParams.panel === SidePanelTab.Max && hashParams.conversation) {
+                const conversation = values.conversationHistory.find((c) => c.id === hashParams.conversation)
+
+                if (conversation) {
+                    const { messages, ...convo } = conversation
+                    // Conversation has already been loaded, so we can use it directly
+                    actions.setConversation(convo)
+                    actions.loadThread(conversation)
+                } else if (values.conversationHistoryLoading) {
+                    // Conversation hasn't been loaded yet, so we handle it in `loadConversationHistory`
+                    actions.setConversation({ id: search.conversation, title: 'Chat' })
+                }
+            }
+        },
+    })),
+
     permanentlyMount(), // Prevent state from being reset when Max is unmounted, especially key in the side panel
 ])
 
