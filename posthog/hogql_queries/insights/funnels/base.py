@@ -184,8 +184,11 @@ class FunnelBase(ABC):
                     )
 
                 final_select = parse_expr(f"prop_{funnelsFilter.breakdownAttributionValue} as prop")
-            prop_window = parse_expr("groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals")
 
+            if for_udf:
+                return [prop_basic, *select_columns, final_select]
+
+            prop_window = parse_expr("groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals")
             return [prop_basic, *select_columns, final_select, prop_window]
         elif breakdownAttributionType in [
             BreakdownAttributionType.FIRST_TOUCH,
@@ -202,6 +205,8 @@ class FunnelBase(ABC):
             )
 
             breakdown_window_selector = f"{aggregate_operation}(prop, timestamp, {prop_conditional})"
+            if for_udf:
+                return [prop_basic, ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"]))]
             prop_window = parse_expr(f"{breakdown_window_selector} over (PARTITION by aggregation_target) as prop_vals")
             return [
                 prop_basic,
@@ -481,12 +486,11 @@ class FunnelBase(ABC):
         skip_entity_filter=False,
         skip_step_filter=False,
     ) -> ast.SelectQuery:
-        query, funnelsFilter, breakdown, breakdownType, breakdownAttributionType = (
+        query, funnelsFilter, breakdown, breakdownType = (
             self.context.query,
             self.context.funnelsFilter,
             self.context.breakdown,
             self.context.breakdownType,
-            self.context.breakdownAttributionType,
         )
         entities_to_use = entities or query.series
 
@@ -517,7 +521,7 @@ class FunnelBase(ABC):
                 exclusion_col_expr = self._get_exclusions_col(exclusions, index, entity_name)
                 all_step_cols.append(exclusion_col_expr)
 
-        breakdown_select_prop = self._get_breakdown_select_prop(for_udf=False)
+        breakdown_select_prop = self._get_breakdown_select_prop(for_udf=True)
 
         if breakdown_select_prop:
             all_step_cols.extend(breakdown_select_prop)
@@ -532,10 +536,6 @@ class FunnelBase(ABC):
             assert isinstance(funnel_events_query.where, ast.Expr)
             steps_conditions = self._get_steps_conditions_for_udf(all_exclusions, length=len(entities_to_use))
             funnel_events_query.where = ast.And(exprs=[funnel_events_query.where, steps_conditions])
-
-        if breakdown and breakdownAttributionType != BreakdownAttributionType.ALL_EVENTS:
-            # ALL_EVENTS attribution is the old default, which doesn't need the subquery
-            return self._add_breakdown_attribution_subquery(funnel_events_query)
 
         return funnel_events_query
 
@@ -1083,7 +1083,7 @@ class FunnelBase(ABC):
 
     def _query_has_array_breakdown(self) -> bool:
         breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
-        return not isinstance(breakdown, str) and breakdownType != "cohort"
+        return breakdown is not None and not isinstance(breakdown, str) and breakdownType != "cohort"
 
     def _get_exclusion_condition(self) -> list[ast.Expr]:
         funnelsFilter = self.context.funnelsFilter

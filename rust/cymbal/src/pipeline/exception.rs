@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 use crate::{
     app_context::AppContext,
+    assignment_rules::assign_issue,
     error::{EventError, PipelineResult, UnhandledError},
     fingerprinting::generate_fingerprint,
     issue_resolution::{resolve_issue, IssueStatus},
@@ -200,6 +201,7 @@ pub async fn do_exception_handling(
     // Unfreeze the events list, since now we have to modify the events we processed
     let mut events = events;
     let mut to_drop = Vec::new();
+    let mut assignment_rule_futs = HashMap::new();
     for (index, fingerprinted) in indexed_fingerprinted.into_iter() {
         let Ok(event) = &mut events[index] else {
             panic!("Event list modified since indexed property gathering");
@@ -213,9 +215,27 @@ pub async fn do_exception_handling(
 
         if matches!(issue.status, IssueStatus::Suppressed) {
             to_drop.push((index, issue.id));
+        } else if issue.eligible_for_assignment
+            && !assignment_rule_futs.contains_key(&issue.id)
+            && context.config.auto_assignment_enabled
+        {
+            assignment_rule_futs.insert(
+                issue.id,
+                (
+                    index,
+                    tokio::spawn(assign_issue(context.clone(), issue.clone(), output.clone())),
+                ),
+            );
         }
 
         event.properties = Some(serde_json::to_string(&output).map_err(|e| (index, e.into()))?);
+    }
+
+    for (index, future) in assignment_rule_futs.into_values() {
+        future
+            .await
+            .expect("assignment task did not panic")
+            .map_err(|e| (index, e))?; // Wait on all the assignment rules to finish running
     }
 
     // Drop the suppressed events, replacing their entries in the event buffer with EventErrors
