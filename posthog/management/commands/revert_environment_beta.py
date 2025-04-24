@@ -82,17 +82,16 @@ class Command(BaseCommand):
                     # Create a new project for this team
                     new_project_id = team.id
 
-                    # Check if a project with this ID already exists
-                    existing_project = Project.objects.filter(id=new_project_id).first()
-                    if existing_project:
-                        logger.warning(
-                            f"Project with ID {new_project_id} already exists. "
-                            f"Using default ID generation for new project."
-                        )
-                        new_project = Project.objects.create(organization=organization, name=f"{team.name} Project")
-                    else:
-                        # Create a new project with the team's ID
-                        with transaction.atomic():
+                    with transaction.atomic():
+                        existing_project = Project.objects.filter(id=new_project_id).first()
+                        if existing_project:
+                            logger.warning(
+                                f"Project with ID {new_project_id} already exists. "
+                                f"Using default ID generation for new project."
+                            )
+                            new_project = Project.objects.create(organization=organization, name=f"{team.name} Project")
+                        else:
+                            # Create a new project with the team's ID
                             new_project = Project.objects.create(
                                 id=new_project_id, organization=organization, name=f"{team.name} Project"
                             )
