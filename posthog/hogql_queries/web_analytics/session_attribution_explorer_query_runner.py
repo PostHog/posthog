@@ -26,9 +26,6 @@ AD_IDS_PREFIXES_SESSIONS_V1 = [
     "mc_cid",
     "igshid",
     "ttclid",
-    "epik",
-    "qclid",
-    "sccid",
 ]
 
 AD_IDS_PREFIXES_SESSIONS_V2 = [
@@ -47,9 +44,6 @@ AD_IDS_PREFIXES_SESSIONS_V2 = [
     "ttclid",
     "_kx",
     "irclid",
-    "epik",
-    "qclid",
-    "sccid",
 ]
 
 

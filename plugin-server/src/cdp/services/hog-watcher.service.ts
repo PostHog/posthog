@@ -1,3 +1,5 @@
+import { Counter, Histogram } from 'prom-client'
+
 import { Hub } from '../../types'
 import { now } from '../../utils/now'
 import { UUIDT } from '../../utils/utils'
@@ -21,6 +23,18 @@ export type HogWatcherFunctionState = {
     tokens: number
     rating: number
 }
+
+export const hogFunctionExecutionTimeSummary = new Histogram({
+    name: 'cdp_hog_watcher_timings',
+    help: 'Processing time of hog function execution by kind',
+    labelNames: ['kind'],
+})
+
+export const hogFunctionStateChange = new Counter({
+    name: 'hog_function_state_change',
+    help: 'Number of times a transformation state changed',
+    labelNames: ['state', 'kind'],
+})
 
 // TODO: Future follow up - we should swap this to an API call or something.
 // Having it as a celery task ID based on a file path is brittle and hard to test.
@@ -120,26 +134,38 @@ export class HogWatcherService {
                 pipeline.del(`${REDIS_KEY_DISABLED}/${id}`)
             }
         })
-
         await this.onStateChange(id, state)
     }
 
     public async observeResults(results: HogFunctionInvocationResult[]): Promise<void> {
         const costs: Record<HogFunctionType['id'], number> = {}
+        // Create a map to store the function types
+        const functionTypes: Record<HogFunctionType['id'], HogFunctionType['type']> = {}
 
         results.forEach((result) => {
             let cost = (costs[result.invocation.hogFunction.id] = costs[result.invocation.hogFunction.id] || 0)
+            // Store the function type for later use
+            functionTypes[result.invocation.hogFunction.id] = result.invocation.hogFunction.type
 
             if (result.finished) {
-                // If it is finished we can calculate the score based off of the timings
+                // Calculate cost based on individual timings, not the total
+                let costForTimings = 0
 
-                const totalDurationMs = result.invocation.timings.reduce((acc, timing) => acc + timing.duration_ms, 0)
+                // Calculate cost for this individual timing
                 const lowerBound = this.hub.CDP_WATCHER_COST_TIMING_LOWER_MS
                 const upperBound = this.hub.CDP_WATCHER_COST_TIMING_UPPER_MS
                 const costTiming = this.hub.CDP_WATCHER_COST_TIMING
-                const ratio = Math.max(totalDurationMs - lowerBound, 0) / (upperBound - lowerBound)
 
-                cost += Math.round(costTiming * ratio)
+                for (const timing of result.invocation.timings) {
+                    // Record metrics for this timing entry
+                    hogFunctionExecutionTimeSummary.labels({ kind: timing.kind }).observe(timing.duration_ms)
+                    const ratio = Math.max(timing.duration_ms - lowerBound, 0) / (upperBound - lowerBound)
+
+                    // Add to the total cost for this result
+                    costForTimings += Math.round(costTiming * ratio)
+                }
+
+                cost += costForTimings
             }
 
             if (result.error) {
@@ -213,11 +239,23 @@ export class HogWatcherService {
 
             // Finally track the results
             for (const id of functionsToDisablePermanently) {
+                hogFunctionStateChange
+                    .labels({
+                        state: 'disabled_indefinitely',
+                        kind: functionTypes[id],
+                    })
+                    .inc()
                 await this.onStateChange(id, HogWatcherState.disabledIndefinitely)
             }
 
             for (const id of functionsTempDisabled) {
                 if (!functionsToDisablePermanently.includes(id)) {
+                    hogFunctionStateChange
+                        .labels({
+                            state: 'disabled_for_period',
+                            kind: functionTypes[id],
+                        })
+                        .inc()
                     await this.onStateChange(id, HogWatcherState.disabledForPeriod)
                 }
             }

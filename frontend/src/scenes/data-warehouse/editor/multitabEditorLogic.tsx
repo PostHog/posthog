@@ -903,6 +903,25 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
     })),
     subscriptions(({ props, actions, values }) => ({
+        showLegacyFilters: (showLegacyFilters: boolean) => {
+            if (showLegacyFilters) {
+                actions.setSourceQuery({
+                    ...values.sourceQuery,
+                    source: {
+                        ...values.sourceQuery.source,
+                        filters: {},
+                    },
+                })
+            } else {
+                actions.setSourceQuery({
+                    ...values.sourceQuery,
+                    source: {
+                        ...values.sourceQuery.source,
+                        filters: undefined,
+                    },
+                })
+            }
+        },
         activeModelUri: (activeModelUri) => {
             if (props.monaco) {
                 const _model = props.monaco.editor.getModel(activeModelUri.uri)
@@ -988,12 +1007,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
         showLegacyFilters: [
-            (s) => [s.sourceQuery],
-            (sourceQuery) => {
-                return (
-                    sourceQuery.source.query.indexOf('{filters}') !== -1 ||
-                    sourceQuery.source.query.indexOf('{filters.') !== -1
-                )
+            (s) => [s.queryInput],
+            (queryInput) => {
+                return queryInput.indexOf('{filters}') !== -1 || queryInput.indexOf('{filters.') !== -1
             },
         ],
         dataLogicKey: [

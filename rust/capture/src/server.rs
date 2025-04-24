@@ -51,13 +51,16 @@ async fn create_sink(
                     config.overflow_per_second_limit,
                     config.overflow_burst_limit,
                     config.ingestion_force_overflow_by_token_distinct_id.clone(),
+                    config.overflow_preserve_partition_locality,
                 );
+
                 if config.export_prometheus {
                     let partition = partition.clone();
                     tokio::spawn(async move {
                         partition.report_metrics().await;
                     });
                 }
+
                 {
                     // Ensure that the rate limiter state does not grow unbounded
                     let partition = partition.clone();
@@ -177,6 +180,9 @@ where
         config.capture_mode,
         config.concurrency_limit,
         event_max_bytes,
+        config.enable_historical_rerouting,
+        config.historical_rerouting_threshold_days,
+        config.historical_tokens_keys,
     );
 
     // run our app with hyper
