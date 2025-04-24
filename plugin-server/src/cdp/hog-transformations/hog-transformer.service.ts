@@ -38,12 +38,6 @@ export const hogTransformationCompleted = new Counter({
     labelNames: ['type'],
 })
 
-export const hogTransformationDisabled = new Counter({
-    name: 'hog_transformation_disabled_total',
-    help: 'Number of times a transformation was skipped due to being disabled',
-    labelNames: ['state'],
-})
-
 export const hogWatcherLatency = new Histogram({
     name: 'hog_watcher_latency_seconds',
     help: 'Time spent in HogWatcher operations in seconds during ingestion',
@@ -180,11 +174,6 @@ export class HogTransformerService {
 
                         // If the function is in a degraded state, skip it
                         if (functionState && functionState >= HogWatcherState.disabledForPeriod) {
-                            hogTransformationDisabled
-                                .labels({
-                                    state: HogWatcherState[functionState],
-                                })
-                                .inc()
                             continue
                         }
                     }
