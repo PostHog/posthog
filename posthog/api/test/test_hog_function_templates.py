@@ -164,8 +164,8 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         # Clear any existing templates
         DBHogFunctionTemplate.objects.all().delete()
 
-        # Create some test templates in the database
-        self.template1 = DBHogFunctionTemplate.create_from_dataclass(template)
+        # Create some test templates in the database, we ignore the created boolean
+        self.template1, _ = DBHogFunctionTemplate.create_from_dataclass(template)
 
         # Create a second version of the same template to test latest retrieval
         # We need to convert the sub_templates properly to ensure they're correctly structured

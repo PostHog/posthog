@@ -35,7 +35,7 @@ class TestHogFunctionTemplate(TestCase):
     def test_import_slack_template(self):
         """Test importing the real Slack template"""
         # Create a database template from the Slack template
-        db_template = HogFunctionTemplate.create_from_dataclass(slack_template)
+        db_template, _ = HogFunctionTemplate.create_from_dataclass(slack_template)
 
         # Verify core fields
         self.assertEqual(db_template.template_id, "template-slack")
@@ -53,7 +53,7 @@ class TestHogFunctionTemplate(TestCase):
         HogFunctionTemplate.objects.all().delete()
 
         # Verify the version is deterministic by creating another instance
-        db_template2 = HogFunctionTemplate.create_from_dataclass(slack_template)
+        db_template2, _ = HogFunctionTemplate.create_from_dataclass(slack_template)
         self.assertEqual(db_template.version, db_template2.version)
 
         # Verify sub-templates
@@ -275,8 +275,8 @@ class TestHogFunctionTemplate(TestCase):
             category=[],
         )
 
-        db_template_alpha = HogFunctionTemplate.create_from_dataclass(template_alpha)
-        db_template_beta = HogFunctionTemplate.create_from_dataclass(template_beta)
+        db_template_alpha, _ = HogFunctionTemplate.create_from_dataclass(template_alpha)
+        db_template_beta, _ = HogFunctionTemplate.create_from_dataclass(template_beta)
 
         self.assertNotEqual(db_template_alpha.version, db_template_beta.version)
 
@@ -344,12 +344,12 @@ class TestHogFunctionTemplate(TestCase):
             mapping_templates=[HogFunctionMappingTemplate(name="Mapping Template 1")],
         )
 
-        # Create database versions of templates
-        db_base = HogFunctionTemplate.create_from_dataclass(base_template)
-        db_mappings = HogFunctionTemplate.create_from_dataclass(template_with_mappings)
-        db_subtemplates = HogFunctionTemplate.create_from_dataclass(template_with_subtemplates)
-        db_filters = HogFunctionTemplate.create_from_dataclass(template_with_filters)
-        db_mapping_templates = HogFunctionTemplate.create_from_dataclass(template_with_mapping_templates)
+        # Now create templates with various fields to test their impact on versioning
+        db_base, _ = HogFunctionTemplate.create_from_dataclass(base_template)
+        db_mappings, _ = HogFunctionTemplate.create_from_dataclass(template_with_mappings)
+        db_subtemplates, _ = HogFunctionTemplate.create_from_dataclass(template_with_subtemplates)
+        db_filters, _ = HogFunctionTemplate.create_from_dataclass(template_with_filters)
+        db_mapping_templates, _ = HogFunctionTemplate.create_from_dataclass(template_with_mapping_templates)
 
         # All versions should be different
         versions = [
@@ -417,7 +417,7 @@ class TestHogFunctionTemplate(TestCase):
         self.assertEqual(dataclass_template.mappings[0].inputs, {"message": "Page viewed"})
 
         # Convert back to database model
-        new_template = HogFunctionTemplate.create_from_dataclass(dataclass_template)
+        new_template, _ = HogFunctionTemplate.create_from_dataclass(dataclass_template)
 
         # Verify fields were preserved through the roundtrip
         self.assertEqual(new_template.template_id, template.template_id)
@@ -454,7 +454,7 @@ class TestHogFunctionTemplate(TestCase):
         )
 
         # First, create the template directly to make sure it works
-        initial_template = HogFunctionTemplate.create_from_dataclass(template_dto)
+        initial_template, _ = HogFunctionTemplate.create_from_dataclass(template_dto)
         self.assertIsNotNone(initial_template)
 
         # Verify the template was saved
@@ -466,7 +466,7 @@ class TestHogFunctionTemplate(TestCase):
 
         def create_template():
             try:
-                template = HogFunctionTemplate.create_from_dataclass(template_dto)
+                template, _ = HogFunctionTemplate.create_from_dataclass(template_dto)
                 template_id = str(template.id)
                 # Check immediately if our template is found
                 count = HogFunctionTemplate.objects.filter(id=template.id).count()
@@ -519,6 +519,5 @@ class TestHogFunctionTemplate(TestCase):
 
         # Creating the same template again should not add a duplicate
         HogFunctionTemplate.create_from_dataclass(template_dto)
-        with transaction.atomic():
-            templates = HogFunctionTemplate.objects.filter(template_id="sync-test-template")
-            self.assertEqual(templates.count(), 1)
+        templates = HogFunctionTemplate.objects.filter(template_id="sync-test-template")
+        self.assertEqual(templates.count(), 1)

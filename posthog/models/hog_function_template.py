@@ -283,7 +283,7 @@ class HogFunctionTemplate(UUIDModel):
             )
             bytecode = None
 
-        template, _ = cls.objects.get_or_create(
+        template, created = cls.objects.get_or_create(
             template_id=dataclass_template.id,
             version=version,
             defaults={
@@ -305,4 +305,4 @@ class HogFunctionTemplate(UUIDModel):
                 "mapping_templates": mapping_templates,
             },
         )
-        return template
+        return template, created
