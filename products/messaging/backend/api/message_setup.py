@@ -27,17 +27,22 @@ class MessageSetupViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(
             {
                 "status": "pending",
-                "dns_records": {
-                    "dkim": {
-                        "record_name": "dkim_record_name",
-                        "record_value": "dkim_record_value",
-                        "status": "dkim_status",
+                "dnsRecords": [
+                    {
+                        "type": "dkim",
+                        "recordType": "TXT",
+                        "recordHostname": "dkim_record_name",
+                        "recordValue": "dkim_record_value",
+                        "status": "pending",
                     },
-                    "spf": {
-                        "record_value": "spf_record_value",
-                        "status": "spf_status",
+                    {
+                        "type": "spf",
+                        "recordType": "TXT",
+                        "recordHostname": "@",
+                        "recordValue": "spf_record_value",
+                        "status": "pending",
                     },
-                },
+                ],
             }
         )
 
@@ -58,16 +63,21 @@ class MessageSetupViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(
             {
                 "status": "pending",  # pending, verified
-                "dns_records": {
-                    "dkim": {
-                        "record_name": "dkim_record_name",
-                        "record_value": "dkim_record_value",
-                        "status": "dkim_status",
+                "dnsRecords": [
+                    {
+                        "type": "dkim",
+                        "recordType": "TXT",
+                        "recordHostname": "dkim_record_name",
+                        "recordValue": "dkim_record_value",
+                        "status": "pending",
                     },
-                    "spf": {
-                        "record_value": "spf_record_value",
-                        "status": "spf_status",
+                    {
+                        "type": "spf",
+                        "recordType": "TXT",
+                        "recordHostname": "@",
+                        "recordValue": "spf_record_value",
+                        "status": "pending",
                     },
-                },
+                ],
             }
         )
