@@ -31,7 +31,7 @@ class AssistantNode(ABC):
         return self.run(state, config)
 
     @abstractmethod
-    def run(cls, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         raise NotImplementedError
 
     def _get_conversation(self, conversation_id: UUID) -> Conversation | None:
