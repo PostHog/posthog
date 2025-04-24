@@ -2914,37 +2914,36 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
 
-export interface WebActiveHoursHeatMapQuery extends WebAnalyticsQueryBase<WebActiveHoursHeatMapQueryResponse> {
+export interface WebActiveHoursHeatMapQuery extends WebAnalyticsQueryBase<HeatMapQueryResponse> {
     kind: NodeKind.WebActiveHoursHeatMapQuery
 }
 
-export interface WebActiveHoursHeatMapQueryResponse
-    extends AnalyticsQueryResponseBase<WebActiveHoursHeatMapStructuredResult> {
+export interface HeatMapQueryResponse extends AnalyticsQueryResponseBase<HeatMapStructuredResult> {
     hasMore?: boolean
     limit?: integer
 }
 
-export interface WebActiveHoursHeatMapDayAndHourResult {
-    day: integer
-    hour: integer
-    total: integer
+export interface HeatMapDataResult {
+    row: integer
+    column: integer
+    value: integer
 }
 
-export interface WebActiveHoursHeatMapDayResult {
-    day: integer
-    total: integer
+export interface HeatMapRowAggregationResult {
+    row: integer
+    value: integer
 }
 
-export interface WebActiveHoursHeatMapHourResult {
-    hour: integer
-    total: integer
+export interface HeatMapColumnAggregationResult {
+    column: integer
+    value: integer
 }
 
-export interface WebActiveHoursHeatMapStructuredResult {
-    dayAndHours: WebActiveHoursHeatMapDayAndHourResult[]
-    days: WebActiveHoursHeatMapDayResult[]
-    hours: WebActiveHoursHeatMapHourResult[]
-    total: integer
+export interface HeatMapStructuredResult {
+    data: HeatMapDataResult[]
+    rowAggregations: HeatMapRowAggregationResult[]
+    columnAggregations: HeatMapColumnAggregationResult[]
+    allAggregations: integer
 }
 
-export type CachedWebActiveHoursHeatMapQueryResponse = CachedQueryResponse<WebActiveHoursHeatMapQueryResponse>
+export type CachedHeatMapQueryResponse = CachedQueryResponse<HeatMapQueryResponse>

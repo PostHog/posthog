@@ -1,11 +1,10 @@
-import { DaysAbbreviated, HoursAbbreviated } from './config'
+import { DaysAbbreviated, HoursAbbreviated } from './utils'
 
 describe('EventsHeatMap config', () => {
     describe('DaysAbbreviated', () => {
         it('should have correct days configuration', () => {
             // we care about the order of the days and the startIndex
             expect(DaysAbbreviated.values).toEqual(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'])
-            expect(DaysAbbreviated.startIndex).toBe(0)
         })
 
         it('should have 7 days', () => {
@@ -18,7 +17,6 @@ describe('EventsHeatMap config', () => {
             // we care about the order of the hours and the startIndex
             const expectedHours = Array.from({ length: 24 }, (_, i) => String(i))
             expect(HoursAbbreviated.values).toEqual(expectedHours)
-            expect(HoursAbbreviated.startIndex).toBe(0)
         })
 
         it('should have 24 hours', () => {

@@ -6,7 +6,7 @@ import {
 } from 'products/revenue_analytics/frontend/nodes'
 import { useEffect, useState } from 'react'
 import { HogDebug } from 'scenes/debug/HogDebug'
-import { EventsHeatMap } from 'scenes/web-analytics/EventsHeatMap/EventsHeatMap'
+import { WebActiveHoursHeatmap } from 'scenes/web-analytics/WebActiveHoursHeatmap/WebActiveHoursHeatmap'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
@@ -176,7 +176,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
     } else if (isHogQuery(query)) {
         component = <HogDebug query={query} setQuery={setQuery as (query: any) => void} queryKey={String(uniqueKey)} />
     } else if (isWebActiveHoursHeatMapQuery(query)) {
-        component = <EventsHeatMap query={query} context={queryContext} cachedResults={props.cachedResults} />
+        component = <WebActiveHoursHeatmap query={query} context={queryContext} cachedResults={props.cachedResults} />
     } else {
         component = <DataNode query={query} cachedResults={props.cachedResults} />
     }

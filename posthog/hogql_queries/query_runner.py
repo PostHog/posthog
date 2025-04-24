@@ -27,7 +27,6 @@ from posthog.hogql_queries.query_cache import QueryCacheManager
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
 from posthog.schema import (
-    WebActiveHoursHeatMapQuery,
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
     CacheMissResponse,
@@ -65,6 +64,7 @@ from posthog.schema import (
     TracesQuery,
     TrendsQuery,
     VectorSearchQuery,
+    WebActiveHoursHeatMapQuery,
     WebGoalsQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
