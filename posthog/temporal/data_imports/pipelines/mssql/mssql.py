@@ -20,6 +20,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 )
 from posthog.temporal.data_imports.pipelines.sql_database.settings import (
     DEFAULT_CHUNK_SIZE,
+    DEFAULT_TABLE_SIZE_BYTES,
 )
 from posthog.warehouse.models import IncrementalFieldType
 
@@ -31,10 +32,12 @@ def _build_query(
     incremental_field: str | None,
     incremental_field_type: IncrementalFieldType | None,
     db_incremental_field_last_value: Any | None,
+    add_limit: bool = False,
 ) -> tuple[str, dict[str, Any]]:
-    query = f"SELECT * FROM [{schema}].[{table_name}]"
+    base_query = "SELECT {top} * FROM [{schema}].[{table_name}]"
 
     if not is_incremental:
+        query = base_query.format(top="TOP 100" if add_limit else "", schema=schema, table_name=table_name)
         return query, {}
 
     if incremental_field is None or incremental_field_type is None:
@@ -43,7 +46,8 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    query = f"SELECT * FROM [{schema}].[{table_name}] WHERE [{incremental_field}] > %(incremental_value)s ORDER BY [{incremental_field}] ASC"
+    query = base_query.format(top="TOP 100" if add_limit else "", schema=schema, table_name=table_name)
+    query = f"{query} WHERE [{incremental_field}] > %(incremental_value)s ORDER BY [{incremental_field}] ASC"
 
     return query, {
         "incremental_value": db_incremental_field_last_value,
@@ -169,6 +173,95 @@ def _get_arrow_schema(table_structure: list[TableStructureRow]) -> pa.Schema:
     return pa.schema(fields)
 
 
+def _get_table_average_row_size(
+    cursor: Cursor,
+    schema: str,
+    table_name: str,
+    is_incremental: bool,
+    incremental_field: str | None,
+    incremental_field_type: IncrementalFieldType | None,
+    db_incremental_field_last_value: Any | None,
+    logger: FilteringBoundLogger,
+) -> int | None:
+    query, args = _build_query(
+        schema,
+        table_name,
+        is_incremental,
+        incremental_field,
+        incremental_field_type,
+        db_incremental_field_last_value,
+        add_limit=True,
+    )
+
+    # Get column names from the table
+    cursor.execute(
+        f"SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = %(schema)s AND TABLE_NAME = %(table)s ORDER BY ORDINAL_POSITION",
+        {"schema": schema, "table": table_name},
+    )
+    rows = cursor.fetchall()
+    if not rows:
+        logger.debug(f"_get_table_average_row_size: No columns found.")
+        return None
+
+    columns = [row[0] for row in rows]
+
+    # Build the DATALENGTH sum for each column
+    datalength_sum = " + ".join(f"DATALENGTH([{col}])" for col in columns)
+
+    size_query = f"""
+        SELECT AVG({datalength_sum}) as avg_row_size
+        FROM ({query}) as t
+    """
+
+    cursor.execute(size_query, args)
+    row = cursor.fetchone()
+
+    if row is None or row[0] is None:
+        logger.debug(f"_get_table_average_row_size: No results returned.")
+        return None
+
+    row_size_bytes = max(row[0] or 0, 1)
+    return row_size_bytes
+
+
+def _get_table_chunk_size(
+    cursor: Cursor,
+    schema: str,
+    table_name: str,
+    is_incremental: bool,
+    incremental_field: str | None,
+    incremental_field_type: IncrementalFieldType | None,
+    db_incremental_field_last_value: Any | None,
+    logger: FilteringBoundLogger,
+) -> int:
+    try:
+        row_size_bytes = _get_table_average_row_size(
+            cursor,
+            schema,
+            table_name,
+            is_incremental,
+            incremental_field,
+            incremental_field_type,
+            db_incremental_field_last_value,
+            logger,
+        )
+        if row_size_bytes is None:
+            logger.debug(
+                f"_get_table_chunk_size: Could not calculate row size. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}"
+            )
+            return DEFAULT_CHUNK_SIZE
+    except Exception as e:
+        logger.debug(f"_get_table_chunk_size: Error: {e}. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}", exc_info=e)
+        return DEFAULT_CHUNK_SIZE
+
+    chunk_size = int(DEFAULT_TABLE_SIZE_BYTES / row_size_bytes)
+    min_chunk_size = min(chunk_size, DEFAULT_CHUNK_SIZE)
+    logger.debug(
+        f"_get_table_chunk_size: row_size_bytes={row_size_bytes}. DEFAULT_TABLE_SIZE_BYTES={DEFAULT_TABLE_SIZE_BYTES}. Using CHUNK_SIZE={min_chunk_size}"
+    )
+    return min_chunk_size
+
+
 def mssql_source(
     host: str,
     port: int,
@@ -198,6 +291,16 @@ def mssql_source(
         with connection.cursor() as cursor:
             primary_keys = _get_primary_keys(cursor, schema, table_name)
             table_structure = _get_table_structure(cursor, schema, table_name)
+            chunk_size = _get_table_chunk_size(
+                cursor,
+                schema,
+                table_name,
+                is_incremental,
+                incremental_field,
+                incremental_field_type,
+                db_incremental_field_last_value,
+                logger,
+            )
 
             # Fallback on checking for an `id` field on the table
             if primary_keys is None:
@@ -231,7 +334,7 @@ def mssql_source(
                 column_names = [column[0] for column in cursor.description or []]
 
                 while True:
-                    rows = cursor.fetchmany(DEFAULT_CHUNK_SIZE)
+                    rows = cursor.fetchmany(chunk_size)
                     if not rows:
                         break
 

@@ -223,6 +223,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             refresh?: RefreshType
             action:
                 | 'initial_load'
+                | 'initial_load_with_variables'
                 | 'update'
                 | 'refresh'
                 | 'load_missing'
@@ -554,6 +555,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return state
                     }
 
+                    if (!value && !isNull) {
+                        const newState = { ...state }
+                        delete newState[variableId]
+                        return newState
+                    }
+
                     return {
                         ...state,
                         [variableId]: {
@@ -565,14 +572,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 },
                 resetVariables: (_, { variables }) => ({ ...variables }),
-                loadDashboardSuccess: (state, { dashboard, payload }) =>
-                    dashboard
+                loadDashboardSuccess: (state, { dashboard, payload }) => {
+                    return dashboard
                         ? {
                               ...state,
-                              // don't update filters if we're previewing
-                              ...(payload?.action === 'preview' ? {} : dashboard.variables ?? {}),
+                              // don't update filters if we're previewing or initial load with variables
+                              ...(payload?.action === 'preview' || payload?.action === 'initial_load_with_variables'
+                                  ? {}
+                                  : dashboard.variables ?? {}),
                           }
-                        : state,
+                        : state
+                },
             },
         ],
         urlVariables: [
@@ -595,8 +605,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     dashboard
                         ? {
                               ...state,
-                              // don't update filters if we're previewing
-                              ...(payload?.action === 'preview' ? {} : dashboard.variables ?? {}),
+                              // don't update filters if we're previewing or initial load with variables
+                              ...(payload?.action === 'preview' || payload?.action === 'initial_load_with_variables'
+                                  ? {}
+                                  : dashboard.variables ?? {}),
                           }
                         : state,
             },
@@ -965,8 +977,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         // Overwrite the variable `value` from the insight
                         const resultVar: Variable = {
                             ...foundVar,
-                            value: overridenValue ?? v.value ?? foundVar.value,
-                            isNull: overridenIsNull ?? v.isNull ?? foundVar.isNull,
+                            value: overridenValue,
+                            isNull: overridenIsNull,
                         }
 
                         const insightsUsingVariable = dataVizNodes
@@ -1674,9 +1686,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.loadDashboard({ action: 'preview' })
             }
         },
-        overrideVariableValue: ({ reload }) => {
+        overrideVariableValue: ({ reload, value, isNull }) => {
             if (reload) {
                 actions.loadDashboard({ action: 'preview' })
+                actions.setDashboardMode(DashboardMode.Edit, null)
+            }
+
+            if (!value && !isNull) {
+                const hasOtherVariables = Object.values(values.temporaryVariables).some((v) => v.value || v.isNull)
+                if (!hasOtherVariables) {
+                    actions.resetVariables()
+                }
             }
         },
         [variableDataLogic.actionTypes.getVariablesSuccess]: ({ variables }) => {
@@ -1699,7 +1719,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (QUERY_VARIABLES_KEY in router.values.searchParams) {
                 actions.loadDashboard({
                     refresh: 'lazy_async',
-                    action: 'initial_load',
+                    action: 'initial_load_with_variables',
                 })
             }
 
@@ -1733,7 +1753,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
     })),
 
     actionToUrl(({ values }) => ({
-        overrideVariableValue: ({ variableId, value, allVariables }) => {
+        overrideVariableValue: ({ variableId, value, isNull, allVariables }) => {
             const { currentLocation } = router.values
 
             const currentVariable = allVariables.find((variable: Variable) => variable.id === variableId)
@@ -1742,16 +1762,33 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return [currentLocation.pathname, currentLocation.searchParams, currentLocation.hashParams]
             }
 
-            const newUrlVariables = {
+            const newUrlVariables: Record<string, string> = {
                 ...values.urlVariables,
                 [currentVariable.code_name]: value,
             }
 
             const newSearchParams = {
                 ...currentLocation.searchParams,
-                ...encodeURLVariables(newUrlVariables),
             }
 
+            // If value is null and not explicitly set, remove it from the url variables
+            if (!value && !isNull) {
+                delete newUrlVariables[currentVariable.code_name]
+                delete newSearchParams[QUERY_VARIABLES_KEY]
+            }
+
+            return [
+                currentLocation.pathname,
+                { ...newSearchParams, ...encodeURLVariables(newUrlVariables) },
+                currentLocation.hashParams,
+            ]
+        },
+        resetVariables: () => {
+            const { currentLocation } = router.values
+            const newSearchParams = {
+                ...currentLocation.searchParams,
+            }
+            delete newSearchParams[QUERY_VARIABLES_KEY]
             return [currentLocation.pathname, newSearchParams, currentLocation.hashParams]
         },
     })),
