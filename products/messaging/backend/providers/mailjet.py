@@ -92,7 +92,7 @@ class MailjetProvider:
         Reference: https://dev.mailjet.com/email/reference/sender-addresses-and-domains/sender/#v3_post_sender
         """
         # Validate the domain contains valid characters for a domain name
-        DOMAIN_REGEX = r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
+        DOMAIN_REGEX = r"(?i)^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
         if not re.match(DOMAIN_REGEX, domain):
             raise exceptions.ValidationError("Please enter a valid domain or subdomain name.")
 
