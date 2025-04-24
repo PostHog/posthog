@@ -1,4 +1,4 @@
-import { Histogram } from 'prom-client'
+import { Counter, Histogram } from 'prom-client'
 
 import { Hub } from '../../types'
 import { now } from '../../utils/now'
@@ -28,6 +28,12 @@ export const hogFunctionExecutionTimeSummary = new Histogram({
     name: 'cdp_hog_watcher_timings',
     help: 'Processing time of hog function execution by kind',
     labelNames: ['kind'],
+})
+
+export const hogFunctionStateChange = new Counter({
+    name: 'hog_function_state_change',
+    help: 'Number of times a transformation state changed',
+    labelNames: ['state', 'kind'],
 })
 
 // TODO: Future follow up - we should swap this to an API call or something.
@@ -128,15 +134,18 @@ export class HogWatcherService {
                 pipeline.del(`${REDIS_KEY_DISABLED}/${id}`)
             }
         })
-
         await this.onStateChange(id, state)
     }
 
     public async observeResults(results: HogFunctionInvocationResult[]): Promise<void> {
         const costs: Record<HogFunctionType['id'], number> = {}
+        // Create a map to store the function types
+        const functionTypes: Record<HogFunctionType['id'], HogFunctionType['type']> = {}
 
         results.forEach((result) => {
             let cost = (costs[result.invocation.hogFunction.id] = costs[result.invocation.hogFunction.id] || 0)
+            // Store the function type for later use
+            functionTypes[result.invocation.hogFunction.id] = result.invocation.hogFunction.type
 
             if (result.finished) {
                 // Calculate cost based on individual timings, not the total
@@ -230,11 +239,23 @@ export class HogWatcherService {
 
             // Finally track the results
             for (const id of functionsToDisablePermanently) {
+                hogFunctionStateChange
+                    .labels({
+                        state: 'disabled_indefinitely',
+                        kind: functionTypes[id],
+                    })
+                    .inc()
                 await this.onStateChange(id, HogWatcherState.disabledIndefinitely)
             }
 
             for (const id of functionsTempDisabled) {
                 if (!functionsToDisablePermanently.includes(id)) {
+                    hogFunctionStateChange
+                        .labels({
+                            state: 'disabled_for_period',
+                            kind: functionTypes[id],
+                        })
+                        .inc()
                     await this.onStateChange(id, HogWatcherState.disabledForPeriod)
                 }
             }
