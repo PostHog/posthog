@@ -5,6 +5,7 @@ use common_types::TeamId;
 use hogvm::{ExecutionContext, StepOutcome, VmError};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sqlx::PgConnection;
 use uuid::Uuid;
 
 use crate::metric_consts::{
@@ -12,6 +13,7 @@ use crate::metric_consts::{
     ASSIGNMENT_RULES_TRIED, AUTO_ASSIGNMENTS,
 };
 
+use crate::teams::TeamManager;
 use crate::{
     app_context::AppContext, error::UnhandledError, issue_resolution::Issue, types::OutputErrProps,
 };
@@ -120,7 +122,8 @@ impl AssignmentRule {
 }
 
 pub async fn assign_issue(
-    context: Arc<AppContext>,
+    con: &mut PgConnection,
+    team_manager: &TeamManager,
     issue: Issue,
     exception_properties: OutputErrProps,
 ) -> Result<Option<Assignment>, UnhandledError> {
@@ -140,10 +143,7 @@ pub async fn assign_issue(
 
     let props_json = serde_json::to_value(exception_properties)?;
 
-    let mut rules = context
-        .team_manager
-        .get_rules(&context.pool, issue.team_id)
-        .await?;
+    let mut rules = team_manager.get_rules(&mut *con, issue.team_id).await?;
 
     metrics::counter!(ASSIGNMENT_RULES_FOUND).increment(1);
 
@@ -155,11 +155,11 @@ pub async fn assign_issue(
             Ok(true) => {
                 timing.label("outcome", "match").fin();
                 metrics::counter!(AUTO_ASSIGNMENTS).increment(1);
-                return Ok(Some(rule.apply(&context.pool, issue.id).await?));
+                return Ok(Some(rule.apply(con, issue.id).await?));
             }
             Err(err) => {
                 rule.disable(
-                    &context.pool,
+                    &mut *con,
                     err.to_string(),
                     issue_json.clone(),
                     props_json.clone(),
@@ -173,7 +173,7 @@ pub async fn assign_issue(
 
     // If none of the rules matched, grab the existing assignment, in case one exists,
     // and return that (or None)
-    Ok(issue.get_assignments(&context.pool).await?.first().cloned())
+    Ok(issue.get_assignments(con).await?.first().cloned())
 }
 
 pub fn try_rule(rule_bytecode: &Value, issue: &Value, props: &Value) -> Result<bool, VmError> {

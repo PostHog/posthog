@@ -150,7 +150,13 @@ impl Issue {
         .fetch_all(executor)
         .await?;
 
-        Ok(!res.is_empty()) // We actually updated a row
+        let reopened = !res.is_empty();
+        if reopened {
+            metrics::counter!(ISSUE_REOPENED).increment(1);
+            capture_issue_reopened(self.team_id, self.id);
+        }
+
+        Ok(reopened)
     }
 
     pub async fn get_assignments<'c, E>(
@@ -242,10 +248,9 @@ pub async fn resolve_issue(
     let existing_issue = Issue::load_by_fingerprint(&mut *conn, team_id, fingerprint).await?;
     if let Some(mut issue) = existing_issue {
         if issue.maybe_reopen(&mut *conn).await? {
-            metrics::counter!(ISSUE_REOPENED).increment(1);
-            capture_issue_reopened(issue.team_id, issue.id);
             let assignment = assign_issue(
-                context.clone(),
+                &mut conn,
+                &context.team_manager,
                 issue.clone(),
                 event_properties.to_output(issue.id),
             )
@@ -284,12 +289,30 @@ pub async fn resolve_issue(
     // saving both the issue and the override. Otherwise, rollback the transaction, and
     // use the retrieved issue override.
     let was_created = issue_override.issue_id == issue.id;
+    let mut issue = issue;
     if !was_created {
         txn.rollback().await?;
+        // Replace the attempt issue with the existing one
+        issue = Issue::load(&mut *conn, team_id, issue_override.id)
+            .await?
+            .unwrap_or(issue);
+
+        // Since we just loaded an issue, check if it needs to be reopened
+        if issue.maybe_reopen(&mut *conn).await? {
+            let assignment = assign_issue(
+                &mut conn,
+                &context.team_manager,
+                issue.clone(),
+                event_properties.to_output(issue.id),
+            )
+            .await?;
+            send_issue_reopened_alert(&context, &issue, assignment).await?;
+        }
     } else {
         metrics::counter!(ISSUE_CREATED).increment(1);
         let assignment = assign_issue(
-            context.clone(),
+            &mut txn,
+            &context.team_manager,
             issue.clone(),
             event_properties.to_output(issue.id),
         )
