@@ -52,7 +52,7 @@ class MailjetProvider:
             raise ValueError("MAILJET_SECRET_KEY is not set in environment or settings")
         return api_secret
 
-    def _format_dns_records(self, dns_response: dict) -> tuple[str, list]:
+    def _format_dns_records(self, dns_response: dict) -> tuple[str, list[dict]]:
         formatted_dns_records = []
 
         # DKIM status possible values: "Not checked", "OK", "Error"
@@ -85,7 +85,7 @@ class MailjetProvider:
 
         return overall_status, formatted_dns_records
 
-    def _create_sender_domain(self, domain: str) -> MailjetResponse:
+    def _create_sender_domain(self, domain: str):
         """
         Create a new sender domain
 
@@ -113,7 +113,7 @@ class MailjetProvider:
             logger.exception(f"Mailjet API error creating sender domain: {e}")
             raise
 
-    def _get_domain_dns_records(self, domain: str) -> MailjetResponse:
+    def _get_domain_dns_records(self, domain: str):
         """
         Get DNS records for a domain (DKIM and SPF verification status)
 
@@ -129,7 +129,7 @@ class MailjetProvider:
             logger.exception(f"Mailjet API error fetching DNS records: {e}")
             raise
 
-    def _check_domain_dns_records(self, domain: str) -> MailjetResponse:
+    def _check_domain_dns_records(self, domain: str):
         """
         Trigger a check for the current status of DKIM and SPF records for a domain
 
@@ -145,7 +145,7 @@ class MailjetProvider:
             logger.exception(f"Mailjet API error checking DNS records: {e}")
             raise
 
-    def setup_email_domain(self, domain: str) -> dict:
+    def setup_email_domain(self, domain: str):
         """
         Complete setup for a new email domain:
         1. Create a sender domain
@@ -163,7 +163,7 @@ class MailjetProvider:
             "dnsRecords": formatted_dns_records,
         }
 
-    def verify_email_domain(self, domain: str) -> dict:
+    def verify_email_domain(self, domain: str):
         """
         Verify the email domain by checking DNS records status.
         """
