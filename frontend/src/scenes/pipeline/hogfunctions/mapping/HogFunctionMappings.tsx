@@ -24,6 +24,7 @@ import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
 import { HogFunctionInputs } from '../HogFunctionInputs'
 
 const humanize = (value: string): string => {
+    if (!value) return 'broken value'
     // Simple replacement from something like MY_STRING-here to My string here
     return value
         .toLowerCase()

@@ -163,7 +163,7 @@ export class LegacyPluginExecutorService {
             // NOTE: If this is set then we can add in the legacy storage
             const legacyPluginConfigId = invocation.globals.inputs?.legacy_plugin_config_id
 
-            if (!state) {
+            if (!state || true) {
                 const geoip = await this.hub.geoipService.get()
 
                 const meta: LegacyTransformationPluginMeta = {
