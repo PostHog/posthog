@@ -96,23 +96,26 @@ impl AssignmentRule {
         Ok(())
     }
 
-    pub async fn apply<'c, E>(&self, conn: E, issue_id: Uuid) -> Result<(), sqlx::Error>
+    pub async fn apply<'c, E>(&self, conn: E, issue_id: Uuid) -> Result<Assignment, sqlx::Error>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
         // TODO - should we respect existing assignments? This does, and I think that's right, but :shrug:
-        sqlx::query!(
+        let assignment = sqlx::query_as!(
+            Assignment,
             r#"
                 INSERT INTO posthog_errortrackingissueassignment (id, issue_id, user_id, user_group_id, created_at)
                 VALUES ($1, $2, $3, $4, NOW())
-                ON CONFLICT (issue_id) DO NOTHING
+                ON CONFLICT (issue_id) DO UPDATE SET issue_id = $2 -- no-op to get a returned row
+                RETURNING id, issue_id, user_id, user_group_id, created_at
             "#,
             Uuid::now_v7(),
             issue_id,
             self.user_id,
-            self.user_group_id
-        ).execute(conn).await?;
-        Ok(())
+            self.user_group_id,
+        ).fetch_one(conn).await?;
+
+        Ok(assignment)
     }
 }
 
@@ -120,7 +123,7 @@ pub async fn assign_issue(
     context: Arc<AppContext>,
     issue: Issue,
     exception_properties: OutputErrProps,
-) -> Result<(), UnhandledError> {
+) -> Result<Option<Assignment>, UnhandledError> {
     let timing = common_metrics::timing_guard(ASSIGNMENT_RULES_PROCESSING_TIME, &[]);
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct IssueJson {
@@ -152,7 +155,7 @@ pub async fn assign_issue(
             Ok(true) => {
                 timing.label("outcome", "match").fin();
                 metrics::counter!(AUTO_ASSIGNMENTS).increment(1);
-                return Ok(rule.apply(&context.pool, issue.id).await?);
+                return Ok(Some(rule.apply(&context.pool, issue.id).await?));
             }
             Err(err) => {
                 rule.disable(
@@ -168,7 +171,9 @@ pub async fn assign_issue(
 
     timing.label("outcome", "no_match").fin();
 
-    Ok(())
+    // If none of the rules matched, grab the existing assignment, in case one exists,
+    // and return that (or None)
+    Ok(issue.get_assignments(&context.pool).await?.first().cloned())
 }
 
 pub fn try_rule(rule_bytecode: &Value, issue: &Value, props: &Value) -> Result<bool, VmError> {
