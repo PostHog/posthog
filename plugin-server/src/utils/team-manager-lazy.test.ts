@@ -5,11 +5,11 @@ import { defaultConfig } from '../config/config'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from './db/hub'
 import { PostgresRouter, PostgresUse } from './db/postgres'
-import { TeamManager } from './team-manager'
+import { TeamManagerLazy } from './team-manager-lazy'
 
 describe('TeamManager()', () => {
     let hub: Hub
-    let teamManager: TeamManager
+    let teamManager: TeamManagerLazy
     let postgres: PostgresRouter
     let teamId: Team['id']
     let team2Id: Team['id']
@@ -27,7 +27,7 @@ describe('TeamManager()', () => {
         await resetTestDatabase()
 
         postgres = new PostgresRouter(defaultConfig)
-        teamManager = new TeamManager(postgres)
+        teamManager = new TeamManagerLazy(postgres)
         const team = await getFirstTeam(hub)
         teamId = team.id
         teamToken = team.api_token

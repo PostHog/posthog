@@ -3,11 +3,11 @@ import { DateTime } from 'luxon'
 import { ParsedMessageData } from '../kafka/types'
 import { TeamFilter } from './team-filter'
 import { TeamService } from './team-service'
-import { TeamForReplay } from './types'
+import { Team } from './types'
 
 jest.mock('./team-service')
 
-const validTeam: TeamForReplay = {
+const validTeam: Team = {
     teamId: 1,
     consoleLogIngestionEnabled: true,
 }
