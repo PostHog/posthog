@@ -85,6 +85,13 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
       },
       "2020-02-23T02:15:00.000Z",
       true,
+      {
+        "db": {
+          "kafkaProducer": {},
+        },
+        "distinctId": "my_id",
+        "methodCounts": {},
+      },
     ],
   ],
   [

@@ -21,7 +21,7 @@ export async function processPersonsStep(
         String(event.distinct_id),
         timestamp,
         processPerson,
-        runner.hub.db,
+        runner.hub.db.kafkaProducer,
         distinctIdBatchStore
     ).update()
 

@@ -4,8 +4,8 @@ import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { ONE_HOUR } from '../../config/constants'
+import { KafkaProducerWrapper } from '../../kafka/producer'
 import { InternalPerson, Person, PropertyUpdateOperation, Team } from '../../types'
-import { DB } from '../../utils/db/db'
 import { TransactionClient } from '../../utils/db/postgres'
 import { eventToPersonProperties, initialEventToPersonProperties, timeoutGuard } from '../../utils/db/utils'
 import { logger } from '../../utils/logger'
@@ -109,7 +109,7 @@ export class PersonState {
         private distinctId: string,
         private timestamp: DateTime,
         private processPerson: boolean, // $process_person_profile flag from the event
-        private db: DB,
+        private kafkaProducer: KafkaProducerWrapper,
         private personStore: PersonsStoreForDistinctIdBatch
     ) {
         this.eventProperties = event.properties!
@@ -289,7 +289,7 @@ export class PersonState {
             tx
         )
 
-        await this.db.kafkaProducer.queueMessages(kafkaMessages)
+        await this.kafkaProducer.queueMessages(kafkaMessages)
         return person
     }
 
@@ -306,7 +306,7 @@ export class PersonState {
 
         if (Object.keys(update).length > 0) {
             const [updatedPerson, kafkaMessages] = await this.personStore.updatePersonDeprecated(person, update)
-            const kafkaAck = this.db.kafkaProducer.queueMessages(kafkaMessages)
+            const kafkaAck = this.kafkaProducer.queueMessages(kafkaMessages)
             return [updatedPerson, kafkaAck]
         }
 
@@ -460,7 +460,7 @@ export class PersonState {
         }
         if (isDistinctIdIllegal(mergeIntoDistinctId)) {
             await captureIngestionWarning(
-                this.db.kafkaProducer,
+                this.kafkaProducer,
                 teamId,
                 'cannot_merge_with_illegal_distinct_id',
                 {
@@ -474,7 +474,7 @@ export class PersonState {
         }
         if (isDistinctIdIllegal(otherPersonDistinctId)) {
             await captureIngestionWarning(
-                this.db.kafkaProducer,
+                this.kafkaProducer,
                 teamId,
                 'cannot_merge_with_illegal_distinct_id',
                 {
@@ -652,7 +652,7 @@ export class PersonState {
         // If merge isn't allowed, we will ignore it, log an ingestion warning and exit
         if (!mergeAllowed) {
             await captureIngestionWarning(
-                this.db.kafkaProducer,
+                this.kafkaProducer,
                 this.team.id,
                 'cannot_merge_already_identified',
                 {
@@ -765,7 +765,7 @@ export class PersonState {
             })
             .inc()
 
-        const kafkaAck = this.db.kafkaProducer.queueMessages(kafkaMessages)
+        const kafkaAck = this.kafkaProducer.queueMessages(kafkaMessages)
 
         return [mergedPerson, kafkaAck]
     }
@@ -777,6 +777,6 @@ export class PersonState {
         tx?: TransactionClient
     ): Promise<void> {
         const kafkaMessages = await this.personStore.addDistinctId(person, distinctId, version, tx)
-        await this.db.kafkaProducer.queueMessages(kafkaMessages)
+        await this.kafkaProducer.queueMessages(kafkaMessages)
     }
 }

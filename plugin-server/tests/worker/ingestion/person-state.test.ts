@@ -94,7 +94,7 @@ describe('PersonState.update()', () => {
             event.distinct_id!,
             timestampParam,
             processPerson,
-            customHub ? customHub.db : hub.db,
+            customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer,
             personsStore
         )
     }
@@ -202,14 +202,33 @@ describe('PersonState.update()', () => {
 
         it('overrides are created only when distinct_id is in posthog_personlessdistinctid', async () => {
             // oldUserDistinctId exists, and 'old2' will merge into it, but not create an override
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [
-                { distinctId: oldUserDistinctId },
-            ])
+            const [_old, oldPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                oldUserUuid,
+                [{ distinctId: oldUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(oldPersonKafkaMessages)
 
             // newUserDistinctId exists, and 'new2' will merge into it, and will create an override
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
-            ])
+            const [_new, newPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                newUserUuid,
+                [{ distinctId: newUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(newPersonKafkaMessages)
+
             await hub.db.addPersonlessDistinctId(teamId, 'new2')
 
             const hubParam = undefined
@@ -262,9 +281,18 @@ describe('PersonState.update()', () => {
         })
 
         it('force_upgrade works', async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [
-                { distinctId: oldUserDistinctId },
-            ])
+            const [_, oldPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                oldUserUuid,
+                [{ distinctId: oldUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(oldPersonKafkaMessages)
 
             const hubParam = undefined
             let processPerson = true
@@ -314,9 +342,18 @@ describe('PersonState.update()', () => {
 
         it('force_upgrade is ignored if team.person_processing_opt_out is true', async () => {
             mainTeam.person_processing_opt_out = true
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [
-                { distinctId: oldUserDistinctId },
-            ])
+            const [_, oldPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                oldUserUuid,
+                [{ distinctId: oldUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(oldPersonKafkaMessages)
 
             const hubParam = undefined
             let processPerson = true
@@ -448,9 +485,18 @@ describe('PersonState.update()', () => {
         })
 
         it('handles person being created in a race condition', async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
-            ])
+            const [_, newPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                newUserUuid,
+                [{ distinctId: newUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(newPersonKafkaMessages)
 
             jest.spyOn(hub.db, 'fetchPerson').mockImplementationOnce(() => {
                 return Promise.resolve(undefined)
@@ -486,9 +532,18 @@ describe('PersonState.update()', () => {
         })
 
         it('handles person being created in a race condition updates properties if needed', async () => {
-            await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
-            ])
+            const [_, newPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                { b: 3, c: 4 },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                newUserUuid,
+                [{ distinctId: newUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(newPersonKafkaMessages)
 
             jest.spyOn(hub.db, 'fetchPerson').mockImplementationOnce(() => {
                 return Promise.resolve(undefined)
@@ -566,7 +621,7 @@ describe('PersonState.update()', () => {
 
     describe('on person update', () => {
         it('updates person properties', async () => {
-            await hub.db.createPerson(
+            const [_, personKafkaMessages] = await hub.db.createPerson(
                 timestamp,
                 { b: 3, c: 4, toString: {} },
                 {},
@@ -577,7 +632,7 @@ describe('PersonState.update()', () => {
                 newUserUuid,
                 [{ distinctId: newUserDistinctId }]
             )
-
+            await hub.db.kafkaProducer.queueMessages(personKafkaMessages)
             const [person, kafkaAcks] = await personState({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
@@ -612,9 +667,18 @@ describe('PersonState.update()', () => {
         it.each(['$$heatmap', '$exception'])('does not update person properties for %s', async (event: string) => {
             const originalPersonProperties = { b: 3, c: 4, toString: {} }
 
-            await hub.db.createPerson(timestamp, originalPersonProperties, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
-            ])
+            const [_, personKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                originalPersonProperties,
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                newUserUuid,
+                [{ distinctId: newUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(personKafkaMessages)
 
             const [person, kafkaAcks] = await personState({
                 event: event,
@@ -647,10 +711,18 @@ describe('PersonState.update()', () => {
         })
 
         it('updates person properties - no update if not needed', async () => {
-            await hub.db.createPerson(timestamp, { $current_url: 123 }, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
-            ])
-
+            const [_, personKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                { $current_url: 123 },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                newUserUuid,
+                [{ distinctId: newUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(personKafkaMessages)
             const [person, kafkaAcks] = await personState({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
@@ -689,9 +761,18 @@ describe('PersonState.update()', () => {
         })
 
         it('updates person properties - always update for person events', async () => {
-            await hub.db.createPerson(timestamp, { $current_url: 123 }, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
-            ])
+            const [_, personKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                { $current_url: 123 },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                newUserUuid,
+                [{ distinctId: newUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(personKafkaMessages)
 
             const [person, kafkaAcks] = await personState({
                 event: '$set',
@@ -723,9 +804,18 @@ describe('PersonState.update()', () => {
         })
 
         it('updates person properties - always update if undefined before', async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
-            ])
+            const [_, personKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                newUserUuid,
+                [{ distinctId: newUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(personKafkaMessages)
 
             const [person, kafkaAcks] = await personState({
                 event: '$pageview',
@@ -757,7 +847,7 @@ describe('PersonState.update()', () => {
         })
 
         it('updates person properties - always update for initial properties', async () => {
-            await hub.db.createPerson(
+            const [_, personKafkaMessages] = await hub.db.createPerson(
                 timestamp,
                 { $initial_current_url: 123 },
                 {},
@@ -768,6 +858,7 @@ describe('PersonState.update()', () => {
                 newUserUuid,
                 [{ distinctId: newUserDistinctId }]
             )
+            await hub.db.kafkaProducer.queueMessages(personKafkaMessages)
 
             const [person, kafkaAcks] = await personState({
                 event: '$pageview',
@@ -847,9 +938,18 @@ describe('PersonState.update()', () => {
         })
 
         it('does not update person if not needed', async () => {
-            await hub.db.createPerson(timestamp, { b: 3, c: 4 }, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
-            ])
+            const [_, personKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                { b: 3, c: 4 },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                newUserUuid,
+                [{ distinctId: newUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(personKafkaMessages)
 
             const [person, kafkaAcks] = await personState({
                 event: '$pageview',
@@ -883,9 +983,19 @@ describe('PersonState.update()', () => {
         })
 
         it('marks user as is_identified', async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
-            ])
+            const [_, personKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                newUserUuid,
+                [{ distinctId: newUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(personKafkaMessages)
+
             const personS = personState({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
@@ -936,11 +1046,18 @@ describe('PersonState.update()', () => {
                 properties_last_updated_at: {},
                 properties_last_operation: {},
             }
-            await hub.db.createPerson(timestamp, { a: 6, c: 8 }, {}, {}, teamId, null, true, newUserUuid, [
-                { distinctId: newUserDistinctId },
-                { distinctId: oldUserDistinctId },
-            ]) // the merged Person
-
+            const [_, personKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                { a: 6, c: 8 },
+                {},
+                {},
+                teamId,
+                null,
+                true,
+                newUserUuid,
+                [{ distinctId: newUserDistinctId }, { distinctId: oldUserDistinctId }]
+            ) // the merged Person
+            await hub.db.kafkaProducer.queueMessages(personKafkaMessages)
             const personS = personState({
                 event: '$pageview',
                 distinct_id: newUserDistinctId,
@@ -1028,11 +1145,18 @@ describe('PersonState.update()', () => {
         })
 
         it(`marks is_identified to be updated when no changes to distinct_ids but $anon_distinct_id passe`, async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
-                { distinctId: oldUserDistinctId },
-            ])
-
+            const [_, personKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                newUserUuid,
+                [{ distinctId: newUserDistinctId }, { distinctId: oldUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(personKafkaMessages)
             const personS = personState({
                 event: '$identify',
                 distinct_id: newUserDistinctId,
@@ -1063,10 +1187,18 @@ describe('PersonState.update()', () => {
         })
 
         it(`add distinct id and marks user is_identified when passed $anon_distinct_id person does not exists and distinct_id does`, async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
-            ])
-
+            const [_, personKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                newUserUuid,
+                [{ distinctId: newUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(personKafkaMessages)
             const personS = personState({
                 event: '$identify',
                 distinct_id: newUserDistinctId,
@@ -1101,9 +1233,18 @@ describe('PersonState.update()', () => {
         })
 
         it(`add distinct id and marks user as is_identified when passed $anon_distinct_id person exists and distinct_id does not`, async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [
-                { distinctId: oldUserDistinctId },
-            ])
+            const [_, personKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                oldUserUuid,
+                [{ distinctId: oldUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(personKafkaMessages)
 
             const personS = personState({
                 event: '$identify',
@@ -1140,12 +1281,30 @@ describe('PersonState.update()', () => {
         })
 
         it(`merge into distinct_id person and marks user as is_identified when both persons have is_identified false`, async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [
-                { distinctId: oldUserDistinctId },
-            ])
-            await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
-            ])
+            const [_old, oldPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                oldUserUuid,
+                [{ distinctId: oldUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(oldPersonKafkaMessages)
+            const [_new, newPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp2,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                newUserUuid,
+                [{ distinctId: newUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(newPersonKafkaMessages)
 
             const [person, kafkaAcks] = await personState({
                 event: '$identify',
@@ -1207,12 +1366,30 @@ describe('PersonState.update()', () => {
         })
 
         it(`merge into distinct_id person and marks user as is_identified when distinct_id user is identified and $anon_distinct_id user is not`, async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [
-                { distinctId: oldUserDistinctId },
-            ])
-            await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, true, newUserUuid, [
-                { distinctId: newUserDistinctId },
-            ])
+            const [_old, oldPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                oldUserUuid,
+                [{ distinctId: oldUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(oldPersonKafkaMessages)
+            const [_new, newPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp2,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                true,
+                newUserUuid,
+                [{ distinctId: newUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(newPersonKafkaMessages)
 
             const [person, kafkaAcks] = await personState({
                 event: '$identify',
@@ -1274,12 +1451,30 @@ describe('PersonState.update()', () => {
         })
 
         it(`does not merge people when distinct_id user is not identified and $anon_distinct_id user is`, async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, oldUserUuid, [
-                { distinctId: oldUserDistinctId },
-            ])
-            await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
-            ])
+            const [_old, oldPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                true,
+                oldUserUuid,
+                [{ distinctId: oldUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(oldPersonKafkaMessages)
+            const [_new, newPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp2,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                newUserUuid,
+                [{ distinctId: newUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(newPersonKafkaMessages)
 
             const personS = personState({
                 event: '$identify',
@@ -1327,13 +1522,30 @@ describe('PersonState.update()', () => {
         })
 
         it(`does not merge people when both users are identified`, async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, oldUserUuid, [
-                { distinctId: oldUserDistinctId },
-            ])
-            await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, true, newUserUuid, [
-                { distinctId: newUserDistinctId },
-            ])
-
+            const [_old, oldPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                true,
+                oldUserUuid,
+                [{ distinctId: oldUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(oldPersonKafkaMessages)
+            const [_new, newPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp2,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                true,
+                newUserUuid,
+                [{ distinctId: newUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(newPersonKafkaMessages)
             const [person, kafkaAcks] = await personState({
                 event: '$identify',
                 distinct_id: newUserDistinctId,
@@ -1378,12 +1590,30 @@ describe('PersonState.update()', () => {
         })
 
         it(`merge into distinct_id person and updates properties with $set/$set_once`, async () => {
-            await hub.db.createPerson(timestamp, { a: 1, b: 2 }, {}, {}, teamId, null, false, oldUserUuid, [
-                { distinctId: oldUserDistinctId },
-            ])
-            await hub.db.createPerson(timestamp2, { b: 3, c: 4, d: 5 }, {}, {}, teamId, null, false, newUserUuid, [
-                { distinctId: newUserDistinctId },
-            ])
+            const [_old, oldPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                { a: 1, b: 2 },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                oldUserUuid,
+                [{ distinctId: oldUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(oldPersonKafkaMessages)
+            const [_new, newPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp2,
+                { b: 3, c: 4, d: 5 },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                newUserUuid,
+                [{ distinctId: newUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(newPersonKafkaMessages)
 
             const [person, kafkaAcks] = await personState({
                 event: '$identify',
@@ -1447,14 +1677,23 @@ describe('PersonState.update()', () => {
         })
 
         it(`handles race condition when other thread creates the user`, async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [
-                { distinctId: oldUserDistinctId },
-            ])
+            const [_old, oldPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                oldUserUuid,
+                [{ distinctId: oldUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(oldPersonKafkaMessages)
 
             // Fake the race by assuming createPerson was called before the addDistinctId creation above
             jest.spyOn(hub.db, 'addDistinctId').mockImplementation(
                 async (person, distinctId): Promise<TopicMessage[]> => {
-                    await hub.db.createPerson(
+                    const [_new, newPersonKafkaMessages] = await hub.db.createPerson(
                         timestamp,
                         {},
                         {},
@@ -1465,6 +1704,8 @@ describe('PersonState.update()', () => {
                         uuidFromDistinctId(teamId, distinctId),
                         [{ distinctId }]
                     )
+                    await hub.db.kafkaProducer.queueMessages(newPersonKafkaMessages)
+
                     return await hub.db.addDistinctId(person, distinctId, 0) // this throws
                 }
             )
@@ -1562,13 +1803,30 @@ describe('PersonState.update()', () => {
     describe('on $merge_dangerously events', () => {
         // only difference between $merge_dangerously and $identify
         it(`merge_dangerously can merge people when alias id user is identified`, async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, oldUserUuid, [
-                { distinctId: oldUserDistinctId },
-            ])
-            await hub.db.createPerson(timestamp2, {}, {}, {}, teamId, null, true, newUserUuid, [
-                { distinctId: newUserDistinctId },
-            ])
-
+            const [_old, oldPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                true,
+                oldUserUuid,
+                [{ distinctId: oldUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(oldPersonKafkaMessages)
+            const [_new, newPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp2,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                true,
+                newUserUuid,
+                [{ distinctId: newUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(newPersonKafkaMessages)
             const [person, kafkaAcks] = await personState({
                 event: '$merge_dangerously',
                 distinct_id: newUserDistinctId,
@@ -1949,10 +2207,19 @@ describe('PersonState.update()', () => {
         })
 
         it(`no-op if persons already merged`, async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, true, firstUserUuid, [
-                { distinctId: firstUserDistinctId },
-                { distinctId: secondUserDistinctId },
-            ])
+            const [_first, firstPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                true,
+                firstUserUuid,
+                [{ distinctId: firstUserDistinctId }, { distinctId: secondUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(firstPersonKafkaMessages)
+
             const state: PersonState = personState({}, hub)
             jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
             const [person, kafkaAcks] = await state.merge(secondUserDistinctId, firstUserDistinctId, teamId, timestamp)
@@ -1999,6 +2266,7 @@ describe('PersonState.update()', () => {
                 [{ distinctId: secondUserDistinctId }]
             )
             await hub.db.kafkaProducer.queueMessages(kafkaMessagesSecond)
+
             const state: PersonState = personState({}, hub)
             jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
             const [person, kafkaAcks] = await state.mergePeople({
@@ -2129,13 +2397,30 @@ describe('PersonState.update()', () => {
         })
 
         it(`retries merges up to retry limit if postgres down`, async () => {
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
-                { distinctId: firstUserDistinctId },
-            ])
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
-                { distinctId: secondUserDistinctId },
-            ])
-
+            const [_first, firstPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                firstUserUuid,
+                [{ distinctId: firstUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(firstPersonKafkaMessages)
+            const [_second, secondPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                secondUserUuid,
+                [{ distinctId: secondUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(secondPersonKafkaMessages)
             const state: PersonState = personState({}, hub)
             // break postgres
             const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
@@ -2178,12 +2463,30 @@ describe('PersonState.update()', () => {
 
         it(`handleIdentifyOrAlias does not throw on merge failure`, async () => {
             // TODO: This the current state, we should probably change it
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, [
-                { distinctId: firstUserDistinctId },
-            ])
-            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, [
-                { distinctId: secondUserDistinctId },
-            ])
+            const [_first, firstPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                firstUserUuid,
+                [{ distinctId: firstUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(firstPersonKafkaMessages)
+            const [_second, secondPersonKafkaMessages] = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                secondUserUuid,
+                [{ distinctId: secondUserDistinctId }]
+            )
+            await hub.db.kafkaProducer.queueMessages(secondPersonKafkaMessages)
 
             const state: PersonState = personState(
                 {
