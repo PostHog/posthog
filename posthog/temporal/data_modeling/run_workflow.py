@@ -909,21 +909,22 @@ class RunWorkflow(PostHogWorkflow):
                 cancellation_type=temporalio.workflow.ActivityCancellationType.TRY_CANCEL,
             )
         except temporalio.exceptions.ActivityError as e:
-            workflow_id = temporalio.workflow.info().workflow_id
-            workflow_run_id = temporalio.workflow.info().run_id
-            try:
-                await temporalio.workflow.execute_activity(
-                    cancel_jobs_activity,
-                    CancelJobsActivityInputs(
-                        workflow_id=workflow_id, workflow_run_id=workflow_run_id, team_id=inputs.team_id
-                    ),
-                    start_to_close_timeout=dt.timedelta(minutes=5),
-                    retry_policy=temporalio.common.RetryPolicy(
-                        maximum_attempts=1,
-                    ),
-                )
-            except Exception as cancel_err:
-                temporalio.workflow.logger.error(f"Failed to cancel jobs: {str(cancel_err)}")
+            if isinstance(e.cause, temporalio.exceptions.CancelledError):
+                workflow_id = temporalio.workflow.info().workflow_id
+                workflow_run_id = temporalio.workflow.info().run_id
+                try:
+                    await temporalio.workflow.execute_activity(
+                        cancel_jobs_activity,
+                        CancelJobsActivityInputs(
+                            workflow_id=workflow_id, workflow_run_id=workflow_run_id, team_id=inputs.team_id
+                        ),
+                        start_to_close_timeout=dt.timedelta(minutes=5),
+                        retry_policy=temporalio.common.RetryPolicy(
+                            maximum_attempts=0,
+                        ),
+                    )
+                except Exception as cancel_err:
+                    temporalio.workflow.logger.error(f"Failed to cancel jobs: {str(cancel_err)}")
 
             temporalio.workflow.logger.error(f"Activity failed during model run: {str(e)}")
             return Results(set(), set(), set())

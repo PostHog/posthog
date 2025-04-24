@@ -356,22 +356,21 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             # Schedule handling
             try:
                 scheduled_workflow_handle = temporal.get_schedule_handle(str(saved_query.id))
-                if scheduled_workflow_handle:
-                    desc = async_to_sync(scheduled_workflow_handle.describe)()
-                    recent_actions = desc.info.running_actions
-                    if len(recent_actions) > 0:
-                        most_recent_action = recent_actions[-1]
-                        if isinstance(most_recent_action, ScheduleActionExecutionStartWorkflow):
-                            workflow_id_to_cancel = most_recent_action.workflow_id
-                        else:
-                            logger.warning(
-                                "Unexpected action type in schedule",
-                                action_type=type(most_recent_action).__name__,
-                            )
+                desc = async_to_sync(scheduled_workflow_handle.describe)()
+                recent_actions = desc.info.running_actions
+                if len(recent_actions) > 0:
+                    most_recent_action = recent_actions[-1]
+                    if isinstance(most_recent_action, ScheduleActionExecutionStartWorkflow):
+                        workflow_id_to_cancel = most_recent_action.workflow_id
+                    else:
+                        logger.warning(
+                            "Unexpected action type in schedule",
+                            action_type=type(most_recent_action).__name__,
+                        )
 
-                        workflow_handle_to_cancel = temporal.get_workflow_handle(workflow_id_to_cancel)
-                        if workflow_handle_to_cancel:
-                            async_to_sync(workflow_handle_to_cancel.cancel)()
+                    workflow_handle_to_cancel = temporal.get_workflow_handle(workflow_id_to_cancel)
+                    if workflow_handle_to_cancel:
+                        async_to_sync(workflow_handle_to_cancel.cancel)()
             except Exception:
                 logger.info("No scheduled workflow to cancel", saved_query_id=str(saved_query.id))
 
