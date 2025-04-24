@@ -285,7 +285,7 @@ export class PluginServer {
                     await reloadPlugins(hub)
                 },
                 'reset-available-product-features-cache': (message) => {
-                    hub.organizationManager.resetAvailableProductFeaturesCache(parseJSON(message).organization_id)
+                    hub.teamManager.orgAvailableFeaturesChanged(parseJSON(message).organization_id)
                 },
                 'populate-plugin-capabilities': async (message) => {
                     // We need this to be done in only once
