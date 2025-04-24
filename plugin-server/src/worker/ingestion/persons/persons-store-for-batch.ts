@@ -11,5 +11,5 @@ export interface PersonsStoreForBatch {
     /**
      * Reports metrics about person operations in batch
      */
-    reportBatch(): Promise<void>
+    reportBatch(): void
 }

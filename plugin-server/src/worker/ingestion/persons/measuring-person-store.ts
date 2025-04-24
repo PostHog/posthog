@@ -6,6 +6,7 @@ import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team 
 import { DB } from '../../../utils/db/db'
 import { TransactionClient } from '../../../utils/db/postgres'
 import { logger } from '../../../utils/logger'
+import { personMethodCallsPerBatchHistogram } from './metrics'
 import { PersonsStore } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 import { PersonsStoreForDistinctIdBatch } from './persons-store-for-distinct-id-batch'
@@ -48,8 +49,13 @@ export class MeasuringPersonsStoreForBatch implements PersonsStoreForBatch {
         return this.distinctIdStores.get(key)!
     }
 
-    async reportBatch(): Promise<void> {
-        // Will be implemented later
+    reportBatch(): void {
+        for (const store of this.distinctIdStores.values()) {
+            const methodCounts = store.getMethodCounts()
+            for (const [method, count] of methodCounts.entries()) {
+                personMethodCallsPerBatchHistogram.observe({ method }, count)
+            }
+        }
     }
 }
 
