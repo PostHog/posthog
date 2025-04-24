@@ -284,7 +284,7 @@ impl Manager {
             "WHERE COALESCE({0}.\"project_id\", {0}.\"team_id\") = ",
             PROPERTY_DEFS_TABLE
         ));
-        qb.push(team_id);
+        qb.push_bind(team_id);
         qb.push(" ");
     }
 
