@@ -59,7 +59,7 @@ from django.core.cache import cache
 
 def _format_serializer_errors(serializer_errors: dict) -> str:
     """Formats DRF serializer errors into a human readable string."""
-    error_messages = []
+    error_messages: list[str] = []
     for field, field_errors in serializer_errors.items():
         if isinstance(field_errors, list):
             error_messages.extend(f"{field}: {error}" for error in field_errors)
