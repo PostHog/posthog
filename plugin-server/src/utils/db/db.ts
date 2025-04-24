@@ -544,16 +544,12 @@ export class DB {
             'fetchPerson'
         )
 
-        // this may need to be sampled to not add drag to fetchPerson exec times.
-        // the row deserialization drills down into the client library, but we could
-        // implement RawPerson hydration here if we query for rows of a more basic type
         if (rows.length > 0) {
-            // recursively estimate the properties Record<string, any> size.
-            // expensive, but hopefully cheaper than JSON.stringify + length check
+            // estimate size of person properties blob fetched from DB
             const estimatedPropsBytes = this.estimateObjectSize(rows[0].properties || {})
             fetchPersonPropsSize.observe(estimatedPropsBytes)
 
-            // if larger than some arbitrary threshold (start conservative, adjust as we observe)
+            // if larger than size threshold (start conservative, adjust as we observe)
             // we should log the team and disinct_id associated with the properties
             if (estimatedPropsBytes >= EIGHT_MEGABYTE_PROPS_BLOB) {
                 logger.warn('⚠️', 'fetchPerson: large properties record detected', {
@@ -567,6 +563,8 @@ export class DB {
         }
     }
 
+    // recursively estimate the properties Record<string, any> size.
+    // hopefully cheaper than JSON.stringify + length check
     private estimateObjectSize(obj: Record<string, any>): number {
         let totalBytes = 0
 
