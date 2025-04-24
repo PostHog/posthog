@@ -472,4 +472,4 @@ class Assistant:
             yield
         finally:
             self._conversation.status = Conversation.Status.IDLE
-            self._conversation.save(update_fields=["status"])
+            self._conversation.save(update_fields=["status", "updated_at"])
