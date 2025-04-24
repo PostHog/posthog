@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 import json
 from typing import Any, Optional
 import posthoganalytics
@@ -19,8 +19,6 @@ from posthog.schema import (
     PropertyFilterType,
     RecordingPropertyFilter,
 )
-from django.db.models import F, Q
-from django.utils import timezone
 
 from structlog import get_logger
 
@@ -381,15 +379,16 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
 
 
 def enqueue_recordings_that_match_playlist_filters() -> None:
-    all_playlists = (
-        SessionRecordingPlaylist.objects.filter(
-            deleted=False,
-            filters__isnull=False,
-        )
-        .filter(Q(last_counted_at__isnull=True) | Q(last_counted_at__lt=timezone.now() - timedelta(hours=2)))
-        .order_by(F("last_counted_at").asc(nulls_first=True))[:60000]
-    )
+    return
+    # all_playlists = (
+    #     SessionRecordingPlaylist.objects.filter(
+    #         deleted=False,
+    #         filters__isnull=False,
+    #     )
+    #     .filter(Q(last_counted_at__isnull=True) | Q(last_counted_at__lt=timezone.now() - timedelta(hours=2)))
+    #     .order_by(F("last_counted_at").asc(nulls_first=True))[:60000]
+    # )
 
-    for playlist in all_playlists:
-        count_recordings_that_match_playlist_filters.delay(playlist.id)
-        REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT.inc()
+    # for playlist in all_playlists:
+    #     count_recordings_that_match_playlist_filters.delay(playlist.id)
+    #     REPLAY_TEAM_PLAYLISTS_IN_TEAM_COUNT.inc()

@@ -124,6 +124,31 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "DELETED" not in serialized_database
         assert "DELETED" not in database._view_table_names
 
+    def test_serialize_database_warehouse_table_s3_with_unknown_field(self):
+        credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="table_1",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "UnknownDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+            row_count=100,
+        )
+
+        database = create_hogql_database(team=self.team)
+
+        serialized_database = serialize_database(HogQLContext(team_id=self.team.pk, database=database))
+
+        table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
+        assert table is not None
+        assert table.row_count == 100
+
+        field = table.fields.get("id")
+        assert field is not None
+        assert field.type == "unknown"
+        assert field.schema_valid is True
+
     def test_serialize_database_warehouse_table_s3(self):
         credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
         DataWarehouseTable.objects.create(
@@ -183,6 +208,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             columns={
                 "id-hype": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
             },
+            row_count=100,
         )
 
         database = create_hogql_database(team=self.team)
@@ -191,6 +217,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         table = cast(DatabaseSchemaDataWarehouseTable | None, serialized_database.get("table_1"))
         assert table is not None
+        assert table.row_count == 100
 
         field = table.fields.get("id-hype")
         assert field is not None

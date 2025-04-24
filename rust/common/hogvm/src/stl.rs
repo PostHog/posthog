@@ -17,6 +17,7 @@ pub fn stl_map() -> HashMap<String, NativeFunction> {
     stl().iter().map(|(a, b)| (a.to_string(), *b)).collect()
 }
 
+// NOTE - if you make changes to this, be sure to re-run `bin/dump_hogvm_stl`
 pub const fn stl() -> &'static [(&'static str, NativeFunction)] {
     &[
         ("toString", |vm, args| {
@@ -228,6 +229,19 @@ pub const fn stl() -> &'static [(&'static str, NativeFunction)] {
                 _ => Err(VmError::NativeCallFailed(
                     "indexOf() only supports arrays".to_string(),
                 )),
+            }
+        }),
+        ("notEmpty", |vm, args| {
+            assert_argc(&args, 1, "notEmpty")?;
+            let val = &args[0];
+            match val.deref(&vm.heap)? {
+                HogLiteral::Array(a) => Ok(HogLiteral::Boolean(!a.is_empty()).into()),
+                HogLiteral::String(s) => Ok(HogLiteral::Boolean(!s.is_empty()).into()),
+                HogLiteral::Object(o) => Ok(HogLiteral::Boolean(!o.is_empty()).into()),
+                _ => Err(VmError::NativeCallFailed(format!(
+                    "{} not supported by notEmpty",
+                    val.type_name()
+                ))),
             }
         }),
     ]
