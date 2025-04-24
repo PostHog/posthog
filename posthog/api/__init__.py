@@ -45,6 +45,7 @@ from . import (
     instance_settings,
     instance_status,
     integration,
+    message_templates,
     notebook,
     organization,
     organization_domain,
@@ -554,6 +555,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"error_tracking/assignment_rules",
+    error_tracking.ErrorTrackingAssignmentRuleViewSet,
+    "project_error_tracking_assignment_rule",
+    ["team_id"],
+)
+
+environments_router.register(
     r"error_tracking/issue",
     error_tracking.ErrorTrackingIssueViewSet,
     "project_error_tracking_issue",
@@ -646,3 +654,10 @@ register_grandfathered_environment_nested_viewset(
 )
 
 environments_router.register(r"max_tools", MaxToolsViewSet, "environment_max_tools", ["team_id"])
+
+environments_router.register(
+    r"messaging_templates",
+    message_templates.MessageTemplateViewSet,
+    "environment_messaging_templates",
+    ["team_id"],
+)

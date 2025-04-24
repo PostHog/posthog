@@ -12,7 +12,7 @@ import sqlparse
 from cachetools import cached, TTLCache
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter
 
 from posthog.clickhouse.client.connection import Workload, get_client_from_pool, get_default_clickhouse_workload_type
 from posthog.clickhouse.client.escape import substitute_params
@@ -23,16 +23,22 @@ from posthog.exceptions import ClickhouseAtCapacity
 from posthog.settings import TEST
 from posthog.utils import generate_short_id, patchable
 
+QUERY_STARTED_COUNTER = Counter(
+    "posthog_clickhouse_query_sent",
+    "Number of queries sent to ClickHouse to be run.",
+    labelnames=["team_id", "access_method", "chargeable"],
+)
+
+QUERY_FINISHED_COUNTER = Counter(
+    "posthog_clickhouse_query_finished",
+    "Number of queries finished successfully.",
+    labelnames=["team_id", "access_method", "chargeable"],
+)
+
 QUERY_ERROR_COUNTER = Counter(
     "clickhouse_query_failure",
     "Query execution failure signal is dispatched when a query fails.",
     labelnames=["exception_type", "query_type", "workload", "chargeable"],
-)
-
-QUERY_EXECUTION_TIME_GAUGE = Gauge(
-    "clickhouse_query_execution_time",
-    "Clickhouse query execution time",
-    labelnames=["query_type", "workload", "chargeable"],
 )
 
 InsertParams = Union[list, tuple, types.GeneratorType]
@@ -166,6 +172,11 @@ def sync_execute(
             settings["use_hedged_requests"] = "0"
         start_time = perf_counter()
         try:
+            QUERY_STARTED_COUNTER.labels(
+                team_id=str(tags.get("team_id", "0")),
+                access_method=tags.get("access_method", "other"),
+                chargeable=str(tags.get("chargeable", "0")),
+            ).inc()
             with sync_client or get_client_from_pool(workload, team_id, readonly) as client:
                 result = client.execute(
                     prepared_sql,
@@ -189,9 +200,11 @@ def sync_execute(
         finally:
             execution_time = perf_counter() - start_time
 
-            QUERY_EXECUTION_TIME_GAUGE.labels(
-                query_type=query_type, workload=workload.value, chargeable=chargeable
-            ).set(execution_time * 1000.0)
+            QUERY_FINISHED_COUNTER.labels(
+                team_id=str(tags.get("team_id", "0")),
+                access_method=tags.get("access_method", "other"),
+                chargeable=str(tags.get("chargeable", "0")),
+            ).inc()
 
             if query_counter := getattr(thread_local_storage, "query_counter", None):
                 query_counter.total_query_time += execution_time
