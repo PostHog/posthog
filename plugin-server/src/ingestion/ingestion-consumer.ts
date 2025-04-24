@@ -331,7 +331,7 @@ export class IngestionConsumer {
             // If the event is marked for skipping persons however locality doesn't matter so we would rather have the higher throughput
             // of random partitioning.
             const preserveLocality =
-                shouldForceOverflow && !this.shouldSkipPersonSynchronusly(token, distinctId) ? true : undefined
+                shouldForceOverflow && !this.shouldSkipPersonSynchronously(token, distinctId) ? true : undefined
 
             void this.scheduleWork(
                 this.emitToOverflow(
@@ -543,7 +543,7 @@ export class IngestionConsumer {
             batches[eventKey].events.push({ message, event })
         }
 
-        return Promise.resolve(batches)
+        return batches
     }
 
     private async startKafkaConsumer(options: {
@@ -624,10 +624,10 @@ export class IngestionConsumer {
             const shouldSkipPerson = await this.shouldSkipPersonWithRedisCache(token, distinctId)
             return shouldSkipPerson
         }
-        return this.shouldSkipPersonSynchronusly(token, distinctId)
+        return this.shouldSkipPersonSynchronously(token, distinctId)
     }
 
-    private shouldSkipPersonSynchronusly(token?: string, distinctId?: string) {
+    private shouldSkipPersonSynchronously(token?: string, distinctId?: string) {
         return (
             (token && this.tokenDistinctIdsToSkipPersons.includes(token)) ||
             (token && distinctId && this.tokenDistinctIdsToSkipPersons.includes(`${token}:${distinctId}`))
@@ -635,7 +635,7 @@ export class IngestionConsumer {
     }
 
     private async shouldSkipPersonWithRedisCache(token?: string, distinctId?: string) {
-        if (this.shouldSkipPersonSynchronusly(token, distinctId)) {
+        if (this.shouldSkipPersonSynchronously(token, distinctId)) {
             return true
         }
         if (!token || !distinctId) {
@@ -645,9 +645,13 @@ export class IngestionConsumer {
             const redisClient = await this.hub.redisPool.acquire()
             try {
                 const key = `skip_person_processing:${token}`
-                const result = await redisClient.get(key)
-
-                if (result) {
+                let result
+                try {
+                    result = await redisClient.get(key)
+                } catch (error) {
+                    logger.warn('Error checking Redis for skip person status', { error, token, distinctId })
+                }
+                if (result && typeof result === 'string') {
                     const distinctIds = result.split(',')
                     return distinctIds.includes(distinctId)
                 }
@@ -656,7 +660,7 @@ export class IngestionConsumer {
                 await this.hub.redisPool.release(redisClient)
             }
         } catch (error) {
-            logger.warn('Error checking Redis for skip person status', { error, token, distinctId })
+            logger.warn('Error acquiring redis client from pool', { error, token, distinctId })
             return false
         }
     }

@@ -317,7 +317,7 @@ class Team(UUIDClassicModel):
     # That way we can validate the schema when setting the value and return reasonable defaults
     revenue_tracking_config = models.JSONField(null=True, blank=True)
     distinct_ids_excluded_from_person_processing = ArrayField(
-        models.CharField(max_length=200), blank=True, default=list
+        models.CharField(max_length=200), blank=True, null=True, default=list
     )
 
     @property
@@ -614,10 +614,9 @@ def check_is_feature_available_for_team(team_id: int, feature_key: str, current_
 @receiver(post_save, sender=Team)
 def handle_team_save_from_admin(sender, instance, **kwargs):
     client = get_client(settings.PLUGINS_RELOAD_REDIS_URL)
+    key = f"skip_person_processing:{instance.api_token}"
     if instance.distinct_ids_excluded_from_person_processing:
-        key = f"skip_person_processing:{instance.api_token}"
         value = ",".join(instance.distinct_ids_excluded_from_person_processing)
         client.set(key, value)
     else:
-        key = f"skip_person_processing:{instance.api_token}"
         client.delete(key)
