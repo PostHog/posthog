@@ -293,8 +293,8 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
     .filter(([_, destination]) => destination)
     .map(([_, destination]) => {
         return {
+            /* eslint-disable-next-line @typescript-eslint/require-await */
             onEvent: async (
-                /* eslint-disable-line @typescript-eslint/require-await */
                 _event: ProcessedPluginEvent,
                 { config, fetch, logger }: LegacyDestinationPluginMeta
             ): Promise<void> => {
