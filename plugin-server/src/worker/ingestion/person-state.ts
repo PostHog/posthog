@@ -779,4 +779,14 @@ export class PersonState {
 
         return [mergedPerson, kafkaAck]
     }
+
+    public async addDistinctId(
+        person: InternalPerson,
+        distinctId: string,
+        version: number,
+        tx?: TransactionClient
+    ): Promise<void> {
+        const kafkaMessages = await this.db.addDistinctId(person, distinctId, version, tx)
+        await this.db.kafkaProducer.queueMessages(kafkaMessages)
+    }
 }

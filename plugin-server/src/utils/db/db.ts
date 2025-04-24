@@ -814,11 +814,8 @@ export class DB {
         distinctId: string,
         version: number,
         tx?: TransactionClient
-    ): Promise<void> {
-        const kafkaMessages = await this.addDistinctIdPooled(person, distinctId, version, tx)
-        if (kafkaMessages.length) {
-            await this.kafkaProducer.queueMessages(kafkaMessages)
-        }
+    ): Promise<TopicMessage[]> {
+        return await this.addDistinctIdPooled(person, distinctId, version, tx)
     }
 
     public async addDistinctIdPooled(
