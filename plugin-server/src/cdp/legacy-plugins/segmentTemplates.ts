@@ -260,7 +260,7 @@ const translateInputsSchema = (inputs_schema: Record<string, any> | undefined): 
     })) as HogFunctionInputSchemaType[]
 }
 
-export const SEGMENT_DESTINATIONS = Object.entries(destinations).filter(([_, destination]) => destination).map(([key, destination]) => {
+export const SEGMENT_DESTINATIONS = Object.entries(destinations).filter(([_, destination]) => destination).map(([_, destination]) => {
     return {
         onEvent: async (
             _event: ProcessedPluginEvent,
