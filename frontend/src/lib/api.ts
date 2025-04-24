@@ -1161,7 +1161,7 @@ class ApiRequest {
     }
 
     public messagingSetup(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging').addPathComponent('setup')
+        return this.environments().current().addPathComponent('messaging_setup')
     }
 
     public messagingSetupEmail(): ApiRequest {
