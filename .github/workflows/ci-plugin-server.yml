@@ -262,6 +262,11 @@ jobs:
                   cache: pnpm
                   cache-dependency-path: pnpm-lock.yaml
 
+            - name: Download MaxMind Database
+              if: needs.changes.outputs.plugin-server == 'true'
+              run: |
+                  ./bin/download-mmdb
+
             - name: Install package.json dependencies with pnpm
               if: needs.changes.outputs.plugin-server == 'true'
               run: |
