@@ -1,6 +1,8 @@
 from django.db import models
 from posthog.models.team import Team
 from posthog.schema import CurrencyCode, RevenueAnalyticsEventItem
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 from django.core.exceptions import ValidationError
 
 # Django requires a list of tuples for choices
@@ -31,3 +33,9 @@ class TeamRevenueAnalyticsConfig(models.Model):
             self._events = dumped_value
         except Exception as e:
             raise ValidationError(f"Invalid events schema: {str(e)}")
+
+
+@receiver(post_save, sender=Team)
+def create_team_revenue_analytics_config(sender, instance, created, **kwargs):
+    if created:
+        TeamRevenueAnalyticsConfig.objects.create(team=instance)
