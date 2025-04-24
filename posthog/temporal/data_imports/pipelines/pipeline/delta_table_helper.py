@@ -258,7 +258,8 @@ class DeltaTableHelper:
                 partition_predicate_ops = predicate_ops.copy()
                 partition_predicate_ops.append(f"target.{PARTITION_KEY} = '{partition}'")
 
-                filtered_table = data.filter(pc.equal(data[PARTITION_KEY], partition))
+                expr = pc.field(PARTITION_KEY) == partition
+                filtered_table = data.filter(expr)
 
                 logger.debug(
                     "Submitting merge for partition '%s'",
