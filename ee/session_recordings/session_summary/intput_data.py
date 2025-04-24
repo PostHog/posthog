@@ -46,18 +46,18 @@ def get_session_events(
 
 
 def _skip_event_without_context(
-    eventRow: tuple[str | datetime, ...],
+    event_row: list[str | datetime, ...],
     # Using indexes as argument to avoid calling get_column_index on each event row
     indexes: dict[str, int],
 ) -> bool:
     """
     Avoid events that don't add meaningful context and confuse the LLM.
     """
-    event = eventRow[indexes["event"]]
-    elements_chain_texts = eventRow[indexes["elements_chain_texts"]]
-    elements_chain_elements = eventRow[indexes["elements_chain_elements"]]
-    elements_chain_href = eventRow[indexes["elements_chain_href"]]
-    elements_chain_ids = eventRow[indexes["elements_chain_ids"]]
+    event = event_row[indexes["event"]]
+    elements_chain_texts = event_row[indexes["elements_chain_texts"]]
+    elements_chain_elements = event_row[indexes["elements_chain_elements"]]
+    elements_chain_href = event_row[indexes["elements_chain_href"]]
+    elements_chain_ids = event_row[indexes["elements_chain_ids"]]
     # Skip autocapture events with no proper context
     if event == "$autocapture":
         if (
@@ -105,7 +105,9 @@ def add_context_and_filter_events(
             # If no chain - no additional context will come, so it's ok to check if to skip right away
             if _skip_event_without_context(event, indexes):
                 continue
-            updated_events.append(event)
+            updated_event = list(event)
+            updated_event.pop(indexes["elements_chain"])
+            updated_events.append(tuple(updated_event))
             continue
         updated_event = list(event)
         updated_event[indexes["elements_chain_texts"]] = _get_improved_elements_chain_texts(
