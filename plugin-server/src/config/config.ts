@@ -91,8 +91,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 3,
         DISABLE_MMDB: isTestEnv(),
-        MMDB_FILE_LOCATION:
-            isDevEnv() || isTestEnv() ? '../share/GeoLite2-City.mmdb' : '/s3/ingestion-assets/mmdb/GeoLite2-City.mmdb',
+        MMDB_FILE_LOCATION: '../share/GeoLite2-City.mmdb',
         DISTINCT_ID_LRU_SIZE: 10000,
         EVENT_PROPERTY_LRU_SIZE: 10000,
         JOB_QUEUES: 'graphile',
@@ -261,9 +260,6 @@ export function getDefaultConfig(): PluginsServerConfig {
                 24) * // amount of time salt is valid in one timezone
             60 *
             60,
-
-        LAZY_TEAM_MANAGER_COMPARISON: false,
-        USE_LAZY_TEAM_MANAGER: false,
     }
 }
 

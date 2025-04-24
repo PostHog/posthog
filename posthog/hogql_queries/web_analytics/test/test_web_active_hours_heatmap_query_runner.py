@@ -3,6 +3,7 @@ from typing import Optional, Union
 from freezegun import freeze_time
 
 from posthog.hogql_queries.web_analytics.web_active_hours_heatmap_query_runner import WebActiveHoursHeatMapQueryRunner
+from posthog.models.utils import uuid7
 from posthog.schema import (
     DateRange,
     SessionTableVersion,
@@ -33,6 +34,7 @@ class TestWebActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     },
                 )
             for timestamp, *rest in timestamps:
+                session_id = str(uuid7())
                 properties = rest[0] if rest else {}
                 _create_event(
                     team=self.team,
@@ -40,6 +42,8 @@ class TestWebActiveHoursHeatMapQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     distinct_id=id,
                     timestamp=timestamp,
                     properties={
+                        "$session_id": session_id,
+                        "$start_timestamp": timestamp,
                         **properties,
                     },
                 )

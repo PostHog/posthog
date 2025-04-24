@@ -4,10 +4,10 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import type { libraryLogicType } from './libraryLogicType'
+import type { messageLibraryLogicType } from './messageLibraryLogicType'
 
-export const libraryLogic = kea<libraryLogicType>([
-    path(['products', 'messaging', 'frontend', 'libraryLogic']),
+export const messageLibraryLogic = kea<messageLibraryLogicType>([
+    path(['products', 'messaging', 'frontend', 'messageLibraryLogic']),
     selectors({
         breadcrumbs: [
             () => [],
@@ -19,8 +19,8 @@ export const libraryLogic = kea<libraryLogicType>([
                         path: urls.messagingLibrary(),
                     },
                     {
-                        key: 'library',
-                        name: 'Library',
+                        key: 'templates',
+                        name: 'Templates',
                         path: urls.messagingLibrary(),
                     },
                 ]
