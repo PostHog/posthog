@@ -184,6 +184,9 @@ export async function createHub(
         cookielessManager,
     }
 
+    // NOTE: For whatever reason loading at this point is really fast versus lazy loading it when needed
+    await hub.geoipService.get()
+
     return {
         ...hub,
         legacyOneventCompareService: new LegacyOneventCompareService(hub as Hub),
