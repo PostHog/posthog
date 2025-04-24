@@ -13,7 +13,11 @@ export interface ToolDefinition {
     displayName: string
     /** Contextual data to be included for use by the LLM */
     context: Record<string, any>
-    /** Optional: If this tool is the main one of the page, you can override Max's default intro headline and description when it's mounted. */
+    /**
+     * Optional: If this tool is the main one of the page, you can override Max's default intro headline and description when it's mounted.
+     *
+     * Note that if more than one mounted tool has an intro override, only one will take effect.
+     */
     introOverride?: {
         /** The default is something like "How can I help you build?" - stick true to this question form. */
         headline: string
