@@ -51,6 +51,7 @@ describe('Event Pipeline integration test', () => {
         hookCannon = new HookCommander(
             hub.db.postgres,
             hub.teamManager,
+            hub.organizationManager,
             hub.rustyHook,
             hub.appMetrics,
             hub.EXTERNAL_REQUEST_TIMEOUT_MS

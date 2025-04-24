@@ -42,7 +42,7 @@ beforeEach(() => {
                     return token === teamTwoToken ? teamTwo : null
                 }),
 
-                getTeam: jest.fn((teamId) => {
+                fetchTeam: jest.fn((teamId) => {
                     if (teamId === 2) {
                         return teamTwo
                     }
