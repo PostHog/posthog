@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
             model_name="sessionrecordingplaylist",
             name="type",
             field=models.CharField(
-                blank=True, choices=[("collection", "Collection"), ("filters", "Filters")], max_length=10, null=True
+                blank=True, choices=[("collection", "Collection"), ("filters", "Filters")], max_length=50, null=True
             ),
         ),
     ]
