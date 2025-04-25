@@ -12,6 +12,7 @@ type RawTeam = Omit<Team, 'availableFeatures'> & {
 
 export class TeamManager {
     private lazyLoader: LazyLoader<Team>
+    private orgToTeamKeys: Record<string, Set<string> | undefined> = {}
 
     constructor(private postgres: PostgresRouter) {
         this.lazyLoader = new LazyLoader({
@@ -51,11 +52,19 @@ export class TeamManager {
             teamsInCache: Object.keys(this.lazyLoader.cache).length,
             organizationId,
         })
-        Object.entries(this.lazyLoader.cache).forEach(([key, value]) => {
-            if (value?.organization_id === organizationId) {
-                this.lazyLoader.markForRefresh(key)
-            }
-        })
+        const keys = this.orgToTeamKeys[organizationId]
+        if (keys) {
+            this.lazyLoader.markForRefresh(Array.from(keys))
+        }
+    }
+
+    /**
+     * We require an index of org to keys so that invalidating the cache when an org changes is fast given the sheer number of teams.
+     */
+    private setTeamInOrg(team: Team): void {
+        const keys = (this.orgToTeamKeys[team.organization_id] ??= new Set())
+        keys.add(String(team.id))
+        keys.add(team.api_token)
     }
 
     public async setTeamIngestedEvent(team: Team, properties: Properties): Promise<void> {
@@ -158,7 +167,7 @@ export class TeamManager {
         // Fill in actual teams where they exist
         result.rows.forEach((row) => {
             const { available_product_features, ...teamPartial } = row
-            const team = {
+            const team: Team = {
                 ...teamPartial,
                 // NOTE: The postgres lib loads the bigint as a string, so we need to cast it to a ProjectId
                 project_id: Number(teamPartial.project_id) as ProjectId,
@@ -166,6 +175,8 @@ export class TeamManager {
             }
             resultRecord[row.id] = team
             resultRecord[row.api_token] = team
+
+            this.setTeamInOrg(team)
         })
 
         return resultRecord as Record<string, Team | null>
