@@ -52,7 +52,7 @@ def call_llm(
         model=model,
         # TODO: Start with low reasoning for faster responses, iterate afterward based on user experience
         reasoning_effort="low",
-        messages=messages,  # type: ignore
+        messages=messages,
         user=user_param,
     )
     return result
@@ -79,7 +79,7 @@ def stream_llm(
         # TODO: Start with low reasoning for faster responses, iterate afterward based on user experience
         # reasoning_effort="medium",
         temperature=0.1,
-        messages=messages,  # type: ignore
+        messages=messages,
         user=user_param,
         stream=True,
     )
