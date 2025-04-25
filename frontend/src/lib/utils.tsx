@@ -269,6 +269,7 @@ export const assigneeOperatorMap: Record<string, string> = {
 }
 
 export const allOperatorsMapping: Record<string, string> = {
+    ...assigneeOperatorMap,
     ...stickinessOperatorMap,
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
@@ -279,7 +280,6 @@ export const allOperatorsMapping: Record<string, string> = {
     ...selectorOperatorMap,
     ...cohortOperatorMap,
     ...cleanedPathOperatorMap,
-    ...assigneeOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
 }
