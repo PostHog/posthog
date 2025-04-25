@@ -11,9 +11,9 @@ export interface StacktraceBaseDisplayProps {
 
     loading: boolean
     renderLoading: (renderHeader: HeaderRenderer) => JSX.Element
-    renderEmpty: (renderHeader: HeaderRenderer) => JSX.Element
+    renderEmpty: () => JSX.Element
 
-    attributes: ExceptionAttributes
+    attributes: ExceptionAttributes | null
 
     showAllFrames: boolean
 }

@@ -38,7 +38,7 @@ export function IssueCard(): JSX.Element {
     const stacktraceDisplayProps = {
         className: cn('flex-grow', showContext ? 'w-2/3' : 'w-full'),
         truncateMessage: !showStacktrace,
-        attributes: exceptionAttributes!,
+        attributes: exceptionAttributes,
         showAllFrames: showAllFrames,
         loading: propertiesLoading,
     }
@@ -186,18 +186,7 @@ function StacktraceIssueDisplay({
                     loading: issueLoading,
                 })
             }
-            renderEmpty={(renderHeader) => {
-                return (
-                    <div>
-                        {renderHeader({
-                            type: issue?.name ?? undefined,
-                            value: issue?.description ?? undefined,
-                            loading: false,
-                        })}
-                        <StacktraceEmptyDisplay />
-                    </div>
-                )
-            }}
+            renderEmpty={() => <StacktraceEmptyDisplay />}
         />
     )
 }

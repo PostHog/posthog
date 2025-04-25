@@ -51,7 +51,7 @@ export function GenericDisplayPropertiesLoading(): JSX.Element {
 
 export function GenericDisplayEmpty(): JSX.Element {
     const props = defaultBaseProps(
-        null,
+        'javascript_empty',
         {
             loading: false,
         },
@@ -65,6 +65,17 @@ export function GenericDisplayWithStacktrace(): JSX.Element {
 }
 
 ///////////////////// Text stacktraces
+
+export function TextDisplayEmpty(): JSX.Element {
+    const props = defaultBaseProps(
+        'javascript_empty',
+        {
+            loading: false,
+        },
+        false
+    )
+    return <StacktraceTextDisplay {...props} />
+}
 
 export function TextDisplayPropertiesLoading(): JSX.Element {
     const props = defaultBaseProps(
@@ -109,16 +120,7 @@ function defaultBaseProps(
                 value: issue?.description ?? undefined,
                 loading: issueLoading,
             }),
-        renderEmpty: (renderHeader) => (
-            <>
-                {renderHeader({
-                    type: issue?.name ?? undefined,
-                    value: issue?.description ?? undefined,
-                    loading: issueLoading,
-                })}
-                <StacktraceEmptyDisplay />
-            </>
-        ),
+        renderEmpty: () => <StacktraceEmptyDisplay />,
         ...overrideProps,
     } as StacktraceBaseDisplayProps
 }

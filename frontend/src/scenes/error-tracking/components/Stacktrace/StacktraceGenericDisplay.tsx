@@ -4,7 +4,6 @@ import { ChainedStackTraces, ExceptionHeaderProps } from 'lib/components/Errors/
 import { hasStacktrace } from 'lib/components/Errors/utils'
 import { cn } from 'lib/utils/css-classes'
 import { useCallback } from 'react'
-import { match, P } from 'ts-pattern'
 
 import { cancelEvent } from '../../utils'
 import { RuntimeIcon } from '../RuntimeIcon'
@@ -19,7 +18,7 @@ export function StacktraceGenericDisplay({
     showAllFrames,
     attributes,
 }: StacktraceBaseDisplayProps): JSX.Element {
-    const { runtime, exceptionList, fingerprintRecords } = attributes
+    const { runtime, exceptionList, fingerprintRecords } = attributes || {}
     const renderExceptionHeader = useCallback(
         ({ type, value, loading, part }: ExceptionHeaderProps): JSX.Element => {
             return (
@@ -35,22 +34,21 @@ export function StacktraceGenericDisplay({
         },
         [runtime, truncateMessage]
     )
-    const exceptionWithStacktrace = hasStacktrace(exceptionList)
-
+    const isEmpty = !hasStacktrace(exceptionList || [])
     return (
         <div className={className}>
-            {match([loading, exceptionWithStacktrace])
-                .with([true, P.any], () => renderLoading(renderExceptionHeader))
-                .with([false, false], () => renderEmpty(renderExceptionHeader))
-                .otherwise(() => (
-                    <ChainedStackTraces
-                        showAllFrames={showAllFrames}
-                        exceptionList={exceptionList}
-                        renderExceptionHeader={renderExceptionHeader}
-                        fingerprintRecords={fingerprintRecords}
-                        onFrameContextClick={(_, e) => cancelEvent(e)}
-                    />
-                ))}
+            {loading
+                ? renderLoading(renderExceptionHeader)
+                : exceptionList && (
+                      <ChainedStackTraces
+                          showAllFrames={showAllFrames}
+                          exceptionList={exceptionList}
+                          renderExceptionHeader={renderExceptionHeader}
+                          fingerprintRecords={fingerprintRecords}
+                          onFrameContextClick={(_, e) => cancelEvent(e)}
+                      />
+                  )}
+            {!loading && isEmpty && renderEmpty()}
         </div>
     )
 }

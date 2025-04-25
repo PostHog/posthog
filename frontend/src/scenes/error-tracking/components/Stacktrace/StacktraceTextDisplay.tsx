@@ -6,7 +6,6 @@ import { ErrorTrackingException, ErrorTrackingStackFrame } from 'lib/components/
 import { hasStacktrace } from 'lib/components/Errors/utils'
 import { cn } from 'lib/utils/css-classes'
 import { useCallback, useEffect } from 'react'
-import { match, P } from 'ts-pattern'
 
 import { StacktraceBaseDisplayProps, StacktraceBaseExceptionHeaderProps } from './StacktraceBase'
 
@@ -18,8 +17,8 @@ export function StacktraceTextDisplay({
     truncateMessage,
     loading,
 }: StacktraceBaseDisplayProps): JSX.Element {
-    const { exceptionList } = attributes
-    const exceptionWithStacktrace = hasStacktrace(exceptionList)
+    const { exceptionList } = attributes || {}
+    const isEmpty = !hasStacktrace(exceptionList || [])
     const renderExceptionHeader = useCallback(
         ({ type, value, loading, part }: ExceptionHeaderProps): JSX.Element => {
             return (
@@ -36,13 +35,11 @@ export function StacktraceTextDisplay({
     )
     return (
         <div className={className}>
-            {match([loading, exceptionWithStacktrace])
-                .with([true, P.any], () => renderLoading(renderExceptionHeader))
-                .with([false, false], () => renderEmpty(renderExceptionHeader))
-                .with([false, true], () =>
-                    exceptionList.map((exception) => <ExceptionTextDisplay key={exception.id} exception={exception} />)
-                )
-                .exhaustive()}
+            {loading
+                ? renderLoading(renderExceptionHeader)
+                : exceptionList &&
+                  exceptionList.map((exception) => <ExceptionTextDisplay key={exception.id} exception={exception} />)}
+            {!loading && isEmpty && renderEmpty()}
         </div>
     )
 }
