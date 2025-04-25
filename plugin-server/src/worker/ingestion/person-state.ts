@@ -39,7 +39,7 @@ export const personPropertyKeyUpdateCounter = new Counter({
 })
 
 // temporary: for fetchPerson properties JSONB size observation
-const FOUR_MEGABYTE_PROPS_BLOB = 4194304
+const ONE_MEGABYTE_PROPS_BLOB = 1048576
 const personPropertiesSize = new Histogram({
     name: 'person_properties_size',
     help: 'histogram of compressed person JSONB bytes retrieved in fetchPerson calls',
@@ -119,7 +119,8 @@ export class PersonState {
         private distinctId: string,
         private timestamp: DateTime,
         private processPerson: boolean, // $process_person_profile flag from the event
-        private db: DB
+        private db: DB,
+        private measurePersonJsonbSize: number = 0 // value in [0, 1] controls enablement/rate of expensive measurement
     ) {
         this.eventProperties = event.properties!
 
@@ -129,15 +130,22 @@ export class PersonState {
     }
 
     private async capturePersonPropertiesSizeEstimate(at: string): Promise<void> {
+        if (Math.random() >= this.measurePersonJsonbSize) {
+            // no-op if env flag is set to 0 (default) otherwise rate-limit
+            // ramp up of expensive size checking while we test it
+            return
+        }
+
         const estimatedBytes: number = await this.db.personPropertiesSize(this.team.id, this.distinctId)
         personPropertiesSize.labels({ at: at }).observe(estimatedBytes)
 
         // if larger than size threshold (start conservative, adjust as we observe)
         // we should log the team and disinct_id associated with the properties
-        if (estimatedBytes >= FOUR_MEGABYTE_PROPS_BLOB) {
-            logger.warn('⚠️', 'person-state.ts#update: record w/oversized person properties detected', {
+        if (estimatedBytes >= ONE_MEGABYTE_PROPS_BLOB) {
+            logger.warn('⚠️', 'record with oversized person properties detected', {
                 teamId: this.team.id,
                 distinctId: this.distinctId,
+                called_at: at,
                 estimated_bytes: estimatedBytes,
             })
         }
