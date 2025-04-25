@@ -104,16 +104,16 @@ def _convert_llm_content_to_session_summary_json(
         session_metadata=session_metadata,
         session_id=session_id,
     )
-    # TODO: Remove after testing
+    # TODO: Uncomment for local testing
     # Track generation for history of experiments
-    if final_validation:
-        _track_session_summary_generation(
-            summary_prompt=summary_prompt,
-            raw_session_summary=json.dumps(raw_session_summary.data, indent=4),
-            session_summary=json.dumps(session_summary.data, indent=4),
-            # TODO: Store in env? Production won't have it set, so no saving will happen
-            results_base_dir_path="/Users/woutut/Documents/Code/posthog/playground/identify-objectives-experiments/runs",
-        )
+    # if final_validation:
+    #     _track_session_summary_generation(
+    #         summary_prompt=summary_prompt,
+    #         raw_session_summary=json.dumps(raw_session_summary.data, indent=4),
+    #         session_summary=json.dumps(session_summary.data, indent=4),
+    #         # TODO: Store path in local env file? Production won't have it set, so no saving will happen
+    #         results_base_dir_path=""",
+    #     )
     return json.dumps(session_summary.data)
 
 
