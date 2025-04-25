@@ -20,7 +20,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("template_id", models.CharField(db_index=True, max_length=255)),
-                ("version", models.CharField(db_index=True, max_length=100)),
+                ("sha", models.CharField(db_index=True, max_length=100)),
                 ("name", models.CharField(max_length=400)),
                 ("description", models.TextField(blank=True, null=True)),
                 ("hog", models.TextField()),
@@ -42,12 +42,12 @@ class Migration(migrations.Migration):
             ],
             options={
                 "indexes": [
-                    models.Index(fields=["template_id", "version"], name="posthog_hog_templat_b27db0_idx"),
+                    models.Index(fields=["template_id", "sha"], name="posthog_hog_templat_b27db0_idx"),
                     models.Index(fields=["type", "status"], name="posthog_hog_type_8cac9a_idx"),
                     models.Index(fields=["created_at"], name="posthog_hog_created_6a9df3_idx"),
                     models.Index(fields=["template_id", "created_at"], name="posthog_hog_templat_d1778e_idx"),
                 ],
-                "unique_together": {("template_id", "version")},
+                "unique_together": {("template_id", "sha")},
             },
         ),
     ]

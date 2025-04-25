@@ -234,13 +234,13 @@ class TestSyncHogFunctionTemplates:
         # Save the template to the database
         template_1, created_1 = DBHogFunctionTemplate.create_from_dataclass(test_template)
         assert created_1 is True
-        initial_version = template_1.version
+        initial_sha = template_1.sha
 
         # Save the exact same template again
         template_2, created_2 = DBHogFunctionTemplate.create_from_dataclass(test_template)
         assert created_2 is False  # Should not create a new record
         assert template_2.id == template_1.id  # Should be the same database record
-        assert template_2.version == initial_version  # Version should be unchanged
+        assert template_2.sha == initial_sha  # sha should be unchanged
 
         # Verify only one template exists in the database
         template_count = DBHogFunctionTemplate.objects.filter(template_id="test-versioning-template").count()
@@ -263,7 +263,7 @@ class TestSyncHogFunctionTemplates:
         template_3, created_3 = DBHogFunctionTemplate.create_from_dataclass(modified_template)
         assert created_3 is False  # Should not create a new record
         assert template_3.id == template_1.id  # Should update the same database record
-        assert template_3.version != initial_version  # Version should be different
+        assert template_3.sha != initial_sha  # sha should be different
         assert template_3.name == "Modified Test Template"
         assert template_3.description == "This template was modified"
         assert template_3.hog == "return null"

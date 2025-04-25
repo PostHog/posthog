@@ -12,7 +12,7 @@ class TestHogFunctionTemplate(TestCase):
     def _create_template(
         self,
         template_id,
-        version,
+        sha,
         name,
         status="alpha",
         type="destination",
@@ -22,7 +22,7 @@ class TestHogFunctionTemplate(TestCase):
     ):
         """Helper method to create a template with common defaults"""
         return HogFunctionTemplate.objects.create(
-            version=version,
+            sha=sha,
             template_id=template_id,
             name=name,
             description=description or f"Description for {name}",
@@ -46,15 +46,15 @@ class TestHogFunctionTemplate(TestCase):
         self.assertEqual(db_template.category, ["Customer Success"])
         self.assertEqual(db_template.free, True)
 
-        # Verify version is generated correctly
-        self.assertIsNotNone(db_template.version)
-        self.assertEqual(len(db_template.version), 8)  # SHA hash truncated to 8 chars
+        # Verify sha is generated correctly
+        self.assertIsNotNone(db_template.sha)
+        self.assertEqual(len(db_template.sha), 8)  # SHA hash truncated to 8 chars
 
         HogFunctionTemplate.objects.all().delete()
 
-        # Verify the version is deterministic by creating another instance
+        # Verify the sha is deterministic by creating another instance
         db_template2, _ = HogFunctionTemplate.create_from_dataclass(slack_template)
-        self.assertEqual(db_template.version, db_template2.version)
+        self.assertEqual(db_template.sha, db_template2.sha)
 
         # Verify sub-templates
         self.assertIsNotNone(db_template.sub_templates)
@@ -84,23 +84,23 @@ class TestHogFunctionTemplate(TestCase):
         self.assertIsNotNone(survey_sub_template_dto)
         self.assertEqual(survey_sub_template_dto.name, "Post to Slack on survey response")
 
-    def test_get_template_by_id_and_version(self):
-        """Test retrieving templates by ID and version"""
-        # Create template with a specific version
+    def test_get_template_by_id_and_sha(self):
+        """Test retrieving templates by ID and sha"""
+        # Create template with a specific sha
         template = self._create_template(
             template_id="test-template",
-            version="1.0.0",
+            sha="1.0.0",
             name="Test Template",
             description="Template description",
             status="alpha",
         )
 
-        # Test getting by ID and version
+        # Test getting by ID and sha
         retrieved_template = HogFunctionTemplate.get_template("test-template", "1.0.0")
         self.assertEqual(retrieved_template.id, template.id)
         self.assertEqual(retrieved_template.name, "Test Template")
 
-        # Test getting by ID without version (should get the template)
+        # Test getting by ID without sha (should get the template)
         latest_template = HogFunctionTemplate.get_template("test-template")
         self.assertEqual(latest_template.id, template.id)
 
@@ -127,9 +127,9 @@ class TestHogFunctionTemplate(TestCase):
         # Create the template in the database
         original_template, created = HogFunctionTemplate.create_from_dataclass(original_dto)
         self.assertTrue(created, "Template should be created")
-        original_version = original_template.version
+        original_sha = original_template.sha
 
-        # Now create an updated version of the same template
+        # Now create an updated sha of the same template
         updated_dto = HogFunctionTemplateDTO(
             id="update-test",  # Same ID
             name="Updated Template",  # Changed
@@ -144,7 +144,7 @@ class TestHogFunctionTemplate(TestCase):
         # Update the template
         updated_template, created = HogFunctionTemplate.create_from_dataclass(updated_dto)
         self.assertFalse(created, "Template should be updated, not created")
-        self.assertNotEqual(updated_template.version, original_version, "Version should change when content changes")
+        self.assertNotEqual(updated_template.sha, original_sha, "SHA should change when content changes")
 
         # Verify the template was updated
         self.assertEqual(updated_template.template_id, "update-test")
@@ -156,13 +156,13 @@ class TestHogFunctionTemplate(TestCase):
         templates = HogFunctionTemplate.objects.filter(template_id="update-test")
         self.assertEqual(templates.count(), 1, "Only one template should exist with this ID")
 
-        # Now updating with the same content shouldn't change the version
+        # Now updating with the same content shouldn't change the sha
         same_updated_template, created = HogFunctionTemplate.create_from_dataclass(updated_dto)
         self.assertFalse(created, "Template should not be re-created")
         self.assertEqual(
-            same_updated_template.version,
-            updated_template.version,
-            "Version should not change when content is the same",
+            same_updated_template.sha,
+            updated_template.sha,
+            "SHA should not change when content is the same",
         )
 
     def test_get_latest_templates(self):
@@ -170,14 +170,14 @@ class TestHogFunctionTemplate(TestCase):
         # Create templates with various statuses
         self._create_template(
             template_id="active-template",
-            version="1.0.0",
+            sha="1.0.0",
             name="Active Template",
             status="stable",
         )
 
         self._create_template(
             template_id="deprecated-template",
-            version="1.0.0",
+            sha="1.0.0",
             name="Deprecated Template",
             status="deprecated",
         )
@@ -185,14 +185,14 @@ class TestHogFunctionTemplate(TestCase):
         # Create templates with different types
         self._create_template(
             template_id="template-a",
-            version="1.0.0",
+            sha="1.0.0",
             name="Template A",
             status="alpha",
         )
 
         self._create_template(
             template_id="template-b",
-            version="1.0.0",
+            sha="1.0.0",
             name="Template B",
             status="beta",
         )
@@ -200,7 +200,7 @@ class TestHogFunctionTemplate(TestCase):
         # Create a different type template
         self._create_template(
             template_id="template-c",
-            version="1.0.0",
+            sha="1.0.0",
             name="Template C",
             type="transformation",
             status="stable",
@@ -240,8 +240,8 @@ class TestHogFunctionTemplate(TestCase):
         self.assertIn("template-c", transformation_ids)
         self.assertNotIn("template-a", transformation_ids)
 
-    def test_versioning(self):
-        """Test template versioning system including status and related fields"""
+    def test_sha_versioning(self):
+        """Test template sha versioning system including status and related fields"""
         from posthog.cdp.templates.hog_function_template import (
             HogFunctionTemplate as HogFunctionTemplateDTO,
             HogFunctionMapping,
@@ -249,27 +249,27 @@ class TestHogFunctionTemplate(TestCase):
             HogFunctionMappingTemplate,
         )
 
-        # Test 1: Basic version generation
+        # Test 1: Basic sha generation
         # Test empty content
-        empty_version = HogFunctionTemplate.generate_version_from_content("")
-        self.assertEqual(len(empty_version), 8)
+        empty_sha = HogFunctionTemplate.generate_sha_from_content("")
+        self.assertEqual(len(empty_sha), 8)
 
-        # Test identical content produces identical versions
+        # Test identical content produces identical shas
         content1 = "return event"
         content2 = "return event"
 
-        version1 = HogFunctionTemplate.generate_version_from_content(content1)
-        version2 = HogFunctionTemplate.generate_version_from_content(content2)
+        sha1 = HogFunctionTemplate.generate_sha_from_content(content1)
+        sha2 = HogFunctionTemplate.generate_sha_from_content(content2)
 
-        self.assertEqual(version1, version2)
+        self.assertEqual(sha1, sha2)
 
-        # Test different content produces different versions
+        # Test different content produces different shas
         content3 = "return modified_event"
-        version3 = HogFunctionTemplate.generate_version_from_content(content3)
+        sha3 = HogFunctionTemplate.generate_sha_from_content(content3)
 
-        self.assertNotEqual(version1, version3)
+        self.assertNotEqual(sha1, sha3)
 
-        # Test 2: Status change creates new version
+        # Test 2: Status change creates new sha
         template_alpha = HogFunctionTemplateDTO(
             id="test-status-template",
             name="Test Template",
@@ -292,20 +292,20 @@ class TestHogFunctionTemplate(TestCase):
             category=[],
         )
 
-        # Create first version
+        # Create first sha
         db_template_alpha, created_alpha = HogFunctionTemplate.create_from_dataclass(template_alpha)
         self.assertTrue(created_alpha)
 
-        # Update with new status - should change version but not create new record
+        # Update with new status - should change sha but not create new record
         db_template_beta, created_beta = HogFunctionTemplate.create_from_dataclass(template_beta)
         self.assertFalse(created_beta)
-        self.assertNotEqual(db_template_alpha.version, db_template_beta.version)
+        self.assertNotEqual(db_template_alpha.sha, db_template_beta.sha)
 
         # Verify only one template exists
         templates = HogFunctionTemplate.objects.filter(template_id="test-status-template")
         self.assertEqual(templates.count(), 1)
 
-        # Test 3: Changes to related fields create new versions
+        # Test 3: Changes to related fields create new shas
         base_template = HogFunctionTemplateDTO(
             id="advanced-template",
             name="Advanced Template",
@@ -337,7 +337,7 @@ class TestHogFunctionTemplate(TestCase):
         # Update with mappings
         db_mappings, created_mappings = HogFunctionTemplate.create_from_dataclass(template_with_mappings)
         self.assertFalse(created_mappings)
-        self.assertNotEqual(db_base.version, db_mappings.version, "Adding mappings should change version")
+        self.assertNotEqual(db_base.sha, db_mappings.sha, "Adding mappings should change sha")
 
         # Verify only one template exists with this ID
         templates = HogFunctionTemplate.objects.filter(template_id="advanced-template")
@@ -359,7 +359,7 @@ class TestHogFunctionTemplate(TestCase):
         # Update with sub-templates
         db_subtemplates, created_subtemplates = HogFunctionTemplate.create_from_dataclass(template_with_subtemplates)
         self.assertFalse(created_subtemplates)
-        self.assertNotEqual(db_mappings.version, db_subtemplates.version, "Adding sub_templates should change version")
+        self.assertNotEqual(db_mappings.sha, db_subtemplates.sha, "Adding sub_templates should change sha")
 
         # Create template with filters
         template_with_filters = HogFunctionTemplateDTO(
@@ -377,7 +377,7 @@ class TestHogFunctionTemplate(TestCase):
         # Update with filters
         db_filters, created_filters = HogFunctionTemplate.create_from_dataclass(template_with_filters)
         self.assertFalse(created_filters)
-        self.assertNotEqual(db_subtemplates.version, db_filters.version, "Adding filters should change version")
+        self.assertNotEqual(db_subtemplates.sha, db_filters.sha, "Adding filters should change sha")
 
         # Create template with mapping_templates
         template_with_mapping_templates = HogFunctionTemplateDTO(
@@ -397,9 +397,7 @@ class TestHogFunctionTemplate(TestCase):
             template_with_mapping_templates
         )
         self.assertFalse(created_mapping_templates)
-        self.assertNotEqual(
-            db_filters.version, db_mapping_templates.version, "Adding mapping_templates should change version"
-        )
+        self.assertNotEqual(db_filters.sha, db_mapping_templates.sha, "Adding mapping_templates should change sha")
 
         # Check total template count remains at 1
         templates = HogFunctionTemplate.objects.filter(template_id="advanced-template")
@@ -415,7 +413,7 @@ class TestHogFunctionTemplate(TestCase):
         # Create a complex template with mappings and sub-templates
         template = HogFunctionTemplate.objects.create(
             template_id="complex-template",
-            version="1.0.0",
+            sha="1.0.0",
             name="Complex Template",
             description="Template with sub-templates and mappings",
             hog="return event",

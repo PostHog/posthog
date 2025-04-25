@@ -20,13 +20,13 @@ logger = structlog.get_logger(__name__)
 class HogFunctionTemplate(UUIDModel):
     """
     Django model for storing HogFunction templates in the database.
-    This model replaces the in-memory storage of templates and enables versioning,
+    This model replaces the in-memory storage of templates and enables sha versioning,
     efficient storage, and easier updates for HogFunction templates.
     """
 
     # Core Template Information
     template_id = models.CharField(max_length=255, db_index=True)
-    version = models.CharField(max_length=100, db_index=True)
+    sha = models.CharField(max_length=100, db_index=True)
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, null=True)
 
@@ -62,46 +62,46 @@ class HogFunctionTemplate(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ("template_id", "version")
+        unique_together = ("template_id", "sha")
         indexes = [
-            models.Index(fields=["template_id", "version"]),
+            models.Index(fields=["template_id", "sha"]),
             models.Index(fields=["type", "status"]),
             models.Index(fields=["created_at"]),
             models.Index(fields=["template_id", "created_at"]),
         ]
 
     def __str__(self) -> str:
-        return f"{self.name} ({self.template_id} v{self.version})"
+        return f"{self.name} ({self.template_id} sha:{self.sha})"
 
     @classmethod
-    def generate_version_from_content(cls, content: str) -> str:
+    def generate_sha_from_content(cls, content: str) -> str:
         """
-        Generates a version hash from template content for content-based versioning.
+        Generates a sha hash from template content for content-based versioning.
         """
         # Create a SHA256 hash of the content
         content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        # Use first 8 characters as the version
+        # Use first 8 characters as the sha hash
         return content_hash[:8]
 
     @classmethod
-    def get_template(cls, template_id: str, version: Optional[str] = None):
+    def get_template(cls, template_id: str, sha: Optional[str] = None):
         """
-        Gets a template by ID and optionally version.
+        Gets a template by ID and optionally sha.
         Args:
             template_id: The ID of the template to get
-            version: The version to get, or None for the latest version
+            sha: The sha to get, or None for the latest sha
         Returns:
             The template instance, or None if no template was found
         """
         try:
-            if version:
-                # Get the specific version
+            if sha:
+                # Get the specific sha
                 return cls.objects.filter(
                     template_id=template_id,
-                    version=version,
+                    sha=sha,
                 ).first()
             else:
-                # Get the latest version by created_at timestamp
+                # Get the latest sha by created_at timestamp
                 # Only include active templates (not deprecated)
                 return (
                     cls.objects.filter(template_id=template_id)
@@ -113,7 +113,7 @@ class HogFunctionTemplate(UUIDModel):
             logger.error(
                 "Failed to get template from database",
                 template_id=template_id,
-                version=version,
+                sha=sha,
                 error=str(e),
                 exc_info=True,
             )
@@ -122,8 +122,8 @@ class HogFunctionTemplate(UUIDModel):
     @classmethod
     def get_latest_templates(cls, template_type=None, include_deprecated=False):
         """
-        Gets the latest version of each template, optionally filtered by type.
-        This is more efficient than get_all_templates when you only need the latest version
+        Gets the latest sha of each template, optionally filtered by type.
+        This is more efficient than get_all_templates when you only need the latest sha
         of each template.
         Args:
             template_type: Optional type to filter templates by
@@ -139,7 +139,7 @@ class HogFunctionTemplate(UUIDModel):
         if not include_deprecated:
             filters["status__in"] = ["alpha", "beta", "stable"]
 
-        # First get the latest template_id and version pairs
+        # First get the latest template_id and sha pairs
         from django.db.models import Subquery, OuterRef, Max
 
         # Get the max created_at for each template_id
@@ -214,7 +214,7 @@ class HogFunctionTemplate(UUIDModel):
             logger.error(
                 "Failed to compile template bytecode",
                 template_id=self.template_id,
-                version=self.version,
+                sha=self.sha,
                 error=str(e),
                 exc_info=True,
             )
@@ -224,7 +224,7 @@ class HogFunctionTemplate(UUIDModel):
     def create_from_dataclass(cls, dataclass_template):
         """
         Creates and saves a HogFunctionTemplate database model from a dataclass template.
-        Version is always calculated based on content hash.
+        sha is always calculated based on content hash.
         Args:
             dataclass_template: The dataclass template to convert
         Returns:
@@ -238,7 +238,7 @@ class HogFunctionTemplate(UUIDModel):
         if not isinstance(dataclass_template, DataclassTemplate):
             raise TypeError(f"Expected HogFunctionTemplate dataclass, got {type(dataclass_template)}")
 
-        # Calculate version based on content hash
+        # Calculate sha based on content hash
         template_dict = {
             "id": dataclass_template.id,
             "hog": dataclass_template.hog,
@@ -256,7 +256,7 @@ class HogFunctionTemplate(UUIDModel):
             "filters": dataclass_template.filters,
         }
         content_for_hash = json.dumps(template_dict, sort_keys=True)
-        version = cls.generate_version_from_content(content_for_hash)
+        sha = cls.generate_sha_from_content(content_for_hash)
 
         # Convert collections to JSON
         mappings = None
@@ -283,20 +283,18 @@ class HogFunctionTemplate(UUIDModel):
             )
             bytecode = None
 
-        # First check if a template with the same hash (version) already exists
-        existing_template = cls.objects.filter(template_id=dataclass_template.id, version=version).first()
+        # First check if a template with the same hash (sha) already exists
+        existing_template = cls.objects.filter(template_id=dataclass_template.id, sha=sha).first()
 
         if existing_template:
-            logger.debug(
-                "Found existing template with same content hash", template_id=dataclass_template.id, version=version
-            )
+            logger.debug("Found existing template with same content hash", template_id=dataclass_template.id, sha=sha)
             return existing_template, False
 
         # Create or update the template using Django's update_or_create
         template, created = cls.objects.update_or_create(
             template_id=dataclass_template.id,  # Look up by template ID
             defaults={
-                "version": version,
+                "sha": sha,
                 "name": dataclass_template.name,
                 "description": dataclass_template.description,
                 "hog": dataclass_template.hog,
@@ -317,8 +315,6 @@ class HogFunctionTemplate(UUIDModel):
         )
 
         if not created:
-            logger.debug(
-                "Updated existing template with new version", template_id=dataclass_template.id, new_version=version
-            )
+            logger.debug("Updated existing template with new sha", template_id=dataclass_template.id, new_sha=sha)
 
         return template, created
