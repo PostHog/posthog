@@ -1,4 +1,3 @@
-import { DiffEditor as MonacoDiffEditor } from '@monaco-editor/react'
 import { IconCode } from '@posthog/icons'
 import { LemonModal } from '@posthog/lemon-ui'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -7,6 +6,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { SkeletonLog } from 'lib/components/ActivityLog/ActivityLog'
 import { HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { TZLabel } from 'lib/components/TZLabel'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -83,6 +83,7 @@ function QueryDiffViewer({ before, after }: QueryDiffViewerProps): JSX.Element {
     return (
         <div ref={containerRef} className="flex flex-col space-y-2 w-full">
             <MonacoDiffEditor
+                key="diff-viewer"
                 original={before?.query}
                 modified={after?.query}
                 language="hogQL"
