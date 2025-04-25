@@ -1,3 +1,4 @@
+from typing import Any
 import pytest
 
 from ee.session_recordings.session_summary.intput_data import (
@@ -26,25 +27,27 @@ def mock_event_indexes() -> dict[str, int]:
     }
 
 
-def test_skip_event_without_context(mock_event_indexes):
-    # Should skip autocapture event with no context
-    event = ("$autocapture", None, "", [], [], None, None, "click", [], "", None, None)
-    assert _skip_event_without_context(event, mock_event_indexes) is True
-    # Should not skip autocapture event with text context
-    event = ("$autocapture", None, "", ["Click me"], [], None, None, "click", [], "", None, None)
-    assert _skip_event_without_context(event, mock_event_indexes) is False
-    # Should not skip autocapture event with element context
-    event = ("$autocapture", None, "", [], ["button"], None, None, "click", [], "", None, None)
-    assert _skip_event_without_context(event, mock_event_indexes) is False
-    # Should skip custom event with no context and simple name
-    event = ("click", None, "", [], [], None, None, "click", [], "", None, None)
-    assert _skip_event_without_context(event, mock_event_indexes) is True
-    # Should not skip custom event with context
-    event = ("click", None, "", ["Click me"], [], None, None, "click", [], "", None, None)
-    assert _skip_event_without_context(event, mock_event_indexes) is False
-    # Should not skip custom event with complex name
-    event = ("user.clicked_button", None, "", [], [], None, None, "click", [], "", None, None)
-    assert _skip_event_without_context(event, mock_event_indexes) is False
+@pytest.mark.parametrize(
+    "event_tuple,expected_skip",
+    [
+        # Should skip autocapture event with no context
+        (("$autocapture", None, "", [], [], None, None, "click", [], "", None, None), True),
+        # Should not skip autocapture event with text context
+        (("$autocapture", None, "", ["Click me"], [], None, None, "click", [], "", None, None), False),
+        # Should not skip autocapture event with element context
+        (("$autocapture", None, "", [], ["button"], None, None, "click", [], "", None, None), False),
+        # Should skip custom event with no context and simple name
+        (("click", None, "", [], [], None, None, "click", [], "", None, None), True),
+        # Should not skip custom event with context
+        (("click", None, "", ["Click me"], [], None, None, "click", [], "", None, None), False),
+        # Should not skip custom event with complex name
+        (("user.clicked_button", None, "", [], [], None, None, "click", [], "", None, None), False),
+    ],
+)
+def test_skip_event_without_context(
+    mock_event_indexes: dict[str, int], event_tuple: tuple[Any, ...], expected_skip: bool
+):
+    assert _skip_event_without_context(list(event_tuple), mock_event_indexes) is expected_skip
 
 
 def test_get_improved_elements_chain_texts():
@@ -92,7 +95,7 @@ def test_get_improved_elements_chain_elements():
 def test_add_context_and_filter_events(mock_event_indexes: dict[str, int]):
     # Use only the columns needed for the test
     test_columns = list(mock_event_indexes.keys())
-    events = [
+    events: list[tuple[Any, ...]] = [
         # Should keep event with context
         ("$autocapture", None, "", ["Click me"], [], None, None, "click", [], "button:text='Click me'", None, None),
         # Should skip event without context

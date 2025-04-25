@@ -18,7 +18,8 @@ def get_session_metadata(session_id: str, team: Team, local_path: str | None = N
     if not local_path:
         session_metadata = SessionReplayEvents().get_metadata(session_id=str(session_id), team=team)
     else:
-        session_metadata = load_session_metadata_from_json(local_path)
+        raw_session_metadata = load_session_metadata_from_json(local_path)
+        session_metadata = cast(RecordingMetadata, raw_session_metadata)
     if not session_metadata:
         raise ValueError(f"No session metadata found for session_id {session_id}")
     return session_metadata
@@ -26,7 +27,7 @@ def get_session_metadata(session_id: str, team: Team, local_path: str | None = N
 
 def get_session_events(
     session_id: str, session_metadata: RecordingMetadata, team: Team, local_path: str | None = None
-) -> tuple[list[str], list[tuple[str | datetime, ...]]]:
+) -> tuple[list[str], list[tuple[str | datetime | list[str] | None, ...]]]:
     if not local_path:
         session_events_columns, session_events = SessionReplayEvents().get_events(
             session_id=str(session_id),
@@ -47,7 +48,7 @@ def get_session_events(
 
 
 def _skip_event_without_context(
-    event_row: list[str | datetime],
+    event_row: list[str | datetime | list[str] | None],
     # Using indexes as argument to avoid calling get_column_index on each event row
     indexes: dict[str, int],
 ) -> bool:
@@ -68,12 +69,12 @@ def _skip_event_without_context(
             and not elements_chain_ids
         ):
             return True
-    # Keeping system events at all times
+    # Never skip system events
     if event.startswith("$"):
-        return True
-    # Keeping events with descriptive names at all times
+        return False
+    # Never skip events with descriptive names
     if len(event.split(" ")) > 1 or len(event.split(".")) > 1 or len(event.split("_")) > 1:
-        return True
+        return False
     # Skip the events with a short name or no context, assuming they aren't useful for the summary
     # TODO: Check the assumption, as could be risky, but worth it to avoid adding noise
     if not elements_chain_texts and not elements_chain_elements and not elements_chain_href and not elements_chain_ids:
@@ -82,8 +83,8 @@ def _skip_event_without_context(
 
 
 def add_context_and_filter_events(
-    session_events_columns: list[str], session_events: list[tuple[str | datetime, ...]]
-) -> tuple[list[str], list[tuple[str | datetime, ...]]]:
+    session_events_columns: list[str], session_events: list[tuple[str | datetime | list[str] | None, ...]]
+) -> tuple[list[str], list[tuple[str | datetime | list[str] | None, ...]]]:
     indexes = {
         "event": get_column_index(session_events_columns, "event"),
         "$event_type": get_column_index(session_events_columns, "$event_type"),
@@ -96,20 +97,25 @@ def add_context_and_filter_events(
     updated_events = []
     for event in session_events:
         chain = event[indexes["elements_chain"]]
+        if not isinstance(chain, str):
+            raise ValueError(f"Elements chain is not a string: {chain}")
+        updated_event: list[str | datetime | list[str] | None] = list(event)
         if not chain:
-            updated_event = list(event)
             # If no chain - no additional context will come, so it's ok to check if to skip right away
             if _skip_event_without_context(updated_event, indexes):
                 continue
             updated_event.pop(indexes["elements_chain"])
             updated_events.append(tuple(updated_event))
             continue
-        updated_event = list(event)
-        updated_event[indexes["elements_chain_texts"]] = _get_improved_elements_chain_texts(
-            chain, event[indexes["elements_chain_texts"]]
-        )
+        elements_chain_texts = event[indexes["elements_chain_texts"]]
+        if not isinstance(elements_chain_texts, list):
+            raise ValueError(f"Elements chain texts is not a list: {elements_chain_texts}")
+        updated_event[indexes["elements_chain_texts"]] = _get_improved_elements_chain_texts(chain, elements_chain_texts)
+        elements_chain_elements = event[indexes["elements_chain_elements"]]
+        if not isinstance(elements_chain_elements, list):
+            raise ValueError(f"Elements chain elements is not a list: {elements_chain_elements}")
         updated_event[indexes["elements_chain_elements"]] = _get_improved_elements_chain_elements(
-            chain, event[indexes["elements_chain_elements"]]
+            chain, elements_chain_elements
         )
         # After additional context is added, check again if the event is still without context
         if _skip_event_without_context(updated_event, indexes):

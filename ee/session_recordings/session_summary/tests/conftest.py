@@ -113,16 +113,16 @@ def mock_events_columns() -> list[str]:
         "elements_chain_ids",
         "elements_chain",
         # Added later through enrichment
-        "event_index",
         "event_id",
+        "event_index",
     ]
 
 
 @pytest.fixture
-def mock_raw_events() -> list[list[Any]]:
+def mock_raw_events() -> list[tuple[Any, ...]]:
     return [
         # First segment events
-        [
+        (
             "$autocapture",  # abcd1234 - start of segment 0
             datetime(2025, 3, 31, 18, 40, 39, 302000),
             "",
@@ -133,8 +133,8 @@ def mock_raw_events() -> list[list[Any]]:
             "click",
             [],
             "",
-        ],
-        [
+        ),
+        (
             "$autocapture",  # defg4567
             datetime(2025, 3, 31, 18, 40, 43, 645000),
             "",
@@ -145,8 +145,8 @@ def mock_raw_events() -> list[list[Any]]:
             "submit",
             [],
             "",
-        ],
-        [
+        ),
+        (
             "$pageview",  # vbgs1287 - end of segment 0
             datetime(2025, 3, 31, 18, 40, 44, 251000),
             "",
@@ -157,9 +157,9 @@ def mock_raw_events() -> list[list[Any]]:
             None,
             [],
             "",
-        ],
+        ),
         # Second segment events
-        [
+        (
             "$autocapture",  # gfgz6242 - start of segment 1
             datetime(2025, 3, 31, 18, 40, 58, 699000),
             "",
@@ -170,8 +170,8 @@ def mock_raw_events() -> list[list[Any]]:
             "click",
             [],
             "",
-        ],
-        [
+        ),
+        (
             "$autocapture",  # ghij7890
             datetime(2025, 3, 31, 18, 41, 5, 459000),
             "",
@@ -182,8 +182,8 @@ def mock_raw_events() -> list[list[Any]]:
             "click",
             [],
             "",
-        ],
-        [
+        ),
+        (
             "$autocapture",  # mnop3456
             datetime(2025, 3, 31, 18, 41, 10, 123000),
             "",
@@ -194,8 +194,8 @@ def mock_raw_events() -> list[list[Any]]:
             "submit",
             [],
             "",
-        ],
-        [
+        ),
+        (
             "$autocapture",  # stuv9012 - end of segment 1
             datetime(2025, 3, 31, 18, 41, 15, 789000),
             "",
@@ -206,5 +206,5 @@ def mock_raw_events() -> list[list[Any]]:
             "click",
             [],
             "",
-        ],
+        ),
     ]

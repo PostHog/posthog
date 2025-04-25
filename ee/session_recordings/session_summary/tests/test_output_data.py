@@ -17,6 +17,7 @@ class TestLoadRawSessionSummary:
         allowed_event_ids = ["abcd1234", "defg4567", "ghij7890", "mnop3456", "stuv9012"]
         session_id = "test_session"
         result = load_raw_session_summary_from_llm_content(mock_valid_llm_yaml_response, allowed_event_ids, session_id)
+        assert result is not None
         # Ensure the LLM output is valid
         assert result.is_valid()
         # Check segments
@@ -41,13 +42,12 @@ class TestLoadRawSessionSummary:
         assert session_outcome["success"] is True
         assert "description" in session_outcome
 
-    def test_load_raw_session_summary_no_content(self, mock_valid_llm_yaml_response: str) -> None:
-        mock_valid_llm_yaml_response = None
+    def test_load_raw_session_summary_no_content(self) -> None:
         session_id = "test_session"
         with pytest.raises(
             SummaryValidationError, match=f"No LLM content found when summarizing session_id {session_id}"
         ):
-            load_raw_session_summary_from_llm_content(mock_valid_llm_yaml_response, [], session_id)
+            load_raw_session_summary_from_llm_content(None, [], session_id)  # type: ignore
 
     def test_load_raw_session_summary_invalid_yaml(self, mock_valid_llm_yaml_response: str) -> None:
         mock_valid_llm_yaml_response = """```yaml
@@ -131,9 +131,11 @@ class TestEnrichRawSessionSummary:
     def mock_raw_session_summary(
         self, mock_valid_llm_yaml_response: str, mock_valid_event_ids: list[str]
     ) -> RawSessionSummarySerializer:
-        return load_raw_session_summary_from_llm_content(
+        result = load_raw_session_summary_from_llm_content(
             mock_valid_llm_yaml_response, mock_valid_event_ids, "test_session"
         )
+        assert result is not None
+        return result
 
     @pytest.fixture
     def mock_url_mapping_reversed(self) -> dict[str, str]:
@@ -166,8 +168,19 @@ class TestEnrichRawSessionSummary:
         mock_valid_event_ids: list[str],
     ) -> dict[str, list[Any]]:
         events_mapping = {}
-        for index, (event_id, raw_event) in enumerate(zip(mock_valid_event_ids, mock_raw_events)):
-            event_type, timestamp, href, texts, elements, window_id, url, action_type = raw_event
+        for event_index, (event_id, raw_event) in enumerate(zip(mock_valid_event_ids, mock_raw_events)):
+            (
+                event_type,
+                timestamp,
+                href,
+                texts,
+                elements,
+                window_id,
+                url,
+                action_type,
+                elements_chain_ids,
+                elements_chain,
+            ) = raw_event
             events_mapping[event_id] = [
                 event_type,
                 timestamp.isoformat() + "Z",
@@ -177,8 +190,10 @@ class TestEnrichRawSessionSummary:
                 mock_window_mapping[window_id],
                 mock_url_mapping[url],
                 action_type,
-                index,
+                elements_chain_ids,
+                elements_chain,
                 event_id,
+                event_index,
             ]
         return events_mapping
 

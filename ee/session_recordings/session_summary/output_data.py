@@ -252,6 +252,8 @@ def _calculate_segment_meta(
         # If segment index, start, or end event ID aren't generated yet - return empty meta
         return SegmentMetaSerializer(data=segment_meta_data)
     # Calculate duration of the segment
+    if not session_metadata.duration:
+        raise ValueError(f"Session duration is not set when summarizing session_id {session_id}")
     duration, duration_percentage = _calculate_segment_duration(
         start_event_id=start_event_id,
         end_event_id=end_event_id,

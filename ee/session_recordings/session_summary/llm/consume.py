@@ -59,13 +59,16 @@ def _failed_stream_llm_summary(
     raise Exception("Couldn't generate session summary through LLM")
 
 
-def _get_raw_content(llm_response: ChatCompletion | ChatCompletionChunk) -> str:
+def _get_raw_content(llm_response: ChatCompletion | ChatCompletionChunk, session_id: str) -> str:
     if isinstance(llm_response, ChatCompletion):
-        return llm_response.choices[0].message.content
+        content = llm_response.choices[0].message.content
     elif isinstance(llm_response, ChatCompletionChunk):
-        return llm_response.choices[0].delta.content
+        content = llm_response.choices[0].delta.content
     else:
-        raise ValueError(f"Unexpected LLM response type: {type(llm_response)}")
+        raise ValueError(f"Unexpected LLM response type for session_id {session_id}: {type(llm_response)}")
+    if content is None:
+        raise ValueError(f"No content provided for session_id {session_id}: {llm_response}")
+    return content
 
 
 def _serialize_to_sse_event(event_label: str, event_data: str) -> str:
@@ -142,7 +145,7 @@ def stream_llm_session_summary(
         ):
             # TODO: Check if the usage is accumulated by itself or do we need to do it manually
             accumulated_usage += chunk.usage.prompt_tokens if chunk.usage else 0
-            raw_content = _get_raw_content(chunk)
+            raw_content = _get_raw_content(chunk, session_id)
             if not raw_content:
                 # If no content provided yet (for example, first streaming response), skip the chunk
                 continue

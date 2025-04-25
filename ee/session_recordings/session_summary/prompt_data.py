@@ -39,7 +39,7 @@ class SessionSummaryPromptData:
 
     def load_session_data(
         self,
-        raw_session_events: list[tuple[str | datetime, ...]],
+        raw_session_events: list[tuple[str | datetime | list[str] | None, ...]],
         raw_session_metadata: dict[str, Any],
         raw_session_columns: list[str],
         session_id: str,
@@ -64,16 +64,25 @@ class SessionSummaryPromptData:
         # Iterate session events once to decrease the number of tokens in the prompt through mappings
         for i, event in enumerate(raw_session_events):
             # Copy the event to avoid mutating the original
-            simplified_event: list[str | datetime | int | None] = [*list(event), None, None]
+            simplified_event: list[str | datetime | list[str] | int | None] = [*list(event), None, None]
             # Stringify timestamp to avoid datetime objects in the prompt
             if timestamp_index is not None:
-                simplified_event[timestamp_index] = event[timestamp_index].isoformat()
+                event_timestamp = event[timestamp_index]
+                if not isinstance(event_timestamp, datetime):
+                    raise ValueError(f"Timestamp is not a datetime: {event_timestamp}")
+                simplified_event[timestamp_index] = event_timestamp.isoformat()
             # Simplify Window IDs
             if window_id_index is not None:
-                simplified_event[window_id_index] = self._simplify_window_id(event[window_id_index])
+                event_window_id = event[window_id_index]
+                if not isinstance(event_window_id, str):
+                    raise ValueError(f"Window ID is not a string: {event_window_id}")
+                simplified_event[window_id_index] = self._simplify_window_id(event_window_id)
             # Simplify URLs
             if current_url_index is not None:
-                simplified_event[current_url_index] = self._simplify_url(event[current_url_index])
+                event_current_url = event[current_url_index]
+                if not isinstance(event_current_url, str):
+                    raise ValueError(f"Current URL is not a string: {event_current_url}")
+                simplified_event[current_url_index] = self._simplify_url(event_current_url)
             # Generate a hex for each event to make sure we can identify repeated events, and identify the event
             event_id = self._get_deterministic_hex(simplified_event)
             if event_id in simplified_events_mapping:

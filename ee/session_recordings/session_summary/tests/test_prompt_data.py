@@ -80,22 +80,16 @@ def test_prepare_metadata(mock_raw_metadata: dict[str, Any]) -> None:
     assert metadata.start_url == "https://us.example.com/project/11111/insights/aAaAAAaA"
 
 
-def test_load_session_data(mock_raw_events: list[list[Any]], mock_raw_metadata: dict[str, Any]) -> None:
+def test_load_session_data(
+    mock_raw_events: list[tuple[Any, ...]], mock_raw_metadata: dict[str, Any], mock_events_columns: list[str]
+) -> None:
     prompt_data = SessionSummaryPromptData()
-    raw_columns = [
-        "event",
-        "timestamp",
-        "elements_chain_href",
-        "elements_chain_texts",
-        "elements_chain_elements",
-        "$window_id",
-        "$current_url",
-        "$event_type",
-    ]
     session_id = "test_session_id"
-    events_mapping = prompt_data.load_session_data(mock_raw_events, mock_raw_metadata, raw_columns, session_id)
+    events_mapping = prompt_data.load_session_data(
+        mock_raw_events, mock_raw_metadata, mock_events_columns[:-2], session_id
+    )
     # Verify columns are set correctly with event_id and event_index added
-    assert prompt_data.columns == [*raw_columns, "event_id", "event_index"]
+    assert prompt_data.columns == mock_events_columns
     # Verify window_id mapping
     assert len(prompt_data.window_id_mapping) == 1
     assert list(prompt_data.window_id_mapping.keys()) == [
@@ -115,7 +109,7 @@ def test_load_session_data(mock_raw_events: list[list[Any]], mock_raw_metadata: 
     assert len(events_mapping) == len(mock_raw_events)
     # Verify event structure
     first_event = prompt_data.results[0]
-    assert len(first_event) == len(raw_columns) + 2  # +2 for event_id and event_index
+    assert len(first_event) == len(mock_events_columns)
     assert first_event[0] == "$autocapture"  # event type preserved
     assert first_event[5] == "window_1"  # window_id mapped
     assert first_event[6] == "url_1"  # url mapped
@@ -148,7 +142,7 @@ def test_load_session_data_empty_events(mock_raw_metadata: dict[str, Any]) -> No
         prompt_data.load_session_data([], mock_raw_metadata, raw_columns, session_id)
 
 
-def test_load_session_data_empty_metadata(mock_raw_events: list[list[Any]]) -> None:
+def test_load_session_data_empty_metadata(mock_raw_events: list[tuple[Any, ...]]) -> None:
     prompt_data = SessionSummaryPromptData()
     raw_columns = ["event", "timestamp"]
     session_id = "test_session_id"
