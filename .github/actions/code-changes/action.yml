@@ -1,5 +1,18 @@
 name: Check code changes
 description: Perform checks on file changes
+outputs:
+    frontend:
+        description: true if frontend code has changed
+        value: ${{ steps.filter.outputs.frontend }}
+    backend:
+        description: true if backend code has changed
+        value: ${{ steps.filter.outputs.backend }}
+    plugin-server:
+        description: true if plugin-server code has changed
+        value: ${{ steps.filter.outputs.plugin-server }}
+    rust:
+        description: true if rust code has changed
+        value: ${{ steps.filter.outputs.rust }}
 runs:
     using: 'composite'
     steps:
@@ -70,7 +83,7 @@ runs:
                     - posthog/management/commands/setup_test_environment.py
                     - posthog/migrations/**
                     - ee/migrations/**
-                  plugin_server:
+                  plugin-server:
                     # - .github/workflows/ci-plugin-server.yml
                     - 'plugin-server/**'
                     - 'posthog/clickhouse/migrations/**'
