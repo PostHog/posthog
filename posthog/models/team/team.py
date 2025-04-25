@@ -39,7 +39,7 @@ from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
 from ...hogql.modifiers import set_default_modifier_values
-from ...schema import RevenueTrackingConfig, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
+from ...schema import HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
 from .team_caching import get_team_in_cache, set_team_in_cache
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
@@ -210,6 +210,8 @@ class Team(UUIDClassicModel):
             )
         ]
 
+    objects: TeamManager = TeamManager()
+
     organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
@@ -266,7 +268,7 @@ class Team(UUIDClassicModel):
     session_recording_minimum_duration_milliseconds = models.IntegerField(
         null=True,
         blank=True,
-        validators=[MinValueValidator(0), MaxValueValidator(15000)],
+        validators=[MinValueValidator(0), MaxValueValidator(30000)],
     )
     session_recording_linked_flag = models.JSONField(null=True, blank=True)
     session_recording_network_payload_capture_config = models.JSONField(null=True, blank=True)
@@ -310,19 +312,6 @@ class Team(UUIDClassicModel):
     cookieless_server_hash_mode = models.SmallIntegerField(
         default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode.choices, null=True
     )
-
-    # Don't use directly in Django, use the `revenue_config` property instead
-    # That way we can validate the schema when setting the value and return reasonable defaults
-    revenue_tracking_config = models.JSONField(null=True, blank=True)
-
-    @property
-    def revenue_config(self) -> RevenueTrackingConfig:
-        try:
-            if self.revenue_tracking_config is None:
-                return RevenueTrackingConfig()
-            return RevenueTrackingConfig.model_validate(self.revenue_tracking_config)
-        except pydantic.ValidationError:
-            return RevenueTrackingConfig()
 
     primary_dashboard = models.ForeignKey(
         "posthog.Dashboard",
@@ -379,7 +368,15 @@ class Team(UUIDClassicModel):
         validators=[validate_rate_limit],
     )
 
-    objects: TeamManager = TeamManager()
+    # DEPRECATED: use `revenue_analytics_config` property instead
+    revenue_tracking_config = models.JSONField(null=True, blank=True)
+
+    @cached_property
+    def revenue_analytics_config(self):
+        from .team_revenue_analytics_config import TeamRevenueAnalyticsConfig
+
+        config, _ = TeamRevenueAnalyticsConfig.objects.get_or_create(team=self)
+        return config
 
     @property
     def default_modifiers(self) -> dict:

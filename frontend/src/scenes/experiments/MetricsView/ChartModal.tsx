@@ -54,7 +54,7 @@ export function ChartModal({
             <LemonBanner type={result?.significant ? 'success' : 'info'} className="mb-4">
                 <div className="items-center inline-flex flex-wrap">
                     <WinningVariantText result={result} experimentId={experimentId} />
-                    <SignificanceText metricIndex={metricIndex} />
+                    <SignificanceText metricIndex={metricIndex} isSecondary={isSecondary} />
                 </div>
             </LemonBanner>
             <SummaryTable metric={metric} metricIndex={metricIndex} isSecondary={isSecondary} />
