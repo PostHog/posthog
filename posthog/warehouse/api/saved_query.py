@@ -141,7 +141,15 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 activity="created",
                 detail=Detail(
                     name=view.name,
-                    changes=[Change(field="query", action="created", type=None, before=None, after=view.query)],
+                    changes=[
+                        Change(
+                            field="query",
+                            action="created",
+                            type="DataWarehouseSavedQuery",
+                            before=None,
+                            after=view.query,
+                        )
+                    ],
                 ),
             )
 
