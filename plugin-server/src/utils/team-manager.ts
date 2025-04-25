@@ -3,6 +3,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { ProjectId, Team } from '../types'
 import { PostgresRouter, PostgresUse } from './db/postgres'
 import { LazyLoader } from './lazy-loader'
+import { logger } from './logger'
 import { captureTeamEvent } from './posthog'
 
 type RawTeam = Omit<Team, 'availableFeatures'> & {
@@ -46,6 +47,10 @@ export class TeamManager {
 
     public orgAvailableFeaturesChanged(organizationId: string): void {
         // Find all teams with that org id and invalidate their cache
+        logger.info('⚡', '[TeamManager] Org available features changed. Finding teams to refresh...', {
+            teamsInCache: Object.keys(this.lazyLoader.cache).length,
+            organizationId,
+        })
         Object.entries(this.lazyLoader.cache).forEach(([key, value]) => {
             if (value?.organization_id === organizationId) {
                 this.lazyLoader.markForRefresh(key)
