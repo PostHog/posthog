@@ -2873,7 +2873,7 @@ export type RevenueCurrencyPropertyConfig = {
     static?: CurrencyCode
 }
 
-export interface RevenueTrackingEventItem {
+export interface RevenueAnalyticsEventItem {
     eventName: string
     revenueProperty: string
 
@@ -2883,16 +2883,16 @@ export interface RevenueTrackingEventItem {
     revenueCurrencyProperty: RevenueCurrencyPropertyConfig
 }
 
-export interface RevenueTrackingConfig {
+export interface RevenueAnalyticsConfig {
     /**
      * @default 'USD'
      */
-    baseCurrency: CurrencyCode
+    base_currency: CurrencyCode
 
     /**
      * @default []
      */
-    events: RevenueTrackingEventItem[]
+    events: RevenueAnalyticsEventItem[]
 }
 
 export interface PageURL {

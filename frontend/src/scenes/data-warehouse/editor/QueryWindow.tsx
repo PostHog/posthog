@@ -47,7 +47,12 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
     const { setActiveTab } = useActions(editorSidebarLogic)
 
-    const isMaterializedView = !!editingView?.status
+    const isMaterializedView =
+        !!editingView?.status &&
+        (editingView.status === 'Completed' ||
+            editingView.status === 'Failed' ||
+            editingView.status === 'Cancelled' ||
+            editingView.status === 'Running')
 
     const AddSQLVariablesButton = useMemo(
         () => (
