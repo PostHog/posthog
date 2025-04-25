@@ -1025,7 +1025,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             // Timeout to ensure the element is rendered
             setTimeout(() => {
                 // Now use the escaped ID in your query
-                const element = containerRef.current?.querySelector(`[data-id=${escapeId(id)}]`) as HTMLElement
+                const element = containerRef.current?.querySelector(`[data-id="${escapeId(id)}"]`) as HTMLElement
                 // Focus the element
                 focusElement(element)
             }, 100)
