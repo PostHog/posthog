@@ -2873,7 +2873,7 @@ export type RevenueCurrencyPropertyConfig = {
     static?: CurrencyCode
 }
 
-export interface RevenueTrackingEventItem {
+export interface RevenueAnalyticsEventItem {
     eventName: string
     revenueProperty: string
 
@@ -2883,20 +2883,16 @@ export interface RevenueTrackingEventItem {
     revenueCurrencyProperty: RevenueCurrencyPropertyConfig
 }
 
-// TODO: Remove the above once we've migrated all the revenue tracking config
-// to the new schema and promote this type to the interface
-export type RevenueAnalyticsEventItem = RevenueTrackingEventItem
-
-export interface RevenueTrackingConfig {
+export interface RevenueAnalyticsConfig {
     /**
      * @default 'USD'
      */
-    baseCurrency: CurrencyCode
+    base_currency: CurrencyCode
 
     /**
      * @default []
      */
-    events: RevenueTrackingEventItem[]
+    events: RevenueAnalyticsEventItem[]
 }
 
 export interface PageURL {
