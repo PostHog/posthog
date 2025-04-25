@@ -25,7 +25,6 @@ import { KafkaProducerWrapper } from './kafka/producer'
 import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
-import { TokenRestrictionCache } from './utils/db/token-restriction-cache'
 import { GeoIPService } from './utils/geoip'
 import { ObjectStorage } from './utils/object_storage'
 import { TeamManager } from './utils/team-manager'
@@ -340,6 +339,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     // for enablement/sampling of expensive person JSONB sizes; value in [0,1]
     PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
     USE_DYNAMIC_TOKEN_RESTRICTION_CONFIG: boolean
+    TOKEN_RESTRICTION_CACHE_TTL_MS: number
+    TOKEN_RESTRICTION_CACHE_HIT_SIZE: number
+    TOKEN_RESTRICTION_CACHE_MISS_SIZE: number
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -384,7 +386,6 @@ export interface Hub extends PluginsServerConfig {
 
     legacyOneventCompareService: LegacyOneventCompareService
     cookielessManager: CookielessManager
-    tokenRestrictionCache: TokenRestrictionCache
 }
 
 export interface PluginServerCapabilities {

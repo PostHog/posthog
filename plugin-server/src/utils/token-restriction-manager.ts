@@ -27,29 +27,23 @@ export class TokenRestrictionManager {
             forceOverflowTokens?: string[]
         } = {}
     ) {
-        const {
-            cacheSize = 1000,
-            ttlMs = 1000 * 60 * 60 * 24,
-            dropEventTokens = [],
-            skipPersonTokens = [],
-            forceOverflowTokens = [],
-        } = options
+        const { dropEventTokens = [], skipPersonTokens = [], forceOverflowTokens = [] } = options
 
         this.hub = hub
         this.dropEventCache = new LRUTokenRestrictionCache({
-            hitCacheSize: cacheSize,
-            missCacheSize: cacheSize,
-            ttlMs,
+            hitCacheSize: hub.TOKEN_RESTRICTION_CACHE_HIT_SIZE,
+            missCacheSize: hub.TOKEN_RESTRICTION_CACHE_MISS_SIZE,
+            ttlMs: hub.TOKEN_RESTRICTION_CACHE_TTL_MS,
         })
         this.skipPersonCache = new LRUTokenRestrictionCache({
-            hitCacheSize: cacheSize,
-            missCacheSize: cacheSize,
-            ttlMs,
+            hitCacheSize: hub.TOKEN_RESTRICTION_CACHE_HIT_SIZE,
+            missCacheSize: hub.TOKEN_RESTRICTION_CACHE_MISS_SIZE,
+            ttlMs: hub.TOKEN_RESTRICTION_CACHE_TTL_MS,
         })
         this.forceOverflowCache = new LRUTokenRestrictionCache({
-            hitCacheSize: cacheSize,
-            missCacheSize: cacheSize,
-            ttlMs,
+            hitCacheSize: hub.TOKEN_RESTRICTION_CACHE_HIT_SIZE,
+            missCacheSize: hub.TOKEN_RESTRICTION_CACHE_MISS_SIZE,
+            ttlMs: hub.TOKEN_RESTRICTION_CACHE_TTL_MS,
         })
         this.staticDropEventList = new Set(dropEventTokens)
         this.staticSkipPersonList = new Set(skipPersonTokens)
@@ -115,6 +109,7 @@ export class TokenRestrictionManager {
 
         if (cachedValue) {
             const blockedIds = cachedValue.split(',')
+
             return (distinctId && blockedIds.includes(distinctId)) || blockedIds.includes(token)
         }
 
@@ -145,6 +140,7 @@ export class TokenRestrictionManager {
 
         if (cachedValue) {
             const blockedIds = cachedValue.split(',')
+
             return (distinctId && blockedIds.includes(distinctId)) || blockedIds.includes(token)
         }
 

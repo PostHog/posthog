@@ -138,9 +138,9 @@ export async function createHub(
     const cookielessManager = new CookielessManager(serverConfig, redisPool, teamManager)
 
     const tokenRestrictionCache = new LRUTokenRestrictionCache({
-        hitCacheSize: 1000,
-        missCacheSize: 1000,
-        ttlMs: 1000 * 60 * 60 * 24,
+        hitCacheSize: serverConfig.TOKEN_RESTRICTION_CACHE_HIT_SIZE,
+        missCacheSize: serverConfig.TOKEN_RESTRICTION_CACHE_MISS_SIZE,
+        ttlMs: serverConfig.TOKEN_RESTRICTION_CACHE_TTL_MS,
     })
 
     const hub: Omit<Hub, 'legacyOneventCompareService'> = {
