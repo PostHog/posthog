@@ -1153,9 +1153,19 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except (ValueError, TypeError):
             question_index = None
 
+        try:
+            question_id_param = request.query_params.get("question_id", None)
+            question_id = question_id_param if question_id_param else None
+        except (ValueError, TypeError):
+            question_id = None
+
+        if question_index is None and question_id is None:
+            raise exceptions.ValidationError("question_index or question_id is required")
+
         summary = summarize_survey_responses(
             survey_id=survey_id,
             question_index=question_index,
+            question_id=question_id,
             survey_start=(survey.start_date or survey.created_at).replace(hour=0, minute=0, second=0, microsecond=0),
             survey_end=end_date,
             team=self.team,
