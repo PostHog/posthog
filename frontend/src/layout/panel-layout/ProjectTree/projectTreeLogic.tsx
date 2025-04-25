@@ -1129,9 +1129,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
         },
         createFolder: ({ parentPath }) => {
-            const parentSplits = parentPath ? splitPath(parentPath) : []
-            const newPath = joinPath([...parentSplits, 'Untitled Folder'])
-            actions.addFolder(newPath)
+            const promptMessage = parentPath ? `Create a folder under "${parentPath}":` : 'Create a new folder:'
+            const folder = prompt(promptMessage, '')
+            if (folder) {
+                const parentSplits = parentPath ? splitPath(parentPath) : []
+                const newPath = joinPath([...parentSplits, folder])
+                actions.addFolder(newPath)
+            }
         },
         setSearchTerm: ({ searchTerm }) => {
             actions.loadSearchResults(searchTerm)
