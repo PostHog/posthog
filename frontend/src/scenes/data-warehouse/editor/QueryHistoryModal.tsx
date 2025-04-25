@@ -92,6 +92,9 @@ function QueryDiffViewer({ before, after }: QueryDiffViewerProps): JSX.Element {
                     renderOverviewRuler: false,
                     scrollBeyondLastLine: false,
                     renderGutterMenu: false,
+                    scrollbar: {
+                        alwaysConsumeMouseWheel: false,
+                    },
                 }}
             />
         </div>
