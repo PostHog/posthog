@@ -183,7 +183,7 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         # Create a different template type
         self.webhook_template = DBHogFunctionTemplate.objects.create(
             template_id="template-webhook",
-            version="1.0.0",
+            sha="1.0.0",
             name="Webhook",
             description="Generic webhook template",
             hog="return event",
@@ -197,7 +197,7 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         # Create a deprecated template
         self.deprecated_template = DBHogFunctionTemplate.objects.create(
             template_id="template-deprecated",
-            version="1.0.0",
+            sha="1.0.0",
             name="Deprecated Template",
             description="A deprecated template",
             hog="return event",
@@ -254,12 +254,12 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
 
         from posthog.cdp.templates.hog_function_template import HogFunctionTemplate as DataclassTemplate
 
-        # Initial version of the template
+        # Initial sha of the template
         initial_response = self.client.get("/api/projects/@current/hog_function_templates/template-slack")
         assert initial_response.status_code == status.HTTP_200_OK
         assert initial_response.json()["name"] == template.name
 
-        # Create a modified version
+        # Create a modified sha of the template
         modified_template = DataclassTemplate(
             id="template-slack",  # Same ID
             name="Updated Slack",  # Changed
@@ -288,7 +288,7 @@ class TestDatabaseHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMa
         # that doesn't exist in the in-memory templates
         DBHogFunctionTemplate.objects.create(
             template_id="unique-db-template",
-            version="1.0.0",
+            sha="1.0.0",
             name="Unique DB Template",
             description="This template only exists in the database",
             hog="return event",
