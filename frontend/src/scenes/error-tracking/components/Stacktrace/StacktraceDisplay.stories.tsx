@@ -1,10 +1,87 @@
 import { LemonCard } from '@posthog/lemon-ui'
+import { Meta } from '@storybook/react'
 import { TEST_EVENTS, TestEventNames } from 'scenes/error-tracking/__mocks__/events'
 import { getExceptionAttributes } from 'scenes/error-tracking/utils'
+import { sceneLogic } from 'scenes/sceneLogic'
 
+import { mswDecorator } from '~/mocks/browser'
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { HeaderRenderer, StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from './StacktraceBase'
+import { StacktraceGenericDisplay } from './StacktraceGenericDisplay'
+import { StacktraceTextDisplay } from './StacktraceTextDisplay'
+
+const meta: Meta = {
+    title: 'ErrorTracking/StacktraceDisplay',
+    parameters: {
+        layout: 'centered',
+        viewMode: 'story',
+    },
+    decorators: [
+        (Story: React.FC): JSX.Element => {
+            sceneLogic.mount()
+            return (
+                <LemonCard hoverEffect={false} className="p-2 px-3 w-[900px]">
+                    <Story />
+                </LemonCard>
+            )
+        },
+        mswDecorator({
+            post: {
+                'api/environments/:team_id/error_tracking/stack_frames/batch_get/': require('../../__mocks__/stack_frames/batch_get'),
+            },
+        }),
+    ],
+}
+
+export default meta
+
+////////////////////// Generic stacktraces
+
+export function GenericDisplayPropertiesLoading(): JSX.Element {
+    const props = defaultBaseProps(
+        'python_resolved',
+        {
+            loading: true,
+        },
+        false
+    )
+    return <StacktraceGenericDisplay {...props} />
+}
+
+export function GenericDisplayEmpty(): JSX.Element {
+    const props = defaultBaseProps(
+        null,
+        {
+            loading: false,
+        },
+        false
+    )
+    return <StacktraceGenericDisplay {...props} />
+}
+
+export function GenericDisplayWithStacktrace(): JSX.Element {
+    return <StacktraceWrapperAllEvents>{(props) => <StacktraceGenericDisplay {...props} />}</StacktraceWrapperAllEvents>
+}
+
+///////////////////// Text stacktraces
+
+export function TextDisplayPropertiesLoading(): JSX.Element {
+    const props = defaultBaseProps(
+        'javascript_resolved',
+        {
+            loading: true,
+        },
+        false
+    )
+    return <StacktraceTextDisplay {...props} />
+}
+
+export function TextDisplayWithStacktrace(): JSX.Element {
+    return <StacktraceWrapperAllEvents>{(props) => <StacktraceTextDisplay {...props} />}</StacktraceWrapperAllEvents>
+}
+
+//////////////////// Utils
 
 const issue = {
     id: '123',
@@ -15,7 +92,7 @@ const issue = {
     first_seen: '2022-01-05',
 } as ErrorTrackingRelationalIssue
 
-export function defaultBaseProps(
+function defaultBaseProps(
     event_name: TestEventNames | null,
     overrideProps: Partial<StacktraceBaseDisplayProps> = {},
     issueLoading: boolean = false
@@ -46,7 +123,7 @@ export function defaultBaseProps(
     } as StacktraceBaseDisplayProps
 }
 
-export function StacktraceWrapperAllEvents({
+function StacktraceWrapperAllEvents({
     children,
 }: {
     children: (props: StacktraceBaseDisplayProps) => JSX.Element
