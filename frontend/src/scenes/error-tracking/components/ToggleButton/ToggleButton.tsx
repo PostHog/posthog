@@ -13,7 +13,7 @@ export interface ToggleButtonPrimitiveProps {
 const button = cva({
     variants: {
         checked: {
-            true: 'bg-fill-highlight-100',
+            true: 'not-disabled:bg-zinc-700 not-disabled:hover:bg-zinc-700 dark:not-disabled:bg-zinc-300 dark:not-disabled:hover:bg-zinc-300 text-primary-inverse',
         },
     },
 })
