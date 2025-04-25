@@ -475,7 +475,7 @@ export function OpenTextViz({
                                 <IconInfo className="text-lg text-secondary shrink-0 ml-0.5 mt-0.5" />
                             </div>
                         </Tooltip>
-                        <ResponseSummariesButton questionIndex={questionIndex} />
+                        <ResponseSummariesButton questionIndex={questionIndex} questionId={question.id} />
                     </div>
                     <div className="text-xl font-bold mb-4">{question.question}</div>
                     <ResponseSummariesDisplay />
@@ -516,14 +516,20 @@ export function OpenTextViz({
     )
 }
 
-function ResponseSummariesButton({ questionIndex }: { questionIndex: number | undefined }): JSX.Element {
+function ResponseSummariesButton({
+    questionIndex,
+    questionId,
+}: {
+    questionIndex: number | undefined
+    questionId: string | undefined
+}): JSX.Element {
     const { summarize } = useActions(surveyLogic)
     const { responseSummary, responseSummaryLoading } = useValues(surveyLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
     const [showConsentPopover, setShowConsentPopover] = useState(false)
 
     const summarizeQuestion = (): void => {
-        summarize({ questionIndex })
+        summarize({ questionIndex, questionId })
     }
 
     const handleSummarizeClick = (): void => {

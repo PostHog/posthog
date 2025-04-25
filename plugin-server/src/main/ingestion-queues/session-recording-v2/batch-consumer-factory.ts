@@ -58,7 +58,6 @@ export class DefaultBatchConsumerFactory implements BatchConsumerFactory {
             consumerMaxWaitMs: this.serverConfig.KAFKA_CONSUMPTION_MAX_WAIT_MS,
             consumerErrorBackoffMs: this.serverConfig.KAFKA_CONSUMPTION_ERROR_BACKOFF_MS,
             batchingTimeoutMs: this.serverConfig.KAFKA_CONSUMPTION_BATCHING_TIMEOUT_MS,
-            topicCreationTimeoutMs: this.serverConfig.KAFKA_TOPIC_CREATION_TIMEOUT_MS,
             topicMetadataRefreshInterval: this.serverConfig.KAFKA_TOPIC_METADATA_REFRESH_INTERVAL_MS,
             debug: this.serverConfig.SESSION_RECORDING_KAFKA_DEBUG,
             kafkaStatisticIntervalMs:

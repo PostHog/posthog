@@ -44,15 +44,6 @@ export class TeamManager {
         return team?.available_features.includes(feature) || false
     }
 
-    public orgAvailableFeaturesChanged(organizationId: string): void {
-        // Find all teams with that org id and invalidate their cache
-        Object.entries(this.lazyLoader.cache).forEach(([key, value]) => {
-            if (value?.organization_id === organizationId) {
-                this.lazyLoader.markForRefresh(key)
-            }
-        })
-    }
-
     public async setTeamIngestedEvent(team: Team, properties: Properties): Promise<void> {
         if (!team.ingested_event) {
             await this.postgres.query(
@@ -153,7 +144,7 @@ export class TeamManager {
         // Fill in actual teams where they exist
         result.rows.forEach((row) => {
             const { available_product_features, ...teamPartial } = row
-            const team = {
+            const team: Team = {
                 ...teamPartial,
                 // NOTE: The postgres lib loads the bigint as a string, so we need to cast it to a ProjectId
                 project_id: Number(teamPartial.project_id) as ProjectId,

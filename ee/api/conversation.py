@@ -2,22 +2,25 @@ from typing import cast
 
 import pydantic
 from django.http import StreamingHttpResponse
+from langgraph.graph.state import CompiledStateGraph
 from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from ee.hogai.assistant import Assistant
-from ee.hogai.utils.types import AssistantMode
+from ee.hogai.graph.graph import AssistantGraph
+from ee.hogai.utils.types import AssistantMode, AssistantState
 from ee.models.assistant import Conversation
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
-from posthog.schema import HumanMessage
 from posthog.renderers import ServerSentEventRenderer
+from posthog.schema import HumanMessage
 
 
 class MessageSerializer(serializers.Serializer):
@@ -35,15 +38,40 @@ class MessageSerializer(serializers.Serializer):
         return data
 
 
-class ConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
+class ConversationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Conversation
+        fields = ["id", "status", "title", "messages"]
+        read_only_fields = fields
+
+    messages = serializers.SerializerMethodField()
+
+    def get_messages(self, conversation: Conversation):
+        graph: CompiledStateGraph = self.context["assistant_graph"]
+        snapshot = graph.get_state({"configurable": {"thread_id": str(conversation.id)}})
+        try:
+            state = AssistantState.model_validate(snapshot.values)
+            return state.model_dump()["messages"]
+        except (pydantic.ValidationError, KeyError):
+            return []
+
+
+class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):
     scope_object = "INTERNAL"
-    serializer_class = MessageSerializer
+    serializer_class = ConversationSerializer
     queryset = Conversation.objects.all()
     lookup_url_kwarg = "conversation"
 
     def safely_get_queryset(self, queryset):
         # Only allow access to conversations created by the current user
-        return queryset.filter(user=self.request.user)
+        qs = queryset.filter(user=self.request.user)
+
+        # Allow sending messages to any conversation
+        if self.action == "create":
+            return qs
+
+        # But retrieval must only return conversations from the assistant and with a title.
+        return qs.filter(title__isnull=False, type=Conversation.Type.ASSISTANT)
 
     def get_throttles(self):
         if self.action == "create":
@@ -54,6 +82,16 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         if self.action == "create":
             return [ServerSentEventRenderer()]
         return super().get_renderers()
+
+    def get_serializer_class(self):
+        if self.action == "create":
+            return MessageSerializer
+        return super().get_serializer_class()
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["assistant_graph"] = AssistantGraph(self.team).compile_full_graph()
+        return context
 
     def create(self, request: Request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
