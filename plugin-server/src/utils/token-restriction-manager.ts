@@ -3,9 +3,9 @@ import { LRUTokenRestrictionCache } from './db/token-restriction-cache'
 import { logger } from './logger'
 
 export enum RestrictionType {
-    DROP_EVENT = 'drop_event',
-    SKIP_PERSON = 'skip_person_processing',
-    FORCE_OVERFLOW = 'force_overflow',
+    DROP_EVENT_FROM_INGESTION = 'drop_event_from_ingestion',
+    SKIP_PERSON = 'skip_person',
+    FORCE_OVERFLOW_FROM_INGESTION = 'force_overflow_from_ingestion',
 }
 
 export class TokenRestrictionManager {
@@ -77,9 +77,9 @@ export class TokenRestrictionManager {
             try {
                 // Get all three values in a single pipeline
                 const pipeline = redisClient.pipeline()
-                pipeline.get(`${RestrictionType.DROP_EVENT}:${token}`)
+                pipeline.get(`${RestrictionType.DROP_EVENT_FROM_INGESTION}:${token}`)
                 pipeline.get(`${RestrictionType.SKIP_PERSON}:${token}`)
-                pipeline.get(`${RestrictionType.FORCE_OVERFLOW}:${token}`)
+                pipeline.get(`${RestrictionType.FORCE_OVERFLOW_FROM_INGESTION}:${token}`)
                 const [dropResult, skipResult, overflowResult] = await pipeline.exec()
 
                 // Store results in cache (null for misses)
