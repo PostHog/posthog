@@ -1433,6 +1433,9 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             onItemNameChange={(item, name) => {
                                 onItemNameChange?.(item, name)
 
+                                // We want to focus the element after the name changes
+                                // So we need to build a new id with the new name and pass it to focusElementFromId
+
                                 // Allow / to be used in the name
                                 const escapedName = escapePath(name)
                                 // Split the path into an array
