@@ -349,8 +349,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     CDP_HOG_WATCHER_SAMPLE_RATE: number
 
-    // for enablement/sampling of expensive person JSONB sizes; value in [0, 1.0]
-    PERSON_JSONB_SIZE_ESTIMATE: number
+    // for enablement/sampling of expensive person JSONB sizes; value in [0,1]
+    PERSON_JSONB_SIZE_ESTIMATE_ENABLE: number
 }
 
 export interface Hub extends PluginsServerConfig {
