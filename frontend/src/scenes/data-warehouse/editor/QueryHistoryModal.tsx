@@ -1,3 +1,4 @@
+import { DiffEditor as MonacoDiffEditor } from '@monaco-editor/react'
 import { IconCode } from '@posthog/icons'
 import { LemonModal } from '@posthog/lemon-ui'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -6,7 +7,6 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { SkeletonLog } from 'lib/components/ActivityLog/ActivityLog'
 import { HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { TZLabel } from 'lib/components/TZLabel'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -89,9 +89,10 @@ function QueryDiffViewer({ before, after }: QueryDiffViewerProps): JSX.Element {
                 modified={after?.query}
                 language="hogQL"
                 width={width}
+                height={400}
                 options={{
                     renderOverviewRuler: false,
-                    renderGutterMenu: false,
+                    scrollBeyondLastLine: false,
                 }}
             />
         </div>
@@ -105,7 +106,7 @@ function QueryHistoryLog({ id }: { id?: number | string }): JSX.Element {
 
     const paginationState = usePagination(humanizedActivity || [], pagination)
 
-    if (humanizedActivity.length === 0) {
+    if (!activityLoading && humanizedActivity.length === 0) {
         return (
             <div className="deprecated-space-y-2">
                 <div className="text-secondary">No history found</div>
