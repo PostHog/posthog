@@ -12,7 +12,10 @@ const translateFilters = (subscribe: string): { events: HogFunctionFilterEvent[]
         .replaceAll('type = "screen"', 'event = "$screen"')
         .replaceAll('type = "identify"', `event in ('$identify', '$set')`)
         .replaceAll('type = "group"', 'event = "$groupidentify"')
-        .replaceAll('type = "track"', `event not in ('$pageview', '$screen', '$alias', '$identify', '$groupidentify')`)
+        .replaceAll(
+            'type = "track"',
+            `event not in ('$pageview', '$screen', '$alias', '$identify', '$set', '$groupidentify')`
+        )
         .replaceAll('type = "alias"', 'event = "$alias"')
         .replaceAll(`"`, `'`)
 
@@ -41,6 +44,9 @@ const translateInputs = (defaultVal: any) => {
 
         if (modifiedVal.includes('event.traits')) {
             modifiedVal = modifiedVal.replaceAll('event.traits', 'person.properties')
+        }
+        if (modifiedVal.includes('event.context.traits')) {
+            modifiedVal = modifiedVal.replaceAll('event.context.traits', 'person.properties')
         }
         if (modifiedVal.includes('context.device.type')) {
             modifiedVal = modifiedVal.replaceAll('context.device.type', 'properties.$device_type')
@@ -299,37 +305,48 @@ export const SEGMENT_DESTINATIONS = Object.entries(destinations)
                 { config, fetch, logger }: LegacyDestinationPluginMeta
             ): Promise<void> => {
                 logger.warn('config', config)
-                destination.actions[config.internal_partner_action as keyof typeof destination.actions].perform(
-                    async (endpoint, options) => {
-                        logger.warn('endpoint', endpoint)
-                        logger.warn('options', options)
-                        const headers: Record<string, string> = {
-                            endpoint: endpoint,
-                            ...options?.headers,
+                try {
+                    destination.actions[config.internal_partner_action as keyof typeof destination.actions].perform(
+                        async (endpoint, options) => {
+                            const requestExtension = destination.extendRequest?.({
+                                settings: config as any,
+                                auth: config as any,
+                                payload: config as any,
+                            })
+                            logger.warn('requestExtension', requestExtension)
+                            logger.warn('endpoint', endpoint)
+                            logger.warn('options', options)
+                            const headers: Record<string, string> = {
+                                endpoint: endpoint,
+                                ...options?.headers,
+                                ...requestExtension?.headers,
+                            }
+
+                            let body: string | URLSearchParams = ''
+
+                            if (options?.json) {
+                                body = JSON.stringify(options.json)
+                                headers['Content-Type'] = 'application/json'
+                            } else if (options?.body && options.body instanceof URLSearchParams) {
+                                body = options.body
+                                headers['Content-Type'] = 'application/x-www-form-urlencoded'
+                            }
+
+                            await fetch(endpoint, {
+                                method: options?.method ?? 'POST',
+                                headers,
+                                body,
+                            })
+                            return Promise.resolve({} as any)
+                        },
+                        {
+                            payload: config,
+                            settings: config,
                         }
-
-                        let body: string | URLSearchParams = ''
-
-                        if (options?.json) {
-                            body = JSON.stringify(options.json)
-                            headers['Content-Type'] = 'application/json'
-                        } else if (options?.body && options.body instanceof URLSearchParams) {
-                            body = options.body
-                            headers['Content-Type'] = 'application/x-www-form-urlencoded'
-                        }
-
-                        await fetch(endpoint, {
-                            method: options?.method ?? 'POST',
-                            headers,
-                            body,
-                        })
-                        return Promise.resolve({} as any)
-                    },
-                    {
-                        payload: config,
-                        settings: config,
-                    }
-                )
+                    )
+                } catch (e) {
+                    logger.error('error', e)
+                }
             },
             template: {
                 free: false,
