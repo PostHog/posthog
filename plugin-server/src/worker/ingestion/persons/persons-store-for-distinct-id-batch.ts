@@ -66,16 +66,6 @@ export interface PersonsStoreForDistinctIdBatch {
     ): Promise<TopicMessage[]>
 
     /**
-     * Adds a distinct ID to a person and returns Kafka messages
-     */
-    addDistinctIdPooled(
-        person: InternalPerson,
-        distinctId: string,
-        version: number,
-        tx?: TransactionClient
-    ): Promise<TopicMessage[]>
-
-    /**
      * Moves distinct IDs from one person to another
      */
     moveDistinctIds(source: InternalPerson, target: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]>

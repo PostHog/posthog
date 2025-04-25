@@ -573,7 +573,7 @@ export class DB {
                 distinctIds
                     .map(
                         // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in
-                        // `addDistinctIdPooled`
+                        // `addDistinctId`
                         (_, index) => `, distinct_id_${index} AS (
                         INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
                         VALUES (
@@ -814,21 +814,12 @@ export class DB {
         version: number,
         tx?: TransactionClient
     ): Promise<TopicMessage[]> {
-        return await this.addDistinctIdPooled(person, distinctId, version, tx)
-    }
-
-    public async addDistinctIdPooled(
-        person: InternalPerson,
-        distinctId: string,
-        version: number,
-        tx?: TransactionClient
-    ): Promise<TopicMessage[]> {
         const insertResult = await this.postgres.query(
             tx ?? PostgresUse.COMMON_WRITE,
             // NOTE: Keep this in sync with the posthog_persondistinctid INSERT in `createPerson`
             'INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, $4) RETURNING *',
             [distinctId, person.id, person.team_id, version],
-            'addDistinctIdPooled'
+            'addDistinctId'
         )
 
         const { id, ...personDistinctIdCreated } = insertResult.rows[0] as PersonDistinctId

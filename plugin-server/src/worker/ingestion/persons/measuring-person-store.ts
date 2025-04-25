@@ -18,7 +18,6 @@ type MethodName =
     | 'updatePersonDeprecated'
     | 'deletePerson'
     | 'addDistinctId'
-    | 'addDistinctIdPooled'
     | 'moveDistinctIds'
     | 'updateCohortsAndFeatureFlagsForMerge'
     | 'addPersonlessDistinctId'
@@ -31,7 +30,6 @@ const ALL_METHODS: MethodName[] = [
     'updatePersonDeprecated',
     'deletePerson',
     'addDistinctId',
-    'addDistinctIdPooled',
     'moveDistinctIds',
     'updateCohortsAndFeatureFlagsForMerge',
     'addPersonlessDistinctId',
@@ -148,16 +146,6 @@ export class MeasuringPersonsStoreForDistinctIdBatch implements PersonsStoreForD
     ): Promise<TopicMessage[]> {
         this.incrementCount('addDistinctId')
         return await this.db.addDistinctId(person, distinctId, version, tx)
-    }
-
-    async addDistinctIdPooled(
-        person: InternalPerson,
-        distinctId: string,
-        version: number,
-        tx?: TransactionClient
-    ): Promise<TopicMessage[]> {
-        this.incrementCount('addDistinctIdPooled')
-        return await this.db.addDistinctIdPooled(person, distinctId, version, tx)
     }
 
     async moveDistinctIds(
