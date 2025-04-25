@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, path, reducers, selectors } from 'ke
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -9,27 +10,34 @@ import {
     CurrencyCode,
     DataTableNode,
     NodeKind,
+    RevenueAnalyticsConfig,
+    RevenueAnalyticsEventItem,
     RevenueCurrencyPropertyConfig,
-    RevenueTrackingConfig,
-    RevenueTrackingEventItem,
 } from '~/queries/schema/schema-general'
-import { Region } from '~/types'
+import { ExternalDataSource, Region } from '~/types'
 
 import type { revenueEventsSettingsLogicType } from './revenueEventsSettingsLogicType'
 
-const createEmptyConfig = (region: Region | null | undefined): RevenueTrackingConfig => ({
+const createEmptyConfig = (region: Region | null | undefined): RevenueAnalyticsConfig => ({
     events: [],
 
     // Region won't be always set because we might mount this before we mount preflightLogic
     // so we default to USD if we can't determine the region
-    baseCurrency: region === Region.EU ? CurrencyCode.EUR : CurrencyCode.USD,
+    base_currency: region === Region.EU ? CurrencyCode.EUR : CurrencyCode.USD,
 })
 
 export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
     path(['scenes', 'data-management', 'revenue', 'revenueEventsSettingsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeam', 'currentTeamId'], preflightLogic, ['preflight']],
-        actions: [teamLogic, ['updateCurrentTeam']],
+        values: [
+            teamLogic,
+            ['currentTeam', 'currentTeamId'],
+            preflightLogic,
+            ['preflight'],
+            dataWarehouseSettingsLogic,
+            ['dataWarehouseSources'],
+        ],
+        actions: [teamLogic, ['updateCurrentTeam'], dataWarehouseSettingsLogic, ['updateSource']],
     })),
     actions({
         updateBaseCurrency: (baseCurrency: CurrencyCode) => ({ baseCurrency }),
@@ -48,17 +56,17 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         resetConfig: true,
     }),
     reducers(({ values }) => ({
-        revenueTrackingConfig: [
-            null as RevenueTrackingConfig | null,
+        revenueAnalyticsConfig: [
+            null as RevenueAnalyticsConfig | null,
             {
-                updateBaseCurrency: (state, { baseCurrency }) => {
+                updateBaseCurrency: (state: RevenueAnalyticsConfig | null, { baseCurrency }) => {
                     if (!state) {
                         return state
                     }
 
-                    return { ...state, baseCurrency }
+                    return { ...state, base_currency: baseCurrency }
                 },
-                addEvent: (state, { eventName }) => {
+                addEvent: (state: RevenueAnalyticsConfig | null, { eventName }) => {
                     if (
                         !state ||
                         !eventName ||
@@ -69,7 +77,9 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                         return state
                     }
 
-                    const existingEvents = new Set(state.events.map((item: RevenueTrackingEventItem) => item.eventName))
+                    const existingEvents = new Set(
+                        state.events.map((item: RevenueAnalyticsEventItem) => item.eventName)
+                    )
                     if (existingEvents.has(eventName)) {
                         return state
                     }
@@ -81,18 +91,18 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                             {
                                 eventName,
                                 revenueProperty: 'revenue',
-                                revenueCurrencyProperty: { static: state.baseCurrency },
+                                revenueCurrencyProperty: { static: state.base_currency },
                             },
                         ],
                     }
                 },
-                deleteEvent: (state, { eventName }) => {
+                deleteEvent: (state: RevenueAnalyticsConfig | null, { eventName }) => {
                     if (!state) {
                         return state
                     }
                     return { ...state, events: state.events.filter((item) => item.eventName !== eventName) }
                 },
-                updateEventRevenueProperty: (state, { eventName, revenueProperty }) => {
+                updateEventRevenueProperty: (state: RevenueAnalyticsConfig | null, { eventName, revenueProperty }) => {
                     if (!state) {
                         return state
                     }
@@ -106,7 +116,10 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                         }),
                     }
                 },
-                updateEventRevenueCurrencyProperty: (state, { eventName, revenueCurrencyProperty }) => {
+                updateEventRevenueCurrencyProperty: (
+                    state: RevenueAnalyticsConfig | null,
+                    { eventName, revenueCurrencyProperty }
+                ) => {
                     if (!state) {
                         return state
                     }
@@ -122,45 +135,45 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
                     }
                 },
                 resetConfig: () => {
-                    return values.savedRevenueTrackingConfig
+                    return values.savedRevenueAnalyticsConfig
                 },
-                updateCurrentTeam: (_, { revenue_tracking_config }) => {
+                updateCurrentTeam: (_, { revenue_analytics_config }) => {
                     // TODO: Check how to pass the preflight region here
-                    return revenue_tracking_config || createEmptyConfig(null)
+                    return revenue_analytics_config || createEmptyConfig(null)
                 },
             },
         ],
-        savedRevenueTrackingConfig: [
+        savedRevenueAnalyticsConfig: [
             // TODO: Check how to pass the preflight region here
-            values.currentTeam?.revenue_tracking_config || createEmptyConfig(null),
+            values.currentTeam?.revenue_analytics_config || createEmptyConfig(null),
             {
-                updateCurrentTeam: (_, { revenue_tracking_config }) => {
+                updateCurrentTeam: (_, { revenue_analytics_config }) => {
                     // TODO: Check how to pass the preflight region here
-                    return revenue_tracking_config || createEmptyConfig(null)
+                    return revenue_analytics_config || createEmptyConfig(null)
                 },
             },
         ],
     })),
     selectors({
         baseCurrency: [
-            (s) => [s.revenueTrackingConfig],
-            (revenueTrackingConfig: RevenueTrackingConfig | null) =>
-                revenueTrackingConfig?.baseCurrency || CurrencyCode.USD,
+            (s) => [s.revenueAnalyticsConfig],
+            (revenueAnalyticsConfig: RevenueAnalyticsConfig | null) =>
+                revenueAnalyticsConfig?.base_currency || CurrencyCode.USD,
         ],
 
         events: [
-            (s) => [s.revenueTrackingConfig],
-            (revenueTrackingConfig: RevenueTrackingConfig | null) => revenueTrackingConfig?.events || [],
+            (s) => [s.revenueAnalyticsConfig],
+            (revenueAnalyticsConfig: RevenueAnalyticsConfig | null) => revenueAnalyticsConfig?.events || [],
         ],
         changesMadeToEvents: [
-            (s) => [s.revenueTrackingConfig, s.savedRevenueTrackingConfig],
+            (s) => [s.revenueAnalyticsConfig, s.savedRevenueAnalyticsConfig],
             (config, savedConfig): boolean => {
                 return !!config && !objectsEqual(config.events, savedConfig.events)
             },
         ],
 
         saveEventsDisabledReason: [
-            (s) => [s.revenueTrackingConfig, s.changesMadeToEvents],
+            (s) => [s.revenueAnalyticsConfig, s.changesMadeToEvents],
             (config, changesMade): string | null => {
                 if (!config) {
                     return 'Loading...'
@@ -172,10 +185,17 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
             },
         ],
 
+        enabledDataWarehouseSources: [
+            (s) => [s.dataWarehouseSources],
+            (dataWarehouseSources: ExternalDataSource[]): ExternalDataSource[] => {
+                return dataWarehouseSources?.filter((source) => source.revenue_analytics_enabled) ?? []
+            },
+        ],
+
         exampleEventsQuery: [
-            (s) => [s.savedRevenueTrackingConfig],
-            (revenueTrackingConfig: RevenueTrackingConfig | null) => {
-                if (!revenueTrackingConfig) {
+            (s) => [s.savedRevenueAnalyticsConfig],
+            (revenueAnalyticsConfig: RevenueAnalyticsConfig | null) => {
+                if (!revenueAnalyticsConfig) {
                     return null
                 }
 
@@ -192,9 +212,9 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
             },
         ],
         exampleDataWarehouseTablesQuery: [
-            (s) => [s.savedRevenueTrackingConfig],
-            (revenueTrackingConfig: RevenueTrackingConfig | null) => {
-                if (!revenueTrackingConfig) {
+            (s) => [s.savedRevenueAnalyticsConfig],
+            (revenueAnalyticsConfig: RevenueAnalyticsConfig | null) => {
+                if (!revenueAnalyticsConfig) {
                     return null
                 }
 
@@ -215,16 +235,16 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         saveChanges: {
             save: () => {
                 actions.updateCurrentTeam({
-                    revenue_tracking_config:
-                        values.revenueTrackingConfig || createEmptyConfig(values.preflight?.region),
+                    revenue_analytics_config:
+                        values.revenueAnalyticsConfig || createEmptyConfig(values.preflight?.region),
                 })
                 return null
             },
         },
-        revenueTrackingConfig: {
-            loadRevenueTrackingConfig: async () => {
+        revenueAnalyticsConfig: {
+            loadRevenueAnalyticsConfig: async () => {
                 if (values.currentTeam) {
-                    return values.currentTeam.revenue_tracking_config || createEmptyConfig(values.preflight?.region)
+                    return values.currentTeam.revenue_analytics_config || createEmptyConfig(values.preflight?.region)
                 }
                 return null
             },
@@ -238,6 +258,6 @@ export const revenueEventsSettingsLogic = kea<revenueEventsSettingsLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        actions.loadRevenueTrackingConfig()
+        actions.loadRevenueAnalyticsConfig()
     }),
 ])

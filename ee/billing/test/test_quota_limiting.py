@@ -147,6 +147,8 @@ class TestQuotaLimiting(BaseTest):
             "event": "already limited",
             "current_usage": 109,
             "resource": "events",
+            "quota_limited_until": 1612137599,
+            "quota_limiting_suspended_until": None,
         }
         assert org_action_call.kwargs.get("groups") == {
             "instance": "http://localhost:8010",
@@ -369,6 +371,16 @@ class TestQuotaLimiting(BaseTest):
 
             # Reset the event limiting set so their limiting will be suspended for 1 day.
             self.redis_client.delete(f"@posthog/quota-limits/events")
+            self.organization.usage = {
+                "events": {"usage": 99, "limit": 100, "todays_usage": 0},
+                "exceptions": {"usage": 10, "limit": 100, "todays_usage": 0},
+                "recordings": {"usage": 1, "limit": 100, "todays_usage": 0},
+                "rows_synced": {"usage": 5, "limit": 100, "todays_usage": 0},
+                "feature_flag_requests": {"usage": 5, "limit": 100, "todays_usage": 0},
+                "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 0},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.save()
             quota_limited_orgs, quota_limiting_suspended_orgs = update_all_orgs_billing_quotas()
             assert quota_limited_orgs["events"] == {}
             assert quota_limited_orgs["exceptions"] == {}
@@ -771,6 +783,7 @@ class TestQuotaLimiting(BaseTest):
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
         }
 
+        # Not over quota
         assert (
             org_quota_limited_until(
                 self.organization, QuotaResource.EVENTS, previously_quota_limited_team_tokens_events
@@ -778,6 +791,7 @@ class TestQuotaLimiting(BaseTest):
             is None
         )
 
+        # Over quota
         self.organization.usage["events"]["usage"] = 120
         assert org_quota_limited_until(
             self.organization, QuotaResource.EVENTS, previously_quota_limited_team_tokens_events
@@ -786,6 +800,7 @@ class TestQuotaLimiting(BaseTest):
             "quota_limiting_suspended_until": None,
         }
 
+        # At quota limit with today's usage
         self.organization.usage["events"]["usage"] = 90
         self.organization.usage["events"]["todays_usage"] = 10
         assert org_quota_limited_until(
@@ -795,6 +810,7 @@ class TestQuotaLimiting(BaseTest):
             "quota_limiting_suspended_until": None,
         }
 
+        # No limit clears quota_limited_until
         self.organization.usage["events"]["limit"] = None
         assert (
             org_quota_limited_until(
@@ -803,6 +819,7 @@ class TestQuotaLimiting(BaseTest):
             is None
         )
 
+        # Not over quota
         self.organization.usage["exceptions"]["usage"] = 99
         assert (
             org_quota_limited_until(
@@ -811,6 +828,7 @@ class TestQuotaLimiting(BaseTest):
             is None
         )
 
+        # Over quota
         self.organization.usage["exceptions"]["usage"] = 101
         assert org_quota_limited_until(
             self.organization, QuotaResource.EXCEPTIONS, previously_quota_limited_team_tokens_exceptions
@@ -819,7 +837,8 @@ class TestQuotaLimiting(BaseTest):
             "quota_limiting_suspended_until": None,
         }
 
-        self.organization.usage["recordings"]["usage"] = 1099  # Under limit + buffer
+        # Under limit + buffer
+        self.organization.usage["recordings"]["usage"] = 1099
         assert (
             org_quota_limited_until(
                 self.organization, QuotaResource.RECORDINGS, previously_quota_limited_team_tokens_recordings
@@ -827,7 +846,8 @@ class TestQuotaLimiting(BaseTest):
             is None
         )
 
-        self.organization.usage["recordings"]["usage"] = 1100  # Over limit + buffer
+        # Over limit + buffer
+        self.organization.usage["recordings"]["usage"] = 1100
         assert org_quota_limited_until(
             self.organization, QuotaResource.RECORDINGS, previously_quota_limited_team_tokens_recordings
         ) == {
@@ -835,6 +855,7 @@ class TestQuotaLimiting(BaseTest):
             "quota_limiting_suspended_until": None,
         }
 
+        # Not over quota
         assert (
             org_quota_limited_until(
                 self.organization, QuotaResource.ROWS_SYNCED, previously_quota_limited_team_tokens_rows_synced
@@ -842,6 +863,7 @@ class TestQuotaLimiting(BaseTest):
             is None
         )
 
+        # Over quota
         self.organization.usage["rows_synced"]["usage"] = 101
         assert org_quota_limited_until(
             self.organization, QuotaResource.ROWS_SYNCED, previously_quota_limited_team_tokens_rows_synced
@@ -851,74 +873,58 @@ class TestQuotaLimiting(BaseTest):
         }
 
         with freeze_time("2021-01-25T00:00:00Z"):
+            # Different trust scores so different grace periods
             self.organization.customer_trust_scores = {
-                "events": 7,
-                "exceptions": 7,
-                "recordings": 3,
-                "rows_synced": 10,
-                "feature_flags": 10,
+                TRUST_SCORE_KEYS[QuotaResource.EVENTS]: 7,
+                TRUST_SCORE_KEYS[QuotaResource.EXCEPTIONS]: 7,
+                TRUST_SCORE_KEYS[QuotaResource.RECORDINGS]: 3,
+                TRUST_SCORE_KEYS[QuotaResource.ROWS_SYNCED]: 10,
+                TRUST_SCORE_KEYS[QuotaResource.FEATURE_FLAG_REQUESTS]: 10,
                 TRUST_SCORE_KEYS[QuotaResource.API_QUERIES]: 10,
             }
-            self.organization.usage["rows_synced"]["usage"] = 101
-            self.organization.usage["events"]["limit"] = 100
-            self.organization.usage["events"]["usage"] = 101
-            self.organization.usage["exceptions"]["usage"] = 101
-            self.organization.usage["recordings"]["usage"] = 1100
-            self.organization.usage["api_queries_read_bytes"]["usage"] = 1100
+
+            # Update to be over quota on all resources
+            self.organization.usage = {
+                "events": {"usage": 101, "limit": 100},
+                "exceptions": {"usage": 101, "limit": 100},
+                "recordings": {"usage": 1101, "limit": 100},  # overage buffer of 1000
+                "rows_synced": {"usage": 101, "limit": 100},
+                "feature_flag_requests": {"usage": 101, "limit": 100},
+                "api_queries_read_bytes": {"usage": 101, "limit": 100},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+
+            # All resources over quota
             assert org_quota_limited_until(
                 self.organization, QuotaResource.ROWS_SYNCED, previously_quota_limited_team_tokens_rows_synced
             ) == {
                 "quota_limited_until": None,
-                "quota_limiting_suspended_until": 1611878400,
+                "quota_limiting_suspended_until": 1611878400,  # grace period 3 days
             }
             assert org_quota_limited_until(
                 self.organization, QuotaResource.EVENTS, previously_quota_limited_team_tokens_events
             ) == {
                 "quota_limited_until": None,
-                "quota_limiting_suspended_until": 1611705600,
+                "quota_limiting_suspended_until": 1611705600,  # grace period 1 day
             }
             assert org_quota_limited_until(
-                self.organization, QuotaResource.EVENTS, previously_quota_limited_team_tokens_exceptions
+                self.organization, QuotaResource.EXCEPTIONS, previously_quota_limited_team_tokens_exceptions
             ) == {
                 "quota_limited_until": None,
-                "quota_limiting_suspended_until": 1611705600,
+                "quota_limiting_suspended_until": 1611705600,  # grace period 1 day
             }
             assert org_quota_limited_until(
                 self.organization, QuotaResource.RECORDINGS, previously_quota_limited_team_tokens_recordings
             ) == {
-                "quota_limited_until": 1612137599,
+                "quota_limited_until": 1612137599,  # no grace period
                 "quota_limiting_suspended_until": None,
             }
             assert org_quota_limited_until(
                 self.organization, QuotaResource.API_QUERIES, previously_quota_limited_team_tokens_recordings
             ) == {
                 "quota_limited_until": None,
-                "quota_limiting_suspended_until": 1611878400,
+                "quota_limiting_suspended_until": 1611878400,  # grace period 3 days
             }
-
-        self.organization.customer_trust_scores = {
-            TRUST_SCORE_KEYS[QuotaResource.EVENTS]: 7,
-            TRUST_SCORE_KEYS[QuotaResource.EXCEPTIONS]: 7,
-            TRUST_SCORE_KEYS[QuotaResource.ROWS_SYNCED]: 10,
-            TRUST_SCORE_KEYS[QuotaResource.FEATURE_FLAG_REQUESTS]: 10,
-            TRUST_SCORE_KEYS[QuotaResource.API_QUERIES]: 10,
-        }
-        self.organization.save()
-        assert org_quota_limited_until(
-            self.organization, QuotaResource.RECORDINGS, previously_quota_limited_team_tokens_rows_synced
-        ) == {
-            "quota_limited_until": 1612137599,
-            "quota_limiting_suspended_until": None,
-        }
-        self.organization.refresh_from_db()
-        assert self.organization.customer_trust_scores == {
-            "events": 7,
-            "exceptions": 7,
-            "recordings": 0,
-            "rows_synced": 10,
-            "feature_flags": 10,
-            TRUST_SCORE_KEYS[QuotaResource.API_QUERIES]: 10,
-        }
 
     def test_over_quota_but_not_dropped_org(self):
         self.organization.usage = None

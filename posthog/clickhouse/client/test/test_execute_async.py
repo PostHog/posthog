@@ -1,7 +1,10 @@
 import json
 from typing import Any
+import math
 
-from posthog.clickhouse.client.async_task_chain import task_chain_context
+from clickhouse_driver.errors import ServerException
+
+from posthog.clickhouse.client.async_task_chain import task_chain_context, execute_task_chain
 from posthog.clickhouse.client.connection import Workload
 import uuid
 
@@ -10,6 +13,7 @@ from django.db import transaction
 
 from posthog.clickhouse.client import execute_async as client
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import Organization, Team
 from posthog.models.user import User
@@ -22,6 +26,7 @@ from posthog.clickhouse.client.execute_async import (
     execute_process_query,
     QueryNotFoundError,
 )
+from celery.canvas import Signature
 
 
 def build_query(sql):
@@ -326,6 +331,61 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
         self.assertEqual(len(mock_chain), 2)
 
+    @patch("posthog.clickhouse.client.async_task_chain.chain")
+    @patch("posthog.clickhouse.client.async_task_chain.group")
+    @patch("celery.canvas.Signature.apply_async")
+    def test_task_chain_context_parallelism(self, apply_async_mock, group_mock, chain_mock):
+        num_tasks = 5
+        parallelism = 2
+        mock_chain_items: list[tuple[MagicMock, MagicMock, MagicMock]] = []
+        final_chain_result = MagicMock()
+        final_chain_result.id = "test-celery-chain-id"
+        chain_mock.return_value.apply_async.return_value = final_chain_result
+
+        expected_groups = math.ceil(num_tasks / parallelism)
+        mock_group_results = [MagicMock(name=f"group_{i}") for i in range(expected_groups)]
+        group_mock.side_effect = mock_group_results
+
+        with patch("posthog.clickhouse.client.async_task_chain.get_task_chain", return_value=mock_chain_items):
+            with task_chain_context(parallelism=parallelism):
+                for i in range(num_tasks):
+                    mock_sig = MagicMock(spec=Signature, name=f"task_sig_{i}")
+                    mock_manager = MagicMock(name=f"manager_{i}")
+                    mock_status = MagicMock(spec=QueryStatus, name=f"status_{i}")
+                    mock_status.labels = []
+                    mock_chain_items.append((mock_sig, mock_manager, mock_status))
+
+            execute_task_chain(parallelism=parallelism)
+
+        self.assertEqual(group_mock.call_count, expected_groups)
+
+        calls = group_mock.call_args_list
+        self.assertEqual(len(calls[0][0][0]), 2)
+        self.assertIs(calls[0][0][0][0], mock_chain_items[0][0])
+        self.assertIs(calls[0][0][0][1], mock_chain_items[1][0])
+        self.assertEqual(len(calls[1][0][0]), 2)
+        self.assertIs(calls[1][0][0][0], mock_chain_items[2][0])
+        self.assertIs(calls[1][0][0][1], mock_chain_items[3][0])
+        self.assertEqual(len(calls[2][0][0]), 1)
+        self.assertIs(calls[2][0][0][0], mock_chain_items[4][0])
+
+        chain_mock.assert_called_once()
+        chained_groups_args = chain_mock.call_args[0]
+        self.assertEqual(len(chained_groups_args), expected_groups)
+        for i in range(expected_groups):
+            self.assertIs(chained_groups_args[i], mock_group_results[i])
+
+        chain_mock.return_value.apply_async.assert_called_once()
+
+        for i in range(num_tasks):
+            _, manager, status = mock_chain_items[i]
+            manager.store_query_status.assert_called_once_with(status)
+            self.assertIn("chained", status.labels)
+            self.assertIn(f"parallel-{parallelism}", status.labels)
+            self.assertEqual(status.task_id, final_chain_result.id)
+
+        self.assertEqual(len(mock_chain_items), num_tasks)
+
     def test_client_strips_comments_from_request(self):
         """
         To ensure we can easily copy queries from `system.query_log` in e.g.
@@ -359,11 +419,31 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
             self.assertIn(f"/* user_id:{self.user_id} request:1 */", first_query)
 
     @patch("posthog.clickhouse.client.execute.get_client_from_pool")
-    def test_offline_workload_if_personal_api_key(self, mock_get_client):
-        from posthog.clickhouse.query_tagging import tag_queries
+    def test_offline_workload_if_personal_api_key_and_retries_online(self, mock_get_client):
+        # Create mock clients
+        mock_client1 = MagicMock()
+        mock_client2 = MagicMock()
 
-        with self.capture_select_queries():
-            tag_queries(kind="request", id="1", access_method="personal_api_key")
-            sync_execute("select 1")
+        # First client raises 202 ServerException
+        mock_client1.__enter__.return_value.execute.side_effect = ServerException("Test error", code=202)
 
-            self.assertEqual(mock_get_client.call_args[0][0], Workload.OFFLINE)
+        # Second client succeeds
+        mock_client2.__enter__.return_value.execute.return_value = "success"
+
+        # Return different clients on consecutive calls
+        mock_get_client.side_effect = [mock_client1, mock_client2]
+
+        # Execute query with personal_api_key access method
+        query = "SELECT 1"
+        # tag_queries = {"access_method": "personal_api_key"}
+        tag_queries(access_method="personal_api_key")
+        result = sync_execute(query)
+
+        # Verify first call was with OFFLINE workload
+        mock_get_client.assert_any_call(Workload.OFFLINE, None, False)
+
+        # Verify second call was with ONLINE workload
+        mock_get_client.assert_any_call(Workload.ONLINE, None, False)
+
+        # Verify final result
+        self.assertEqual(result, "success")

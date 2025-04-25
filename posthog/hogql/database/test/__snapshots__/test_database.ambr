@@ -531,6 +531,7 @@
           },
           "id": "events",
           "name": "events",
+          "row_count": null,
           "type": "posthog"
       },
       "groups": {
@@ -588,6 +589,7 @@
           },
           "id": "groups",
           "name": "groups",
+          "row_count": null,
           "type": "posthog"
       },
       "persons": {
@@ -669,6 +671,7 @@
           },
           "id": "persons",
           "name": "persons",
+          "row_count": null,
           "type": "posthog"
       },
       "sessions": {
@@ -1136,6 +1139,7 @@
           },
           "id": "sessions",
           "name": "sessions",
+          "row_count": null,
           "type": "posthog"
       },
       "query_log": {
@@ -1283,6 +1287,7 @@
           },
           "id": "query_log",
           "name": "query_log",
+          "row_count": null,
           "type": "posthog"
       }
   }
@@ -1775,6 +1780,7 @@
           },
           "id": "events",
           "name": "events",
+          "row_count": null,
           "type": "posthog"
       },
       "groups": {
@@ -1832,6 +1838,7 @@
           },
           "id": "groups",
           "name": "groups",
+          "row_count": null,
           "type": "posthog"
       },
       "persons": {
@@ -1913,6 +1920,7 @@
           },
           "id": "persons",
           "name": "persons",
+          "row_count": null,
           "type": "posthog"
       },
       "sessions": {
@@ -2380,6 +2388,7 @@
           },
           "id": "sessions",
           "name": "sessions",
+          "row_count": null,
           "type": "posthog"
       },
       "query_log": {
@@ -2527,6 +2536,7 @@
           },
           "id": "query_log",
           "name": "query_log",
+          "row_count": null,
           "type": "posthog"
       }
   }

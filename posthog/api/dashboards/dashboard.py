@@ -363,6 +363,7 @@ class DashboardSerializer(DashboardBasicSerializer):
     @staticmethod
     def _update_tiles(instance: Dashboard, tile_data: dict, user: User) -> None:
         tile_data.pop("is_cached", None)  # read only field
+        tile_data.pop("order", None)  # read only field
 
         if tile_data.get("text", None):
             text_json: dict = tile_data.get("text", {})
@@ -453,7 +454,7 @@ class DashboardSerializer(DashboardBasicSerializer):
             ),
         )
 
-        with task_chain_context() if chained_tile_refresh_enabled else nullcontext():
+        with task_chain_context(parallelism=4) if chained_tile_refresh_enabled else nullcontext():
             for order, tile in enumerate(sorted_tiles):
                 self.context.update(
                     {

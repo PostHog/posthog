@@ -86,6 +86,8 @@ const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
 const REFRESH_DASHBOARD_ITEM_ACTION = 'refresh_dashboard_item'
 
+const QUERY_VARIABLES_KEY = 'query_variables'
+
 /**
  * Once a dashboard has more tiles than this,
  * we don't automatically preview dashboard date/filter/breakdown changes.
@@ -204,7 +206,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             dataThemeLogic,
             ['getTheme'],
         ],
-        logic: [dashboardsModel, insightsModel, eventUsageLogic],
+        logic: [dashboardsModel, insightsModel, eventUsageLogic, variableDataLogic],
     })),
 
     props({} as DashboardLogicProps),
@@ -221,6 +223,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             refresh?: RefreshType
             action:
                 | 'initial_load'
+                | 'initial_load_with_variables'
                 | 'update'
                 | 'refresh'
                 | 'load_missing'
@@ -295,17 +298,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
         abortQuery: (payload: { queryId: string; queryStartTime: number }) => payload,
         abortAnyRunningQuery: true,
         updateFiltersAndLayoutsAndVariables: true,
-        overrideVariableValue: (variableId: string, value: any, isNull: boolean) => ({
+        overrideVariableValue: (variableId: string, value: any, isNull: boolean, reload?: boolean) => ({
             variableId,
             value,
             allVariables: values.variables,
             isNull,
+            reload,
+        }),
+        setLoadLayoutFromServerOnPreview: (loadLayoutFromServerOnPreview: boolean) => ({
+            loadLayoutFromServerOnPreview,
         }),
 
         resetVariables: () => ({ variables: values.insightVariables }),
         resetDashboardFilters: () => true,
         setAccessDeniedToDashboard: true,
         setURLVariables: (variables: Record<string, Partial<HogQLVariable>>) => ({ variables }),
+        setInitialVariablesLoaded: (initialVariablesLoaded: boolean) => ({ initialVariablesLoaded }),
     })),
 
     loaders(({ actions, props, values }) => ({
@@ -330,7 +338,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         // don't update dashboard tile layouts if we're previewing
                         // we want to retain what the user has temporarily set
-                        if (action === 'preview' && dashboard) {
+                        if (action === 'preview' && dashboard && !values.loadLayoutFromServerOnPreview) {
                             const editModeTileLayouts: Record<number, DashboardTile['layouts']> = {}
                             values.dashboard?.tiles.forEach((tile: DashboardTile<QueryBasedInsightModel>) => {
                                 editModeTileLayouts[tile.id] = tile.layouts
@@ -547,6 +555,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return state
                     }
 
+                    if (!value && !isNull) {
+                        const newState = { ...state }
+                        delete newState[variableId]
+                        return newState
+                    }
+
                     return {
                         ...state,
                         [variableId]: {
@@ -558,14 +572,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 },
                 resetVariables: (_, { variables }) => ({ ...variables }),
-                loadDashboardSuccess: (state, { dashboard, payload }) =>
-                    dashboard
+                loadDashboardSuccess: (state, { dashboard, payload }) => {
+                    return dashboard
                         ? {
                               ...state,
-                              // don't update filters if we're previewing
-                              ...(payload?.action === 'preview' ? {} : dashboard.variables ?? {}),
+                              // don't update filters if we're previewing or initial load with variables
+                              ...(payload?.action === 'preview' || payload?.action === 'initial_load_with_variables'
+                                  ? {}
+                                  : dashboard.variables ?? {}),
                           }
-                        : state,
+                        : state
+                },
             },
         ],
         urlVariables: [
@@ -588,8 +605,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     dashboard
                         ? {
                               ...state,
-                              // don't update filters if we're previewing
-                              ...(payload?.action === 'preview' ? {} : dashboard.variables ?? {}),
+                              // don't update filters if we're previewing or initial load with variables
+                              ...(payload?.action === 'preview' || payload?.action === 'initial_load_with_variables'
+                                  ? {}
+                                  : dashboard.variables ?? {}),
                           }
                         : state,
             },
@@ -833,6 +852,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setDashboardMode: (_, { mode }) => mode,
             },
         ],
+        loadLayoutFromServerOnPreview: [
+            false,
+            {
+                setLoadLayoutFromServerOnPreview: (_, { loadLayoutFromServerOnPreview }) =>
+                    loadLayoutFromServerOnPreview,
+            },
+        ],
         autoRefresh: [
             {
                 interval: AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
@@ -880,6 +906,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             null as number | 'new' | null,
             {
                 setTextTileId: (_, { textTileId }) => textTileId,
+            },
+        ],
+        initialVariablesLoaded: [
+            false,
+            {
+                setInitialVariablesLoaded: (_, { initialVariablesLoaded }) => initialVariablesLoaded,
             },
         ],
     })),
@@ -945,8 +977,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         // Overwrite the variable `value` from the insight
                         const resultVar: Variable = {
                             ...foundVar,
-                            value: overridenValue ?? v.value ?? foundVar.value,
-                            isNull: overridenIsNull ?? v.isNull ?? foundVar.isNull,
+                            value: overridenValue,
+                            isNull: overridenIsNull,
                         }
 
                         const insightsUsingVariable = dataVizNodes
@@ -1026,9 +1058,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         textTiles: [(s) => [s.tiles], (tiles) => tiles.filter((t) => !!t.text)],
         itemsLoading: [
-            (s) => [s._dashboardLoading, s.refreshStatus],
-            (dashboardLoading, refreshStatus) => {
-                return dashboardLoading || Object.values(refreshStatus).some((s) => s.loading || s.queued)
+            (s) => [s._dashboardLoading, s.refreshStatus, s.initialVariablesLoaded],
+            (dashboardLoading, refreshStatus, initialVariablesLoaded) => {
+                return (
+                    dashboardLoading ||
+                    Object.values(refreshStatus).some((s) => s.loading || s.queued) ||
+                    (QUERY_VARIABLES_KEY in router.values.searchParams && !initialVariablesLoaded)
+                )
             },
         ],
         isRefreshingQueued: [(s) => [s.refreshStatus], (refreshStatus) => (id: string) => !!refreshStatus[id]?.queued],
@@ -1207,19 +1243,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (s) => [s.dataColorThemeId, s.getTheme],
             (dataColorThemeId, getTheme): DataColorTheme | null => getTheme(dataColorThemeId),
         ],
+        // NOTE: noCache is used to prevent the dashboard from using cached results from previous loads when url variables override
+        noCache: [(s) => [s.urlVariables], (urlVariables) => Object.keys(urlVariables).length > 0],
     })),
     events(({ actions, cache, props }) => ({
         afterMount: () => {
+            // NOTE: initial dashboard load is done after variables are loaded in initialVariablesLoaded
             if (props.id) {
                 if (props.dashboard) {
                     // If we already have dashboard data, use it. Should the data turn out to be stale,
                     // the loadDashboardSuccess listener will initiate a refresh
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
-                    actions.loadDashboard({
-                        refresh: 'lazy_async',
-                        action: 'initial_load',
-                    })
+                    if (!(QUERY_VARIABLES_KEY in router.values.searchParams)) {
+                        actions.loadDashboard({
+                            refresh: 'lazy_async',
+                            action: 'initial_load',
+                        })
+                    }
                 }
             }
         },
@@ -1499,7 +1540,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             })
 
-            await runWithLimit(fetchItemFunctions, 1)
+            await runWithLimit(fetchItemFunctions, 4)
 
             eventUsageLogic.actions.reportDashboardRefreshed(dashboardId, values.newestRefreshed)
         },
@@ -1645,20 +1686,61 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.loadDashboard({ action: 'preview' })
             }
         },
-        overrideVariableValue: () => {
-            actions.loadDashboard({ action: 'preview' })
+        overrideVariableValue: ({ reload, value, isNull }) => {
+            if (reload) {
+                actions.loadDashboard({ action: 'preview' })
+                actions.setDashboardMode(DashboardMode.Edit, null)
+            }
+
+            if (!value && !isNull) {
+                const hasOtherVariables = Object.values(values.temporaryVariables).some((v) => v.value || v.isNull)
+                if (!hasOtherVariables) {
+                    actions.resetVariables()
+                }
+            }
+        },
+        [variableDataLogic.actionTypes.getVariablesSuccess]: ({ variables }) => {
+            // Only run this handler once on startup
+            // This ensures variables are loaded before the dashboard is loaded and insights are refreshed
+            if (values.initialVariablesLoaded) {
+                return
+            }
+
+            // try to convert url variables to variables
+            const urlVariables = values.urlVariables
+
+            for (const [key, value] of Object.entries(urlVariables)) {
+                const variable = variables.find((variable: Variable) => variable.code_name === key)
+                if (variable) {
+                    actions.overrideVariableValue(variable.id, value, variable.isNull || value === null)
+                }
+            }
+
+            if (QUERY_VARIABLES_KEY in router.values.searchParams) {
+                actions.loadDashboard({
+                    refresh: 'lazy_async',
+                    action: 'initial_load_with_variables',
+                })
+            }
+
+            actions.setInitialVariablesLoaded(true)
         },
     })),
 
     subscriptions(({ values, actions }) => ({
+        // This is used after initial variables are loaded in getVariableSuccess
         variables: (variables) => {
+            if (!values.initialVariablesLoaded) {
+                return
+            }
+
             // try to convert url variables to variables
             const urlVariables = values.urlVariables
 
             for (const [key, value] of Object.entries(urlVariables)) {
                 const variable = variables.find((variable: HogQLVariable) => variable.code_name === key)
                 if (variable) {
-                    actions.overrideVariableValue(variable.id, value, variable.isNull ?? false)
+                    actions.overrideVariableValue(variable.id, value, variable.isNull || value === null)
                 }
             }
         },
@@ -1671,7 +1753,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
     })),
 
     actionToUrl(({ values }) => ({
-        overrideVariableValue: ({ variableId, value, allVariables }) => {
+        overrideVariableValue: ({ variableId, value, isNull, allVariables }) => {
             const { currentLocation } = router.values
 
             const currentVariable = allVariables.find((variable: Variable) => variable.id === variableId)
@@ -1680,16 +1762,33 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return [currentLocation.pathname, currentLocation.searchParams, currentLocation.hashParams]
             }
 
-            const newUrlVariables = {
+            const newUrlVariables: Record<string, string> = {
                 ...values.urlVariables,
                 [currentVariable.code_name]: value,
             }
 
             const newSearchParams = {
                 ...currentLocation.searchParams,
-                ...encodeURLVariables(newUrlVariables),
             }
 
+            // If value is null and not explicitly set, remove it from the url variables
+            if (!value && !isNull) {
+                delete newUrlVariables[currentVariable.code_name]
+                delete newSearchParams[QUERY_VARIABLES_KEY]
+            }
+
+            return [
+                currentLocation.pathname,
+                { ...newSearchParams, ...encodeURLVariables(newUrlVariables) },
+                currentLocation.hashParams,
+            ]
+        },
+        resetVariables: () => {
+            const { currentLocation } = router.values
+            const newSearchParams = {
+                ...currentLocation.searchParams,
+            }
+            delete newSearchParams[QUERY_VARIABLES_KEY]
             return [currentLocation.pathname, newSearchParams, currentLocation.hashParams]
         },
     })),
@@ -1734,9 +1833,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
 const parseURLVariables = (searchParams: Record<string, any>): Record<string, Partial<HogQLVariable>> => {
     const variables: Record<string, Partial<HogQLVariable>> = {}
 
-    if (searchParams.query_variables) {
+    if (searchParams[QUERY_VARIABLES_KEY]) {
         try {
-            const parsedVariables = JSON.parse(searchParams.query_variables)
+            const parsedVariables = JSON.parse(searchParams[QUERY_VARIABLES_KEY])
             Object.assign(variables, parsedVariables)
         } catch (e) {
             console.error('Failed to parse query_variables from URL:', e)
@@ -1750,7 +1849,7 @@ const encodeURLVariables = (variables: Record<string, string>): Record<string, s
     const encodedVariables: Record<string, string> = {}
 
     if (Object.keys(variables).length > 0) {
-        encodedVariables.query_variables = JSON.stringify(variables)
+        encodedVariables[QUERY_VARIABLES_KEY] = JSON.stringify(variables)
     }
 
     return encodedVariables

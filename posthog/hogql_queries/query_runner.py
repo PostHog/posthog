@@ -18,6 +18,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database, create_hogql_database
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -26,6 +27,7 @@ from posthog.hogql_queries.query_cache import QueryCacheManager
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
 from posthog.schema import (
+    WebActiveHoursHeatMapQuery,
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
     CacheMissResponse,
@@ -203,6 +205,17 @@ def get_query_runner(
 
         return PathsQueryRunner(
             query=cast(PathsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+
+    if kind == "WebActiveHoursHeatMapQuery":
+        from .web_analytics.web_active_hours_heatmap_query_runner import WebActiveHoursHeatMapQueryRunner
+
+        return WebActiveHoursHeatMapQueryRunner(
+            query=cast(WebActiveHoursHeatMapQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -414,12 +427,12 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    if kind == "RevenueAnalyticsChurnRateQuery":
-        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_churn_rate_query_runner import (
-            RevenueAnalyticsChurnRateQueryRunner,
+    if kind == "RevenueAnalyticsTopCustomersQuery":
+        from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
+            RevenueAnalyticsTopCustomersQueryRunner,
         )
 
-        return RevenueAnalyticsChurnRateQueryRunner(
+        return RevenueAnalyticsTopCustomersQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -618,12 +631,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
         query_id: Optional[str] = None,
+        extract_modifiers=lambda query: (query.modifiers if hasattr(query, "modifiers") else None),
     ):
         self.team = team
         self.timings = timings or HogQLTimings()
         self.limit_context = limit_context or LimitContext.QUERY
-        _modifiers = modifiers or (query.modifiers if hasattr(query, "modifiers") else None)
-        self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         self.query_id = query_id
 
         if not self.is_query_node(query):
@@ -639,6 +651,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             else:
                 query = self.query_type.model_validate(query)
                 assert isinstance(query, self.query_type)
+
+        _modifiers = modifiers or extract_modifiers(query)
+        self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         self.query = query
 
     @property
@@ -1008,6 +1023,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         f"{self.query.__class__.__name__} does not support breakdown filters out of the box"
                     )
                 )
+
+
+class QueryRunnerWithHogQLContext(QueryRunner):
+    database: Database
+    hogql_context: HogQLContext
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # We create a new context here because we need to access the database
+        # below in the to_query method and creating a database is pretty heavy
+        # so we'll reuse this database for the query once it eventually runs
+        self.database = create_hogql_database(team=self.team)
+        self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database)
 
 
 ### START OF BACKWARDS COMPATIBILITY CODE

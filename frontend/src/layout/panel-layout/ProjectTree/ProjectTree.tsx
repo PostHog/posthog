@@ -1,7 +1,9 @@
 import { IconChevronRight, IconFolderPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { LemonTree, LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { LemonTree, LemonTreeRef, TreeDataItem, TreeMode } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenuGroup,
@@ -19,6 +21,7 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { cn } from 'lib/utils/css-classes'
 import { RefObject, useEffect, useRef } from 'react'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -31,15 +34,17 @@ import { joinPath, splitPath } from './utils'
 export function ProjectTree(): JSX.Element {
     const {
         treeData,
+        treeTableKeys,
         lastViewedId,
         viableItems,
         expandedFolders,
         expandedSearchFolders,
         searchTerm,
-        treeItemsNewByNestedProduct,
+        treeItemsNew,
         checkedItems,
         checkedItemsCount,
         checkedItemCountNumeric,
+        scrollTargetId,
     } = useValues(projectTreeLogic)
 
     const {
@@ -59,10 +64,12 @@ export function ProjectTree(): JSX.Element {
         deleteCheckedItems,
         setCheckedItems,
         assureVisibility,
+        clearScrollTarget,
     } = useActions(projectTreeLogic)
 
-    const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
-    const { mainContentRef, isLayoutPanelPinned } = useValues(panelLayoutLogic)
+    const { showLayoutPanel, setPanelTreeRef, clearActivePanelIdentifier, setProjectTreeMode } =
+        useActions(panelLayoutLogic)
+    const { mainContentRef, isLayoutPanelPinned, projectTreeMode } = useValues(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
 
     const handleCopyPath = (path?: string): void => {
@@ -74,6 +81,15 @@ export function ProjectTree(): JSX.Element {
     useEffect(() => {
         setPanelTreeRef(treeRef)
     }, [treeRef, setPanelTreeRef])
+
+    // When logic requests a scroll, focus the item and clear the request
+    useEffect(() => {
+        if (scrollTargetId && treeRef.current) {
+            treeRef.current.focusItem(scrollTargetId)
+            setLastViewedId(scrollTargetId) // keeps selection in sync
+            clearScrollTarget()
+        }
+    }, [scrollTargetId, treeRef, clearScrollTarget, setLastViewedId])
 
     // Merge duplicate menu code for both context and dropdown menus
     const renderMenuItems = (item: TreeDataItem, type: 'context' | 'dropdown'): JSX.Element => {
@@ -91,37 +107,144 @@ export function ProjectTree(): JSX.Element {
                         asChild
                         onClick={(e) => {
                             e.stopPropagation()
-                            onItemChecked(item.id, !checkedItems[item.id])
+                            onItemChecked(item.id, !checkedItems[item.id], false)
                         }}
                     >
                         <ButtonPrimitive menuItem>{checkedItems[item.id] ? 'Deselect' : 'Select'}</ButtonPrimitive>
                     </MenuItem>
                 ) : null}
-                {checkedItemCountNumeric > 0 && item.record?.type === 'folder' ? (
-                    <MenuItem
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            linkCheckedItems(item?.record?.path)
-                        }}
-                    >
-                        <ButtonPrimitive menuItem>
-                            Create {checkedItemsCount} shortcut{checkedItemsCount === '1' ? '' : 's'} here
-                        </ButtonPrimitive>
-                    </MenuItem>
+                {item.record?.path && item.record?.type !== 'folder' && item.record?.href ? (
+                    <>
+                        <MenuItem
+                            asChild
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                window.open(item.record?.href, '_blank')
+                            }}
+                        >
+                            <ButtonPrimitive menuItem>Open link in new tab</ButtonPrimitive>
+                        </MenuItem>
+                        <MenuItem
+                            asChild
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                void navigator.clipboard.writeText(document.location.origin + item.record?.href)
+                            }}
+                        >
+                            <ButtonPrimitive menuItem>Copy link address</ButtonPrimitive>
+                        </MenuItem>
+
+                        <MenuSeparator />
+                    </>
                 ) : null}
+
                 {checkedItemCountNumeric > 0 && item.record?.type === 'folder' ? (
-                    <MenuItem
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            moveCheckedItems(item?.record?.path)
-                        }}
-                    >
-                        <ButtonPrimitive menuItem>
-                            Move {checkedItemsCount} selected item{checkedItemsCount === '1' ? '' : 's'} here
-                        </ButtonPrimitive>
-                    </MenuItem>
+                    <>
+                        <MenuSeparator />
+                        <MenuItem
+                            asChild
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                moveCheckedItems(item?.record?.path)
+                            }}
+                        >
+                            <ButtonPrimitive menuItem>
+                                Move {checkedItemsCount} selected item{checkedItemsCount === '1' ? '' : 's'} here
+                            </ButtonPrimitive>
+                        </MenuItem>
+                        <MenuItem
+                            asChild
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                linkCheckedItems(item?.record?.path)
+                            }}
+                        >
+                            <ButtonPrimitive menuItem>
+                                Create {checkedItemsCount} shortcut{checkedItemsCount === '1' ? '' : 's'} here
+                            </ButtonPrimitive>
+                        </MenuItem>
+                    </>
+                ) : null}
+
+                {item.record?.type === 'folder' || item.id?.startsWith('project-folder-empty/') ? (
+                    <>
+                        <MenuSeparator />
+                        <MenuSub key="new">
+                            <MenuSubTrigger asChild>
+                                <ButtonPrimitive menuItem>
+                                    New...
+                                    <IconChevronRight className="ml-auto h-4 w-4" />
+                                </ButtonPrimitive>
+                            </MenuSubTrigger>
+                            <MenuSubContent>
+                                <MenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        createFolder(item.record?.path)
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Folder</ButtonPrimitive>
+                                </MenuItem>
+                                <MenuSeparator />
+                                {treeItemsNew.map((treeItem): JSX.Element => {
+                                    if (treeItem.children) {
+                                        return (
+                                            <MenuSub key={treeItem.id}>
+                                                <MenuSubTrigger asChild>
+                                                    <ButtonPrimitive menuItem>
+                                                        {treeItem.name ||
+                                                            treeItem.id.charAt(0).toUpperCase() + treeItem.id.slice(1)}
+                                                        ...
+                                                        <IconChevronRight className="ml-auto h-4 w-4" />
+                                                    </ButtonPrimitive>
+                                                </MenuSubTrigger>
+                                                <MenuSubContent>
+                                                    {treeItem.children.map((child) => (
+                                                        <MenuItem
+                                                            key={child.id}
+                                                            asChild
+                                                            onClick={(e) => {
+                                                                e.stopPropagation()
+                                                                const objectType: string | undefined =
+                                                                    child.record?.type
+                                                                const folder = item.record?.path
+                                                                if (objectType && folder) {
+                                                                    setLastNewOperation(objectType, folder)
+                                                                }
+                                                                child.onClick?.()
+                                                            }}
+                                                        >
+                                                            <ButtonPrimitive menuItem className="capitalize">
+                                                                {child.name}
+                                                            </ButtonPrimitive>
+                                                        </MenuItem>
+                                                    ))}
+                                                </MenuSubContent>
+                                            </MenuSub>
+                                        )
+                                    }
+                                    return (
+                                        <MenuItem
+                                            key={treeItem.id}
+                                            asChild
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                const objectType: string | undefined = treeItem.record?.type
+                                                const folder = item.record?.path
+                                                if (objectType && folder) {
+                                                    setLastNewOperation(objectType, folder)
+                                                }
+                                                treeItem.onClick?.()
+                                            }}
+                                        >
+                                            <ButtonPrimitive menuItem>{treeItem.name}</ButtonPrimitive>
+                                        </MenuItem>
+                                    )
+                                })}
+                            </MenuSubContent>
+                        </MenuSub>
+                    </>
                 ) : null}
 
                 <MenuSeparator />
@@ -211,77 +334,6 @@ export function ProjectTree(): JSX.Element {
                         ) : null}
                     </>
                 )}
-
-                {item.record?.type === 'folder' || item.id?.startsWith('project-folder-empty/') ? (
-                    <>
-                        {!item.id?.startsWith('project-folder-empty/') ? <MenuSeparator /> : null}
-                        <MenuItem
-                            asChild
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                createFolder(item.record?.path)
-                            }}
-                        >
-                            <ButtonPrimitive menuItem>New folder</ButtonPrimitive>
-                        </MenuItem>
-                        <MenuSeparator />
-                        {treeItemsNewByNestedProduct.map((treeItem): JSX.Element => {
-                            if (treeItem.children) {
-                                return (
-                                    <MenuSub key={treeItem.id}>
-                                        <MenuSubTrigger asChild>
-                                            <ButtonPrimitive menuItem>
-                                                New{' '}
-                                                {treeItem.name ||
-                                                    treeItem.id.charAt(0).toUpperCase() + treeItem.id.slice(1)}
-                                                ...
-                                                <IconChevronRight className="ml-auto h-4 w-4" />
-                                            </ButtonPrimitive>
-                                        </MenuSubTrigger>
-                                        <MenuSubContent>
-                                            {treeItem.children.map((child) => (
-                                                <MenuItem
-                                                    key={child.id}
-                                                    asChild
-                                                    onClick={(e) => {
-                                                        e.stopPropagation()
-                                                        const objectType: string | undefined = child.record?.type
-                                                        const folder = item.record?.path
-                                                        if (objectType && folder) {
-                                                            setLastNewOperation(objectType, folder)
-                                                        }
-                                                        child.onClick?.()
-                                                    }}
-                                                >
-                                                    <ButtonPrimitive menuItem className="capitalize">
-                                                        {child.name}
-                                                    </ButtonPrimitive>
-                                                </MenuItem>
-                                            ))}
-                                        </MenuSubContent>
-                                    </MenuSub>
-                                )
-                            }
-                            return (
-                                <MenuItem
-                                    key={treeItem.id}
-                                    asChild
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        const objectType: string | undefined = treeItem.record?.type
-                                        const folder = item.record?.path
-                                        if (objectType && folder) {
-                                            setLastNewOperation(objectType, folder)
-                                        }
-                                        treeItem.onClick?.()
-                                    }}
-                                >
-                                    <ButtonPrimitive menuItem>New {treeItem.name}</ButtonPrimitive>
-                                </MenuItem>
-                            )
-                        })}
-                    </>
-                ) : null}
             </>
         )
     }
@@ -302,11 +354,28 @@ export function ProjectTree(): JSX.Element {
                 </>
             }
         >
+            <FlaggedFeature flag={FEATURE_FLAGS.TREE_VIEW_TABLE_MODE}>
+                <ButtonPrimitive
+                    tooltip={projectTreeMode === 'tree' ? 'Switch to table view' : 'Switch to tree view'}
+                    onClick={() => setProjectTreeMode(projectTreeMode === 'tree' ? 'table' : 'tree')}
+                    className="absolute top-1/2 translate-y-1/2 right-0 translate-x-1/2 z-top w-fit bg-surface-primary border border-primary"
+                >
+                    <IconChevronRight
+                        className={cn('size-4', {
+                            'rotate-180': projectTreeMode === 'table',
+                            'rotate-0': projectTreeMode === 'tree',
+                        })}
+                    />
+                </ButtonPrimitive>
+            </FlaggedFeature>
+
             <LemonTree
                 ref={treeRef}
                 contentRef={mainContentRef as RefObject<HTMLElement>}
                 className="px-0 py-1"
                 data={treeData}
+                mode={projectTreeMode as TreeMode}
+                tableViewKeys={treeTableKeys}
                 defaultSelectedFolderOrNodeId={lastViewedId || undefined}
                 isItemActive={(item) => {
                     if (!item.record?.href) {
@@ -318,7 +387,7 @@ export function ProjectTree(): JSX.Element {
                 onItemChecked={onItemChecked}
                 checkedItemCount={checkedItemCountNumeric}
                 onNodeClick={(node) => {
-                    if (!isLayoutPanelPinned) {
+                    if (!isLayoutPanelPinned || projectTreeMode === 'table') {
                         clearActivePanelIdentifier()
                         showLayoutPanel(false)
                     }
