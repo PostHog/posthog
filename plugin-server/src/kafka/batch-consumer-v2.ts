@@ -328,8 +328,9 @@ export class KafkaConsumer {
                     }
 
                     histogramKafkaBatchSize.observe(messages.length)
-                    histogramKafkaBatchSizeKb.observe(messages.reduce((acc, message) => acc + message.size, 0))
-
+                    histogramKafkaBatchSizeKb.observe(
+                        messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024
+                    )
                     const startProcessingTimeMs = new Date().valueOf()
                     await eachBatch(messages)
 
